@@ -54,6 +54,7 @@ novel status --path examples/rain_station
 
 ```bash
 novel validate --path ./rain-station
+novel migrate --path ./rain-station
 novel status --path ./rain-station
 novel show characters --path ./rain-station
 novel show timeline --path ./rain-station
@@ -172,7 +173,8 @@ novel accept-chapter 1 --path ./rain-station --propose --provider mock
 ```
 
 proposal 文件会保存为 `memory/chapters/{chapter_number}/state_update_proposal.json`。
-`apply-state-update` 会在写入前为 state 和 timeline 创建时间戳备份。高危审核问题会阻止接受章节，除非显式传入 `--allow-issues`。
+`apply-state-update` 会在写入前为 state 和 timeline 创建时间戳备份，并写入 `state_update_apply_log.json`。如果写入失败，会尝试从备份回滚。高危审核问题会阻止接受章节，除非显式传入 `--allow-issues`。
+接受章节后会写入结构化状态文件 `memory/chapters/{chapter_number}/metadata.json`，同时保留 `polished.md` front matter 中的 `status: accepted` 以兼容导出流程。
 
 ## 一键生成章节流水线
 
@@ -271,6 +273,8 @@ conda run -n py312 pytest
 conda run -n py312 python -m build
 novel validate --path examples/rain_station
 ```
+
+版本变化记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 真实 API 冒烟测试需要本地 `.env.real`，该文件会被 `.gitignore` 忽略。推荐变量名：
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from novel.core.io import load_json, load_json_model, load_yaml_model
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.schemas import (
+    ChapterMetadata,
     CharactersFile,
     EntityState,
     ItemsFile,
@@ -30,6 +31,7 @@ class ProjectStatus:
     timeline_event_count: int
     latest_run_log: Path | None
     latest_run_summary: str | None
+    accepted_chapter_count: int = 0
 
 
 def get_project_status(root: Path) -> ProjectStatus:
@@ -59,6 +61,7 @@ def get_project_status(root: Path) -> ProjectStatus:
         timeline_event_count=len(timeline.events),
         latest_run_log=latest_run_log,
         latest_run_summary=latest_run_summary,
+        accepted_chapter_count=_count_accepted_chapters(root),
     )
 
 
@@ -78,6 +81,7 @@ def format_status(status: ProjectStatus, root: Path) -> str:
         f"Locations: {status.location_count}",
         f"Items: {status.item_count}",
         f"Timeline events: {status.timeline_event_count}",
+        f"Accepted chapters: {status.accepted_chapter_count}",
         f"Latest run log: {latest_run}",
     ]
     return "\n".join(lines)
@@ -187,6 +191,21 @@ def find_latest_run_log(root: Path) -> Path | None:
         reverse=True,
     )
     return run_logs[0] if run_logs else None
+
+
+def _count_accepted_chapters(root: Path) -> int:
+    chapters_dir = root / "memory" / "chapters"
+    if not chapters_dir.exists():
+        return 0
+    count = 0
+    for metadata_path in chapters_dir.glob("*/metadata.json"):
+        try:
+            metadata = load_json_model(metadata_path, ChapterMetadata)
+        except Exception:
+            continue
+        if metadata.status == "accepted":
+            count += 1
+    return count
 
 
 def _load_model(path: Path, model_type: type, file_type: str):

@@ -14,10 +14,12 @@ from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, polish_chapter
 from novel.core.providers import MockProvider
-from novel.core.schemas import EntityState, StateUpdateProposal, TimelineFile
+from novel.core.schemas import ChapterMetadata, EntityState, StateUpdateApplyLog, StateUpdateProposal, TimelineFile
 from novel.core.state_update import (
+    StateUpdateApplyOptions,
     StateUpdateProposeOptions,
     default_mock_state_update_proposal_json,
+    apply_state_update,
     propose_state_update,
 )
 from novel.core.workspace import InitOptions, init_workspace
@@ -76,6 +78,10 @@ def test_apply_state_update_applies_legal_proposal_and_creates_backups(tmp_path:
     assert "Backed up timeline:" in stdout
     assert list((root / "memory" / "state").glob("current_state.json.bak_*"))
     assert list((root / "memory" / "state").glob("timeline.json.bak_*"))
+    apply_log_path = root / "memory" / "chapters" / "001" / "state_update_apply_log.json"
+    assert apply_log_path.is_file()
+    apply_log = StateUpdateApplyLog.model_validate(json.loads(apply_log_path.read_text(encoding="utf-8")))
+    assert apply_log.status == "applied"
     state = EntityState.model_validate(
         json.loads((root / "memory" / "state" / "current_state.json").read_text(encoding="utf-8"))
     )
@@ -85,6 +91,40 @@ def test_apply_state_update_applies_legal_proposal_and_creates_backups(tmp_path:
     assert state.story_position.latest_chapter == 1
     assert state.item_states[0].holder_id == "char_lin_che"
     assert timeline.events[0].id == "event_001_001"
+
+
+def test_apply_state_update_rolls_back_when_timeline_write_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_with_audit(tmp_path)
+    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    state_path = root / "memory" / "state" / "current_state.json"
+    timeline_path = root / "memory" / "state" / "timeline.json"
+    original_state = state_path.read_text(encoding="utf-8")
+    original_timeline = timeline_path.read_text(encoding="utf-8")
+    original_write_text = Path.write_text
+
+    def flaky_write_text(self: Path, data: str, *args, **kwargs):
+        if self == timeline_path:
+            raise OSError("simulated timeline write failure")
+        return original_write_text(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", flaky_write_text)
+
+    try:
+        apply_state_update(StateUpdateApplyOptions(root=root, chapter_number=1))
+    except Exception as exc:
+        assert "rolled back" in str(exc)
+    else:
+        raise AssertionError("expected rollback failure")
+
+    assert state_path.read_text(encoding="utf-8") == original_state
+    assert timeline_path.read_text(encoding="utf-8") == original_timeline
+    apply_log_path = root / "memory" / "chapters" / "001" / "state_update_apply_log.json"
+    assert apply_log_path.is_file()
+    apply_log = StateUpdateApplyLog.model_validate(json.loads(apply_log_path.read_text(encoding="utf-8")))
+    assert apply_log.status == "rolled_back"
 
 
 def test_apply_state_update_fails_on_duplicate_timeline_event_id(tmp_path: Path) -> None:
@@ -116,6 +156,21 @@ def test_apply_state_update_fails_on_duplicate_timeline_event_id(tmp_path: Path)
     assert code == 1
     assert stdout == ""
     assert "timeline event id conflict" in stderr
+
+
+def test_apply_state_update_fails_on_old_value_mismatch(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    proposal_path = root / "memory" / "chapters" / "001" / "state_update_proposal.json"
+    proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+    proposal["state_changes"][2]["old_value"] = 99
+    proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(["apply-state-update", "1", "--path", str(root)])
+
+    assert code == 1
+    assert stdout == ""
+    assert "old_value mismatch" in stderr
 
 
 def test_apply_state_update_fails_on_item_holder_location_conflict(tmp_path: Path) -> None:
@@ -165,6 +220,12 @@ def test_accept_chapter_passed_audit_applies_update_and_marks_accepted(tmp_path:
     metadata = _read_front_matter(root / "memory" / "chapters" / "001" / "polished.md")
     assert metadata["status"] == "accepted"
     assert "accepted_at" in metadata
+    structured = ChapterMetadata.model_validate(
+        json.loads((root / "memory" / "chapters" / "001" / "metadata.json").read_text(encoding="utf-8"))
+    )
+    assert structured.status == "accepted"
+    assert structured.accepted_at is not None
+    assert structured.state_update_apply_log_path == "memory/chapters/001/state_update_apply_log.json"
 
 
 def test_propose_state_update_blocked_audit_fails_by_default(tmp_path: Path) -> None:

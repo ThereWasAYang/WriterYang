@@ -163,6 +163,7 @@ def _project_yaml(
     updated_at: str,
 ) -> str:
     return (
+        'schema_version: 1\n'
         f'project_id: "{project_id}"\n'
         f'title: "{title}"\n'
         f'language: "{language}"\n'

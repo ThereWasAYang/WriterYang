@@ -17,6 +17,7 @@ from novel.core.provider_config import ProviderOverrides, create_agent_provider,
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.schemas import (
     AuditReport,
+    ChapterMetadata,
     ChapterPlan,
     CharacterState,
     EntityState,
@@ -24,6 +25,7 @@ from novel.core.schemas import (
     LocationState,
     ProjectConfig,
     StateChange,
+    StateUpdateApplyLog,
     StateUpdateProposal,
     TimelineFile,
 )
@@ -72,6 +74,8 @@ class StateUpdateApplyResult:
     timeline_path: Path
     state_backup_path: Path
     timeline_backup_path: Path
+    apply_log_path: Path
+    apply_log: StateUpdateApplyLog
     state: EntityState
     timeline: TimelineFile
 
@@ -81,6 +85,8 @@ class AcceptChapterResult:
     proposal_result: StateUpdateProposeResult | None
     apply_result: StateUpdateApplyResult
     accepted_path: Path
+    metadata_path: Path
+    metadata: ChapterMetadata
 
 
 @dataclass(frozen=True)
@@ -158,18 +164,47 @@ def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResu
     updated_state = apply_state_changes_to_state(state, proposal.state_changes, root)
     updated_timeline = TimelineFile(events=[*timeline.events, *proposal.timeline_events])
 
+    _validate_state_change_old_values(state, proposal.state_changes, root)
     _validate_applied_state(updated_state)
     _validate_applied_timeline(root, updated_timeline)
 
     state_backup = _backup_file(state_path)
     timeline_backup = _backup_file(timeline_path)
-    state_path.write_text(updated_state.model_dump_json(indent=2) + "\n", encoding="utf-8")
-    timeline_path.write_text(updated_timeline.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    apply_log_path = _chapter_dir(root, options.chapter_number) / "state_update_apply_log.json"
+    apply_log = _new_apply_log(
+        chapter_number=options.chapter_number,
+        root=root,
+        proposal_path=proposal_path,
+        state_path=state_path,
+        timeline_path=timeline_path,
+        state_backup_path=state_backup,
+        timeline_backup_path=timeline_backup,
+        status="applied",
+    )
+    try:
+        state_path.write_text(updated_state.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        timeline_path.write_text(updated_timeline.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    except Exception as exc:
+        shutil.copy2(state_backup, state_path)
+        shutil.copy2(timeline_backup, timeline_path)
+        apply_log = apply_log.model_copy(
+            update={
+                "status": "rolled_back",
+                "errors": [f"{exc.__class__.__name__}: {exc}"],
+            }
+        )
+        apply_log_path.write_text(apply_log.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        raise StateUpdateError(
+            f"state update write failed and was rolled back; see {apply_log_path}"
+        ) from exc
+    apply_log_path.write_text(apply_log.model_dump_json(indent=2) + "\n", encoding="utf-8")
     return StateUpdateApplyResult(
         state_path=state_path,
         timeline_path=timeline_path,
         state_backup_path=state_backup,
         timeline_backup_path=timeline_backup,
+        apply_log_path=apply_log_path,
+        apply_log=apply_log,
         state=updated_state,
         timeline=updated_timeline,
     )
@@ -204,10 +239,19 @@ def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None
         StateUpdateApplyOptions(root=root, chapter_number=options.chapter_number)
     )
     accepted_path = mark_chapter_accepted(root, options.chapter_number)
+    metadata_path = write_chapter_metadata(
+        root,
+        options.chapter_number,
+        status="accepted",
+        apply_log_path=apply_result.apply_log_path,
+    )
+    metadata = load_json_model(metadata_path, ChapterMetadata)
     return AcceptChapterResult(
         proposal_result=proposal_result,
         apply_result=apply_result,
         accepted_path=accepted_path,
+        metadata_path=metadata_path,
+        metadata=metadata,
     )
 
 
@@ -291,6 +335,11 @@ def validate_state_update_proposal(
                 raise StateUpdateError(
                     f"timeline event {event.id} references missing participant: {participant_id}"
                 )
+        missing_change_ids = sorted(set(event.state_change_ids) - {change.id for change in proposal.state_changes})
+        if missing_change_ids:
+            raise StateUpdateError(
+                f"timeline event {event.id} references missing state changes: {', '.join(missing_change_ids)}"
+            )
 
     if check_existing_timeline_ids:
         timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
@@ -364,6 +413,39 @@ def mark_chapter_accepted(root: Path, chapter_number: int) -> Path:
     metadata_text = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
     path.write_text(f"---\n{metadata_text}\n---\n\n{document.body.strip()}\n", encoding="utf-8")
     return path
+
+
+def write_chapter_metadata(
+    root: Path,
+    chapter_number: int,
+    *,
+    status: Literal["planned", "drafted", "polished", "audited", "accepted"],
+    apply_log_path: Path | None = None,
+) -> Path:
+    chapter_dir = _chapter_dir(root, chapter_number)
+    metadata_path = chapter_dir / "metadata.json"
+    accepted_at = _utc_now() if status == "accepted" else None
+    metadata = ChapterMetadata(
+        chapter_number=chapter_number,
+        status=status,
+        plan_path=_relative_if_exists(root, chapter_dir / "plan.json"),
+        draft_path=_relative_if_exists(root, chapter_dir / "draft.md"),
+        polished_path=_relative_if_exists(root, chapter_dir / "polished.md"),
+        audit_path=_relative_if_exists(root, chapter_dir / "audit.json"),
+        state_update_proposal_path=_relative_if_exists(root, chapter_dir / "state_update_proposal.json"),
+        state_update_apply_log_path=str(apply_log_path.relative_to(root)) if apply_log_path else None,
+        accepted_at=accepted_at,
+        updated_at=_utc_now(),
+    )
+    metadata_path.write_text(metadata.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return metadata_path
+
+
+def load_chapter_metadata(root: Path, chapter_number: int) -> ChapterMetadata | None:
+    path = _chapter_dir(root, chapter_number) / "metadata.json"
+    if not path.exists():
+        return None
+    return load_json_model(path, ChapterMetadata)
 
 
 def build_state_update_system_prompt() -> str:
@@ -544,6 +626,61 @@ def _validate_applied_state(state: EntityState) -> None:
                 raise StateUpdateError(
                     f"character {character.entity_id} possession conflicts with item {item_id} holder_id {holder}"
                 )
+    character_possessions: dict[str, str] = {}
+    for character in state.character_states:
+        for item_id in character.possessions:
+            previous_holder = character_possessions.get(item_id)
+            if previous_holder and previous_holder != character.entity_id:
+                raise StateUpdateError(
+                    f"item {item_id} appears in possessions of both {previous_holder} and {character.entity_id}"
+                )
+            character_possessions[item_id] = character.entity_id
+
+
+def _validate_state_change_old_values(
+    state: EntityState,
+    changes: list[StateChange],
+    root: Path,
+) -> None:
+    canon = load_canon_files(root)
+    character_ids = {item.id for item in canon.characters.characters}
+    location_ids = {item.id for item in canon.locations.locations}
+    item_ids = {item.id for item in canon.items.items}
+    character_states = {item.entity_id: item for item in state.character_states}
+    item_states = {item.entity_id: item for item in state.item_states}
+    location_states = {item.entity_id: item for item in state.location_states}
+    for change in changes:
+        if change.old_value is None:
+            continue
+        if change.entity_id == "story_position":
+            target = state.story_position
+        elif change.entity_id in character_ids:
+            target = character_states.get(change.entity_id)
+        elif change.entity_id in item_ids:
+            target = item_states.get(change.entity_id)
+        elif change.entity_id in location_ids:
+            target = location_states.get(change.entity_id)
+        else:
+            target = None
+        actual = _current_state_value_for_change(target, change)
+        if actual != change.old_value:
+            raise StateUpdateError(
+                f"state change {change.id} old_value mismatch for {change.entity_id}.{change.field}: "
+                f"expected {change.old_value!r}, actual {actual!r}"
+            )
+
+
+def _current_state_value_for_change(target: Any | None, change: StateChange) -> Any:
+    if target is not None:
+        return getattr(target, change.field, None)
+    defaults = {
+        "possessions": [],
+        "knowledge": [],
+        "goals": [],
+        "known_properties": [],
+        "active_events": [],
+    }
+    return defaults.get(change.field)
 
 
 def _validate_applied_timeline(root: Path, timeline: TimelineFile) -> None:
@@ -555,6 +692,36 @@ def _validate_applied_timeline(root: Path, timeline: TimelineFile) -> None:
         seen.add(event.id)
     if duplicates:
         raise StateUpdateError(f"duplicate timeline event id: {', '.join(sorted(duplicates))}")
+
+
+def _new_apply_log(
+    *,
+    chapter_number: int,
+    root: Path,
+    proposal_path: Path,
+    state_path: Path,
+    timeline_path: Path,
+    state_backup_path: Path,
+    timeline_backup_path: Path,
+    status: Literal["applied", "rolled_back"],
+) -> StateUpdateApplyLog:
+    now = _utc_now()
+    return StateUpdateApplyLog(
+        id="state_apply_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f"),
+        chapter_number=chapter_number,
+        proposal_path=str(proposal_path.relative_to(root)),
+        state_path=str(state_path.relative_to(root)),
+        timeline_path=str(timeline_path.relative_to(root)),
+        state_backup_path=str(state_backup_path.relative_to(root)),
+        timeline_backup_path=str(timeline_backup_path.relative_to(root)),
+        applied_at=now,
+        status=status,
+        errors=[],
+    )
+
+
+def _relative_if_exists(root: Path, path: Path) -> str | None:
+    return str(path.relative_to(root)) if path.exists() else None
 
 
 def _load_audit(root: Path, chapter_number: int) -> AuditReport:

@@ -27,6 +27,7 @@ class Narration(FlexibleModel):
 
 
 class ProjectConfig(FlexibleModel):
+    schema_version: int = Field(default=1, ge=1)
     project_id: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     title: str = Field(min_length=1)
     language: str = Field(min_length=1)
@@ -343,6 +344,32 @@ class StateUpdateProposal(FlexibleModel):
             if event.chapter != self.chapter_number:
                 raise ValueError(f"timeline event {event.id} chapter must match proposal chapter_number")
         return self
+
+
+class StateUpdateApplyLog(FlexibleModel):
+    id: str = Field(min_length=1, pattern=r"^state_apply_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
+    chapter_number: int = Field(ge=1)
+    proposal_path: str = Field(min_length=1)
+    state_path: str = Field(min_length=1)
+    timeline_path: str = Field(min_length=1)
+    state_backup_path: str = Field(min_length=1)
+    timeline_backup_path: str = Field(min_length=1)
+    applied_at: datetime
+    status: Literal["applied", "rolled_back"]
+    errors: list[str] = Field(default_factory=list)
+
+
+class ChapterMetadata(FlexibleModel):
+    chapter_number: int = Field(ge=1)
+    status: Literal["planned", "drafted", "polished", "audited", "accepted"]
+    plan_path: str | None = None
+    draft_path: str | None = None
+    polished_path: str | None = None
+    audit_path: str | None = None
+    state_update_proposal_path: str | None = None
+    state_update_apply_log_path: str | None = None
+    accepted_at: datetime | None = None
+    updated_at: datetime
 
 
 class AgentRunStep(FlexibleModel):

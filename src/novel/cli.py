@@ -87,6 +87,7 @@ from novel.core.inspection import (
     format_timeline,
     get_project_status,
 )
+from novel.core.migration import MigrationError, migrate_project
 from novel.core.orchestrator import (
     OrchestratorError,
     OrchestratorOptions,
@@ -257,6 +258,7 @@ def _status_payload(status) -> dict[str, object]:
         "timeline_event_count": status.timeline_event_count,
         "latest_run_log": str(status.latest_run_log) if status.latest_run_log else None,
         "latest_run_summary": status.latest_run_summary,
+        "accepted_chapter_count": status.accepted_chapter_count,
     }
 
 
@@ -294,6 +296,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--path",
         default=".",
         help="Workspace directory to validate. Defaults to the current directory.",
+    )
+
+    migrate_parser = subparsers.add_parser("migrate", help="Migrate a novel project workspace schema")
+    migrate_parser.add_argument(
+        "--path",
+        default=".",
+        help="Workspace directory. Defaults to the current directory.",
+    )
+    migrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show migration actions without writing files.",
     )
 
     index_parser = subparsers.add_parser("index", help="Manage the local search index")
@@ -1041,6 +1055,29 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    if args.command == "migrate":
+        try:
+            result = migrate_project(Path(args.path), dry_run=args.dry_run)
+        except MigrationError as exc:
+            return _failure(args, str(exc), error_type="migration_error")
+        payload = {
+            "command": "migrate",
+            "root": str(result.root),
+            "changed": result.changed,
+            "from_version": result.from_version,
+            "to_version": result.to_version,
+            "updated_files": [str(path) for path in result.updated_files],
+            "dry_run": args.dry_run,
+        }
+        lines = [
+            f"Schema version: {result.from_version or 'missing'} -> {result.to_version}",
+            "Migration required." if result.changed else "Already up to date.",
+        ]
+        if result.changed:
+            action = "Would update" if args.dry_run else "Updated"
+            lines.extend(f"{action}: {path}" for path in result.updated_files)
+        return _success(args, payload, lines)
+
     if args.command == "index":
         if args.index_command == "rebuild":
             try:
@@ -1634,6 +1671,7 @@ def main(argv: list[str] | None = None) -> int:
                 "command": "apply-state-update",
                 "state_backup_path": str(result.state_backup_path),
                 "timeline_backup_path": str(result.timeline_backup_path),
+                "apply_log_path": str(result.apply_log_path),
                 "state_path": str(result.state_path),
                 "timeline_path": str(result.timeline_path),
             },
@@ -1642,6 +1680,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"Backed up timeline: {result.timeline_backup_path}",
                 f"Updated current state: {result.state_path}",
                 f"Updated timeline: {result.timeline_path}",
+                f"Wrote apply log: {result.apply_log_path}",
             ],
         )
 
@@ -1691,6 +1730,7 @@ def main(argv: list[str] | None = None) -> int:
         lines.extend(
             [
                 f"Accepted chapter: {result.accepted_path}",
+                f"Updated chapter metadata: {result.metadata_path}",
                 f"Updated current state: {result.apply_result.state_path}",
                 f"Updated timeline: {result.apply_result.timeline_path}",
             ]
@@ -1700,6 +1740,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "command": "accept-chapter",
                 "accepted_path": str(result.accepted_path),
+                "metadata_path": str(result.metadata_path),
                 "state_path": str(result.apply_result.state_path),
                 "timeline_path": str(result.apply_result.timeline_path),
                 "proposal_path": str(result.proposal_result.proposal_path)

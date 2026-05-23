@@ -48,6 +48,8 @@ novel validate --path examples/rain_station
 novel status --path examples/rain_station
 ```
 
+示例项目的 `config/agents.yaml` 是真实 API 配置模板，默认使用 OpenAI-compatible 字段，并显式关闭 `thinking`。如果只想离线试用或跑 mock 流程，可以参考 `config/agents.mock.yaml`，或者在命令中传入 `--provider mock`。
+
 生成文件默认不会静默覆盖已有用户数据。
 
 ## 校验和查看项目
@@ -86,6 +88,11 @@ agents:
 
 支持的 agent 名称包括 `orchestrator`、`inspiration`、`canon`、`plot`、`writer`、`polish`、`audit`、`state_update`。
 `thinking.type` 默认为 `disabled`。对于 DeepSeek 等 OpenAI-compatible 接口，可以设置为 `enabled` 或 `disabled`，请求体会发送 `{"thinking": {"type": "..."}}`。
+
+示例项目提供两个配置文件：
+
+- `examples/rain_station/config/agents.yaml`：真实 API 模板，适合复制到新项目后替换模型名和环境变量名。
+- `examples/rain_station/config/agents.mock.yaml`：mock provider 模板，适合测试、文档示例和无 API Key 的本地演示。
 
 生成命令支持临时覆盖：
 

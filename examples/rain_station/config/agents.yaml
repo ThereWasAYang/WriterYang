@@ -1,33 +1,97 @@
 agents:
   orchestrator:
-    provider: "mock"
-    api_key_env: "OPENAI_API_KEY"
-    model: "mock-model"
+    provider: "openai_compatible"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "your-model-name"
+    reasoning: "medium"
+    thinking:
+      type: "disabled"
+    max_context_tokens: 128000
+    temperature: 0.4
+    timeout_seconds: 60
+    max_retries: 1
   inspiration:
-    provider: "mock"
-    api_key_env: "INSPIRATION_API_KEY"
-    model: "mock-model"
+    provider: "openai_compatible"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "your-model-name"
+    reasoning: "medium"
+    thinking:
+      type: "disabled"
+    max_context_tokens: 64000
+    temperature: 0.8
+    timeout_seconds: 60
+    max_retries: 1
   canon:
-    provider: "mock"
-    api_key_env: "CANON_API_KEY"
-    model: "mock-model"
+    provider: "openai_compatible"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "your-model-name"
+    reasoning: "medium"
+    thinking:
+      type: "disabled"
+    max_context_tokens: 64000
+    temperature: 0.5
+    timeout_seconds: 60
+    max_retries: 1
   plot:
-    provider: "mock"
-    api_key_env: "PLOT_API_KEY"
-    model: "mock-model"
+    provider: "openai_compatible"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "your-model-name"
+    reasoning: "high"
+    thinking:
+      type: "disabled"
+    max_context_tokens: 128000
+    temperature: 0.6
+    timeout_seconds: 90
+    max_retries: 1
   writer:
-    provider: "mock"
-    api_key_env: "WRITER_API_KEY"
-    model: "mock-model"
+    provider: "openai_compatible"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "your-model-name"
+    reasoning: "high"
+    thinking:
+      type: "disabled"
+    max_context_tokens: 128000
+    temperature: 0.9
+    timeout_seconds: 120
+    max_retries: 1
   polish:
-    provider: "mock"
-    api_key_env: "POLISH_API_KEY"
-    model: "mock-model"
+    provider: "openai_compatible"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "your-model-name"
+    reasoning: "medium"
+    thinking:
+      type: "disabled"
+    max_context_tokens: 128000
+    temperature: 0.7
+    timeout_seconds: 90
+    max_retries: 1
   audit:
-    provider: "mock"
-    api_key_env: "AUDIT_API_KEY"
-    model: "mock-model"
+    provider: "openai_compatible"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "your-model-name"
+    reasoning: "low"
+    thinking:
+      type: "disabled"
+    max_context_tokens: 64000
+    temperature: 0.2
+    timeout_seconds: 60
+    max_retries: 1
   state_update:
-    provider: "mock"
-    api_key_env: "STATE_UPDATE_API_KEY"
-    model: "mock-model"
+    provider: "openai_compatible"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "your-model-name"
+    reasoning: "low"
+    thinking:
+      type: "disabled"
+    max_context_tokens: 64000
+    temperature: 0.2
+    timeout_seconds: 60
+    max_retries: 1

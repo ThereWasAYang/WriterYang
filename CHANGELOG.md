@@ -10,6 +10,7 @@
 - state update 增加更细的冲突检测，包括 `old_value` 不匹配、timeline 引用不存在的 state change、重复 possession holder 等。
 - 增加 `schemas/*.schema.json` 和 `novel schema export`，供外部工具使用 JSON Schema 校验项目文件。
 - 扩展 validation 的跨文件检查：chapter metadata、draft/polished front matter、audit audited_file、timeline state_change_ids、死亡角色后续出场、物品持有人/位置差异等。
+- 示例项目的 `config/agents.yaml` 改为真实 OpenAI-compatible 配置模板，并新增 `config/agents.mock.yaml` 供无 API Key 测试使用。
 
 ## 0.1.0
 

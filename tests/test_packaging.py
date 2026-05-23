@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import novel
+from novel.core.io import load_yaml
 from novel.cli import build_parser, main
 from novel.core.validation import validate_project
 
@@ -37,6 +38,19 @@ def test_example_project_validates_from_cli() -> None:
     assert code == 0
     assert stderr == ""
     assert '"ok": true' in stdout
+
+
+def test_example_agent_configs_include_real_and_mock_templates() -> None:
+    real_config = load_yaml(Path("examples/rain_station/config/agents.yaml"))
+    mock_config = load_yaml(Path("examples/rain_station/config/agents.mock.yaml"))
+
+    writer = real_config["agents"]["writer"]
+    assert writer["provider"] == "openai_compatible"
+    assert writer["thinking"]["type"] == "disabled"
+    assert writer["base_url_env"] == "WRITERYANG_REAL_BASE_URL"
+    assert writer["api_key_env"] == "WRITERYANG_REAL_API_KEY"
+
+    assert mock_config["agents"]["writer"]["provider"] == "mock"
 
 
 def test_readme_core_commands_match_cli() -> None:

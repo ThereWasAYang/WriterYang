@@ -80,6 +80,7 @@ agents:
     model: "writer-model-name"
     reasoning: "high"
     max_context_tokens: 128000
+    max_tokens: 24000
     temperature: 0.9
     timeout_seconds: 120
     max_retries: 1
@@ -111,6 +112,8 @@ agents:
 - `deepseek`：默认 base URL 为 `https://api.deepseek.com`，发送 `thinking.type`；开启 thinking 时会发送 `reasoning_effort`，并避免发送无效的 `temperature`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
 - `zai`：默认 base URL 为 `https://api.z.ai/api/paas/v4`，发送 `thinking.type`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
 
+Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。日志只记录 provider、model、endpoint、耗时、重试次数、状态、错误类型和 token 用量等安全信息，不记录 prompt 正文、响应正文或真实 API Key。
+
 生成命令支持临时覆盖：
 
 ```bash
@@ -139,6 +142,7 @@ novel write-chapter 1 --path ./rain-station --model temporary-model --dry-run-pr
 - `writer` 和 `polish` 通常不建议开启思考模式。它们的输出要直接写入 Markdown 文件，模型额外的分析性内容会增加清洗风险。
 - `temperature` 越高，语言和创意越发散；越低，结构化输出和一致性越稳定。JSON 输出类 agent 建议低温，正文类 agent 可以中高温。
 - `max_context_tokens` 对 `plot`、`writer`、`polish`、`audit` 更重要，因为这些步骤会读取 plan、canon、state、timeline 和正文。
+- `max_tokens` 控制单次输出长度。`writer` / `polish` 建议更高，结构化 JSON 类 agent 建议较低。
 - `timeout_seconds` 对 `writer`、`polish` 建议更高。长章节生成本身耗时更长，过短会导致真实 API 测试和实际写作中断。
 
 ## 生成灵感

@@ -24,6 +24,7 @@ class ProviderDescriptor:
     reasoning: str | None
     thinking: str
     max_context_tokens: int | None
+    max_tokens: int | None
     temperature: float | None
     timeout_seconds: float | None
     max_retries: int | None
@@ -42,6 +43,8 @@ class ProviderDescriptor:
         lines.append(f"thinking: {self.thinking}")
         if self.max_context_tokens is not None:
             lines.append(f"max_context_tokens: {self.max_context_tokens}")
+        if self.max_tokens is not None:
+            lines.append(f"max_tokens: {self.max_tokens}")
         if self.temperature is not None:
             lines.append(f"temperature: {self.temperature}")
         if self.timeout_seconds is not None:
@@ -93,7 +96,8 @@ def create_agent_provider(
     )
     if config.provider == "mock":
         return MockProvider(fake_response=mock_response)
-    return ProviderFactory().create(config)
+    log_path = config_path.parent.parent / "runs" / "provider_calls.jsonl"
+    return ProviderFactory(log_path=log_path).create(config)
 
 
 def describe_agent_provider(
@@ -118,6 +122,7 @@ def describe_agent_provider(
         reasoning=config.reasoning,
         thinking=config.thinking.type,
         max_context_tokens=config.max_context_tokens,
+        max_tokens=config.max_tokens,
         temperature=config.temperature,
         timeout_seconds=config.timeout_seconds,
         max_retries=config.max_retries,

@@ -39,6 +39,7 @@ def test_each_agent_reads_independent_config(tmp_path: Path) -> None:
         assert config.api_key_env == f"{agent_name.upper()}_API_KEY"
         assert config.base_url_env == f"{agent_name.upper()}_BASE_URL"
         assert config.thinking.type == "disabled"
+        assert config.max_tokens == 6789
         assert config.timeout_seconds == 42
         assert config.max_retries == 2
 
@@ -189,6 +190,7 @@ def _agents_config(tmp_path: Path) -> Path:
                         "reasoning": "medium",
                         "thinking": {"type": "disabled"},
                         "max_context_tokens": 12345,
+                        "max_tokens": 6789,
                         "temperature": 0.4,
                         "timeout_seconds": 42,
                         "max_retries": 2,

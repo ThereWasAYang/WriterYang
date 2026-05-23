@@ -54,6 +54,7 @@ class AgentConfig(FlexibleModel):
     reasoning: str | None = None
     thinking: ThinkingConfig = Field(default_factory=ThinkingConfig)
     max_context_tokens: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0)
     timeout_seconds: float | None = Field(default=None, gt=0)
     max_retries: int | None = Field(default=None, ge=0)

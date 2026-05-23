@@ -94,27 +94,25 @@ def polish_chapter(
     state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
     timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
 
-    response = provider.generate(
-        ModelRequest(
-            system_prompt=build_polish_system_prompt(),
-            user_prompt=build_polish_user_prompt(
-                project=project,
-                plan=plan,
-                draft=draft,
-                inspiration_md=inspiration_md,
-                style_guide=style_guide,
-                canon_summary=format_canon_summary(canon),
-                state=state,
-                timeline=timeline,
-                instruction=options.instruction,
-                style_note=options.style_note,
-                keep_length=options.keep_length,
-                edit_mode=options.edit_mode,
-            ),
-            context=format_canon_summary(canon),
-        )
+    model_request = ModelRequest(
+        system_prompt=build_polish_system_prompt(),
+        user_prompt=build_polish_user_prompt(
+            project=project,
+            plan=plan,
+            draft=draft,
+            inspiration_md=inspiration_md,
+            style_guide=style_guide,
+            canon_summary=format_canon_summary(canon),
+            state=state,
+            timeline=timeline,
+            instruction=options.instruction,
+            style_note=options.style_note,
+            keep_length=options.keep_length,
+            edit_mode=options.edit_mode,
+        ),
+        context=format_canon_summary(canon),
     )
-    body = _clean_polished_body(response.content)
+    body = _clean_polished_body("".join(provider.stream(model_request)))
     if not body:
         raise PolishingError("polish provider returned empty polished content")
 

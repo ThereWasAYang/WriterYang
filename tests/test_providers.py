@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib import error
 
 import pytest
 
@@ -11,7 +12,9 @@ from novel.core.providers import (
     ModelResponse,
     OpenAICompatibleProvider,
     ProviderError,
+    ProviderRateLimitError,
     ProviderFactory,
+    ProviderHTTPError,
     TokenUsage,
 )
 from novel.core.schemas import AgentConfig
@@ -291,6 +294,176 @@ def test_zai_provider_sends_vendor_thinking_payload(monkeypatch: pytest.MonkeyPa
     }
     assert response.content == "ok"
     assert response.reasoning_content == "reason"
+
+
+def test_provider_sends_max_tokens_from_agent_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+    config = AgentConfig(
+        provider="zai",
+        model="glm-5.1",
+        api_key_env="ZAI_API_KEY",
+        max_tokens=1234,
+    )
+    provider = ProviderFactory(env={"ZAI_API_KEY": "secret-test-key"}).create(config)
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+    assert captured["body"]["max_tokens"] == 1234  # type: ignore[index]
+
+
+def test_provider_retries_retryable_http_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        max_retries=1,
+        retry_backoff_seconds=0,
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise error.HTTPError("https://example.test", 429, "rate limited", {}, None)
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    response = provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+    assert response.content == "ok"
+    assert calls == 2
+
+
+def test_provider_classifies_non_retryable_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        max_retries=2,
+        retry_backoff_seconds=0,
+    )
+
+    def fake_urlopen(http_request: object, timeout: float) -> object:
+        raise error.HTTPError("https://example.test", 400, "bad request", {}, None)
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    with pytest.raises(ProviderHTTPError) as exc_info:
+        provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+    assert "HTTP 400" in str(exc_info.value)
+
+
+def test_provider_classifies_rate_limit_after_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        max_retries=0,
+        retry_backoff_seconds=0,
+    )
+
+    def fake_urlopen(http_request: object, timeout: float) -> object:
+        raise error.HTTPError("https://example.test", 429, "rate limited", {}, None)
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    with pytest.raises(ProviderRateLimitError):
+        provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+
+def test_provider_writes_safe_call_log(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    secret = "secret-test-key"
+    log_path = tmp_path / "provider_calls.jsonl"
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key=secret,
+        base_url="https://example.test/v1",
+        log_path=log_path,
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: FakeResponse())
+
+    provider.generate(ModelRequest(system_prompt="s", user_prompt="u", json_schema_name="TestSchema"))
+
+    text = log_path.read_text(encoding="utf-8")
+    entry = json.loads(text)
+    assert entry["status"] == "success"
+    assert entry["json_schema_name"] == "TestSchema"
+    assert secret not in text
+    assert "Authorization" not in text
+
+
+def test_provider_stream_parses_sse_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return (
+                b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+                b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+                b"data: [DONE]\n\n"
+            )
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    chunks = list(provider.stream(ModelRequest(system_prompt="s", user_prompt="u")))
+
+    assert "".join(chunks) == "hello world"
+    assert captured["body"]["stream"] is True  # type: ignore[index]
 
 
 def test_openai_compatible_provider_uses_json_object_for_structured_outputs(

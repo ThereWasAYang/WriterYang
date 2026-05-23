@@ -77,27 +77,29 @@ def write_chapter_draft(
         else ""
     )
 
-    response = provider.generate(
-        ModelRequest(
-            system_prompt=build_writer_system_prompt(),
-            user_prompt=build_writer_user_prompt(
-                project=project,
-                plan=plan,
-                inspiration_md=inspiration_md,
-                inspiration_json=inspiration_json,
-                style_guide=style_guide,
-                canon_summary=format_canon_summary(canon),
-                state=state,
-                timeline=timeline,
-                instruction=options.instruction,
-                target_words=options.target_words,
-                style_note=options.style_note,
-                search_context=search_context,
-            ),
-            context=format_canon_summary(canon),
-        )
+    model_request = ModelRequest(
+        system_prompt=build_writer_system_prompt(),
+        user_prompt=build_writer_user_prompt(
+            project=project,
+            plan=plan,
+            inspiration_md=inspiration_md,
+            inspiration_json=inspiration_json,
+            style_guide=style_guide,
+            canon_summary=format_canon_summary(canon),
+            state=state,
+            timeline=timeline,
+            instruction=options.instruction,
+            target_words=options.target_words,
+            style_note=options.style_note,
+            search_context=search_context,
+        ),
+        context=format_canon_summary(canon),
     )
-    body = _clean_body(response.content)
+    body = _clean_body(
+        "".join(provider.stream(model_request))
+        if hasattr(provider, "stream")
+        else provider.generate(model_request).content
+    )
     if not body:
         raise DraftingError("writer provider returned empty draft content")
 

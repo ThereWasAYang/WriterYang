@@ -184,17 +184,17 @@ def _project_yaml(
 
 def _agents_yaml() -> str:
     agents = {
-        "orchestrator": ("OPENAI_BASE_URL", "OPENAI_API_KEY", "model-name", "medium", 128000, 0.4, 60, 1),
-        "inspiration": ("INSPIRATION_BASE_URL", "INSPIRATION_API_KEY", "model-name", "medium", 64000, 0.8, 60, 1),
-        "canon": ("CANON_BASE_URL", "CANON_API_KEY", "model-name", "medium", 64000, 0.5, 60, 1),
-        "plot": ("PLOT_BASE_URL", "PLOT_API_KEY", "model-name", "high", 128000, 0.6, 90, 1),
-        "writer": ("WRITER_BASE_URL", "WRITER_API_KEY", "model-name", "high", 128000, 0.9, 120, 1),
-        "polish": ("POLISH_BASE_URL", "POLISH_API_KEY", "model-name", "medium", 128000, 0.7, 90, 1),
-        "audit": ("AUDIT_BASE_URL", "AUDIT_API_KEY", "model-name", "low", 64000, 0.2, 60, 1),
-        "state_update": ("STATE_UPDATE_BASE_URL", "STATE_UPDATE_API_KEY", "model-name", "low", 64000, 0.2, 60, 1),
+        "orchestrator": ("OPENAI_BASE_URL", "OPENAI_API_KEY", "model-name", "medium", 128000, 4096, 0.4, 60, 1),
+        "inspiration": ("INSPIRATION_BASE_URL", "INSPIRATION_API_KEY", "model-name", "medium", 64000, 4096, 0.8, 60, 1),
+        "canon": ("CANON_BASE_URL", "CANON_API_KEY", "model-name", "medium", 64000, 8192, 0.5, 60, 1),
+        "plot": ("PLOT_BASE_URL", "PLOT_API_KEY", "model-name", "high", 128000, 8192, 0.6, 90, 1),
+        "writer": ("WRITER_BASE_URL", "WRITER_API_KEY", "model-name", "high", 128000, 24000, 0.9, 120, 1),
+        "polish": ("POLISH_BASE_URL", "POLISH_API_KEY", "model-name", "medium", 128000, 24000, 0.7, 90, 1),
+        "audit": ("AUDIT_BASE_URL", "AUDIT_API_KEY", "model-name", "low", 64000, 8192, 0.2, 60, 1),
+        "state_update": ("STATE_UPDATE_BASE_URL", "STATE_UPDATE_API_KEY", "model-name", "low", 64000, 8192, 0.2, 60, 1),
     }
     lines = ["schema_version: 1\n", "agents:\n"]
-    for name, (base_url_env, api_key_env, model, reasoning, max_tokens, temperature, timeout, retries) in agents.items():
+    for name, (base_url_env, api_key_env, model, reasoning, max_context_tokens, max_tokens, temperature, timeout, retries) in agents.items():
         lines.extend(
             [
                 f"  {name}:\n",
@@ -205,7 +205,8 @@ def _agents_yaml() -> str:
                 f'    reasoning: "{reasoning}"\n',
                 "    thinking:\n",
                 '      type: "disabled"\n',
-                f"    max_context_tokens: {max_tokens}\n",
+                f"    max_context_tokens: {max_context_tokens}\n",
+                f"    max_tokens: {max_tokens}\n",
                 f"    temperature: {temperature}\n",
                 f"    timeout_seconds: {timeout}\n",
                 f"    max_retries: {retries}\n",

@@ -60,6 +60,19 @@
           "default": null,
           "title": "Max Context Tokens"
         },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
         "temperature": {
           "anyOf": [
             {

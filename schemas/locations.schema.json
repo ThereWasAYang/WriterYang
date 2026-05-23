@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "Location": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "reader_visible_summary": {
+          "minLength": 1,
+          "title": "Reader Visible Summary",
+          "type": "string"
+        },
+        "private_author_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Author Notes"
+        },
+        "parent_location_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Location Id"
+        },
+        "connected_location_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Connected Location Ids",
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/LocationRule"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "reader_visible_summary"
+      ],
+      "title": "Location",
+      "type": "object"
+    },
+    "LocationRule": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "hidden",
+            "partially_revealed"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "visibility"
+      ],
+      "title": "LocationRule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "locations": {
+      "items": {
+        "$ref": "#/$defs/Location"
+      },
+      "title": "Locations",
+      "type": "array"
+    }
+  },
+  "title": "LocationsFile",
+  "type": "object"
+}

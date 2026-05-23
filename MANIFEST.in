@@ -4,6 +4,7 @@ include pyproject.toml
 include docs/INTEGRATION.md
 include docs/RELEASE.md
 include docs/openclaw_tool_manifest.json
+recursive-include schemas *.json
 exclude AGENTS.md
 exclude docs/PRODUCT_SPEC.md
 exclude docs/ARCHITECTURE.md

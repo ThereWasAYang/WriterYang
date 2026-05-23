@@ -55,11 +55,14 @@ novel status --path examples/rain_station
 ```bash
 novel validate --path ./rain-station
 novel migrate --path ./rain-station
+novel schema export --output schemas
 novel status --path ./rain-station
 novel show characters --path ./rain-station
 novel show timeline --path ./rain-station
 novel show state --path ./rain-station
 ```
+
+项目根目录的 `schemas/*.schema.json` 是从 Pydantic models 生成的 JSON Schema，可供外部工具校验项目 JSON/YAML 结构。
 
 ## Provider 配置
 
@@ -275,6 +278,7 @@ novel validate --path examples/rain_station
 ```
 
 版本变化记录见 [CHANGELOG.md](CHANGELOG.md)。
+JSON Schema 文件位于 `schemas/`，也可以通过 `novel schema export --output schemas` 重新生成。
 
 真实 API 冒烟测试需要本地 `.env.real`，该文件会被 `.gitignore` 忽略。推荐变量名：
 

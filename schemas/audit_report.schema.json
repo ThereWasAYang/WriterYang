@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "AuditEvidence": {
+      "additionalProperties": true,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "quote": {
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "quote"
+      ],
+      "title": "AuditEvidence",
+      "type": "object"
+    },
+    "AuditIssue": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/AuditEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "suggested_fix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Fix"
+        }
+      },
+      "required": [
+        "id",
+        "severity",
+        "type",
+        "description"
+      ],
+      "title": "AuditIssue",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "audited_file": {
+      "minLength": 1,
+      "title": "Audited File",
+      "type": "string"
+    },
+    "overall_status": {
+      "enum": [
+        "passed",
+        "needs_revision",
+        "blocked"
+      ],
+      "title": "Overall Status",
+      "type": "string"
+    },
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "issues": {
+      "items": {
+        "$ref": "#/$defs/AuditIssue"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "passed_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Passed Checks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "chapter_number",
+    "audited_file",
+    "overall_status",
+    "summary",
+    "issues",
+    "created_at"
+  ],
+  "title": "AuditReport",
+  "type": "object"
+}

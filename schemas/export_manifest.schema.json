@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "ExportRecord": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "pattern": "^export_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "markdown",
+            "docx",
+            "html",
+            "txt"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "source_chapters": {
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Source Chapters",
+          "type": "array"
+        },
+        "output_path": {
+          "minLength": 1,
+          "title": "Output Path",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source_chapters",
+        "output_path",
+        "created_at"
+      ],
+      "title": "ExportRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "exports": {
+      "items": {
+        "$ref": "#/$defs/ExportRecord"
+      },
+      "title": "Exports",
+      "type": "array"
+    }
+  },
+  "title": "ExportManifest",
+  "type": "object"
+}

@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "HiddenTruth": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "hidden",
+            "partially_revealed"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "importance": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Importance",
+          "type": "string"
+        },
+        "related_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Entity Ids",
+          "type": "array"
+        },
+        "planned_reveal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlannedReveal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "foreshadowing_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Foreshadowing Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "visibility",
+        "importance"
+      ],
+      "title": "HiddenTruth",
+      "type": "object"
+    },
+    "PlannedReveal": {
+      "additionalProperties": true,
+      "properties": {
+        "chapter": {
+          "minimum": 1,
+          "title": "Chapter",
+          "type": "integer"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        }
+      },
+      "required": [
+        "chapter"
+      ],
+      "title": "PlannedReveal",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "hidden_truths": {
+      "items": {
+        "$ref": "#/$defs/HiddenTruth"
+      },
+      "title": "Hidden Truths",
+      "type": "array"
+    }
+  },
+  "title": "HiddenTruthsFile",
+  "type": "object"
+}

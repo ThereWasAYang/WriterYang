@@ -87,6 +87,7 @@ from novel.core.inspection import (
     format_timeline,
     get_project_status,
 )
+from novel.core.json_schema import export_json_schemas
 from novel.core.migration import MigrationError, migrate_project
 from novel.core.orchestrator import (
     OrchestratorError,
@@ -308,6 +309,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Show migration actions without writing files.",
+    )
+
+    schema_parser = subparsers.add_parser("schema", help="Export JSON Schema files")
+    schema_subparsers = schema_parser.add_subparsers(dest="schema_command", required=True)
+    schema_export_parser = schema_subparsers.add_parser("export", help="Export JSON Schema files")
+    schema_export_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("schemas"),
+        help="Output directory. Defaults to ./schemas.",
     )
 
     index_parser = subparsers.add_parser("index", help="Manage the local search index")
@@ -1077,6 +1088,20 @@ def main(argv: list[str] | None = None) -> int:
             action = "Would update" if args.dry_run else "Updated"
             lines.extend(f"{action}: {path}" for path in result.updated_files)
         return _success(args, payload, lines)
+
+    if args.command == "schema":
+        if args.schema_command == "export":
+            paths = export_json_schemas(args.output)
+            return _success(
+                args,
+                {
+                    "command": "schema export",
+                    "output": str(args.output),
+                    "schema_count": len(paths),
+                    "files": [str(path) for path in paths],
+                },
+                [f"Wrote {len(paths)} JSON Schema file(s) to {args.output}"],
+            )
 
     if args.command == "index":
         if args.index_command == "rebuild":

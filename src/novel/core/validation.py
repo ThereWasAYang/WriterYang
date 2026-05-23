@@ -5,12 +5,14 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from pydantic import ValidationError
+import yaml
 
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.schemas import (
     AgentConfig,
     AgentsConfig,
     AuditReport,
+    ChapterMetadata,
     ChapterPlan,
     CharactersFile,
     EntityState,
@@ -20,6 +22,7 @@ from novel.core.schemas import (
     ItemsFile,
     LocationsFile,
     ProjectConfig,
+    StateUpdateProposal,
     TimelineFile,
     WorldFile,
 )
@@ -133,6 +136,8 @@ def _load_project_files(root: Path, report: ValidationReport, *, include_state: 
 def _validate_loaded_project(
     report: ValidationReport, root: Path, loaded: LoadedProject, *, include_state: bool
 ) -> None:
+    if loaded.project and loaded.project.schema_version != 1:
+        report.error(root / "project.yaml", f"unsupported schema_version: {loaded.project.schema_version}")
     _validate_duplicate_ids(report, root, loaded)
     _validate_agent_names(report, root, loaded.agents)
     _validate_references(report, root, loaded)
@@ -374,6 +379,9 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
                         f"event {event.id} participant_ids references missing character: "
                         f"{participant_id}",
                     )
+            for change_id in event.state_change_ids:
+                if not _state_change_id_exists(root, change_id):
+                    report.warning(path, f"event {event.id} references missing state_change_id: {change_id}")
 
     _validate_chapter_plan_references(report, root, entity_ids, character_ids, location_ids, timeline_ids)
 
@@ -416,6 +424,7 @@ def _validate_state_references(
 
     item_holders = {item_state.entity_id: item_state.holder_id for item_state in state.item_states}
     item_locations = {item_state.entity_id: item_state.location_id for item_state in state.item_states}
+    possession_owner: dict[str, str] = {}
 
     for character_state in state.character_states:
         if character_state.entity_id not in character_ids:
@@ -436,6 +445,14 @@ def _validate_state_references(
                 "story_position.latest_chapter",
             )
         for item_id in character_state.possessions:
+            previous_owner = possession_owner.get(item_id)
+            if previous_owner and previous_owner != character_state.entity_id:
+                report.error(
+                    path,
+                    f"item {item_id} appears in possessions of both {previous_owner} and "
+                    f"{character_state.entity_id}",
+                )
+            possession_owner[item_id] = character_state.entity_id
             if item_id not in item_ids:
                 report.warning(
                     path,
@@ -502,30 +519,177 @@ def _validate_state_references(
                 path,
                 f"item {item_id} holder_id {holder_id} is not mirrored in character possessions",
             )
+        owner = possession_owner.get(item_id)
+        if owner and owner != holder_id:
+            report.error(path, f"item {item_id} holder_id {holder_id} conflicts with possession owner {owner}")
 
     for item_id, location_id in item_locations.items():
         if location_id and location_id not in entity_ids:
             report.warning(path, f"item {item_id} references missing entity location: {location_id}")
+
+    death_chapters: dict[str, int] = {}
+    for character_state in state.character_states:
+        health = (character_state.health or "").lower()
+        if any(marker in health for marker in ("dead", "deceased", "死亡", "已死", "身亡")):
+            death_chapters[character_state.entity_id] = character_state.last_updated_chapter
+    if death_chapters:
+        timeline_path = root / "memory" / "state" / "timeline.json"
+        try:
+            timeline = load_json_model(timeline_path, TimelineFile)
+        except Exception:
+            timeline = None
+        if timeline:
+            for event in timeline.events:
+                for participant_id in event.participant_ids:
+                    death_chapter = death_chapters.get(participant_id)
+                    if death_chapter is not None and event.chapter > death_chapter:
+                        report.warning(
+                            timeline_path,
+                            f"character {participant_id} appears in event {event.id} after death state "
+                            f"recorded at chapter {death_chapter}",
+                        )
 
 
 def _validate_chapter_outputs(report: ValidationReport, root: Path, loaded: LoadedProject) -> None:
     chapters_dir = root / "memory" / "chapters"
     if not chapters_dir.exists():
         return
-    for plan_path in sorted(chapters_dir.glob("*/plan.json")):
+    for chapter_dir in sorted(path for path in chapters_dir.iterdir() if path.is_dir()):
+        _validate_single_chapter_output(report, root, chapter_dir)
+
+
+def _validate_single_chapter_output(report: ValidationReport, root: Path, chapter_dir: Path) -> None:
+    try:
+        dir_chapter_number = int(chapter_dir.name)
+    except ValueError:
+        report.warning(chapter_dir, f"chapter directory name should be numeric: {chapter_dir.name}")
+        dir_chapter_number = None
+
+    plan: ChapterPlan | None = None
+    audit: AuditReport | None = None
+    plan_path = chapter_dir / "plan.json"
+    if plan_path.exists():
         try:
-            load_json_model(plan_path, ChapterPlan)
+            plan = load_json_model(plan_path, ChapterPlan)
+            if dir_chapter_number is not None and plan.chapter_number != dir_chapter_number:
+                report.error(
+                    plan_path,
+                    f"plan chapter_number {plan.chapter_number} does not match directory {chapter_dir.name}",
+                )
         except ValidationError as exc:
             _add_validation_error(report, plan_path, exc)
         except Exception as exc:
             report.error(plan_path, f"could not load chapter plan: {exc}")
-    for audit_path in sorted(chapters_dir.glob("*/audit.json")):
+
+    draft_path = chapter_dir / "draft.md"
+    polished_path = chapter_dir / "polished.md"
+    for markdown_path in (draft_path, polished_path):
+        if markdown_path.exists():
+            _validate_chapter_markdown(report, markdown_path, plan, dir_chapter_number)
+
+    audit_path = chapter_dir / "audit.json"
+    if audit_path.exists():
         try:
-            load_json_model(audit_path, AuditReport)
+            audit = load_json_model(audit_path, AuditReport)
+            if dir_chapter_number is not None and audit.chapter_number != dir_chapter_number:
+                report.error(
+                    audit_path,
+                    f"audit chapter_number {audit.chapter_number} does not match directory {chapter_dir.name}",
+                )
+            audited_file = chapter_dir / audit.audited_file
+            if audit.audited_file not in {"draft.md", "polished.md"}:
+                report.warning(audit_path, f"audited_file is unusual: {audit.audited_file}")
+            if not audited_file.exists():
+                report.error(audit_path, f"audited_file is missing: {audit.audited_file}")
+            else:
+                _validate_chapter_markdown(report, audited_file, plan, audit.chapter_number)
         except ValidationError as exc:
             _add_validation_error(report, audit_path, exc)
         except Exception as exc:
             report.error(audit_path, f"could not load audit report: {exc}")
+
+    metadata_path = chapter_dir / "metadata.json"
+    if metadata_path.exists():
+        try:
+            metadata = load_json_model(metadata_path, ChapterMetadata)
+            if dir_chapter_number is not None and metadata.chapter_number != dir_chapter_number:
+                report.error(
+                    metadata_path,
+                    f"metadata chapter_number {metadata.chapter_number} does not match directory {chapter_dir.name}",
+                )
+            _validate_chapter_metadata_links(report, root, chapter_dir, metadata)
+        except ValidationError as exc:
+            _add_validation_error(report, metadata_path, exc)
+        except Exception as exc:
+            report.error(metadata_path, f"could not load chapter metadata: {exc}")
+
+
+def _validate_chapter_markdown(
+    report: ValidationReport,
+    path: Path,
+    plan: ChapterPlan | None,
+    expected_chapter_number: int | None,
+) -> None:
+    try:
+        metadata = _read_markdown_metadata(path)
+    except Exception as exc:
+        report.warning(path, f"could not read front matter: {exc}")
+        return
+    chapter_number = metadata.get("chapter_number")
+    if expected_chapter_number is not None and chapter_number not in {None, expected_chapter_number}:
+        report.error(path, f"front matter chapter_number {chapter_number} does not match {expected_chapter_number}")
+    if plan and metadata.get("title") and metadata.get("title") != plan.title:
+        report.warning(path, "front matter title differs from plan title")
+    based_on = metadata.get("based_on")
+    if path.name == "draft.md" and based_on not in {None, "plan.json"}:
+        report.warning(path, f"draft based_on should be plan.json, got {based_on}")
+    if path.name == "polished.md" and based_on not in {None, "draft.md"}:
+        report.warning(path, f"polished based_on should be draft.md, got {based_on}")
+
+
+def _validate_chapter_metadata_links(
+    report: ValidationReport,
+    root: Path,
+    chapter_dir: Path,
+    metadata: ChapterMetadata,
+) -> None:
+    path = chapter_dir / "metadata.json"
+    field_paths = {
+        "plan_path": metadata.plan_path,
+        "draft_path": metadata.draft_path,
+        "polished_path": metadata.polished_path,
+        "audit_path": metadata.audit_path,
+        "state_update_proposal_path": metadata.state_update_proposal_path,
+        "state_update_apply_log_path": metadata.state_update_apply_log_path,
+    }
+    for field_name, relative_path in field_paths.items():
+        if relative_path and not (root / relative_path).exists():
+            report.error(path, f"{field_name} references missing file: {relative_path}")
+    if metadata.status == "accepted":
+        polished_path = root / metadata.polished_path if metadata.polished_path else chapter_dir / "polished.md"
+        if not polished_path.exists():
+            report.error(path, "accepted chapter is missing polished.md")
+        else:
+            try:
+                metadata = _read_markdown_metadata(polished_path)
+                if metadata.get("status") != "accepted":
+                    report.error(path, "accepted metadata conflicts with polished.md front matter status")
+            except Exception as exc:
+                report.error(path, f"could not read accepted polished.md front matter: {exc}")
+        if metadata.accepted_at is None:
+            report.error(path, "accepted chapter metadata must include accepted_at")
+
+
+def _read_markdown_metadata(path: Path) -> dict[str, object]:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        return {}
+    marker = "\n---"
+    end = text.find(marker, 4)
+    if end == -1:
+        return {}
+    data = yaml.safe_load(text[4:end])
+    return data if isinstance(data, dict) else {}
 
 
 def _validate_optional_agent_outputs(report: ValidationReport, root: Path) -> None:
@@ -579,6 +743,20 @@ def _validate_chapter_plan_references(
                         f"scene {scene.scene_number} participant_ids references missing character: "
                         f"{participant_id}",
                     )
+
+
+def _state_change_id_exists(root: Path, change_id: str) -> bool:
+    chapters_dir = root / "memory" / "chapters"
+    if not chapters_dir.exists():
+        return False
+    for proposal_path in chapters_dir.glob("*/state_update_proposal.json"):
+        try:
+            data = load_json_model(proposal_path, StateUpdateProposal)
+        except Exception:
+            continue
+        if any(change.id == change_id for change in data.state_changes):
+            return True
+    return False
 
 
 def _ids(items: Iterable[object]) -> set[str]:

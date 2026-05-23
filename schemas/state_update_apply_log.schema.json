@@ -1,0 +1,74 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "pattern": "^state_apply_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "proposal_path": {
+      "minLength": 1,
+      "title": "Proposal Path",
+      "type": "string"
+    },
+    "state_path": {
+      "minLength": 1,
+      "title": "State Path",
+      "type": "string"
+    },
+    "timeline_path": {
+      "minLength": 1,
+      "title": "Timeline Path",
+      "type": "string"
+    },
+    "state_backup_path": {
+      "minLength": 1,
+      "title": "State Backup Path",
+      "type": "string"
+    },
+    "timeline_backup_path": {
+      "minLength": 1,
+      "title": "Timeline Backup Path",
+      "type": "string"
+    },
+    "applied_at": {
+      "format": "date-time",
+      "title": "Applied At",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "applied",
+        "rolled_back"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Errors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "chapter_number",
+    "proposal_path",
+    "state_path",
+    "timeline_path",
+    "state_backup_path",
+    "timeline_backup_path",
+    "applied_at",
+    "status"
+  ],
+  "title": "StateUpdateApplyLog",
+  "type": "object"
+}

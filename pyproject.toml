@@ -47,3 +47,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 novel = ["web_static/*.html"]
+
+[tool.setuptools.data-files]
+"schemas" = ["schemas/*.json"]

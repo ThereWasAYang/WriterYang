@@ -9,6 +9,19 @@ from novel.core.io import load_json_model, load_yaml_model
 from novel.core.schemas import Character, ProjectConfig
 from novel.core.validation import validate_project
 from novel.core.workspace import InitOptions, init_workspace
+from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
+from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
+from novel.core.polishing import ChapterPolishingOptions, polish_chapter
+from novel.core.auditing import ChapterAuditOptions, default_mock_audit_report_json, audit_chapter
+from novel.core.providers import MockProvider
+from novel.core.state_update import (
+    AcceptChapterOptions,
+    StateUpdateProposeOptions,
+    accept_chapter,
+    default_mock_state_update_proposal_json,
+    propose_state_update,
+)
 
 
 def test_load_json_and_yaml_models(tmp_path: Path) -> None:
@@ -227,6 +240,57 @@ def test_validate_reports_state_transition_errors(tmp_path: Path) -> None:
     assert any("both holder_id and location_id" in msg.message for msg in report.errors)
 
 
+def test_validate_reports_duplicate_possession_owner_and_dead_participant(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    _write_json(
+        root / "memory" / "canon" / "characters.json",
+        {
+            "characters": [
+                {"id": "char_a", "name": "甲", "role": "主角", "reader_visible_summary": "甲。"},
+                {"id": "char_b", "name": "乙", "role": "配角", "reader_visible_summary": "乙。"},
+            ]
+        },
+    )
+    _write_json(
+        root / "memory" / "canon" / "items.json",
+        {"items": [{"id": "item_key", "name": "钥匙", "type": "道具", "reader_visible_summary": "钥匙。"}]},
+    )
+    _write_json(
+        root / "memory" / "state" / "current_state.json",
+        {
+            "story_position": {"latest_chapter": 3},
+            "character_states": [
+                {"entity_id": "char_a", "health": "死亡", "possessions": ["item_key"], "last_updated_chapter": 1},
+                {"entity_id": "char_b", "possessions": ["item_key"], "last_updated_chapter": 2},
+            ],
+            "item_states": [{"entity_id": "item_key", "holder_id": "char_b", "last_updated_chapter": 2}],
+            "location_states": [],
+        },
+    )
+    _write_json(
+        root / "memory" / "state" / "timeline.json",
+        {
+            "events": [
+                {
+                    "id": "event_after_death",
+                    "chapter": 2,
+                    "in_story_time": "第二章",
+                    "summary": "甲再次出现。",
+                    "reader_visible": True,
+                    "participant_ids": ["char_a"],
+                }
+            ]
+        },
+    )
+
+    report = validate_project(root)
+
+    assert not report.ok
+    assert any("appears in possessions of both" in msg.message for msg in report.errors)
+    assert any("after death state" in msg.message for msg in report.warnings)
+
+
 def test_validate_reports_invalid_chapter_plan_and_audit(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
@@ -286,6 +350,55 @@ def test_validate_reports_invalid_chapter_plan_and_audit(tmp_path: Path) -> None
     assert not report.ok
     assert any("scene numbers must be sequential" in msg.message for msg in report.errors)
     assert any("passed audit reports cannot contain high" in msg.message for msg in report.errors)
+
+
+def test_validate_reports_chapter_output_linkage_errors(tmp_path: Path) -> None:
+    root = _workspace_with_accepted_chapter(tmp_path)
+    metadata_path = root / "memory" / "chapters" / "001" / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["status"] = "accepted"
+    metadata["polished_path"] = "memory/chapters/001/missing.md"
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
+    polished = polished_path.read_text(encoding="utf-8").replace("chapter_number: 1", "chapter_number: 2")
+    polished_path.write_text(polished, encoding="utf-8")
+
+    report = validate_project(root)
+
+    assert not report.ok
+    assert any("polished_path references missing file" in msg.message for msg in report.errors)
+    assert any("front matter chapter_number 2 does not match 1" in msg.message for msg in report.errors)
+
+
+def _workspace_with_accepted_chapter(tmp_path: Path) -> Path:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "memory" / "inspiration.md").write_text("# Inspiration\n\n旧车站广播。\n", encoding="utf-8")
+    proposal_path = tmp_path / "canon_proposal.json"
+    proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
+    assert apply_canon_proposal(root, proposal_path).validation_report.ok
+    plan_chapter(
+        ChapterPlanningOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_chapter_plan_json(1)),
+    )
+    write_chapter_draft(
+        ChapterDraftingOptions(root=root, chapter_number=1),
+        MockProvider(fake_response="林澈进入旧车站。"),
+    )
+    polish_chapter(
+        ChapterPolishingOptions(root=root, chapter_number=1),
+        MockProvider(fake_response="林澈进入旧车站，雨声在身后合拢。"),
+    )
+    audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+    propose_state_update(
+        StateUpdateProposeOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_state_update_proposal_json(1)),
+    )
+    accept_chapter(AcceptChapterOptions(root=root, chapter_number=1))
+    return root
 
 
 def _write_json(path: Path, data: object) -> None:

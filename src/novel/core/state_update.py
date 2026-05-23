@@ -1,0 +1,625 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import shutil
+from typing import Any, Literal
+
+import yaml
+from pydantic import ValidationError
+
+from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.io import load_json_model, load_yaml_model
+from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
+from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
+from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.schemas import (
+    AuditReport,
+    ChapterPlan,
+    CharacterState,
+    EntityState,
+    ItemState,
+    LocationState,
+    ProjectConfig,
+    StateChange,
+    StateUpdateProposal,
+    TimelineFile,
+)
+from novel.core.validation import validate_canon
+
+
+class StateUpdateError(RuntimeError):
+    """Raised when state or timeline update cannot proceed safely."""
+
+
+@dataclass(frozen=True)
+class StateUpdateProposeOptions:
+    root: Path
+    chapter_number: int
+    instruction: str | None = None
+    force: bool = False
+    allow_unresolved_audit: bool = False
+
+
+@dataclass(frozen=True)
+class StateUpdateApplyOptions:
+    root: Path
+    chapter_number: int
+
+
+@dataclass(frozen=True)
+class AcceptChapterOptions:
+    root: Path
+    chapter_number: int
+    allow_issues: bool = False
+    propose: bool = False
+    instruction: str | None = None
+    force_proposal: bool = False
+
+
+@dataclass(frozen=True)
+class StateUpdateProposeResult:
+    proposal_path: Path
+    proposal: StateUpdateProposal
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class StateUpdateApplyResult:
+    state_path: Path
+    timeline_path: Path
+    state_backup_path: Path
+    timeline_backup_path: Path
+    state: EntityState
+    timeline: TimelineFile
+
+
+@dataclass(frozen=True)
+class AcceptChapterResult:
+    proposal_result: StateUpdateProposeResult | None
+    apply_result: StateUpdateApplyResult
+    accepted_path: Path
+
+
+@dataclass(frozen=True)
+class StateUpdateContext:
+    project: ProjectConfig
+    plan: ChapterPlan
+    polished: DraftDocument
+    audit: AuditReport
+    canon_summary: str
+    state_json: str
+    timeline_json: str
+
+
+def propose_state_update(
+    options: StateUpdateProposeOptions,
+    provider: ModelProvider,
+) -> StateUpdateProposeResult:
+    root = options.root.resolve()
+    if options.chapter_number < 1:
+        raise StateUpdateError("chapter_number must be a positive integer")
+    chapter_dir = _chapter_dir(root, options.chapter_number)
+    proposal_path = chapter_dir / "state_update_proposal.json"
+    _refuse_existing(proposal_path, options.force)
+
+    context = load_state_update_context(root, options.chapter_number)
+    _ensure_audit_allows_progress(context.audit, allow_issues=options.allow_unresolved_audit)
+
+    response = provider.generate(
+        ModelRequest(
+            system_prompt=build_state_update_system_prompt(),
+            user_prompt=build_state_update_user_prompt(
+                context=context,
+                instruction=options.instruction,
+            ),
+            context=context.canon_summary,
+            json_schema_name="StateUpdateProposal",
+        )
+    )
+    proposal = parse_state_update_proposal(response.content)
+    if proposal.chapter_number != options.chapter_number:
+        raise StateUpdateError(
+            f"provider returned chapter_number {proposal.chapter_number}, expected {options.chapter_number}"
+        )
+    warnings = validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
+
+    proposal_path.write_text(proposal.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return StateUpdateProposeResult(
+        proposal_path=proposal_path,
+        proposal=proposal,
+        warnings=tuple(warnings),
+    )
+
+
+def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResult:
+    root = options.root.resolve()
+    if options.chapter_number < 1:
+        raise StateUpdateError("chapter_number must be a positive integer")
+    proposal_path = _chapter_dir(root, options.chapter_number) / "state_update_proposal.json"
+    if not proposal_path.exists():
+        raise StateUpdateError(f"{proposal_path} is missing; run novel propose-state-update first")
+
+    proposal = load_json_model(proposal_path, StateUpdateProposal)
+    if proposal.chapter_number != options.chapter_number:
+        raise StateUpdateError(
+            f"state_update_proposal.json chapter_number {proposal.chapter_number} does not match "
+            f"requested chapter {options.chapter_number}"
+        )
+    validate_state_update_proposal(root, proposal, check_existing_timeline_ids=True)
+
+    state_path = root / "memory" / "state" / "current_state.json"
+    timeline_path = root / "memory" / "state" / "timeline.json"
+    state = load_json_model(state_path, EntityState)
+    timeline = load_json_model(timeline_path, TimelineFile)
+
+    updated_state = apply_state_changes_to_state(state, proposal.state_changes, root)
+    updated_timeline = TimelineFile(events=[*timeline.events, *proposal.timeline_events])
+
+    _validate_applied_state(updated_state)
+    _validate_applied_timeline(root, updated_timeline)
+
+    state_backup = _backup_file(state_path)
+    timeline_backup = _backup_file(timeline_path)
+    state_path.write_text(updated_state.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    timeline_path.write_text(updated_timeline.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return StateUpdateApplyResult(
+        state_path=state_path,
+        timeline_path=timeline_path,
+        state_backup_path=state_backup,
+        timeline_backup_path=timeline_backup,
+        state=updated_state,
+        timeline=updated_timeline,
+    )
+
+
+def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None = None) -> AcceptChapterResult:
+    root = options.root.resolve()
+    audit = _load_audit(root, options.chapter_number)
+    _ensure_audit_allows_progress(audit, allow_issues=options.allow_issues)
+
+    proposal_result: StateUpdateProposeResult | None = None
+    proposal_path = _chapter_dir(root, options.chapter_number) / "state_update_proposal.json"
+    if not proposal_path.exists():
+        if not options.propose:
+            raise StateUpdateError(
+                f"{proposal_path} is missing; run novel propose-state-update first or pass --propose"
+            )
+        if provider is None:
+            raise StateUpdateError("--propose requires a provider")
+        proposal_result = propose_state_update(
+            StateUpdateProposeOptions(
+                root=root,
+                chapter_number=options.chapter_number,
+                instruction=options.instruction,
+                force=options.force_proposal,
+                allow_unresolved_audit=options.allow_issues,
+            ),
+            provider,
+        )
+
+    apply_result = apply_state_update(
+        StateUpdateApplyOptions(root=root, chapter_number=options.chapter_number)
+    )
+    accepted_path = mark_chapter_accepted(root, options.chapter_number)
+    return AcceptChapterResult(
+        proposal_result=proposal_result,
+        apply_result=apply_result,
+        accepted_path=accepted_path,
+    )
+
+
+def load_state_update_context(root: Path, chapter_number: int) -> StateUpdateContext:
+    chapter_dir = _chapter_dir(root, chapter_number)
+    plan_path = chapter_dir / "plan.json"
+    polished_path = chapter_dir / "polished.md"
+    audit_path = chapter_dir / "audit.json"
+    if not plan_path.exists():
+        raise StateUpdateError(f"{plan_path} is missing; run novel plan-chapter first")
+    if not polished_path.exists():
+        raise StateUpdateError(f"{polished_path} is missing; run novel polish-chapter first")
+    if not audit_path.exists():
+        raise StateUpdateError(f"{audit_path} is missing; run novel audit-chapter first")
+
+    canon = load_canon_files(root)
+    return StateUpdateContext(
+        project=load_yaml_model(root / "project.yaml", ProjectConfig),
+        plan=load_json_model(plan_path, ChapterPlan),
+        polished=_read_front_matter(polished_path),
+        audit=load_json_model(audit_path, AuditReport),
+        canon_summary=format_canon_summary(canon),
+        state_json=(root / "memory" / "state" / "current_state.json").read_text(encoding="utf-8"),
+        timeline_json=(root / "memory" / "state" / "timeline.json").read_text(encoding="utf-8"),
+    )
+
+
+def load_state_update_provider(
+    root: Path,
+    provider_name: str,
+    *,
+    chapter_number: int = 1,
+    agent_config_path: Path | None = None,
+    model_name: str | None = None,
+) -> ModelProvider:
+    return create_agent_provider(
+        agent_config_path or default_agent_config_path(root),
+        "state_update",
+        fallback_agents=("audit",),
+        overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
+        mock_response=default_mock_state_update_proposal_json(chapter_number),
+    )
+
+
+def read_state_update_instruction(instruction: str | None, input_path: Path | None) -> str | None:
+    if instruction and input_path:
+        raise StateUpdateError("provide either --instruction or --input, not both")
+    if input_path:
+        if not input_path.exists():
+            raise StateUpdateError(f"state update instruction input file is missing: {input_path}")
+        return input_path.read_text(encoding="utf-8").strip() or None
+    return instruction.strip() if instruction and instruction.strip() else None
+
+
+def validate_state_update_proposal(
+    root: Path,
+    proposal: StateUpdateProposal,
+    *,
+    check_existing_timeline_ids: bool,
+) -> list[str]:
+    warnings: list[str] = []
+    canon = load_canon_files(root)
+    character_ids = {item.id for item in canon.characters.characters}
+    location_ids = {item.id for item in canon.locations.locations}
+    item_ids = {item.id for item in canon.items.items}
+    entity_ids = character_ids | location_ids | item_ids | {"story_position"}
+
+    _require_unique([change.id for change in proposal.state_changes], "state_change id")
+    _require_unique([event.id for event in proposal.timeline_events], "timeline event id")
+
+    for change in proposal.state_changes:
+        if change.entity_id not in entity_ids:
+            raise StateUpdateError(f"state change {change.id} references missing entity: {change.entity_id}")
+        _validate_state_change_field(change, character_ids, location_ids, item_ids)
+
+    for event in proposal.timeline_events:
+        if event.location_id and event.location_id not in location_ids:
+            raise StateUpdateError(f"timeline event {event.id} references missing location: {event.location_id}")
+        for participant_id in event.participant_ids:
+            if participant_id not in character_ids:
+                raise StateUpdateError(
+                    f"timeline event {event.id} references missing participant: {participant_id}"
+                )
+
+    if check_existing_timeline_ids:
+        timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+        existing_event_ids = {event.id for event in timeline.events}
+        conflicts = sorted(existing_event_ids & {event.id for event in proposal.timeline_events})
+        if conflicts:
+            raise StateUpdateError(f"timeline event id conflict: {', '.join(conflicts)}")
+
+    canon_report = validate_canon(root)
+    for message in canon_report.errors:
+        raise StateUpdateError(f"canon validation error blocks state update: {message.message}")
+    for message in canon_report.warnings:
+        warnings.append(f"canon warning: {message.message}")
+    return warnings
+
+
+def apply_state_changes_to_state(
+    state: EntityState,
+    changes: list[StateChange],
+    root: Path,
+) -> EntityState:
+    canon = load_canon_files(root)
+    character_ids = {item.id for item in canon.characters.characters}
+    location_ids = {item.id for item in canon.locations.locations}
+    item_ids = {item.id for item in canon.items.items}
+
+    updated = state.model_copy(deep=True)
+    character_states = {item.entity_id: item for item in updated.character_states}
+    item_states = {item.entity_id: item for item in updated.item_states}
+    location_states = {item.entity_id: item for item in updated.location_states}
+
+    for change in changes:
+        if change.entity_id == "story_position":
+            _apply_model_field(updated.story_position, change.field, change.new_value, change.id)
+            continue
+        if change.entity_id in character_ids:
+            target = character_states.get(change.entity_id)
+            if target is None:
+                target = CharacterState(entity_id=change.entity_id, last_updated_chapter=change.chapter)
+                updated.character_states.append(target)
+                character_states[change.entity_id] = target
+        elif change.entity_id in item_ids:
+            target = item_states.get(change.entity_id)
+            if target is None:
+                target = ItemState(entity_id=change.entity_id, last_updated_chapter=change.chapter)
+                updated.item_states.append(target)
+                item_states[change.entity_id] = target
+        elif change.entity_id in location_ids:
+            target = location_states.get(change.entity_id)
+            if target is None:
+                target = LocationState(entity_id=change.entity_id, last_updated_chapter=change.chapter)
+                updated.location_states.append(target)
+                location_states[change.entity_id] = target
+        else:
+            raise StateUpdateError(f"state change {change.id} references missing entity: {change.entity_id}")
+        _apply_model_field(target, change.field, change.new_value, change.id)
+        if hasattr(target, "last_updated_chapter"):
+            setattr(target, "last_updated_chapter", change.chapter)
+
+    if updated.story_position.latest_chapter < max((change.chapter for change in changes), default=0):
+        updated.story_position.latest_chapter = max(change.chapter for change in changes)
+    return EntityState.model_validate(updated.model_dump(mode="json"))
+
+
+def mark_chapter_accepted(root: Path, chapter_number: int) -> Path:
+    path = _chapter_dir(root, chapter_number) / "polished.md"
+    document = _read_front_matter(path)
+    metadata = dict(document.metadata)
+    metadata["status"] = "accepted"
+    metadata["accepted_at"] = _utc_now()
+    metadata_text = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
+    path.write_text(f"---\n{metadata_text}\n---\n\n{document.body.strip()}\n", encoding="utf-8")
+    return path
+
+
+def build_state_update_system_prompt() -> str:
+    return (
+        "你是 State Update Agent。请只输出结构化 JSON，不要输出 Markdown 或解释。"
+        "根据 polished.md 提取实际发生的事件，根据 ChapterPlan 判断预期状态变化是否发生。"
+        "不要创造正文中没有发生的重大事件，不要修改 canon，不要擅自揭示 hidden_truths。"
+        "每个 state_change 都必须包含 reason 和 source。"
+        "每个 timeline_event 都必须包含 summary、chapter、in_story_time、participant_ids、location_id。"
+        "如果无法判断，写入 warnings，不要硬猜。"
+    )
+
+
+def build_state_update_user_prompt(
+    *,
+    context: StateUpdateContext,
+    instruction: str | None,
+) -> str:
+    return (
+        f"项目：{context.project.title}\n"
+        f"语言：{context.project.language}\n"
+        f"章节：{context.plan.chapter_number} - {context.plan.title}\n"
+        f"用户额外状态更新说明：{instruction or '无'}\n\n"
+        "请输出严格 JSON，结构如下：\n"
+        "{\n"
+        '  "chapter_number": 1,\n'
+        '  "state_changes": [],\n'
+        '  "timeline_events": [],\n'
+        '  "warnings": [],\n'
+        '  "created_at": "2026-05-23T00:00:00Z"\n'
+        "}\n\n"
+        "StateChange 字段：id, chapter, entity_id, field, old_value, new_value, reason, source。\n"
+        "TimelineEvent 字段：id, chapter, scene, in_story_time, location_id, participant_ids, "
+        "summary, reader_visible, causes, effects, state_change_ids, tags。\n\n"
+        f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
+        f"AuditReport：\n{context.audit.model_dump_json(indent=2)}\n\n"
+        f"Polished metadata：\n{json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
+        f"Polished body：\n{context.polished.body}\n\n"
+        f"Canon 摘要：\n{context.canon_summary}\n\n"
+        f"Current state：\n{context.state_json}\n\n"
+        f"Timeline：\n{context.timeline_json}\n"
+    )
+
+
+def parse_state_update_proposal(content: str) -> StateUpdateProposal:
+    json_text = _extract_json_object(content)
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise StateUpdateError(f"provider did not return valid StateUpdateProposal JSON: {exc}") from exc
+    try:
+        return StateUpdateProposal.model_validate(data)
+    except ValidationError as exc:
+        raise StateUpdateError(f"provider returned invalid StateUpdateProposal: {exc}") from exc
+
+
+def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
+    return json.dumps(
+        {
+            "chapter_number": chapter_number,
+            "state_changes": [
+                {
+                    "id": f"change_{chapter_number:03d}_001",
+                    "chapter": chapter_number,
+                    "entity_id": "char_lin_che",
+                    "field": "possessions",
+                    "old_value": [],
+                    "new_value": ["item_broken_ticket"],
+                    "reason": "林澈在旧车站拾起破损车票。",
+                    "source": f"memory/chapters/{chapter_number:03d}/polished.md",
+                },
+                {
+                    "id": f"change_{chapter_number:03d}_002",
+                    "chapter": chapter_number,
+                    "entity_id": "item_broken_ticket",
+                    "field": "holder_id",
+                    "old_value": None,
+                    "new_value": "char_lin_che",
+                    "reason": "破损车票由林澈收起。",
+                    "source": f"memory/chapters/{chapter_number:03d}/polished.md",
+                },
+                {
+                    "id": f"change_{chapter_number:03d}_003",
+                    "chapter": chapter_number,
+                    "entity_id": "story_position",
+                    "field": "latest_chapter",
+                    "old_value": chapter_number - 1,
+                    "new_value": chapter_number,
+                    "reason": "第本章已完成并通过审核。",
+                    "source": f"memory/chapters/{chapter_number:03d}/audit.json",
+                },
+            ],
+            "timeline_events": [
+                {
+                    "id": f"event_{chapter_number:03d}_001",
+                    "chapter": chapter_number,
+                    "scene": 1,
+                    "in_story_time": "第1天，雨夜",
+                    "location_id": "loc_old_station",
+                    "participant_ids": ["char_lin_che"],
+                    "summary": "林澈在旧车站听见异常广播，并发现破损车票。",
+                    "reader_visible": True,
+                    "causes": [],
+                    "effects": ["林澈开始调查旧车站异常", "破损车票由林澈持有"],
+                    "state_change_ids": [
+                        f"change_{chapter_number:03d}_001",
+                        f"change_{chapter_number:03d}_002",
+                    ],
+                    "tags": ["章节事件", "线索"],
+                }
+            ],
+            "warnings": [],
+            "created_at": _utc_now(),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _ensure_audit_allows_progress(audit: AuditReport, *, allow_issues: bool) -> None:
+    severe = [issue for issue in audit.issues if issue.severity in {"high", "critical"}]
+    if audit.overall_status == "blocked" or severe:
+        if not allow_issues:
+            raise StateUpdateError(
+                "audit has unresolved high or critical issues; pass the explicit allow flag to continue"
+            )
+
+
+def _validate_state_change_field(
+    change: StateChange,
+    character_ids: set[str],
+    location_ids: set[str],
+    item_ids: set[str],
+) -> None:
+    character_fields = {"location_id", "health", "mental_state", "knowledge", "goals", "possessions", "last_updated_chapter"}
+    item_fields = {"holder_id", "location_id", "condition", "known_properties", "last_updated_chapter"}
+    location_fields = {"accessibility", "condition", "active_events", "last_updated_chapter"}
+    story_fields = {"latest_chapter", "in_story_time", "summary"}
+
+    if change.entity_id == "story_position":
+        allowed = story_fields
+    elif change.entity_id in character_ids:
+        allowed = character_fields
+    elif change.entity_id in item_ids:
+        allowed = item_fields
+    elif change.entity_id in location_ids:
+        allowed = location_fields
+    else:
+        allowed = set()
+    if change.field not in allowed:
+        raise StateUpdateError(f"state change {change.id} uses unsupported field: {change.field}")
+
+    if change.field in {"location_id"} and change.new_value is not None and change.new_value not in location_ids:
+        raise StateUpdateError(f"state change {change.id} references missing location: {change.new_value}")
+    if change.field == "holder_id" and change.new_value is not None and change.new_value not in character_ids:
+        raise StateUpdateError(f"state change {change.id} references missing holder: {change.new_value}")
+    if change.field == "possessions":
+        values = change.new_value if isinstance(change.new_value, list) else []
+        for item_id in values:
+            if item_id not in item_ids:
+                raise StateUpdateError(f"state change {change.id} references missing possession: {item_id}")
+
+
+def _apply_model_field(target: Any, field: str, value: Any, change_id: str) -> None:
+    if not hasattr(target, field):
+        raise StateUpdateError(f"state change {change_id} uses unsupported field: {field}")
+    setattr(target, field, value)
+
+
+def _validate_applied_state(state: EntityState) -> None:
+    for item in state.item_states:
+        if item.holder_id and item.location_id:
+            raise StateUpdateError(f"item {item.entity_id} has both holder_id and location_id")
+    item_holders = {item.entity_id: item.holder_id for item in state.item_states}
+    for character in state.character_states:
+        for item_id in character.possessions:
+            holder = item_holders.get(item_id)
+            if holder and holder != character.entity_id:
+                raise StateUpdateError(
+                    f"character {character.entity_id} possession conflicts with item {item_id} holder_id {holder}"
+                )
+
+
+def _validate_applied_timeline(root: Path, timeline: TimelineFile) -> None:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for event in timeline.events:
+        if event.id in seen:
+            duplicates.add(event.id)
+        seen.add(event.id)
+    if duplicates:
+        raise StateUpdateError(f"duplicate timeline event id: {', '.join(sorted(duplicates))}")
+
+
+def _load_audit(root: Path, chapter_number: int) -> AuditReport:
+    path = _chapter_dir(root, chapter_number) / "audit.json"
+    if not path.exists():
+        raise StateUpdateError(f"{path} is missing; run novel audit-chapter first")
+    return load_json_model(path, AuditReport)
+
+
+def _read_front_matter(path: Path) -> DraftDocument:
+    try:
+        return read_markdown_with_front_matter(path)
+    except PolishingError as exc:
+        raise StateUpdateError(str(exc)) from exc
+
+
+def _backup_file(path: Path) -> Path:
+    backup_path = path.with_name(f"{path.name}.bak_{_compact_utc_now()}")
+    counter = 1
+    while backup_path.exists():
+        backup_path = path.with_name(f"{path.name}.bak_{_compact_utc_now()}_{counter}")
+        counter += 1
+    shutil.copy2(path, backup_path)
+    return backup_path
+
+
+def _refuse_existing(path: Path, force: bool) -> None:
+    if path.exists() and not force:
+        raise StateUpdateError(f"{path} already exists; use --force to overwrite it")
+
+
+def _require_unique(values: list[str], label: str) -> None:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    if duplicates:
+        raise StateUpdateError(f"duplicate {label}: {', '.join(sorted(duplicates))}")
+
+
+def _extract_json_object(content: str) -> str:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise StateUpdateError("provider response does not contain a JSON object")
+    return stripped[start : end + 1]
+
+
+def _chapter_dir(root: Path, chapter_number: int) -> Path:
+    return root / "memory" / "chapters" / f"{chapter_number:03d}"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _compact_utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")

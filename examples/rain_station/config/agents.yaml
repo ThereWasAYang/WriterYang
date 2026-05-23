@@ -1,0 +1,33 @@
+agents:
+  orchestrator:
+    provider: "mock"
+    api_key_env: "OPENAI_API_KEY"
+    model: "mock-model"
+  inspiration:
+    provider: "mock"
+    api_key_env: "INSPIRATION_API_KEY"
+    model: "mock-model"
+  canon:
+    provider: "mock"
+    api_key_env: "CANON_API_KEY"
+    model: "mock-model"
+  plot:
+    provider: "mock"
+    api_key_env: "PLOT_API_KEY"
+    model: "mock-model"
+  writer:
+    provider: "mock"
+    api_key_env: "WRITER_API_KEY"
+    model: "mock-model"
+  polish:
+    provider: "mock"
+    api_key_env: "POLISH_API_KEY"
+    model: "mock-model"
+  audit:
+    provider: "mock"
+    api_key_env: "AUDIT_API_KEY"
+    model: "mock-model"
+  state_update:
+    provider: "mock"
+    api_key_env: "STATE_UPDATE_API_KEY"
+    model: "mock-model"

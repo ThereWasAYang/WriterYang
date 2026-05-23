@@ -1,0 +1,21 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.env
+.vscode/
+
+# Internal agent/project-planning docs. Keep these local; do not publish.
+AGENTS.md
+docs/PRODUCT_SPEC.md
+docs/ARCHITECTURE.md
+docs/DATA_SCHEMA.md
+docs/WORKFLOW.md
+docs/ROADMAP.md

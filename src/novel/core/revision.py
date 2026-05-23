@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
+from typing import Literal
+
+from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.drafting import _chapter_number_text
+from novel.core.io import load_json_model, load_yaml_model
+from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
+from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
+from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.schemas import (
+    AuditReport,
+    ChapterPlan,
+    EntityState,
+    ProjectConfig,
+    RevisionLog,
+    RevisionRecord,
+    TimelineFile,
+)
+
+
+RevisionTarget = Literal["draft", "polished"]
+
+
+class RevisionError(RuntimeError):
+    """Raised when chapter revision cannot proceed safely."""
+
+
+@dataclass(frozen=True)
+class ChapterRevisionOptions:
+    root: Path
+    chapter_number: int
+    instruction: str | None = None
+    from_audit: bool = False
+    target: RevisionTarget = "polished"
+    force: bool = False
+    save_as_version: bool = True
+
+
+@dataclass(frozen=True)
+class ChapterRevisionResult:
+    output_path: Path
+    revision_log_path: Path
+    record: RevisionRecord
+    revised_markdown: str
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RevisionContext:
+    project: ProjectConfig
+    plan: ChapterPlan
+    source_document: DraftDocument
+    source_file: str
+    audit: AuditReport | None
+    style_guide: str
+    canon_summary: str
+    state: EntityState
+    timeline: TimelineFile
+
+
+def revise_chapter(
+    options: ChapterRevisionOptions,
+    provider: ModelProvider,
+    *,
+    provider_name: str | None = None,
+) -> ChapterRevisionResult:
+    root = options.root.resolve()
+    if options.chapter_number < 1:
+        raise RevisionError("chapter_number must be a positive integer")
+    if options.target not in {"draft", "polished"}:
+        raise RevisionError("--target must be draft or polished")
+    if not options.from_audit and not _clean_optional(options.instruction):
+        raise RevisionError("provide --instruction, --input, or --from-audit")
+
+    context, warnings = load_revision_context(root, options)
+    if context.plan.chapter_number != options.chapter_number:
+        raise RevisionError(
+            f"plan.json chapter_number {context.plan.chapter_number} does not match requested "
+            f"chapter {options.chapter_number}"
+        )
+    source_chapter = context.source_document.metadata.get("chapter_number")
+    if source_chapter != options.chapter_number:
+        raise RevisionError(
+            f"{context.source_file} chapter_number {source_chapter} does not match requested "
+            f"chapter {options.chapter_number}"
+        )
+
+    response = provider.generate(
+        ModelRequest(
+            system_prompt=build_revision_system_prompt(),
+            user_prompt=build_revision_user_prompt(context, options),
+            context=context.canon_summary,
+        )
+    )
+    body = _clean_revised_body(response.content)
+    if not body:
+        raise RevisionError("revision provider returned empty content")
+
+    chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
+    output_path = _revision_output_path(chapter_dir, options.target, options.save_as_version)
+    _refuse_existing(output_path, options.force)
+    revision_id = _new_revision_id()
+    title = str(context.source_document.metadata.get("title") or context.plan.title)
+    revised_markdown = render_revised_markdown(
+        chapter_number=options.chapter_number,
+        title=title,
+        target=options.target,
+        source_file=context.source_file,
+        revision_id=revision_id,
+        body=body,
+        created_at=_utc_now(),
+    )
+    output_path.write_text(revised_markdown, encoding="utf-8")
+
+    record = RevisionRecord(
+        id=revision_id,
+        chapter_number=options.chapter_number,
+        target=options.target,
+        source_file=context.source_file,
+        output_file=output_path.name,
+        instruction=_clean_optional(options.instruction),
+        from_audit=options.from_audit,
+        audit_file="audit.json" if context.audit else None,
+        audit_issue_ids=[issue.id for issue in context.audit.issues] if context.audit else [],
+        created_at=datetime.now(timezone.utc).replace(microsecond=0),
+        provider=provider_name,
+    )
+    log_path = chapter_dir / "revision_log.json"
+    _append_revision_log(log_path, options.chapter_number, record)
+    return ChapterRevisionResult(
+        output_path=output_path,
+        revision_log_path=log_path,
+        record=record,
+        revised_markdown=revised_markdown,
+        warnings=tuple(warnings),
+    )
+
+
+def load_revision_context(
+    root: Path,
+    options: ChapterRevisionOptions,
+) -> tuple[RevisionContext, list[str]]:
+    chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
+    source_file = f"{options.target}.md"
+    source_path = chapter_dir / source_file
+    plan_path = chapter_dir / "plan.json"
+    audit_path = chapter_dir / "audit.json"
+    if not plan_path.exists():
+        raise RevisionError(f"{plan_path} is missing; run novel plan-chapter first")
+    if not source_path.exists():
+        raise RevisionError(f"{source_path} is missing; run the earlier chapter step first")
+    if options.from_audit and not audit_path.exists():
+        raise RevisionError(f"{audit_path} is missing; run novel audit-chapter first")
+
+    warnings: list[str] = []
+    style_guide = _read_style_guide(root, warnings)
+    audit = load_json_model(audit_path, AuditReport) if audit_path.exists() else None
+    canon = load_canon_files(root)
+    return (
+        RevisionContext(
+            project=load_yaml_model(root / "project.yaml", ProjectConfig),
+            plan=load_json_model(plan_path, ChapterPlan),
+            source_document=read_markdown_with_front_matter(source_path),
+            source_file=source_file,
+            audit=audit,
+            style_guide=style_guide,
+            canon_summary=format_canon_summary(canon),
+            state=load_json_model(root / "memory" / "state" / "current_state.json", EntityState),
+            timeline=load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile),
+        ),
+        warnings,
+    )
+
+
+def load_revision_provider(
+    root: Path,
+    provider_name: str,
+    *,
+    target: RevisionTarget = "polished",
+    agent_config_path: Path | None = None,
+    model_name: str | None = None,
+) -> ModelProvider:
+    agent_name = "writer" if target == "draft" else "polish"
+    return create_agent_provider(
+        agent_config_path or default_agent_config_path(root),
+        agent_name,
+        overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
+        mock_response=default_mock_revised_body(target),
+    )
+
+
+def read_revision_instruction(instruction: str | None, input_path: Path | None) -> str | None:
+    if instruction and input_path:
+        raise RevisionError("provide either --instruction or --input, not both")
+    if input_path:
+        if not input_path.exists():
+            raise RevisionError(f"revision instruction input file is missing: {input_path}")
+        return input_path.read_text(encoding="utf-8").strip() or None
+    return instruction.strip() if instruction and instruction.strip() else None
+
+
+def build_revision_system_prompt() -> str:
+    return (
+        "你是 Revision Agent。请只输出修订后的小说正文 Markdown。"
+        "不要输出解释、分析、修改说明、JSON、大纲或包装语。"
+        "如果用户要求基于 audit 修订，请重点修复 audit issues。"
+        "不要引入新的设定矛盾，不要改变核心剧情，除非用户明确要求。"
+        "不要修改 canon/state/timeline，不要提前揭示 hidden_truths。"
+        "不要让角色知道他们尚未获得的信息。"
+        "正文中不要出现“根据设定”“审核报告”“修订如下”等工作区语言。"
+    )
+
+
+def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisionOptions) -> str:
+    audit_text = "无"
+    if context.audit:
+        audit_text = context.audit.model_dump_json(indent=2)
+    mode = "基于 audit issues 修复" if options.from_audit else "基于用户 instruction 修订"
+    return (
+        f"项目：{context.project.title}\n"
+        f"语言：{context.project.language}\n"
+        f"修订模式：{mode}\n"
+        f"目标文件类型：{options.target}\n"
+        f"源文件：{context.source_file}\n"
+        f"用户修订要求：{options.instruction or '无'}\n\n"
+        "请只输出修订后的正文 Markdown，不要包含 YAML front matter。"
+        "保留章节核心剧情与结尾钩子，除非用户明确要求改变。\n\n"
+        f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
+        f"Source metadata：\n{json.dumps(context.source_document.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
+        f"Source body：\n{context.source_document.body}\n\n"
+        f"Audit report：\n{audit_text}\n\n"
+        f"Style guide：\n{context.style_guide}\n\n"
+        f"Canon 摘要：\n{context.canon_summary}\n\n"
+        f"Current state：\n{context.state.model_dump_json(indent=2)}\n\n"
+        f"Timeline：\n{context.timeline.model_dump_json(indent=2)}\n"
+    )
+
+
+def render_revised_markdown(
+    *,
+    chapter_number: int,
+    title: str,
+    target: RevisionTarget,
+    source_file: str,
+    revision_id: str,
+    body: str,
+    created_at: str,
+) -> str:
+    status = "draft_revision" if target == "draft" else "polished_revision"
+    return (
+        "---\n"
+        f"chapter_number: {chapter_number}\n"
+        f"title: {json.dumps(title, ensure_ascii=False)}\n"
+        f"status: {status}\n"
+        "created_by: revision_agent\n"
+        f"based_on: {source_file}\n"
+        f"revision_id: {revision_id}\n"
+        f"created_at: {created_at}\n"
+        "---\n\n"
+        f"# 第{_chapter_number_text(chapter_number)}章 {title}\n\n"
+        f"{body.strip()}\n"
+    )
+
+
+def default_mock_revised_body(target: RevisionTarget = "polished") -> str:
+    label = "润色稿" if target == "polished" else "初稿"
+    return (
+        f"雨声比先前更低，像一层细密的幕布压在旧车站上。这个修订后的{label}保留了原本的事件，"
+        "却让林澈的迟疑更清楚地浮出水面。\n\n"
+        "他重新望向站台尽头，广播里的杂音已经消失，只剩檐下不断坠落的水珠。那张湿透的车票仍在"
+        "笔记本里发凉，像一个尚未被说出口的问题。\n\n"
+        "林澈没有得到答案。他只是意识到，自己已经无法把这座车站当成一处废墟。"
+    )
+
+
+def _revision_output_path(chapter_dir: Path, target: RevisionTarget, save_as_version: bool) -> Path:
+    if not save_as_version:
+        return chapter_dir / f"{target}.md"
+    existing_versions = [1]
+    pattern = re.compile(rf"^{re.escape(target)}\.v([0-9]+)\.md$")
+    for path in chapter_dir.glob(f"{target}.v*.md"):
+        match = pattern.match(path.name)
+        if match:
+            existing_versions.append(int(match.group(1)))
+    return chapter_dir / f"{target}.v{max(existing_versions) + 1}.md"
+
+
+def _append_revision_log(path: Path, chapter_number: int, record: RevisionRecord) -> None:
+    if path.exists():
+        log = load_json_model(path, RevisionLog)
+        if log.chapter_number != chapter_number:
+            raise RevisionError(
+                f"{path} chapter_number {log.chapter_number} does not match requested chapter {chapter_number}"
+            )
+    else:
+        log = RevisionLog(chapter_number=chapter_number, revisions=[])
+    updated = log.model_copy(update={"revisions": [*log.revisions, record]})
+    path.write_text(updated.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+
+def _read_style_guide(root: Path, warnings: list[str]) -> str:
+    path = root / "memory" / "style_guide.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    warnings.append("memory/style_guide.md is missing; using default style guidance")
+    return "# Style Guide\n\n## Overall Style\n\n保持清晰、克制、连贯，避免过度解释。\n"
+
+
+def _refuse_existing(path: Path, force: bool) -> None:
+    if path.exists() and not force:
+        raise RevisionError(f"{path} already exists; use --force to overwrite it")
+
+
+def _clean_revised_body(content: str) -> str:
+    body = content.strip()
+    if body.startswith("```"):
+        lines = body.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        body = "\n".join(lines).strip()
+    for wrapper in ("以下是修订后的文本：", "修订如下：", "以下是修订后的正文："):
+        if body.startswith(wrapper):
+            body = body[len(wrapper) :].strip()
+    return body
+
+
+def _clean_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _new_revision_id() -> str:
+    return f"revision_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

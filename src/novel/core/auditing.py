@@ -1,0 +1,584 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+from typing import Literal
+
+from pydantic import ValidationError
+
+from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.io import load_json_model, load_yaml_model
+from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
+from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
+from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.search import retrieve_context
+from novel.core.schemas import (
+    AuditEvidence,
+    AuditIssue,
+    AuditReport,
+    ChapterPlan,
+    EntityState,
+    ProjectConfig,
+    TimelineFile,
+)
+from novel.core.validation import validate_canon
+
+
+AuditedFile = Literal["draft.md", "polished.md"]
+FocusArea = Literal[
+    "canon",
+    "state",
+    "timeline",
+    "style",
+    "plot",
+    "character_voice",
+    "premature_reveal",
+]
+
+
+class AuditError(RuntimeError):
+    """Raised when consistency audit cannot proceed safely."""
+
+
+@dataclass(frozen=True)
+class ChapterAuditOptions:
+    root: Path
+    chapter_number: int
+    instruction: str | None = None
+    force: bool = False
+    strict: bool = False
+    focus: tuple[FocusArea, ...] = ()
+    audited_file: AuditedFile = "polished.md"
+    use_search_context: bool = False
+
+
+@dataclass(frozen=True)
+class ChapterAuditResult:
+    audit_path: Path
+    report: AuditReport
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AuditContext:
+    project: ProjectConfig
+    plan: ChapterPlan
+    audited_document: DraftDocument
+    audited_body: str
+    draft_body: str
+    polished_body: str
+    inspiration_md: str
+    style_guide: str
+    canon_summary: str
+    state_json: str
+    timeline_json: str
+    search_context: str = ""
+
+
+@dataclass(frozen=True)
+class PrecheckResult:
+    issues: tuple[AuditIssue, ...]
+    passed_checks: tuple[str, ...]
+    warnings: tuple[str, ...]
+
+
+def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> ChapterAuditResult:
+    root = options.root.resolve()
+    if options.chapter_number < 1:
+        raise AuditError("chapter_number must be a positive integer")
+    if options.audited_file not in {"draft.md", "polished.md"}:
+        raise AuditError("--audited-file must be draft.md or polished.md")
+
+    chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
+    audit_path = chapter_dir / "audit.json"
+    plan_path = chapter_dir / "plan.json"
+    audited_path = chapter_dir / options.audited_file
+    if not plan_path.exists():
+        raise AuditError(f"{plan_path} is missing; run novel plan-chapter first")
+    if not audited_path.exists():
+        raise AuditError(f"{audited_path} is missing; run novel write-chapter or polish-chapter first")
+    _refuse_existing(audit_path, options.force)
+
+    context = load_audit_context(root, options)
+    precheck = run_deterministic_prechecks(root, options, context)
+
+    response = provider.generate(
+        ModelRequest(
+            system_prompt=build_audit_system_prompt(),
+            user_prompt=build_audit_user_prompt(
+                context=context,
+                instruction=options.instruction,
+                strict=options.strict,
+                focus=options.focus,
+            ),
+            context=context.canon_summary,
+            json_schema_name="AuditReport",
+        )
+    )
+    provider_report = parse_audit_report(response.content)
+    if provider_report.chapter_number != options.chapter_number:
+        precheck = _append_precheck_issue(
+            precheck,
+            _issue(
+                issue_id="audit_precheck_provider_chapter_number",
+                severity="critical",
+                issue_type="continuity_issue",
+                description=(
+                    f"Provider returned chapter_number {provider_report.chapter_number}, "
+                    f"expected {options.chapter_number}."
+                ),
+                source="provider_response",
+                quote=f"chapter_number={provider_report.chapter_number}",
+                suggested_fix="Regenerate the audit with the requested chapter number.",
+            ),
+        )
+    if provider_report.audited_file != options.audited_file:
+        precheck = _append_precheck_issue(
+            precheck,
+            _issue(
+                issue_id="audit_precheck_provider_audited_file",
+                severity="high",
+                issue_type="continuity_issue",
+                description=(
+                    f"Provider returned audited_file {provider_report.audited_file}, "
+                    f"expected {options.audited_file}."
+                ),
+                source="provider_response",
+                quote=f"audited_file={provider_report.audited_file}",
+                suggested_fix="Use the requested audited_file value in audit.json.",
+            ),
+        )
+
+    report = combine_audit_reports(
+        provider_report,
+        precheck_issues=precheck.issues,
+        passed_checks=precheck.passed_checks,
+        chapter_number=options.chapter_number,
+        audited_file=options.audited_file,
+    )
+    audit_path.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return ChapterAuditResult(
+        audit_path=audit_path,
+        report=report,
+        warnings=precheck.warnings,
+    )
+
+
+def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext:
+    chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
+    project = load_yaml_model(root / "project.yaml", ProjectConfig)
+    plan = load_json_model(chapter_dir / "plan.json", ChapterPlan)
+    audited_document = _read_front_matter(chapter_dir / options.audited_file)
+    draft_body = _read_optional_document_body(chapter_dir / "draft.md")
+    polished_body = _read_optional_document_body(chapter_dir / "polished.md")
+    warnings: list[str] = []
+    style_guide = _read_style_guide(root, warnings)
+    canon = load_canon_files(root)
+
+    return AuditContext(
+        project=project,
+        plan=plan,
+        audited_document=audited_document,
+        audited_body=audited_document.body,
+        draft_body=draft_body,
+        polished_body=polished_body,
+        inspiration_md=_read_optional_text(root / "memory" / "inspiration.md"),
+        style_guide=style_guide,
+        canon_summary=format_canon_summary(canon),
+        state_json=_read_required_json_text(root / "memory" / "state" / "current_state.json"),
+        timeline_json=_read_required_json_text(root / "memory" / "state" / "timeline.json"),
+        search_context=(
+            retrieve_context(root, chapter_number=options.chapter_number, instruction=options.instruction)
+            .render_for_prompt()
+            if options.use_search_context
+            else ""
+        ),
+    )
+
+
+def run_deterministic_prechecks(
+    root: Path,
+    options: ChapterAuditOptions,
+    context: AuditContext,
+) -> PrecheckResult:
+    chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
+    issues: list[AuditIssue] = []
+    passed_checks: list[str] = [
+        f"{options.audited_file}_exists",
+        "plan_json_exists",
+        "plan_schema_valid",
+    ]
+    warnings: list[str] = []
+
+    if context.plan.chapter_number == options.chapter_number:
+        passed_checks.append("plan_chapter_number_matches")
+    else:
+        issues.append(
+            _issue(
+                issue_id="audit_precheck_plan_chapter_number",
+                severity="critical",
+                issue_type="continuity_issue",
+                description=(
+                    f"plan.json chapter_number {context.plan.chapter_number} does not match "
+                    f"requested chapter {options.chapter_number}."
+                ),
+                source=str(chapter_dir / "plan.json"),
+                quote=f"chapter_number={context.plan.chapter_number}",
+                suggested_fix="Update plan.json or audit the matching chapter directory.",
+            )
+        )
+
+    front_chapter = context.audited_document.metadata.get("chapter_number")
+    if front_chapter == options.chapter_number:
+        passed_checks.append("front_matter_chapter_number_matches")
+    else:
+        issues.append(
+            _issue(
+                issue_id="audit_precheck_front_matter_chapter_number",
+                severity="critical",
+                issue_type="continuity_issue",
+                description=(
+                    f"{options.audited_file} front matter chapter_number {front_chapter} "
+                    f"does not match requested chapter {options.chapter_number}."
+                ),
+                source=str(chapter_dir / options.audited_file),
+                quote=f"chapter_number={front_chapter}",
+                suggested_fix="Regenerate or correct the chapter front matter before export.",
+            )
+        )
+
+    if context.audited_document.metadata:
+        passed_checks.append("front_matter_valid")
+
+    _validate_state_file(root, issues, passed_checks)
+    _validate_timeline_file(root, issues, passed_checks)
+    _validate_canon_files(root, issues, passed_checks)
+
+    if not (root / "memory" / "style_guide.md").exists():
+        warnings.append("memory/style_guide.md is missing; using default style guidance")
+
+    return PrecheckResult(
+        issues=tuple(issues),
+        passed_checks=tuple(passed_checks),
+        warnings=tuple(warnings),
+    )
+
+
+def load_audit_provider(
+    root: Path,
+    provider_name: str,
+    *,
+    chapter_number: int = 1,
+    audited_file: AuditedFile = "polished.md",
+    agent_config_path: Path | None = None,
+    model_name: str | None = None,
+) -> ModelProvider:
+    return create_agent_provider(
+        agent_config_path or default_agent_config_path(root),
+        "audit",
+        overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
+        mock_response=default_mock_audit_report_json(chapter_number, audited_file),
+    )
+
+
+def read_audit_instruction(instruction: str | None, input_path: Path | None) -> str | None:
+    if instruction and input_path:
+        raise AuditError("provide either --instruction or --input, not both")
+    if input_path:
+        if not input_path.exists():
+            raise AuditError(f"audit instruction input file is missing: {input_path}")
+        return input_path.read_text(encoding="utf-8").strip() or None
+    return instruction.strip() if instruction and instruction.strip() else None
+
+
+def build_audit_system_prompt() -> str:
+    return (
+        "你是 Audit Agent。请只输出 AuditReport JSON，不要输出 Markdown、解释性文字或包装语。"
+        "必须检查 canon 冲突、state 冲突、timeline 冲突、角色是否知道了不该知道的信息、"
+        "物品位置/持有人/状态是否合理、地点状态是否合理、是否提前揭示 hidden_truths、"
+        "章节是否偏离 plan.json 的核心目标、文风是否明显违背 style_guide.md。"
+        "每个问题都必须包含 severity、type、evidence、suggested_fix。"
+        "不要修改正文，不要更新 canon/state/timeline。"
+        "如果没有发现问题，也要输出合法的 AuditReport JSON。"
+    )
+
+
+def build_audit_user_prompt(
+    *,
+    context: AuditContext,
+    instruction: str | None,
+    strict: bool,
+    focus: tuple[FocusArea, ...],
+) -> str:
+    return (
+        f"项目：{context.project.title}\n"
+        f"语言：{context.project.language}\n"
+        f"类型：{', '.join(context.project.genre)}\n"
+        f"章节：{context.plan.chapter_number} - {context.plan.title}\n"
+        f"严格审核：{'是' if strict else '否'}\n"
+        f"审核重点：{', '.join(focus) if focus else '全部'}\n"
+        f"用户额外审核要求：{instruction or '无'}\n\n"
+        "请输出严格 JSON，符合 AuditReport schema，至少包含：\n"
+        "chapter_number, audited_file, overall_status, summary, issues, passed_checks, created_at。\n"
+        "issues 每项至少包含 id, severity, type, description, evidence, suggested_fix。\n\n"
+        "Severity policy：\n"
+        "- critical：会导致章节无法继续使用的问题，例如重大设定矛盾、主角死亡但后文当作未死亡、章节编号错乱。\n"
+        "- high：明显影响连续性的问题，例如物品位置错误、角色知道了不该知道的信息、提前揭示重大隐藏真相。\n"
+        "- medium：影响阅读或逻辑但可轻微修改的问题，例如动机解释不足、场景转场不清楚。\n"
+        "- low：轻微风格或表述问题，例如语气略偏、局部重复。\n\n"
+        "Status policy：存在 critical 时 overall_status 必须是 blocked；"
+        "存在 high 且无 critical 时必须是 needs_revision；"
+        "passed 不得包含 high 或 critical issues。\n\n"
+        f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
+        f"Audited file metadata：\n{json.dumps(context.audited_document.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
+        f"Audited file body：\n{context.audited_body}\n\n"
+        f"Draft body：\n{context.draft_body}\n\n"
+        f"Polished body：\n{context.polished_body}\n\n"
+        f"{context.search_context}\n"
+        f"Style guide：\n{context.style_guide}\n\n"
+        f"Canon 摘要：\n{context.canon_summary}\n\n"
+        f"Current state：\n{context.state_json}\n\n"
+        f"Timeline：\n{context.timeline_json}\n\n"
+        f"Inspiration.md：\n{context.inspiration_md}\n"
+    )
+
+
+def parse_audit_report(content: str) -> AuditReport:
+    json_text = _extract_json_object(content)
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise AuditError(f"provider did not return valid AuditReport JSON: {exc}") from exc
+    try:
+        return AuditReport.model_validate(data)
+    except ValidationError as exc:
+        raise AuditError(f"provider returned invalid AuditReport: {exc}") from exc
+
+
+def combine_audit_reports(
+    provider_report: AuditReport,
+    *,
+    precheck_issues: tuple[AuditIssue, ...],
+    passed_checks: tuple[str, ...],
+    chapter_number: int,
+    audited_file: AuditedFile,
+) -> AuditReport:
+    issues = list(precheck_issues) + list(provider_report.issues)
+    status = _status_for_issues(issues, provider_report.overall_status)
+    checks = _unique_preserve_order([*passed_checks, *provider_report.passed_checks])
+    summary = provider_report.summary
+    if precheck_issues:
+        summary = f"Deterministic pre-checks found {len(precheck_issues)} issue(s). {summary}"
+
+    return AuditReport(
+        chapter_number=chapter_number,
+        audited_file=audited_file,
+        overall_status=status,
+        summary=summary,
+        issues=issues,
+        passed_checks=checks,
+        created_at=_utc_now(),
+    )
+
+
+def default_mock_audit_report_json(
+    chapter_number: int = 1,
+    audited_file: AuditedFile = "polished.md",
+) -> str:
+    return json.dumps(
+        {
+            "chapter_number": chapter_number,
+            "audited_file": audited_file,
+            "overall_status": "passed",
+            "summary": "Mock audit found no blocking consistency issues.",
+            "issues": [],
+            "passed_checks": [
+                "canon_consistency_reviewed",
+                "state_consistency_reviewed",
+                "timeline_consistency_reviewed",
+                "style_reviewed",
+                "premature_reveal_reviewed",
+            ],
+            "created_at": _utc_now(),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _validate_state_file(root: Path, issues: list[AuditIssue], passed_checks: list[str]) -> None:
+    path = root / "memory" / "state" / "current_state.json"
+    try:
+        load_json_model(path, EntityState)
+    except Exception as exc:
+        issues.append(
+            _issue(
+                issue_id="audit_precheck_current_state_schema",
+                severity="high",
+                issue_type="state_conflict",
+                description=f"current_state.json cannot be validated as EntityState: {exc}",
+                source=str(path),
+                quote=exc.__class__.__name__,
+                suggested_fix="Fix memory/state/current_state.json before accepting this chapter.",
+            )
+        )
+    else:
+        passed_checks.append("current_state_schema_valid")
+
+
+def _validate_timeline_file(root: Path, issues: list[AuditIssue], passed_checks: list[str]) -> None:
+    path = root / "memory" / "state" / "timeline.json"
+    try:
+        load_json_model(path, TimelineFile)
+    except Exception as exc:
+        issues.append(
+            _issue(
+                issue_id="audit_precheck_timeline_schema",
+                severity="high",
+                issue_type="timeline_conflict",
+                description=f"timeline.json cannot be validated as TimelineFile: {exc}",
+                source=str(path),
+                quote=exc.__class__.__name__,
+                suggested_fix="Fix memory/state/timeline.json before accepting this chapter.",
+            )
+        )
+    else:
+        passed_checks.append("timeline_schema_valid")
+
+
+def _validate_canon_files(root: Path, issues: list[AuditIssue], passed_checks: list[str]) -> None:
+    report = validate_canon(root)
+    if report.ok:
+        passed_checks.append("canon_validation_passed")
+    for index, message in enumerate(report.errors, start=1):
+        issues.append(
+            _issue(
+                issue_id=f"audit_precheck_canon_error_{index}",
+                severity="high",
+                issue_type="canon_conflict",
+                description=message.message,
+                source=str(message.path),
+                quote="canon validation error",
+                suggested_fix="Fix canon validation errors before accepting this chapter.",
+            )
+        )
+    for index, message in enumerate(report.warnings, start=1):
+        issues.append(
+            _issue(
+                issue_id=f"audit_precheck_canon_warning_{index}",
+                severity="low",
+                issue_type="canon_conflict",
+                description=message.message,
+                source=str(message.path),
+                quote="canon validation warning",
+                suggested_fix="Review the referenced canon relationship and update missing IDs if needed.",
+            )
+        )
+
+
+def _issue(
+    *,
+    issue_id: str,
+    severity: Literal["low", "medium", "high", "critical"],
+    issue_type: str,
+    description: str,
+    source: str,
+    quote: str,
+    suggested_fix: str,
+) -> AuditIssue:
+    return AuditIssue(
+        id=issue_id,
+        severity=severity,
+        type=issue_type,
+        description=description,
+        evidence=[AuditEvidence(source=source, quote=quote)],
+        suggested_fix=suggested_fix,
+    )
+
+
+def _append_precheck_issue(precheck: PrecheckResult, issue: AuditIssue) -> PrecheckResult:
+    return PrecheckResult(
+        issues=(*precheck.issues, issue),
+        passed_checks=precheck.passed_checks,
+        warnings=precheck.warnings,
+    )
+
+
+def _status_for_issues(
+    issues: list[AuditIssue],
+    preferred: Literal["passed", "needs_revision", "blocked"],
+) -> Literal["passed", "needs_revision", "blocked"]:
+    if any(issue.severity == "critical" for issue in issues):
+        return "blocked"
+    if any(issue.severity == "high" for issue in issues):
+        return "needs_revision"
+    if issues and preferred == "passed":
+        return "needs_revision"
+    return preferred
+
+
+def _read_front_matter(path: Path) -> DraftDocument:
+    try:
+        return read_markdown_with_front_matter(path)
+    except PolishingError as exc:
+        raise AuditError(str(exc)) from exc
+
+
+def _read_optional_document_body(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return _read_front_matter(path).body
+
+
+def _read_style_guide(root: Path, warnings: list[str]) -> str:
+    path = root / "memory" / "style_guide.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    warnings.append("memory/style_guide.md is missing; using default style guidance")
+    return "# Style Guide\n\n## Overall Style\n\n保持清晰、克制、连贯，避免过度解释。\n"
+
+
+def _read_optional_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _read_required_json_text(path: Path) -> str:
+    if not path.exists():
+        raise AuditError(f"{path} is missing")
+    return path.read_text(encoding="utf-8")
+
+
+def _refuse_existing(path: Path, force: bool) -> None:
+    if path.exists() and not force:
+        raise AuditError(f"{path} already exists; use --force to overwrite it")
+
+
+def _extract_json_object(content: str) -> str:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise AuditError("provider response does not contain a JSON object")
+    return stripped[start : end + 1]
+
+
+def _unique_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value not in seen:
+            result.append(value)
+            seen.add(value)
+    return result
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

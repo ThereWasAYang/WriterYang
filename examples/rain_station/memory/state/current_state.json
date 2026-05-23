@@ -1,0 +1,38 @@
+{
+  "story_position": {
+    "latest_chapter": 0,
+    "in_story_time": "故事开始前",
+    "summary": "林澈尚未进入旧车站。"
+  },
+  "character_states": [
+    {
+      "entity_id": "char_lin_che",
+      "location_id": null,
+      "health": "正常",
+      "mental_state": "平静",
+      "knowledge": [],
+      "goals": ["确认旧车票来源"],
+      "possessions": [],
+      "last_updated_chapter": 0
+    }
+  ],
+  "item_states": [
+    {
+      "entity_id": "item_broken_ticket",
+      "holder_id": null,
+      "location_id": "loc_old_station",
+      "condition": "被雨水浸湿",
+      "known_properties": [],
+      "last_updated_chapter": 0
+    }
+  ],
+  "location_states": [
+    {
+      "entity_id": "loc_old_station",
+      "accessibility": "可进入",
+      "condition": "废弃",
+      "active_events": [],
+      "last_updated_chapter": 0
+    }
+  ]
+}

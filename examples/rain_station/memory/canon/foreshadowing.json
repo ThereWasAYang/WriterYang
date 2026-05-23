@@ -1,0 +1,20 @@
+{
+  "foreshadowing_threads": [
+    {
+      "id": "thread_broken_ticket",
+      "type": "object_clue",
+      "title": "破损车票日期",
+      "introduced_in_chapter": 1,
+      "description": "破损车票上残留的日期反复出现，但暂不解释含义。",
+      "status": "active",
+      "importance": "high",
+      "reader_visible": true,
+      "hidden_truth_id": "truth_lost_night",
+      "planned_payoff": {
+        "chapter": 8,
+        "description": "日期与林澈童年的失踪夜晚对应。"
+      },
+      "related_entity_ids": ["item_broken_ticket", "char_lin_che", "loc_old_station"]
+    }
+  ]
+}

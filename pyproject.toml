@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "writeryang"
+version = "0.1.0"
+description = "AI-assisted long-form novel writing workspace and CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "WriterYang" }
+]
+keywords = ["novel", "writing", "cli", "agents", "fiction"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Text Processing",
+]
+dependencies = [
+  "pydantic>=2.13",
+  "PyYAML>=6.0",
+  "python-docx>=1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "pytest>=9.0",
+  "twine>=5.0",
+]
+
+[project.scripts]
+novel = "novel.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+novel = ["web_static/*.html"]

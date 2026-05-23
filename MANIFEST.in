@@ -1,0 +1,13 @@
+include README.md
+include pyproject.toml
+include docs/INTEGRATION.md
+include docs/RELEASE.md
+include docs/openclaw_tool_manifest.json
+exclude AGENTS.md
+exclude docs/PRODUCT_SPEC.md
+exclude docs/ARCHITECTURE.md
+exclude docs/DATA_SCHEMA.md
+exclude docs/WORKFLOW.md
+exclude docs/ROADMAP.md
+recursive-include examples *.yaml *.json *.md .gitkeep
+recursive-include src/novel/web_static *.html

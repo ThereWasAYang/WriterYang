@@ -1,0 +1,12 @@
+{
+  "world_rules": [
+    {
+      "id": "rule_broadcast_memory",
+      "name": "广播与记忆",
+      "description": "旧车站广播有时会播放与人物记忆相关的片段。",
+      "visibility": "hidden",
+      "limitations": ["广播不会直接说明完整真相"],
+      "known_by_character_ids": []
+    }
+  ]
+}

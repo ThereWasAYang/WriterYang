@@ -1,0 +1,31 @@
+{
+  "name": "writeryang-cli",
+  "version": "0.1",
+  "description": "Lightweight CLI contract for external agents. Not an MCP server.",
+  "commands": [
+    {
+      "name": "status",
+      "argv": ["novel", "status", "--project", "{project}", "--json", "--quiet"]
+    },
+    {
+      "name": "validate",
+      "argv": ["novel", "validate", "--project", "{project}", "--json", "--quiet"]
+    },
+    {
+      "name": "ask",
+      "argv": ["novel", "ask", "{request}", "--project", "{project}", "--provider", "mock", "--json", "--quiet"]
+    },
+    {
+      "name": "generate_chapter",
+      "argv": ["novel", "generate-chapter", "{chapter_number}", "--project", "{project}", "--provider", "mock", "--json", "--quiet"]
+    },
+    {
+      "name": "audit_chapter",
+      "argv": ["novel", "audit-chapter", "{chapter_number}", "--project", "{project}", "--provider", "mock", "--json", "--quiet"]
+    },
+    {
+      "name": "export_markdown",
+      "argv": ["novel", "export", "markdown", "--project", "{project}", "--json", "--quiet"]
+    }
+  ]
+}

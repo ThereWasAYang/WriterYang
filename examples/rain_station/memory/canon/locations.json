@@ -1,0 +1,14 @@
+{
+  "locations": [
+    {
+      "id": "loc_old_station",
+      "name": "旧车站",
+      "type": "abandoned_station",
+      "reader_visible_summary": "城郊废弃多年的小车站，雨夜会传来不合时宜的广播声。",
+      "private_author_notes": "车站与林澈童年的失踪事件有关。",
+      "connected_location_ids": [],
+      "rules": [],
+      "tags": ["station"]
+    }
+  ]
+}

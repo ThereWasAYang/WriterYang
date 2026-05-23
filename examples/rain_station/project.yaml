@@ -1,0 +1,15 @@
+project_id: "novel_rain_station_example"
+title: "雨夜旧车站"
+language: "zh-CN"
+genre:
+  - "悬疑"
+  - "都市奇幻"
+target_length:
+  type: "long_novel"
+  planned_chapters: 12
+narration:
+  pov: "third_person_limited"
+  tense: "past"
+default_style_profile_id: "style_default"
+created_at: "2026-05-23T00:00:00Z"
+updated_at: "2026-05-23T00:00:00Z"

@@ -136,6 +136,32 @@ def test_generate_chapter_failure_writes_failed_run_log(tmp_path: Path) -> None:
     assert run_log.steps[0].status == "failed"
 
 
+def test_generate_chapter_resume_reuses_existing_outputs_and_continues(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    _run_cli(["generate-chapter", "1", "--path", str(root), "--provider", "mock", "--stop-after", "plan"])
+    plan_path = root / "memory" / "chapters" / "001" / "plan.json"
+    original_plan = plan_path.read_text(encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(
+        ["generate-chapter", "1", "--path", str(root), "--provider", "mock", "--resume"]
+    )
+
+    assert code == 0
+    assert stderr == ""
+    assert "Audit passed" in stdout
+    assert plan_path.read_text(encoding="utf-8") == original_plan
+    run_log = _latest_run_log(root)
+    assert run_log.status == "completed"
+    assert [step.agent for step in run_log.steps] == [
+        "plot_agent",
+        "writer_agent",
+        "polish_agent",
+        "audit_agent",
+    ]
+    assert "memory/chapters/001/plan.json" in run_log.output_files
+    assert "memory/chapters/001/audit.json" in run_log.output_files
+
+
 def test_generate_chapter_default_does_not_silently_overwrite(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     first, _, _ = _run_cli(["generate-chapter", "1", "--path", str(root), "--provider", "mock"])

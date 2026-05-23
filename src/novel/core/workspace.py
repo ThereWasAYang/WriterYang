@@ -201,6 +201,8 @@ def _agents_yaml() -> str:
                 f'    api_key_env: "{api_key_env}"\n',
                 f'    model: "{model}"\n',
                 f'    reasoning: "{reasoning}"\n',
+                "    thinking:\n",
+                '      type: "disabled"\n',
                 f"    max_context_tokens: {max_tokens}\n",
                 f"    temperature: {temperature}\n",
                 f"    timeout_seconds: {timeout}\n",

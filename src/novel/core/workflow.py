@@ -41,6 +41,7 @@ class GenerateChapterOptions:
     chapter_number: int
     instruction: str | None = None
     force: bool = False
+    resume: bool = False
     provider_name: ProviderName = "config"
     agent_config_path: Path | None = None
     model_name: str | None = None
@@ -158,6 +159,17 @@ def _run_plan_step(
             "memory/state/timeline.json",
         ],
     )
+    if _resume_existing_step(
+        root,
+        options,
+        step,
+        "plan",
+        [
+            root / "memory" / "chapters" / f"{options.chapter_number:03d}" / "plan.json",
+            root / "memory" / "chapters" / f"{options.chapter_number:03d}" / "plan.md",
+        ],
+    ):
+        return
     try:
         result = plan_chapter(
             ChapterPlanningOptions(
@@ -195,6 +207,14 @@ def _run_write_step(
             "memory/state/timeline.json",
         ],
     )
+    if _resume_existing_step(
+        root,
+        options,
+        step,
+        "write",
+        [root / "memory" / "chapters" / f"{options.chapter_number:03d}" / "draft.md"],
+    ):
+        return
     try:
         result = write_chapter_draft(
             ChapterDraftingOptions(
@@ -230,6 +250,14 @@ def _run_polish_step(
             "memory/style_guide.md",
         ],
     )
+    if _resume_existing_step(
+        root,
+        options,
+        step,
+        "polish",
+        [root / "memory" / "chapters" / f"{options.chapter_number:03d}" / "polished.md"],
+    ):
+        return
     try:
         result = polish_chapter(
             ChapterPolishingOptions(
@@ -266,6 +294,12 @@ def _run_audit_step(
             "memory/state/timeline.json",
         ],
     )
+    audit_path = root / "memory" / "chapters" / f"{options.chapter_number:03d}" / "audit.json"
+    if _resume_existing_step(root, options, step, "audit", [audit_path]):
+        from novel.core.io import load_json_model
+        from novel.core.schemas import AuditReport
+
+        return load_json_model(audit_path, AuditReport)
     try:
         result = audit_chapter(
             ChapterAuditOptions(
@@ -372,6 +406,27 @@ def _start_step(
 def _fail_step(step: AgentRunStep, exc: Exception) -> None:
     step.status = "failed"
     step.error = str(exc)
+
+
+def _resume_existing_step(
+    root: Path,
+    options: GenerateChapterOptions,
+    step: AgentRunStep,
+    step_name: str,
+    output_paths: list[Path],
+) -> bool:
+    if not options.resume or options.force:
+        return False
+    existing = [path for path in output_paths if path.exists()]
+    if not existing:
+        return False
+    missing = [path for path in output_paths if not path.exists()]
+    if missing:
+        names = ", ".join(_rel(root, path) for path in missing)
+        raise WorkflowError(f"cannot resume {step_name}; missing expected output files: {names}")
+    step.output_files = [_rel(root, path) for path in output_paths]
+    step.status = "completed"
+    return True
 
 
 def _fail_run(run_log: AgentRunLog, error: str) -> None:

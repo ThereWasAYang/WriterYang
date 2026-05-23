@@ -190,6 +190,7 @@ def parse_chapter_plan(content: str) -> ChapterPlan:
     except json.JSONDecodeError as exc:
         raise PlanningError(f"provider did not return valid ChapterPlan JSON: {exc}") from exc
     try:
+        data = _normalize_chapter_plan_data(data)
         return ChapterPlan.model_validate(data)
     except ValidationError as exc:
         raise PlanningError(f"provider returned invalid ChapterPlan: {exc}") from exc
@@ -233,6 +234,25 @@ def render_plan_markdown(plan: ChapterPlan) -> str:
     lines.extend(_bullets(plan.expected_state_changes))
     lines.extend(["", "## Ending Hook", "", plan.ending_hook, ""])
     return "\n".join(lines)
+
+
+def _normalize_chapter_plan_data(data: object) -> object:
+    if not isinstance(data, dict):
+        return data
+    normalized = dict(data)
+    expected_changes = normalized.get("expected_state_changes")
+    if isinstance(expected_changes, list):
+        normalized["expected_state_changes"] = [
+            value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+            for value in expected_changes
+        ]
+    elif expected_changes is not None:
+        normalized["expected_state_changes"] = [
+            expected_changes
+            if isinstance(expected_changes, str)
+            else json.dumps(expected_changes, ensure_ascii=False, sort_keys=True)
+        ]
+    return normalized
 
 
 def default_mock_chapter_plan_json(chapter_number: int = 1) -> str:

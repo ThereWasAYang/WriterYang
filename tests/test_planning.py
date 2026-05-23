@@ -11,6 +11,7 @@ from novel.core.io import load_json_model
 from novel.core.planning import (
     ChapterPlanningOptions,
     default_mock_chapter_plan_json,
+    parse_chapter_plan,
     plan_chapter,
 )
 from novel.core.providers import MockProvider
@@ -59,6 +60,32 @@ def test_plan_chapter_cli_creates_plan_json_and_markdown(tmp_path: Path) -> None
     markdown = plan_md.read_text(encoding="utf-8")
     assert "# Chapter 001: 雨夜旧车站" in markdown
     assert "## Expected State Changes" in markdown
+
+
+def test_parse_chapter_plan_normalizes_object_state_changes() -> None:
+    payload = json.loads(default_mock_chapter_plan_json(1))
+    payload["expected_state_changes"] = [
+        {"entity_id": "char_lin_che", "change": "开始怀疑广播来源"},
+    ]
+
+    plan = parse_chapter_plan(json.dumps(payload, ensure_ascii=False))
+
+    assert plan.expected_state_changes == [
+        '{"change": "开始怀疑广播来源", "entity_id": "char_lin_che"}'
+    ]
+
+
+def test_parse_chapter_plan_normalizes_mapping_state_changes() -> None:
+    payload = json.loads(default_mock_chapter_plan_json(1))
+    payload["expected_state_changes"] = {
+        "character_states": [{"character_id": "char_lin_che", "change": "警觉"}],
+    }
+
+    plan = parse_chapter_plan(json.dumps(payload, ensure_ascii=False))
+
+    assert plan.expected_state_changes == [
+        '{"character_states": [{"change": "警觉", "character_id": "char_lin_che"}]}'
+    ]
 
 
 def test_plan_chapter_refuses_to_overwrite_existing_plan_by_default(tmp_path: Path) -> None:
@@ -174,4 +201,3 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     with redirect_stdout(stdout), redirect_stderr(stderr):
         code = main(args)
     return code, stdout.getvalue(), stderr.getvalue()
-

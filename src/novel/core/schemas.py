@@ -38,12 +38,17 @@ class ProjectConfig(FlexibleModel):
     default_style_profile_id: str | None = None
 
 
+class ThinkingConfig(FlexibleModel):
+    type: Literal["enabled", "disabled"] = "disabled"
+
+
 class AgentConfig(FlexibleModel):
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
     api_key_env: str = Field(min_length=1, pattern=r"^[A-Z][A-Z0-9_]*$")
     base_url_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
     reasoning: str | None = None
+    thinking: ThinkingConfig = Field(default_factory=ThinkingConfig)
     max_context_tokens: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0)
     timeout_seconds: float | None = Field(default=None, gt=0)

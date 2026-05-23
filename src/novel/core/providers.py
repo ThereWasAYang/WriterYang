@@ -76,8 +76,11 @@ class MockProvider(ModelProvider):
 @dataclass(frozen=True)
 class OpenAICompatibleProvider(ModelProvider):
     model: str
-    api_key: str
+    api_key: str = field(repr=False)
     base_url: str
+    temperature: float | None = None
+    thinking_type: str | None = None
+    json_response_format: str = "json_schema"
     timeout_seconds: float = 60.0
     max_retries: int = 0
 
@@ -107,6 +110,9 @@ class OpenAICompatibleProvider(ModelProvider):
             model=config.model,
             api_key=api_key,
             base_url=base_url.rstrip("/"),
+            temperature=config.temperature,
+            thinking_type=config.thinking.type if config.provider == "openai_compatible" else None,
+            json_response_format="json_object" if config.provider == "openai_compatible" else "json_schema",
             timeout_seconds=timeout_seconds or config.timeout_seconds or 60.0,
             max_retries=config.max_retries or 0,
         )
@@ -116,14 +122,21 @@ class OpenAICompatibleProvider(ModelProvider):
             "model": self.model,
             "messages": _messages_from_request(model_request),
         }
+        if self.temperature is not None:
+            payload["temperature"] = self.temperature
+        if self.thinking_type:
+            payload["thinking"] = {"type": self.thinking_type}
         if model_request.json_schema_name:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": model_request.json_schema_name,
-                    "schema": {},
-                },
-            }
+            if self.json_response_format == "json_object":
+                payload["response_format"] = {"type": "json_object"}
+            else:
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": model_request.json_schema_name,
+                        "schema": {},
+                    },
+                }
 
         body = json.dumps(payload).encode("utf-8")
         http_request = request.Request(
@@ -146,13 +159,13 @@ class OpenAICompatibleProvider(ModelProvider):
             except error.HTTPError as exc:
                 raise ProviderError(
                     f"OpenAI-compatible provider returned HTTP {exc.code}"
-                ) from exc
+                ) from None
             except Exception as exc:
                 last_exception = exc
         assert last_exception is not None
         raise ProviderError(
             f"OpenAI-compatible provider request failed: {last_exception.__class__.__name__}"
-        ) from last_exception
+        ) from None
 
 
 class ProviderFactory:

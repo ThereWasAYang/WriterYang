@@ -22,6 +22,7 @@ class ProviderDescriptor:
     api_key_env: str
     base_url_env: str | None
     reasoning: str | None
+    thinking: str
     max_context_tokens: int | None
     temperature: float | None
     timeout_seconds: float | None
@@ -38,6 +39,7 @@ class ProviderDescriptor:
             lines.append(f"base_url_env: {self.base_url_env}")
         if self.reasoning:
             lines.append(f"reasoning: {self.reasoning}")
+        lines.append(f"thinking: {self.thinking}")
         if self.max_context_tokens is not None:
             lines.append(f"max_context_tokens: {self.max_context_tokens}")
         if self.temperature is not None:
@@ -114,6 +116,7 @@ def describe_agent_provider(
         api_key_env=config.api_key_env,
         base_url_env=config.base_url_env,
         reasoning=config.reasoning,
+        thinking=config.thinking.type,
         max_context_tokens=config.max_context_tokens,
         temperature=config.temperature,
         timeout_seconds=config.timeout_seconds,

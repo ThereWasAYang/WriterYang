@@ -38,6 +38,7 @@ def test_each_agent_reads_independent_config(tmp_path: Path) -> None:
         assert config.model == f"{agent_name}-model"
         assert config.api_key_env == f"{agent_name.upper()}_API_KEY"
         assert config.base_url_env == f"{agent_name.upper()}_BASE_URL"
+        assert config.thinking.type == "disabled"
         assert config.timeout_seconds == 42
         assert config.max_retries == 2
 
@@ -133,6 +134,7 @@ def test_cli_model_override_dry_run(tmp_path: Path) -> None:
     assert stderr == ""
     assert "agent: writer" in stdout
     assert "model: override-model" in stdout
+    assert "thinking: disabled" in stdout
 
 
 def test_generate_chapter_dry_run_shows_per_step_agent_models(tmp_path: Path) -> None:
@@ -185,6 +187,7 @@ def _agents_config(tmp_path: Path) -> Path:
                         "api_key_env": f"{agent_name.upper()}_API_KEY",
                         "model": f"{agent_name}-model",
                         "reasoning": "medium",
+                        "thinking": {"type": "disabled"},
                         "max_context_tokens": 12345,
                         "temperature": 0.4,
                         "timeout_seconds": 42,

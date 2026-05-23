@@ -9,7 +9,8 @@ venv/
 dist/
 build/
 *.egg-info/
-.env
+.env*
+!.env.example
 .vscode/
 
 # Internal agent/project-planning docs. Keep these local; do not publish.

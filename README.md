@@ -76,9 +76,12 @@ agents:
     temperature: 0.9
     timeout_seconds: 120
     max_retries: 1
+    thinking:
+      type: "disabled"
 ```
 
 支持的 agent 名称包括 `orchestrator`、`inspiration`、`canon`、`plot`、`writer`、`polish`、`audit`、`state_update`。
+`thinking.type` 默认为 `disabled`。对于 DeepSeek 等 OpenAI-compatible 接口，可以设置为 `enabled` 或 `disabled`，请求体会发送 `{"thinking": {"type": "..."}}`。
 
 生成命令支持临时覆盖：
 
@@ -180,10 +183,12 @@ novel generate-chapter 1 --path ./rain-station --provider mock --stop-after plan
 novel generate-chapter 1 --path ./rain-station --provider mock --stop-after write
 novel generate-chapter 1 --path ./rain-station --provider mock --skip-polish
 novel generate-chapter 1 --path ./rain-station --provider mock --skip-audit
+novel generate-chapter 1 --path ./rain-station --provider mock --resume
 novel generate-chapter 1 --path ./rain-station --provider mock --force
 ```
 
 每次运行都会写入 `runs/run_*.json`。如果某一步失败，run log 会记录失败状态和错误信息。
+`--resume` 会复用已经存在的步骤产物并继续执行，适合从 `plan` 或 `write` 之后恢复流水线；`--force` 会重新生成目标文件。
 
 ## 搜索和可解释上下文
 
@@ -265,6 +270,28 @@ novel ask "请为第1章生成章节计划" --project ./rain-station --provider 
 conda run -n py312 pytest
 conda run -n py312 python -m build
 novel validate --path examples/rain_station
+```
+
+真实 API 冒烟测试需要本地 `.env.real`，该文件会被 `.gitignore` 忽略。推荐变量名：
+
+```bash
+WRITERYANG_REAL_BASE_URL=
+WRITERYANG_REAL_API_KEY=
+WRITERYANG_REAL_MODEL=
+```
+
+也兼容以下 DeepSeek 变量名：
+
+```bash
+DEEPSEEK_BASE_URL=
+DEEPSEEK_API_KEY=
+DEEPSEEK_V4PRO_MODEL=
+```
+
+运行真实 API 测试：
+
+```bash
+conda run -n py312 pytest -m real_api
 ```
 
 ## FAQ

@@ -1,6 +1,6 @@
 agents:
   orchestrator:
-    provider: "openai_compatible"
+    provider: "deepseek"
     base_url_env: "WRITERYANG_REAL_BASE_URL"
     api_key_env: "WRITERYANG_REAL_API_KEY"
     model: "your-model-name"
@@ -12,7 +12,7 @@ agents:
     timeout_seconds: 60
     max_retries: 1
   inspiration:
-    provider: "openai_compatible"
+    provider: "deepseek"
     base_url_env: "WRITERYANG_REAL_BASE_URL"
     api_key_env: "WRITERYANG_REAL_API_KEY"
     model: "your-model-name"
@@ -24,7 +24,7 @@ agents:
     timeout_seconds: 60
     max_retries: 1
   canon:
-    provider: "openai_compatible"
+    provider: "deepseek"
     base_url_env: "WRITERYANG_REAL_BASE_URL"
     api_key_env: "WRITERYANG_REAL_API_KEY"
     model: "your-model-name"
@@ -36,7 +36,7 @@ agents:
     timeout_seconds: 60
     max_retries: 1
   plot:
-    provider: "openai_compatible"
+    provider: "deepseek"
     base_url_env: "WRITERYANG_REAL_BASE_URL"
     api_key_env: "WRITERYANG_REAL_API_KEY"
     model: "your-model-name"
@@ -48,7 +48,7 @@ agents:
     timeout_seconds: 90
     max_retries: 1
   writer:
-    provider: "openai_compatible"
+    provider: "deepseek"
     base_url_env: "WRITERYANG_REAL_BASE_URL"
     api_key_env: "WRITERYANG_REAL_API_KEY"
     model: "your-model-name"
@@ -60,7 +60,7 @@ agents:
     timeout_seconds: 120
     max_retries: 1
   polish:
-    provider: "openai_compatible"
+    provider: "deepseek"
     base_url_env: "WRITERYANG_REAL_BASE_URL"
     api_key_env: "WRITERYANG_REAL_API_KEY"
     model: "your-model-name"
@@ -72,7 +72,7 @@ agents:
     timeout_seconds: 90
     max_retries: 1
   audit:
-    provider: "openai_compatible"
+    provider: "deepseek"
     base_url_env: "WRITERYANG_REAL_BASE_URL"
     api_key_env: "WRITERYANG_REAL_API_KEY"
     model: "your-model-name"
@@ -84,7 +84,7 @@ agents:
     timeout_seconds: 60
     max_retries: 1
   state_update:
-    provider: "openai_compatible"
+    provider: "deepseek"
     base_url_env: "WRITERYANG_REAL_BASE_URL"
     api_key_env: "WRITERYANG_REAL_API_KEY"
     model: "your-model-name"

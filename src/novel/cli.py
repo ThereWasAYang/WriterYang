@@ -365,7 +365,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use for selected agents.",
     )
     ask_parser.add_argument(
@@ -441,7 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
     inspire_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use. Defaults to the inspiration agent config.",
     )
     _add_agent_runtime_args(inspire_parser)
@@ -468,7 +468,7 @@ def build_parser() -> argparse.ArgumentParser:
     canon_suggest.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use. Defaults to config/agents.yaml.",
     )
     _add_agent_runtime_args(canon_suggest)
@@ -521,7 +521,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use. Defaults to the plot agent config.",
     )
     _add_agent_runtime_args(plan_parser)
@@ -557,7 +557,7 @@ def build_parser() -> argparse.ArgumentParser:
     write_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use. Defaults to the writer agent config.",
     )
     _add_agent_runtime_args(write_parser)
@@ -604,7 +604,7 @@ def build_parser() -> argparse.ArgumentParser:
     polish_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use. Defaults to the polish agent config.",
     )
     _add_agent_runtime_args(polish_parser)
@@ -655,7 +655,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use. Defaults to the audit agent config.",
     )
     _add_agent_runtime_args(audit_parser)
@@ -720,7 +720,7 @@ def build_parser() -> argparse.ArgumentParser:
     revise_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use. Defaults to writer/polish agent config based on target.",
     )
     _add_agent_runtime_args(revise_parser)
@@ -760,7 +760,7 @@ def build_parser() -> argparse.ArgumentParser:
     propose_state_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use. Defaults to the state update agent config.",
     )
     _add_agent_runtime_args(propose_state_parser)
@@ -820,7 +820,7 @@ def build_parser() -> argparse.ArgumentParser:
     accept_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use when --propose is set.",
     )
     _add_agent_runtime_args(accept_parser)
@@ -854,7 +854,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument(
         "--provider",
         default="config",
-        choices=("config", "mock", "openai", "openai_compatible"),
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use for each pipeline step.",
     )
     _add_agent_runtime_args(generate_parser)

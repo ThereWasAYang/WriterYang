@@ -24,16 +24,21 @@ DEEPSEEK_ENV = (
     "DEEPSEEK_API_KEY",
     "DEEPSEEK_V4PRO_MODEL",
 )
+ZAI_ENV = (
+    "ZAI_BASE_URL",
+    "ZAI_API_KEY",
+    "ZAI_MODEL",
+)
 
 
 pytestmark = pytest.mark.real_api
 
 
-def test_real_openai_compatible_provider_smoke() -> None:
+def test_real_provider_smoke() -> None:
     env = _real_env_or_skip()
     provider = ProviderFactory(env=env).create(
         AgentConfig(
-            provider="openai_compatible",
+            provider=env.get("WRITERYANG_REAL_PROVIDER", "openai_compatible"),
             base_url_env="WRITERYANG_REAL_BASE_URL",
             api_key_env="WRITERYANG_REAL_API_KEY",
             model=env["WRITERYANG_REAL_MODEL"],
@@ -59,7 +64,7 @@ def test_real_plan_chapter_smoke(tmp_path: Path) -> None:
     root = _real_project(tmp_path, env)
     provider = ProviderFactory(env=env).create(
         AgentConfig(
-            provider="openai_compatible",
+            provider=env.get("WRITERYANG_REAL_PROVIDER", "openai_compatible"),
             base_url_env="WRITERYANG_REAL_BASE_URL",
             api_key_env="WRITERYANG_REAL_API_KEY",
             model=env["WRITERYANG_REAL_MODEL"],
@@ -91,6 +96,12 @@ def _real_env_or_skip() -> dict[str, str]:
         env["WRITERYANG_REAL_BASE_URL"] = env["DEEPSEEK_BASE_URL"]
         env["WRITERYANG_REAL_API_KEY"] = env["DEEPSEEK_API_KEY"]
         env["WRITERYANG_REAL_MODEL"] = env["DEEPSEEK_V4PRO_MODEL"]
+        env["WRITERYANG_REAL_PROVIDER"] = "deepseek"
+    if not all(env.get(name) for name in REQUIRED_REAL_ENV) and all(env.get(name) for name in ZAI_ENV):
+        env["WRITERYANG_REAL_BASE_URL"] = env["ZAI_BASE_URL"]
+        env["WRITERYANG_REAL_API_KEY"] = env["ZAI_API_KEY"]
+        env["WRITERYANG_REAL_MODEL"] = env["ZAI_MODEL"]
+        env["WRITERYANG_REAL_PROVIDER"] = "zai"
     missing = [name for name in REQUIRED_REAL_ENV if not env.get(name)]
     if missing:
         pytest.skip(f"missing real API environment variables: {', '.join(missing)}")
@@ -131,7 +142,7 @@ def _write_real_agents_config(path: Path, env: dict[str, str]) -> None:
     data = {
         "agents": {
             "plot": {
-                "provider": "openai_compatible",
+                "provider": env.get("WRITERYANG_REAL_PROVIDER", "openai_compatible"),
                 "base_url_env": "WRITERYANG_REAL_BASE_URL",
                 "api_key_env": "WRITERYANG_REAL_API_KEY",
                 "model": env["WRITERYANG_REAL_MODEL"],

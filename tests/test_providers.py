@@ -131,7 +131,7 @@ def test_openai_provider_uses_default_base_url_when_base_url_env_is_missing() ->
     assert provider.thinking_type is None
 
 
-def test_openai_compatible_provider_uses_temperature_and_disabled_thinking_by_default() -> None:
+def test_openai_compatible_provider_uses_temperature_without_vendor_thinking() -> None:
     config = AgentConfig(
         provider="openai_compatible",
         model="test-model",
@@ -146,7 +146,7 @@ def test_openai_compatible_provider_uses_temperature_and_disabled_thinking_by_de
 
     assert isinstance(provider, OpenAICompatibleProvider)
     assert provider.temperature == 0.3
-    assert provider.thinking_type == "disabled"
+    assert provider.thinking_type is None
     assert provider.json_response_format == "json_object"
 
 
@@ -191,6 +191,106 @@ def test_openai_compatible_provider_sends_thinking_payload(monkeypatch: pytest.M
         "thinking": {"type": "enabled"},
     }
     assert captured["auth"] == "Bearer secret-test-key"
+
+
+def test_deepseek_provider_sends_vendor_payload_without_temperature_when_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    config = AgentConfig(
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        api_key_env="DEEPSEEK_API_KEY",
+        reasoning="high",
+        thinking={"type": "enabled"},
+        temperature=0.2,
+    )
+    provider = ProviderFactory(env={"DEEPSEEK_API_KEY": "secret-test-key"}).create(config)
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":"ok","reasoning_content":"reason"}}],'
+                b'"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}'
+            )
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["url"] = http_request.full_url  # type: ignore[attr-defined]
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    response = provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert provider.base_url == "https://api.deepseek.com"
+    assert captured["url"] == "https://api.deepseek.com/chat/completions"
+    assert captured["body"] == {
+        "model": "deepseek-v4-pro",
+        "messages": [
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+        ],
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "high",
+    }
+    assert response.content == "ok"
+    assert response.reasoning_content == "reason"
+    assert response.token_usage
+    assert response.token_usage.total_tokens == 5
+
+
+def test_zai_provider_sends_vendor_thinking_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+    config = AgentConfig(
+        provider="zai",
+        model="glm-5.1",
+        api_key_env="ZAI_API_KEY",
+        thinking={"type": "disabled"},
+        temperature=0.8,
+    )
+    provider = ProviderFactory(env={"ZAI_API_KEY": "secret-test-key"}).create(config)
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok","reasoning_content":"reason"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["url"] = http_request.full_url  # type: ignore[attr-defined]
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    response = provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert provider.base_url == "https://api.z.ai/api/paas/v4"
+    assert captured["url"] == "https://api.z.ai/api/paas/v4/chat/completions"
+    assert captured["body"] == {
+        "model": "glm-5.1",
+        "messages": [
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+        ],
+        "temperature": 0.8,
+        "thinking": {"type": "disabled"},
+    }
+    assert response.content == "ok"
+    assert response.reasoning_content == "reason"
 
 
 def test_openai_compatible_provider_uses_json_object_for_structured_outputs(

@@ -30,6 +30,7 @@ class ModelResponse:
     content: str
     raw_response: object | None = None
     token_usage: TokenUsage | None = None
+    reasoning_content: str | None = None
 
 
 class ProviderError(RuntimeError):
@@ -78,8 +79,10 @@ class OpenAICompatibleProvider(ModelProvider):
     model: str
     api_key: str = field(repr=False)
     base_url: str
+    api_provider: str = "openai"
     temperature: float | None = None
     thinking_type: str | None = None
+    reasoning_effort: str | None = None
     json_response_format: str = "json_schema"
     timeout_seconds: float = 60.0
     max_retries: int = 0
@@ -95,12 +98,13 @@ class OpenAICompatibleProvider(ModelProvider):
         env_map = os.environ if env is None else env
         api_key = _required_env(env_map, config.api_key_env, "api_key_env")
 
-        base_url = "https://api.openai.com/v1"
+        provider_name = config.provider.lower()
+        base_url = _default_base_url(provider_name)
         if config.base_url_env:
             configured_base_url = env_map.get(config.base_url_env)
             if configured_base_url:
                 base_url = configured_base_url
-            elif config.provider != "openai":
+            elif provider_name == "openai_compatible":
                 raise MissingProviderEnvError(
                     f"required environment variable {config.base_url_env} is not set "
                     "for base_url_env"
@@ -110,9 +114,11 @@ class OpenAICompatibleProvider(ModelProvider):
             model=config.model,
             api_key=api_key,
             base_url=base_url.rstrip("/"),
+            api_provider=provider_name,
             temperature=config.temperature,
-            thinking_type=config.thinking.type if config.provider == "openai_compatible" else None,
-            json_response_format="json_object" if config.provider == "openai_compatible" else "json_schema",
+            thinking_type=config.thinking.type if provider_name in {"deepseek", "zai"} else None,
+            reasoning_effort=config.reasoning if provider_name == "deepseek" else None,
+            json_response_format="json_schema" if provider_name == "openai" else "json_object",
             timeout_seconds=timeout_seconds or config.timeout_seconds or 60.0,
             max_retries=config.max_retries or 0,
         )
@@ -122,10 +128,14 @@ class OpenAICompatibleProvider(ModelProvider):
             "model": self.model,
             "messages": _messages_from_request(model_request),
         }
-        if self.temperature is not None:
+        if self.temperature is not None and not (
+            self.api_provider == "deepseek" and self.thinking_type == "enabled"
+        ):
             payload["temperature"] = self.temperature
         if self.thinking_type:
             payload["thinking"] = {"type": self.thinking_type}
+        if self.reasoning_effort and self.thinking_type == "enabled":
+            payload["reasoning_effort"] = self.reasoning_effort
         if model_request.json_schema_name:
             if self.json_response_format == "json_object":
                 payload["response_format"] = {"type": "json_object"}
@@ -176,7 +186,7 @@ class ProviderFactory:
         provider = config.provider.lower()
         if provider == "mock":
             return MockProvider()
-        if provider in {"openai", "openai_compatible"}:
+        if provider in {"openai", "openai_compatible", "deepseek", "zai"}:
             return OpenAICompatibleProvider.from_config(config, env=self.env)
         raise ProviderError(f"unsupported provider: {config.provider}")
 
@@ -235,6 +245,14 @@ def _required_env(env: Mapping[str, str], name: str, config_field: str) -> str:
     return value
 
 
+def _default_base_url(provider: str) -> str:
+    if provider == "deepseek":
+        return "https://api.deepseek.com"
+    if provider == "zai":
+        return "https://api.z.ai/api/paas/v4"
+    return "https://api.openai.com/v1"
+
+
 def _messages_from_request(model_request: ModelRequest) -> list[dict[str, str]]:
     messages = [{"role": "system", "content": model_request.system_prompt}]
     user_parts = []
@@ -247,6 +265,7 @@ def _messages_from_request(model_request: ModelRequest) -> list[dict[str, str]]:
 
 def _model_response_from_openai_raw(raw: Mapping[str, object]) -> ModelResponse:
     content = ""
+    reasoning_content = None
     choices = raw.get("choices")
     if isinstance(choices, list) and choices:
         first_choice = choices[0]
@@ -256,10 +275,18 @@ def _model_response_from_openai_raw(raw: Mapping[str, object]) -> ModelResponse:
                 raw_content = message.get("content")
                 if isinstance(raw_content, str):
                     content = raw_content
+                raw_reasoning = message.get("reasoning_content")
+                if isinstance(raw_reasoning, str):
+                    reasoning_content = raw_reasoning
 
     usage = raw.get("usage")
     token_usage = _token_usage_from_raw(usage) if isinstance(usage, Mapping) else None
-    return ModelResponse(content=content, raw_response=dict(raw), token_usage=token_usage)
+    return ModelResponse(
+        content=content,
+        raw_response=dict(raw),
+        token_usage=token_usage,
+        reasoning_content=reasoning_content,
+    )
 
 
 def _token_usage_from_raw(raw: Mapping[str, object]) -> TokenUsage:

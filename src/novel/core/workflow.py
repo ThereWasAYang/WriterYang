@@ -28,7 +28,7 @@ from novel.core.schemas import AgentRunLog, AgentRunStep
 
 
 StopAfter = Literal["plan", "write", "polish", "audit"]
-ProviderName = Literal["config", "mock", "openai", "openai_compatible"]
+ProviderName = Literal["config", "mock", "openai", "openai_compatible", "deepseek", "zai"]
 
 
 class WorkflowError(RuntimeError):

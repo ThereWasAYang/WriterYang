@@ -45,7 +45,7 @@ def test_example_agent_configs_include_real_and_mock_templates() -> None:
     mock_config = load_yaml(Path("examples/rain_station/config/agents.mock.yaml"))
 
     writer = real_config["agents"]["writer"]
-    assert writer["provider"] == "openai_compatible"
+    assert writer["provider"] == "deepseek"
     assert writer["thinking"]["type"] == "disabled"
     assert writer["base_url_env"] == "WRITERYANG_REAL_BASE_URL"
     assert writer["api_key_env"] == "WRITERYANG_REAL_API_KEY"

@@ -35,6 +35,8 @@ def test_schema_payloads_cover_project_json_files() -> None:
     assert set(payloads) == expected
     assert len(SCHEMA_DEFINITIONS) == len(expected)
     assert payloads["chapter_plan"]["title"] == "ChapterPlan"
+    assert "schema_version" in payloads["characters"]["properties"]
+    assert "schema_version" in payloads["audit_report"]["properties"]
 
 
 def test_export_json_schemas_writes_files(tmp_path: Path) -> None:

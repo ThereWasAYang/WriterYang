@@ -16,6 +16,10 @@ class FlexibleModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class SchemaVersionedModel(FlexibleModel):
+    schema_version: int = Field(default=1, ge=1)
+
+
 class TargetLength(FlexibleModel):
     type: str | None = None
     planned_chapters: int | None = Field(default=None, ge=1)
@@ -26,8 +30,7 @@ class Narration(FlexibleModel):
     tense: str
 
 
-class ProjectConfig(FlexibleModel):
-    schema_version: int = Field(default=1, ge=1)
+class ProjectConfig(SchemaVersionedModel):
     project_id: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     title: str = Field(min_length=1)
     language: str = Field(min_length=1)
@@ -63,11 +66,11 @@ class AgentConfig(FlexibleModel):
         return value
 
 
-class AgentsConfig(FlexibleModel):
+class AgentsConfig(SchemaVersionedModel):
     agents: dict[str, AgentConfig] = Field(min_length=1)
 
 
-class InspirationBrief(FlexibleModel):
+class InspirationBrief(SchemaVersionedModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     source_type: str = Field(min_length=1)
     source_summary: str = Field(min_length=1)
@@ -128,7 +131,7 @@ class Character(FlexibleModel):
         return self
 
 
-class CharactersFile(FlexibleModel):
+class CharactersFile(SchemaVersionedModel):
     characters: list[Character] = Field(default_factory=list)
 
 
@@ -150,7 +153,7 @@ class Location(FlexibleModel):
     tags: list[str] = Field(default_factory=list)
 
 
-class LocationsFile(FlexibleModel):
+class LocationsFile(SchemaVersionedModel):
     locations: list[Location] = Field(default_factory=list)
 
 
@@ -170,7 +173,7 @@ class Item(FlexibleModel):
     tags: list[str] = Field(default_factory=list)
 
 
-class ItemsFile(FlexibleModel):
+class ItemsFile(SchemaVersionedModel):
     items: list[Item] = Field(default_factory=list)
 
 
@@ -183,7 +186,7 @@ class WorldRule(FlexibleModel):
     known_by_character_ids: list[EntityId] = Field(default_factory=list)
 
 
-class WorldFile(FlexibleModel):
+class WorldFile(SchemaVersionedModel):
     world_rules: list[WorldRule] = Field(default_factory=list)
 
 
@@ -203,7 +206,7 @@ class HiddenTruth(FlexibleModel):
     foreshadowing_ids: list[EntityId] = Field(default_factory=list)
 
 
-class HiddenTruthsFile(FlexibleModel):
+class HiddenTruthsFile(SchemaVersionedModel):
     hidden_truths: list[HiddenTruth] = Field(default_factory=list)
 
 
@@ -233,7 +236,7 @@ class ForeshadowingThread(FlexibleModel):
         return self
 
 
-class ForeshadowingFile(FlexibleModel):
+class ForeshadowingFile(SchemaVersionedModel):
     foreshadowing_threads: list[ForeshadowingThread] = Field(default_factory=list)
 
     @model_validator(mode="before")
@@ -245,7 +248,7 @@ class ForeshadowingFile(FlexibleModel):
         return data
 
 
-class CanonProposal(FlexibleModel):
+class CanonProposal(SchemaVersionedModel):
     characters: list[Character] = Field(default_factory=list)
     locations: list[Location] = Field(default_factory=list)
     items: list[Item] = Field(default_factory=list)
@@ -289,7 +292,7 @@ class LocationState(FlexibleModel):
     last_updated_chapter: int = Field(ge=0)
 
 
-class EntityState(FlexibleModel):
+class EntityState(SchemaVersionedModel):
     story_position: StoryPosition
     character_states: list[CharacterState]
     item_states: list[ItemState]
@@ -311,7 +314,7 @@ class TimelineEvent(FlexibleModel):
     tags: list[str] = Field(default_factory=list)
 
 
-class TimelineFile(FlexibleModel):
+class TimelineFile(SchemaVersionedModel):
     events: list[TimelineEvent] = Field(default_factory=list)
 
 
@@ -326,7 +329,7 @@ class StateChange(FlexibleModel):
     old_value: Any | None = None
 
 
-class StateUpdateProposal(FlexibleModel):
+class StateUpdateProposal(SchemaVersionedModel):
     chapter_number: int = Field(ge=1)
     state_changes: list[StateChange] = Field(default_factory=list)
     timeline_events: list[TimelineEvent] = Field(default_factory=list)
@@ -346,7 +349,7 @@ class StateUpdateProposal(FlexibleModel):
         return self
 
 
-class StateUpdateApplyLog(FlexibleModel):
+class StateUpdateApplyLog(SchemaVersionedModel):
     id: str = Field(min_length=1, pattern=r"^state_apply_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
     chapter_number: int = Field(ge=1)
     proposal_path: str = Field(min_length=1)
@@ -359,7 +362,7 @@ class StateUpdateApplyLog(FlexibleModel):
     errors: list[str] = Field(default_factory=list)
 
 
-class ChapterMetadata(FlexibleModel):
+class ChapterMetadata(SchemaVersionedModel):
     chapter_number: int = Field(ge=1)
     status: Literal["planned", "drafted", "polished", "audited", "accepted"]
     plan_path: str | None = None
@@ -381,7 +384,7 @@ class AgentRunStep(FlexibleModel):
     error: str | None = None
 
 
-class AgentRunLog(FlexibleModel):
+class AgentRunLog(SchemaVersionedModel):
     run_id: str = Field(min_length=1, pattern=r"^run_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
     task: str = Field(min_length=1)
     chapter_number: int | None = Field(default=None, ge=1)
@@ -403,7 +406,7 @@ class ExportRecord(FlexibleModel):
     title: str | None = None
 
 
-class ExportManifest(FlexibleModel):
+class ExportManifest(SchemaVersionedModel):
     exports: list[ExportRecord] = Field(default_factory=list)
 
 
@@ -421,7 +424,7 @@ class RevisionRecord(FlexibleModel):
     provider: str | None = None
 
 
-class RevisionLog(FlexibleModel):
+class RevisionLog(SchemaVersionedModel):
     chapter_number: int = Field(ge=1)
     revisions: list[RevisionRecord] = Field(default_factory=list)
 
@@ -442,7 +445,7 @@ class ChapterScene(FlexibleModel):
     plot_points: list[str] = Field(default_factory=list)
 
 
-class ChapterPlan(FlexibleModel):
+class ChapterPlan(SchemaVersionedModel):
     chapter_number: int = Field(ge=1)
     title: str = Field(min_length=1)
     goal: str = Field(min_length=1)
@@ -477,7 +480,7 @@ class AuditIssue(FlexibleModel):
     suggested_fix: str | None = None
 
 
-class AuditReport(FlexibleModel):
+class AuditReport(SchemaVersionedModel):
     chapter_number: int = Field(ge=1)
     audited_file: str = Field(min_length=1)
     overall_status: Literal["passed", "needs_revision", "blocked"]

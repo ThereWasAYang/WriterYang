@@ -393,6 +393,9 @@ def _write_json(path: Path, data: object) -> None:
 
 
 def _to_json(data: object) -> str:
+    if isinstance(data, dict) and "schema_version" not in data:
+        data = {"schema_version": 1, **data}
+
     def default(value: object) -> object:
         if hasattr(value, "model_dump"):
             return value.model_dump(mode="json")

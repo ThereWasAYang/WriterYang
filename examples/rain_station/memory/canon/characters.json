@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "characters": [
     {
       "id": "char_lin_che",
@@ -10,7 +11,9 @@
       "relationships": [],
       "abilities": [],
       "secrets": [],
-      "tags": ["protagonist"]
+      "tags": [
+        "protagonist"
+      ]
     }
   ]
 }

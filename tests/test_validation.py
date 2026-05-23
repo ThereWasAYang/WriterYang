@@ -74,6 +74,17 @@ def test_validate_fresh_workspace_passes(tmp_path: Path) -> None:
     assert report.errors == []
 
 
+def test_validate_reports_unsupported_file_schema_version(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    _write_json(root / "memory" / "canon" / "characters.json", {"schema_version": 999, "characters": []})
+
+    report = validate_project(root)
+
+    assert not report.ok
+    assert any("unsupported schema_version: 999" in msg.message for msg in report.errors)
+
+
 def test_validate_reports_duplicate_character_ids(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

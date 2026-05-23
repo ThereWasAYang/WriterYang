@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "locations": [
     {
       "id": "loc_old_station",
@@ -8,7 +9,9 @@
       "private_author_notes": "车站与林澈童年的失踪事件有关。",
       "connected_location_ids": [],
       "rules": [],
-      "tags": ["station"]
+      "tags": [
+        "station"
+      ]
     }
   ]
 }

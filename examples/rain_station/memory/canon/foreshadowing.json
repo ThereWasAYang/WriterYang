@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "foreshadowing_threads": [
     {
       "id": "thread_broken_ticket",
@@ -14,7 +15,11 @@
         "chapter": 8,
         "description": "日期与林澈童年的失踪夜晚对应。"
       },
-      "related_entity_ids": ["item_broken_ticket", "char_lin_che", "loc_old_station"]
+      "related_entity_ids": [
+        "item_broken_ticket",
+        "char_lin_che",
+        "loc_old_station"
+      ]
     }
   ]
 }

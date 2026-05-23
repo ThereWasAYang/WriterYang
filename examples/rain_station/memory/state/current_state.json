@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "story_position": {
     "latest_chapter": 0,
     "in_story_time": "故事开始前",
@@ -11,7 +12,9 @@
       "health": "正常",
       "mental_state": "平静",
       "knowledge": [],
-      "goals": ["确认旧车票来源"],
+      "goals": [
+        "确认旧车票来源"
+      ],
       "possessions": [],
       "last_updated_chapter": 0
     }

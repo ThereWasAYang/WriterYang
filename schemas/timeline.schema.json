@@ -101,6 +101,12 @@
   },
   "additionalProperties": true,
   "properties": {
+    "schema_version": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
     "events": {
       "items": {
         "$ref": "#/$defs/TimelineEvent"

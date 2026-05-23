@@ -231,6 +231,12 @@
   },
   "additionalProperties": true,
   "properties": {
+    "schema_version": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
     "story_position": {
       "$ref": "#/$defs/StoryPosition"
     },

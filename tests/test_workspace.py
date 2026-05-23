@@ -39,26 +39,26 @@ class WorkspaceInitTest(unittest.TestCase):
             for path, key in expected_json_files.items():
                 with self.subTest(path=path):
                     data = json.loads(path.read_text(encoding="utf-8"))
-                    self.assertEqual(data, {key: []})
+                    self.assertEqual(data["schema_version"], 1)
+                    self.assertEqual(data[key], [])
 
             state = json.loads(
                 (root / "memory" / "state" / "current_state.json").read_text(
                     encoding="utf-8"
                 )
             )
+            self.assertEqual(state["schema_version"], 1)
             self.assertEqual(
-                state,
+                state["story_position"],
                 {
-                    "story_position": {
-                        "latest_chapter": 0,
-                        "in_story_time": None,
-                        "summary": None,
-                    },
-                    "character_states": [],
-                    "item_states": [],
-                    "location_states": [],
+                    "latest_chapter": 0,
+                    "in_story_time": None,
+                    "summary": None,
                 },
             )
+            self.assertEqual(state["character_states"], [])
+            self.assertEqual(state["item_states"], [])
+            self.assertEqual(state["location_states"], [])
 
     def test_init_writes_env_var_names_not_api_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

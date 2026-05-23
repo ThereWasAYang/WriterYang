@@ -145,6 +145,7 @@ def _utc_now() -> str:
 
 
 def _json(data: dict[str, object]) -> str:
+    data = {"schema_version": 1, **data}
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
 
@@ -192,7 +193,7 @@ def _agents_yaml() -> str:
         "audit": ("AUDIT_BASE_URL", "AUDIT_API_KEY", "model-name", "low", 64000, 0.2, 60, 1),
         "state_update": ("STATE_UPDATE_BASE_URL", "STATE_UPDATE_API_KEY", "model-name", "low", 64000, 0.2, 60, 1),
     }
-    lines = ["agents:\n"]
+    lines = ["schema_version: 1\n", "agents:\n"]
     for name, (base_url_env, api_key_env, model, reasoning, max_tokens, temperature, timeout, retries) in agents.items():
         lines.extend(
             [

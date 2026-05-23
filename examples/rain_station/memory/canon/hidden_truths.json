@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "hidden_truths": [
     {
       "id": "truth_lost_night",
@@ -6,12 +7,18 @@
       "description": "林澈童年失踪的夜晚与旧车站的最后一班车有关。",
       "visibility": "hidden",
       "importance": "high",
-      "related_entity_ids": ["char_lin_che", "loc_old_station", "item_broken_ticket"],
+      "related_entity_ids": [
+        "char_lin_che",
+        "loc_old_station",
+        "item_broken_ticket"
+      ],
       "planned_reveal": {
         "chapter": 8,
         "method": "通过档案和广播片段逐步揭示"
       },
-      "foreshadowing_ids": ["thread_broken_ticket"]
+      "foreshadowing_ids": [
+        "thread_broken_ticket"
+      ]
     }
   ]
 }

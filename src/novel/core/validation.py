@@ -8,6 +8,7 @@ from pydantic import ValidationError
 import yaml
 
 from novel.core.io import load_json_model, load_yaml_model
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.schemas import (
     AgentConfig,
     AgentsConfig,
@@ -22,6 +23,10 @@ from novel.core.schemas import (
     ItemsFile,
     LocationsFile,
     ProjectConfig,
+    AgentRunLog,
+    ExportManifest,
+    RevisionLog,
+    StateUpdateApplyLog,
     StateUpdateProposal,
     TimelineFile,
     WorldFile,
@@ -136,14 +141,39 @@ def _load_project_files(root: Path, report: ValidationReport, *, include_state: 
 def _validate_loaded_project(
     report: ValidationReport, root: Path, loaded: LoadedProject, *, include_state: bool
 ) -> None:
-    if loaded.project and loaded.project.schema_version != 1:
-        report.error(root / "project.yaml", f"unsupported schema_version: {loaded.project.schema_version}")
+    _validate_schema_versions(report, root, loaded)
     _validate_duplicate_ids(report, root, loaded)
     _validate_agent_names(report, root, loaded.agents)
     _validate_references(report, root, loaded)
     if include_state:
         _validate_optional_agent_outputs(report, root)
         _validate_chapter_outputs(report, root, loaded)
+        _validate_run_and_export_outputs(report, root)
+
+
+def _validate_schema_versions(report: ValidationReport, root: Path, loaded: LoadedProject) -> None:
+    files = (
+        (root / "project.yaml", loaded.project),
+        (root / "config" / "agents.yaml", loaded.agents),
+        (root / "memory" / "canon" / "characters.json", loaded.characters),
+        (root / "memory" / "canon" / "locations.json", loaded.locations),
+        (root / "memory" / "canon" / "items.json", loaded.items),
+        (root / "memory" / "canon" / "world.json", loaded.world),
+        (root / "memory" / "canon" / "hidden_truths.json", loaded.hidden_truths),
+        (root / "memory" / "canon" / "foreshadowing.json", loaded.foreshadowing),
+        (root / "memory" / "state" / "current_state.json", loaded.state),
+        (root / "memory" / "state" / "timeline.json", loaded.timeline),
+    )
+    for path, model in files:
+        _validate_model_schema_version(report, path, model)
+
+
+def _validate_model_schema_version(report: ValidationReport, path: Path, model: object | None) -> None:
+    if model is None:
+        return
+    version = getattr(model, "schema_version", None)
+    if version != CURRENT_SCHEMA_VERSION:
+        report.error(path, f"unsupported schema_version: {version}")
 
 
 def _load_required_json(path: Path, model_type: type, report: ValidationReport):
@@ -356,7 +386,16 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
         _validate_hidden_truth_not_reader_visible(report, path, loaded)
 
     if loaded.state:
-        _validate_state_references(report, root, loaded.state, entity_ids, character_ids, location_ids, item_ids)
+        _validate_state_references(
+            report,
+            root,
+            loaded.state,
+            entity_ids,
+            character_ids,
+            location_ids,
+            item_ids,
+            timeline_ids,
+        )
 
     if loaded.timeline:
         path = root / "memory" / "state" / "timeline.json"
@@ -382,6 +421,12 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
             for change_id in event.state_change_ids:
                 if not _state_change_id_exists(root, change_id):
                     report.warning(path, f"event {event.id} references missing state_change_id: {change_id}")
+            for cause_id in event.causes:
+                if _looks_like_id(cause_id) and cause_id not in timeline_ids:
+                    report.warning(path, f"event {event.id} causes references missing event: {cause_id}")
+            for effect_id in event.effects:
+                if _looks_like_id(effect_id) and effect_id not in timeline_ids:
+                    report.warning(path, f"event {event.id} effects references missing event: {effect_id}")
 
     _validate_chapter_plan_references(report, root, entity_ids, character_ids, location_ids, timeline_ids)
 
@@ -418,6 +463,7 @@ def _validate_state_references(
     character_ids: set[str],
     location_ids: set[str],
     item_ids: set[str],
+    timeline_ids: set[str],
 ) -> None:
     path = root / "memory" / "state" / "current_state.json"
     latest_chapter = state.story_position.latest_chapter
@@ -465,6 +511,17 @@ def _validate_state_references(
                     f"character {character_state.entity_id} possession conflicts with item "
                     f"{item_id} holder_id {item_holders[item_id]}",
                 )
+        if _is_dead_health(character_state.health):
+            if character_state.goals:
+                report.warning(
+                    path,
+                    f"dead character {character_state.entity_id} still has active goals in current_state",
+                )
+            if character_state.location_id:
+                report.warning(
+                    path,
+                    f"dead character {character_state.entity_id} still has location_id in current_state",
+                )
 
     for item_state in state.item_states:
         if item_state.entity_id not in item_ids:
@@ -505,6 +562,12 @@ def _validate_state_references(
                 f"location {location_state.entity_id} last_updated_chapter is greater than "
                 "story_position.latest_chapter",
             )
+        for event_id in location_state.active_events:
+            if _looks_like_id(event_id) and event_id not in timeline_ids:
+                report.warning(
+                    path,
+                    f"location {location_state.entity_id} active_events references missing event: {event_id}",
+                )
 
     for item_id, holder_id in item_holders.items():
         if not holder_id:
@@ -529,8 +592,7 @@ def _validate_state_references(
 
     death_chapters: dict[str, int] = {}
     for character_state in state.character_states:
-        health = (character_state.health or "").lower()
-        if any(marker in health for marker in ("dead", "deceased", "死亡", "已死", "身亡")):
+        if _is_dead_health(character_state.health):
             death_chapters[character_state.entity_id] = character_state.last_updated_chapter
     if death_chapters:
         timeline_path = root / "memory" / "state" / "timeline.json"
@@ -550,15 +612,29 @@ def _validate_state_references(
                         )
 
 
+def _is_dead_health(health: str | None) -> bool:
+    value = (health or "").lower()
+    return any(marker in value for marker in ("dead", "deceased", "死亡", "已死", "身亡"))
+
+
+def _looks_like_id(value: str) -> bool:
+    return "_" in value and value == value.lower()
+
+
 def _validate_chapter_outputs(report: ValidationReport, root: Path, loaded: LoadedProject) -> None:
     chapters_dir = root / "memory" / "chapters"
     if not chapters_dir.exists():
         return
     for chapter_dir in sorted(path for path in chapters_dir.iterdir() if path.is_dir()):
-        _validate_single_chapter_output(report, root, chapter_dir)
+        _validate_single_chapter_output(report, root, chapter_dir, loaded)
 
 
-def _validate_single_chapter_output(report: ValidationReport, root: Path, chapter_dir: Path) -> None:
+def _validate_single_chapter_output(
+    report: ValidationReport,
+    root: Path,
+    chapter_dir: Path,
+    loaded: LoadedProject,
+) -> None:
     try:
         dir_chapter_number = int(chapter_dir.name)
     except ValueError:
@@ -571,6 +647,7 @@ def _validate_single_chapter_output(report: ValidationReport, root: Path, chapte
     if plan_path.exists():
         try:
             plan = load_json_model(plan_path, ChapterPlan)
+            _validate_model_schema_version(report, plan_path, plan)
             if dir_chapter_number is not None and plan.chapter_number != dir_chapter_number:
                 report.error(
                     plan_path,
@@ -591,6 +668,7 @@ def _validate_single_chapter_output(report: ValidationReport, root: Path, chapte
     if audit_path.exists():
         try:
             audit = load_json_model(audit_path, AuditReport)
+            _validate_model_schema_version(report, audit_path, audit)
             if dir_chapter_number is not None and audit.chapter_number != dir_chapter_number:
                 report.error(
                     audit_path,
@@ -612,6 +690,7 @@ def _validate_single_chapter_output(report: ValidationReport, root: Path, chapte
     if metadata_path.exists():
         try:
             metadata = load_json_model(metadata_path, ChapterMetadata)
+            _validate_model_schema_version(report, metadata_path, metadata)
             if dir_chapter_number is not None and metadata.chapter_number != dir_chapter_number:
                 report.error(
                     metadata_path,
@@ -622,6 +701,78 @@ def _validate_single_chapter_output(report: ValidationReport, root: Path, chapte
             _add_validation_error(report, metadata_path, exc)
         except Exception as exc:
             report.error(metadata_path, f"could not load chapter metadata: {exc}")
+
+    _validate_optional_chapter_json(report, chapter_dir / "revision_log.json", RevisionLog)
+    proposal = _validate_optional_chapter_json(
+        report,
+        chapter_dir / "state_update_proposal.json",
+        StateUpdateProposal,
+    )
+    if isinstance(proposal, StateUpdateProposal):
+        _validate_state_update_proposal_references(report, chapter_dir / "state_update_proposal.json", proposal, loaded)
+    _validate_optional_chapter_json(
+        report,
+        chapter_dir / "state_update_apply_log.json",
+        StateUpdateApplyLog,
+    )
+
+
+def _validate_optional_chapter_json(
+    report: ValidationReport,
+    path: Path,
+    model_type: type,
+) -> object | None:
+    if not path.exists():
+        return None
+    try:
+        model = load_json_model(path, model_type)
+        _validate_model_schema_version(report, path, model)
+        return model
+    except ValidationError as exc:
+        _add_validation_error(report, path, exc)
+    except Exception as exc:
+        report.error(path, f"could not load JSON: {exc}")
+    return None
+
+
+def _validate_run_and_export_outputs(report: ValidationReport, root: Path) -> None:
+    runs_dir = root / "runs"
+    if runs_dir.exists():
+        for run_path in sorted(runs_dir.glob("*.json")):
+            _validate_optional_chapter_json(report, run_path, AgentRunLog)
+    export_manifest_path = root / "exports" / "export_manifest.json"
+    _validate_optional_chapter_json(report, export_manifest_path, ExportManifest)
+
+
+def _validate_state_update_proposal_references(
+    report: ValidationReport,
+    path: Path,
+    proposal: StateUpdateProposal,
+    loaded: LoadedProject,
+) -> None:
+    character_ids = _ids(loaded.characters.characters if loaded.characters else [])
+    location_ids = _ids(loaded.locations.locations if loaded.locations else [])
+    item_ids = _ids(loaded.items.items if loaded.items else [])
+    entity_ids = character_ids | location_ids | item_ids
+    timeline_ids = _ids(loaded.timeline.events if loaded.timeline else [])
+    change_ids = {change.id for change in proposal.state_changes}
+    for change in proposal.state_changes:
+        if change.entity_id not in entity_ids:
+            report.warning(path, f"state change {change.id} references missing entity: {change.entity_id}")
+    for event in proposal.timeline_events:
+        if event.id in timeline_ids:
+            report.error(path, f"timeline event id already exists: {event.id}")
+        if event.location_id and event.location_id not in location_ids:
+            report.warning(path, f"timeline event {event.id} location_id references missing location: {event.location_id}")
+        for participant_id in event.participant_ids:
+            if participant_id not in character_ids:
+                report.warning(
+                    path,
+                    f"timeline event {event.id} participant_ids references missing character: {participant_id}",
+                )
+        for change_id in event.state_change_ids:
+            if change_id not in change_ids and not _state_change_id_exists(path.parents[3], change_id):
+                report.warning(path, f"timeline event {event.id} references missing state_change_id: {change_id}")
 
 
 def _validate_chapter_markdown(
@@ -696,7 +847,8 @@ def _validate_optional_agent_outputs(report: ValidationReport, root: Path) -> No
     inspiration_path = root / "memory" / "inspiration.json"
     if inspiration_path.exists():
         try:
-            load_json_model(inspiration_path, InspirationBrief)
+            brief = load_json_model(inspiration_path, InspirationBrief)
+            _validate_model_schema_version(report, inspiration_path, brief)
         except ValidationError as exc:
             _add_validation_error(report, inspiration_path, exc)
         except Exception as exc:

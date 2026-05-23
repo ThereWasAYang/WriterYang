@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "items": [
     {
       "id": "item_broken_ticket",
@@ -6,7 +7,9 @@
       "type": "ticket",
       "reader_visible_summary": "一张被雨水泡皱的旧车票，只剩部分日期可辨。",
       "private_author_notes": "日期对应林澈失踪的夜晚。",
-      "tags": ["clue"]
+      "tags": [
+        "clue"
+      ]
     }
   ]
 }

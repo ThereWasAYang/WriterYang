@@ -103,6 +103,20 @@ def test_canon_apply_fails_on_duplicate_id(tmp_path: Path) -> None:
     assert "character id conflict: char_lin_che" in stderr
 
 
+def test_canon_proposal_rejects_cross_type_duplicate_ids() -> None:
+    data = json.loads(default_mock_canon_proposal_json())
+    data["locations"][0]["id"] = data["characters"][0]["id"]
+
+    try:
+        validate_canon_proposal(parse_canon_proposal(json.dumps(data, ensure_ascii=False)))
+    except CanonError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected CanonError")
+
+    assert "duplicate cross-type canon id" in message
+
+
 def test_canon_validate_finds_invalid_canon(tmp_path: Path) -> None:
     root = _workspace_with_inspiration(tmp_path)
     (root / "memory" / "canon" / "characters.json").write_text(

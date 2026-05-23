@@ -13,6 +13,7 @@ from novel.core.io import load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.prompts import load_prompt_template
 from novel.core.schemas import (
     AuditReport,
     ChapterPlan,
@@ -49,6 +50,19 @@ class ChapterRevisionResult:
     record: RevisionRecord
     revised_markdown: str
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RevisionLoopOptions:
+    base_options: ChapterRevisionOptions
+    max_rounds: int = 1
+    confirm_loop: bool = False
+
+
+@dataclass(frozen=True)
+class RevisionLoopResult:
+    results: tuple[ChapterRevisionResult, ...]
+    run_log_path: Path
 
 
 @dataclass(frozen=True)
@@ -142,6 +156,34 @@ def revise_chapter(
     )
 
 
+def revise_chapter_loop(
+    options: RevisionLoopOptions,
+    provider: ModelProvider,
+    *,
+    provider_name: str | None = None,
+) -> RevisionLoopResult:
+    if options.max_rounds < 1:
+        raise RevisionError("max_rounds must be at least 1")
+    if options.max_rounds > 1 and not options.confirm_loop:
+        raise RevisionError("revision loop with more than one round requires --confirm-loop")
+    results: list[ChapterRevisionResult] = []
+    current_options = options.base_options
+    for round_number in range(1, options.max_rounds + 1):
+        result = revise_chapter(current_options, provider, provider_name=provider_name)
+        results.append(result)
+        current_options = ChapterRevisionOptions(
+            root=current_options.root,
+            chapter_number=current_options.chapter_number,
+            instruction=_loop_instruction(current_options.instruction, round_number),
+            from_audit=current_options.from_audit,
+            target=current_options.target,
+            force=current_options.force,
+            save_as_version=True,
+        )
+    run_log_path = _write_revision_loop_log(options.base_options.root, options.base_options.chapter_number, results)
+    return RevisionLoopResult(results=tuple(results), run_log_path=run_log_path)
+
+
 def load_revision_context(
     root: Path,
     options: ChapterRevisionOptions,
@@ -206,15 +248,7 @@ def read_revision_instruction(instruction: str | None, input_path: Path | None) 
 
 
 def build_revision_system_prompt() -> str:
-    return (
-        "你是 Revision Agent。请只输出修订后的小说正文 Markdown。"
-        "不要输出解释、分析、修改说明、JSON、大纲或包装语。"
-        "如果用户要求基于 audit 修订，请重点修复 audit issues。"
-        "不要引入新的设定矛盾，不要改变核心剧情，除非用户明确要求。"
-        "不要修改 canon/state/timeline，不要提前揭示 hidden_truths。"
-        "不要让角色知道他们尚未获得的信息。"
-        "正文中不要出现“根据设定”“审核报告”“修订如下”等工作区语言。"
-    )
+    return load_prompt_template("revision_system")
 
 
 def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisionOptions) -> str:
@@ -302,6 +336,43 @@ def _append_revision_log(path: Path, chapter_number: int, record: RevisionRecord
         log = RevisionLog(chapter_number=chapter_number, revisions=[])
     updated = log.model_copy(update={"revisions": [*log.revisions, record]})
     path.write_text(updated.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+
+def _loop_instruction(instruction: str | None, round_number: int) -> str:
+    base = _clean_optional(instruction) or "继续根据上一轮结果做保守修订。"
+    return f"{base}\n\nRevision Loop round {round_number + 1}: 只修复上一轮仍可能存在的问题，不要扩大改动范围。"
+
+
+def _write_revision_loop_log(
+    root: Path,
+    chapter_number: int,
+    results: list[ChapterRevisionResult],
+) -> Path:
+    chapter_dir = root.resolve() / "memory" / "chapters" / f"{chapter_number:03d}"
+    run_id = "revision_loop_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    path = chapter_dir / f"{run_id}.json"
+    payload = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "task": "revision_loop",
+        "chapter_number": chapter_number,
+        "started_at": results[0].record.created_at.isoformat().replace("+00:00", "Z") if results else _utc_now(),
+        "ended_at": _utc_now(),
+        "status": "completed",
+        "max_rounds": len(results),
+        "steps": [
+            {
+                "round": index,
+                "revision_id": result.record.id,
+                "output_file": result.output_path.name,
+                "revision_log": str(result.revision_log_path),
+            }
+            for index, result in enumerate(results, start=1)
+        ],
+        "errors": [],
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def _read_style_guide(root: Path, warnings: list[str]) -> str:

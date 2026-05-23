@@ -88,6 +88,15 @@ def test_parse_chapter_plan_normalizes_mapping_state_changes() -> None:
     ]
 
 
+def test_parse_chapter_plan_normalizes_required_context_list() -> None:
+    payload = json.loads(default_mock_chapter_plan_json(1))
+    payload["required_context"] = ["char_lin_che", "loc_old_station"]
+
+    plan = parse_chapter_plan(json.dumps(payload, ensure_ascii=False))
+
+    assert plan.required_context.canon_entity_ids == ["char_lin_che", "loc_old_station"]
+
+
 def test_plan_chapter_refuses_to_overwrite_existing_plan_by_default(tmp_path: Path) -> None:
     root = _workspace_with_canon(tmp_path)
     first, _, _ = _run_cli(["plan-chapter", "1", "--path", str(root), "--provider", "mock"])

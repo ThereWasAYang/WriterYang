@@ -13,3 +13,4 @@ exclude docs/WORKFLOW.md
 exclude docs/ROADMAP.md
 recursive-include examples *.yaml *.json *.md .gitkeep
 recursive-include src/novel/web_static *.html
+recursive-include src/novel/prompts *.txt

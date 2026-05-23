@@ -127,6 +127,60 @@ def test_revise_chapter_revision_log_is_created_and_appended(tmp_path: Path) -> 
     assert log.revisions[1].instruction == "第二轮修订"
 
 
+def test_revise_chapter_loop_requires_explicit_confirmation(tmp_path: Path) -> None:
+    root = _workspace_with_generated_chapter(tmp_path)
+
+    code, stdout, stderr = _run_cli(
+        [
+            "revise-chapter",
+            "1",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+            "--instruction",
+            "循环修订",
+            "--max-rounds",
+            "2",
+        ]
+    )
+
+    assert code == 1
+    assert stdout == ""
+    assert "--confirm-loop" in stderr
+
+
+def test_revise_chapter_loop_writes_versions_and_run_log(tmp_path: Path) -> None:
+    root = _workspace_with_generated_chapter(tmp_path)
+
+    code, stdout, stderr = _run_cli(
+        [
+            "revise-chapter",
+            "1",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+            "--instruction",
+            "循环修订",
+            "--max-rounds",
+            "2",
+            "--confirm-loop",
+        ]
+    )
+
+    assert code == 0
+    assert stderr == ""
+    assert "Wrote revision loop log" in stdout
+    assert (root / "memory" / "chapters" / "001" / "polished.v2.md").is_file()
+    assert (root / "memory" / "chapters" / "001" / "polished.v3.md").is_file()
+    logs = list((root / "memory" / "chapters" / "001").glob("revision_loop_*.json"))
+    assert logs
+    payload = json.loads(logs[0].read_text(encoding="utf-8"))
+    assert payload["status"] == "completed"
+    assert len(payload["steps"]) == 2
+
+
 def _workspace_with_generated_chapter(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

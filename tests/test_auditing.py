@@ -120,6 +120,21 @@ def test_audit_chapter_force_overwrites_existing(tmp_path: Path) -> None:
     assert "Wrote chapter audit:" in stdout
 
 
+def test_audit_precheck_flags_hidden_truth_text_in_polished_body(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
+    text = polished_path.read_text(encoding="utf-8")
+    polished_path.write_text(text + "\n旧车站在特定雨夜会短暂连接过去的时间层。\n", encoding="utf-8")
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+
+    assert result.report.overall_status == "needs_revision"
+    assert any(issue.type == "premature_reveal" for issue in result.report.issues)
+
+
 def test_audit_chapter_input_instruction(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     input_path = tmp_path / "audit_request.txt"

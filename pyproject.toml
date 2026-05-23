@@ -46,7 +46,7 @@ markers = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-novel = ["web_static/*.html"]
+novel = ["web_static/*.html", "prompts/*.txt"]
 
 [tool.setuptools.data-files]
 "schemas" = ["schemas/*.json"]

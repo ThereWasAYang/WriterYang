@@ -9,6 +9,7 @@ from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.prompts import load_prompt_template
 from novel.core.search import retrieve_context
 from novel.core.schemas import (
     ChapterPlan,
@@ -143,15 +144,7 @@ def read_drafting_instruction(instruction: str | None, input_path: Path | None) 
 
 
 def build_writer_system_prompt() -> str:
-    return (
-        "你是 Writer Agent。请只写本章小说正文，输出适合直接放入 draft.md 的 Markdown 正文。"
-        "必须严格遵守 ChapterPlan，遵守 style_guide.md，尊重 canon、current_state 和 timeline。"
-        "不要修改 canon/state/timeline。不要输出大纲、解释、分析或 JSON。"
-        "不要提前揭示 hidden_truths，除非 plan.json 或用户 instruction 明确要求。"
-        "不要让角色知道他们尚未获得的信息。"
-        "不要移动物品、改变人物状态或改变地点状态，除非这些变化在 ChapterPlan 中有依据。"
-        "正文中不要出现“根据设定”“本章目标”“隐藏真相”等作者工作区语言。"
-    )
+    return load_prompt_template("writer_system")
 
 
 def build_writer_user_prompt(

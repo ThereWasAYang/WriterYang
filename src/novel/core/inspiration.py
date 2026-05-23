@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from novel.core.io import load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.prompts import load_prompt_template
 from novel.core.schemas import InspirationBrief, ProjectConfig
 
 
@@ -105,12 +106,7 @@ def read_inspiration_input(text: str | None, input_path: Path | None) -> tuple[s
 
 
 def build_inspiration_system_prompt() -> str:
-    return (
-        "你是一个长篇小说创作助手，负责把粗略灵感发展成可编辑的弱总纲。"
-        "这个工具的目标不是聊天续写，而是通过结构化设定、状态、时间线、章节计划和审核流程，"
-        "帮助作者长期创作长篇小说并保持一致性。"
-        "请只提出方向和可能性，不要锁死强剧情，不要替作者做不可逆设定。"
-    )
+    return load_prompt_template("inspiration_system")
 
 
 def build_inspiration_user_prompt(project: ProjectConfig, source_text: str) -> str:

@@ -13,6 +13,7 @@ from novel.core.drafting import _chapter_number_text
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.prompts import load_prompt_template
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -167,15 +168,7 @@ def resolve_edit_mode(*, light_edit: bool, deep_edit: bool) -> EditMode:
 
 
 def build_polish_system_prompt() -> str:
-    return (
-        "你是 Polish Agent。请只输出润色后的小说正文。"
-        "不要输出解释、分析、修改说明、JSON 或大纲。"
-        "必须保留原章的核心剧情事实，不得新增重大设定，不得提前揭示 hidden_truths。"
-        "不得改变角色已经知道或不知道的信息，不得擅自改变人物、物品、地点状态。"
-        "不得改变 ChapterPlan 中的关键剧情目标和结尾钩子。"
-        "必须遵守 style_guide.md。"
-        "正文中不要出现“根据设定”“本章目标”“隐藏真相”“润色如下”等工作区语言。"
-    )
+    return load_prompt_template("polish_system")
 
 
 def build_polish_user_prompt(

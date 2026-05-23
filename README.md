@@ -67,6 +67,8 @@ novel show state --path ./rain-station
 项目根目录的 `schemas/*.schema.json` 是从 Pydantic models 生成的 JSON Schema，可供外部工具校验项目 JSON/YAML 结构。
 核心 YAML/JSON 文件都包含 `schema_version`，用于后续兼容迁移。旧项目可以运行 `novel migrate --path ./rain-station` 自动补齐缺失版本字段。
 
+系统 prompt 模板位于 `src/novel/prompts/`，会随包一起分发。关键约束有单元测试保护，避免后续修改时丢失“不要修改 canon/state/timeline”“不要提前揭示 hidden_truths”“只输出 JSON/正文”等边界。
+
 ## Provider 配置
 
 每个 agent 可以在 `config/agents.yaml` 中使用独立模型配置。项目文件只保存环境变量名，不保存真实 API Key。

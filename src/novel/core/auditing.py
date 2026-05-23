@@ -13,6 +13,7 @@ from novel.core.io import load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.prompts import load_prompt_template
 from novel.core.search import retrieve_context
 from novel.core.schemas import (
     AuditEvidence,
@@ -22,6 +23,7 @@ from novel.core.schemas import (
     EntityState,
     ProjectConfig,
     TimelineFile,
+    HiddenTruthsFile,
 )
 from novel.core.validation import validate_canon
 
@@ -255,6 +257,8 @@ def run_deterministic_prechecks(
     _validate_state_file(root, issues, passed_checks)
     _validate_timeline_file(root, issues, passed_checks)
     _validate_canon_files(root, issues, passed_checks)
+    _validate_audited_body_against_plan(chapter_dir, options, context, issues, passed_checks)
+    _validate_hidden_truth_not_revealed(root, options, context, issues, passed_checks)
 
     if not (root / "memory" / "style_guide.md").exists():
         warnings.append("memory/style_guide.md is missing; using default style guidance")
@@ -264,6 +268,75 @@ def run_deterministic_prechecks(
         passed_checks=tuple(passed_checks),
         warnings=tuple(warnings),
     )
+
+
+def _validate_audited_body_against_plan(
+    chapter_dir: Path,
+    options: ChapterAuditOptions,
+    context: AuditContext,
+    issues: list[AuditIssue],
+    passed_checks: list[str],
+) -> None:
+    title_tokens = _significant_tokens(context.plan.title)
+    goal_tokens = _significant_tokens(context.plan.goal)
+    summary_tokens = _significant_tokens(context.plan.summary)
+    required_tokens = [token for token in [*title_tokens, *goal_tokens, *summary_tokens] if token]
+    if not required_tokens:
+        passed_checks.append("plan_keyword_precheck_skipped")
+        return
+    body = context.audited_body
+    hits = [token for token in required_tokens if token in body]
+    if hits:
+        passed_checks.append("audited_body_contains_plan_keywords")
+        return
+    issues.append(
+        _issue(
+            issue_id="audit_precheck_plan_keywords_missing",
+            severity="medium",
+            issue_type="plot_logic_issue",
+            description=f"{options.audited_file} does not contain obvious keywords from plan title/goal/summary.",
+            source=str(chapter_dir / options.audited_file),
+            quote=context.plan.goal[:120],
+            suggested_fix="Review whether the chapter drifted away from plan.json; revise or update the plan if intentional.",
+        )
+    )
+
+
+def _validate_hidden_truth_not_revealed(
+    root: Path,
+    options: ChapterAuditOptions,
+    context: AuditContext,
+    issues: list[AuditIssue],
+    passed_checks: list[str],
+) -> None:
+    path = root / "memory" / "canon" / "hidden_truths.json"
+    try:
+        truths = load_json_model(path, HiddenTruthsFile)
+    except Exception:
+        return
+    leaked: list[str] = []
+    for truth in truths.hidden_truths:
+        reveal_chapter = truth.planned_reveal.chapter if truth.planned_reveal else None
+        if reveal_chapter is not None and reveal_chapter <= options.chapter_number:
+            continue
+        for fragment in (truth.title.strip(), truth.description.strip()):
+            if fragment and fragment in context.audited_body:
+                leaked.append(truth.id)
+                break
+    if leaked:
+        issues.append(
+            _issue(
+                issue_id="audit_precheck_hidden_truth_reveal",
+                severity="high",
+                issue_type="premature_reveal",
+                description="Audited chapter appears to reveal hidden_truths before their planned reveal chapter.",
+                source=str(path),
+                quote=", ".join(sorted(leaked)),
+                suggested_fix="Remove or disguise the hidden truth text, or explicitly update planned_reveal if this reveal is intentional.",
+            )
+        )
+    else:
+        passed_checks.append("hidden_truth_text_not_directly_revealed")
 
 
 def load_audit_provider(
@@ -294,15 +367,7 @@ def read_audit_instruction(instruction: str | None, input_path: Path | None) -> 
 
 
 def build_audit_system_prompt() -> str:
-    return (
-        "你是 Audit Agent。请只输出 AuditReport JSON，不要输出 Markdown、解释性文字或包装语。"
-        "必须检查 canon 冲突、state 冲突、timeline 冲突、角色是否知道了不该知道的信息、"
-        "物品位置/持有人/状态是否合理、地点状态是否合理、是否提前揭示 hidden_truths、"
-        "章节是否偏离 plan.json 的核心目标、文风是否明显违背 style_guide.md。"
-        "每个问题都必须包含 severity、type、evidence、suggested_fix。"
-        "不要修改正文，不要更新 canon/state/timeline。"
-        "如果没有发现问题，也要输出合法的 AuditReport JSON。"
-    )
+    return load_prompt_template("audit_system")
 
 
 def build_audit_user_prompt(
@@ -516,6 +581,21 @@ def _status_for_issues(
     if issues and preferred == "passed":
         return "needs_revision"
     return preferred
+
+
+def _significant_tokens(text: str) -> list[str]:
+    candidates: list[str] = []
+    for chunk in re_split_tokens(text):
+        chunk = chunk.strip()
+        if len(chunk) >= 2 and chunk not in {"本章", "目标", "摘要", "一个", "一次"}:
+            candidates.append(chunk)
+    return candidates[:8]
+
+
+def re_split_tokens(text: str) -> list[str]:
+    import re
+
+    return [item for item in re.split(r"[\s,，。；;：:、！？!?（）()\[\]【】\"']+", text) if item]
 
 
 def _read_front_matter(path: Path) -> DraftDocument:

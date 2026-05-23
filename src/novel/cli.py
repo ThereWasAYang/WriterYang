@@ -54,9 +54,11 @@ from novel.core.polishing import (
 from novel.core.revision import (
     ChapterRevisionOptions,
     RevisionError,
+    RevisionLoopOptions,
     load_revision_provider,
     read_revision_instruction,
     revise_chapter,
+    revise_chapter_loop,
 )
 from novel.core.search import SearchError, rebuild_search_index, search_project
 from novel.core.state_update import (
@@ -734,6 +736,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=True,
         help="Save as draft.vN.md or polished.vN.md. This is the default.",
+    )
+    revise_parser.add_argument(
+        "--max-rounds",
+        type=int,
+        default=1,
+        help="Maximum revision loop rounds. Defaults to 1.",
+    )
+    revise_parser.add_argument(
+        "--confirm-loop",
+        action="store_true",
+        help="Explicitly allow more than one revision round.",
     )
 
     propose_state_parser = subparsers.add_parser(
@@ -1591,19 +1604,34 @@ def main(argv: list[str] | None = None) -> int:
                 agent_config_path=args.agent_config,
                 model_name=args.model,
             )
-            result = revise_chapter(
-                ChapterRevisionOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    instruction=instruction,
-                    from_audit=args.from_audit,
-                    target=args.target,
-                    force=args.force,
-                    save_as_version=args.save_as_version,
-                ),
-                provider,
-                provider_name=args.provider,
+            base_options = ChapterRevisionOptions(
+                root=root,
+                chapter_number=args.chapter_number,
+                instruction=instruction,
+                from_audit=args.from_audit,
+                target=args.target,
+                force=args.force,
+                save_as_version=args.save_as_version,
             )
+            if args.max_rounds > 1:
+                loop_result = revise_chapter_loop(
+                    RevisionLoopOptions(
+                        base_options=base_options,
+                        max_rounds=args.max_rounds,
+                        confirm_loop=args.confirm_loop,
+                    ),
+                    provider,
+                    provider_name=args.provider,
+                )
+                result = loop_result.results[-1]
+                revision_loop_log_path = loop_result.run_log_path
+            else:
+                result = revise_chapter(
+                    base_options,
+                    provider,
+                    provider_name=args.provider,
+                )
+                revision_loop_log_path = None
         except RevisionError as exc:
             return _failure(args, str(exc), error_type="revision_error")
         except Exception as exc:
@@ -1613,6 +1641,7 @@ def main(argv: list[str] | None = None) -> int:
             *(f"warning: {warning}" for warning in result.warnings),
             f"Wrote chapter revision: {result.output_path}",
             f"Updated revision log: {result.revision_log_path}",
+            *( [f"Wrote revision loop log: {revision_loop_log_path}"] if revision_loop_log_path else [] ),
         ]
         return _success(
             args,
@@ -1620,6 +1649,7 @@ def main(argv: list[str] | None = None) -> int:
                 "command": "revise-chapter",
                 "output_path": str(result.output_path),
                 "revision_log_path": str(result.revision_log_path),
+                "revision_loop_log_path": str(revision_loop_log_path) if revision_loop_log_path else None,
                 "revision_id": result.record.id,
                 "warnings": list(result.warnings),
             },

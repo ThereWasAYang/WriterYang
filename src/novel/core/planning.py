@@ -10,6 +10,7 @@ from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.prompts import load_prompt_template
 from novel.core.search import retrieve_context
 from novel.core.schemas import (
     ChapterPlan,
@@ -131,13 +132,7 @@ def read_planning_instruction(instruction: str | None, input_path: Path | None) 
 
 
 def build_planning_system_prompt() -> str:
-    return (
-        "你是 Plot Agent / Chapter Planning Agent。请只生成本章 ChapterPlan JSON。"
-        "不要写正文，不要修改 canon，不要直接更新 state 或 timeline。"
-        "必须尊重 current_state 和 timeline，避免与已有 canon 冲突。"
-        "可以使用 hidden_truths 指导剧情设计，但不要提前揭示 hidden_truths，"
-        "除非用户 instruction 明确要求。"
-    )
+    return load_prompt_template("planning_system")
 
 
 def build_planning_user_prompt(
@@ -240,6 +235,13 @@ def _normalize_chapter_plan_data(data: object) -> object:
     if not isinstance(data, dict):
         return data
     normalized = dict(data)
+    required_context = normalized.get("required_context")
+    if isinstance(required_context, list):
+        normalized["required_context"] = {
+            "canon_entity_ids": [value for value in required_context if isinstance(value, str)],
+            "state_entity_ids": [],
+            "timeline_event_ids": [],
+        }
     expected_changes = normalized.get("expected_state_changes")
     if isinstance(expected_changes, list):
         normalized["expected_state_changes"] = [

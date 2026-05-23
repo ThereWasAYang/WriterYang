@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.prompts import load_prompt_template
 from novel.core.schemas import (
     CanonProposal,
     CharactersFile,
@@ -206,11 +207,7 @@ def format_canon_validation_report(report: ValidationReport) -> str:
 
 
 def build_canon_system_prompt() -> str:
-    return (
-        "你是小说设定管理助手。请从灵感和弱总纲中生成可编辑的 CanonProposal JSON。"
-        "Canon 是稳定设定，不是章节计划。请给角色、地点、物品、世界规则、隐藏真相和伏笔生成稳定 ID。"
-        "隐藏真相只能放入 hidden_truths 或 foreshadowing 的隐藏字段，不能写进 reader_visible_summary。"
-    )
+    return load_prompt_template("canon_system")
 
 
 def build_canon_user_prompt(
@@ -267,6 +264,7 @@ def validate_canon_proposal(proposal: CanonProposal) -> None:
     _require_unique_ids([item.id for item in proposal.world_rules], "world rule")
     _require_unique_ids([item.id for item in proposal.hidden_truths], "hidden truth")
     _require_unique_ids([item.id for item in proposal.foreshadowing_threads], "foreshadowing thread")
+    _require_unique_ids(_proposal_all_ids(proposal), "cross-type canon")
 
     entity_ids = (
         {item.id for item in proposal.characters}
@@ -451,6 +449,29 @@ def _check_apply_conflicts(canon: CanonFiles, proposal: CanonProposal) -> None:
         [item.id for item in proposal.foreshadowing_threads],
         "foreshadowing thread",
     )
+    _check_conflict(_canon_all_ids(canon), _proposal_all_ids(proposal), "cross-type canon")
+
+
+def _canon_all_ids(canon: CanonFiles) -> list[str]:
+    return [
+        *[item.id for item in canon.characters.characters],
+        *[item.id for item in canon.locations.locations],
+        *[item.id for item in canon.items.items],
+        *[item.id for item in canon.world.world_rules],
+        *[item.id for item in canon.hidden_truths.hidden_truths],
+        *[item.id for item in canon.foreshadowing.foreshadowing_threads],
+    ]
+
+
+def _proposal_all_ids(proposal: CanonProposal) -> list[str]:
+    return [
+        *[item.id for item in proposal.characters],
+        *[item.id for item in proposal.locations],
+        *[item.id for item in proposal.items],
+        *[item.id for item in proposal.world_rules],
+        *[item.id for item in proposal.hidden_truths],
+        *[item.id for item in proposal.foreshadowing_threads],
+    ]
 
 
 def _check_conflict(existing: list[str], incoming: list[str], label: str) -> None:

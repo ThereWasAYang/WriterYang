@@ -15,6 +15,7 @@ from novel.core.io import load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.prompts import load_prompt_template
 from novel.core.schemas import (
     AuditReport,
     ChapterMetadata,
@@ -449,14 +450,7 @@ def load_chapter_metadata(root: Path, chapter_number: int) -> ChapterMetadata | 
 
 
 def build_state_update_system_prompt() -> str:
-    return (
-        "你是 State Update Agent。请只输出结构化 JSON，不要输出 Markdown 或解释。"
-        "根据 polished.md 提取实际发生的事件，根据 ChapterPlan 判断预期状态变化是否发生。"
-        "不要创造正文中没有发生的重大事件，不要修改 canon，不要擅自揭示 hidden_truths。"
-        "每个 state_change 都必须包含 reason 和 source。"
-        "每个 timeline_event 都必须包含 summary、chapter、in_story_time、participant_ids、location_id。"
-        "如果无法判断，写入 warnings，不要硬猜。"
-    )
+    return load_prompt_template("state_update_system")
 
 
 def build_state_update_user_prompt(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -8,13 +9,25 @@ from urllib.parse import urlparse
 from novel.web_api import handle_api_request
 
 
+class WebServerError(RuntimeError):
+    """Raised when the local Web UI server cannot start."""
+
+
 def index_html() -> str:
     path = Path(__file__).with_name("web_static") / "index.html"
     return path.read_text(encoding="utf-8")
 
 
 def run_web_server(host: str = "127.0.0.1", port: int = 8765) -> None:
-    server = ThreadingHTTPServer((host, port), _handler_class())
+    try:
+        server = ThreadingHTTPServer((host, port), _handler_class())
+    except OSError as exc:
+        if exc.errno == errno.EADDRINUSE:
+            raise WebServerError(
+                f"端口 {port} 已被占用，无法启动 Web UI。请换一个端口，例如："
+                f"novel web --port {port + 1}"
+            ) from exc
+        raise WebServerError(f"无法在 {host}:{port} 启动 Web UI：{exc}") from exc
     print(f"WriterYang Web UI: http://{host}:{port}")
     try:
         server.serve_forever()

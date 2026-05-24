@@ -92,7 +92,7 @@ from novel.core.inspection import (
     get_project_status,
 )
 from novel.core.json_schema import export_json_schemas
-from novel.core.io import load_yaml
+from novel.core.io import load_yaml, load_yaml_model
 from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.migration import MigrationError, migrate_project
 from novel.core.orchestrator import (
@@ -104,6 +104,7 @@ from novel.core.orchestrator import (
 )
 from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
 from novel.core.security import scan_security
+from novel.core.schemas import ProjectConfig
 from novel.core.usage import UsageError, summarize_provider_usage
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
@@ -132,6 +133,7 @@ ERROR_CODES = {
     "state_update_error": "State/timeline update failed.",
     "usage_error": "Provider usage statistics could not be read.",
     "validation_failed": "Project validation failed.",
+    "web_error": "Web UI could not start.",
     "workflow_error": "Chapter workflow failed.",
     "workspace_exists": "Workspace initialization would overwrite data.",
     "doctor_failed": "Doctor checks found blocking errors.",
@@ -335,6 +337,18 @@ def _format_usage_summary(summary: dict[str, object]) -> list[str]:
             f"{last_call.get('status', 'unknown')}"
         )
     return lines
+
+
+def _resolve_web_port(path: str, explicit_port: int | None) -> int:
+    if explicit_port is not None:
+        return explicit_port
+    project_path = Path(path) / "project.yaml"
+    if not project_path.exists():
+        return 8765
+    project = load_yaml_model(project_path, ProjectConfig)
+    if project.web:
+        return project.web.default_port
+    return 8765
 
 
 def completion_script(shell: str) -> str:
@@ -1323,6 +1337,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     web_parser = subparsers.add_parser("web", help="Run the local Web UI")
     web_parser.add_argument(
+        "--path",
+        default=".",
+        help="Novel project directory whose project.yaml may define web.default_port. Defaults to current directory.",
+    )
+    web_parser.add_argument(
         "--host",
         default="127.0.0.1",
         help="Host to bind. Defaults to 127.0.0.1.",
@@ -1330,8 +1349,8 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument(
         "--port",
         type=int,
-        default=8765,
-        help="Port to bind. Defaults to 8765.",
+        default=None,
+        help="Port to bind. Overrides project.yaml web.default_port. Defaults to 8765.",
     )
 
     _add_integration_args_recursive(parser)
@@ -2359,9 +2378,16 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     if args.command == "web":
-        from novel.web_server import run_web_server
+        from novel.web_server import WebServerError, run_web_server
 
-        run_web_server(host=args.host, port=args.port)
+        try:
+            port = _resolve_web_port(args.path, args.port)
+            run_web_server(host=args.host, port=port)
+        except Exception as exc:
+            error_type = "web_error"
+            if isinstance(exc, WebServerError):
+                return _failure(args, str(exc), error_type=error_type)
+            return _failure(args, f"Web UI 启动失败：{exc}", error_type=error_type)
         return 0
 
     parser.error(f"unknown command: {args.command}")

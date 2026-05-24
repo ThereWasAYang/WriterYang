@@ -176,6 +176,8 @@ def _project_yaml(
         "target_length:\n"
         '  type: "long_novel"\n'
         "  planned_chapters: 80\n"
+        "web:\n"
+        "  default_port: 8765\n"
         "narration:\n"
         '  pov: "third_person_limited"\n'
         '  tense: "past"\n'

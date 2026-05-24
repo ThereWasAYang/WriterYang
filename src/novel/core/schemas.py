@@ -31,6 +31,10 @@ class Narration(FlexibleModel):
     tense: str
 
 
+class WebConfig(FlexibleModel):
+    default_port: int = Field(default=8765, ge=1, le=65535)
+
+
 class ProjectConfig(SchemaVersionedModel):
     project_id: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     title: str = Field(min_length=1)
@@ -41,6 +45,7 @@ class ProjectConfig(SchemaVersionedModel):
     updated_at: datetime
     target_length: TargetLength | None = None
     default_style_profile_id: str | None = None
+    web: WebConfig | None = None
 
 
 class ThinkingConfig(FlexibleModel):

@@ -8,6 +8,8 @@ genre:
 target_length:
   type: "long_novel"
   planned_chapters: 12
+web:
+  default_port: 8765
 narration:
   pov: "third_person_limited"
   tense: "past"

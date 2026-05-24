@@ -413,8 +413,18 @@ novel export docx --path ./rain-station --output exports/book.docx --title "雨�
 ## 最小 Web UI
 
 ```bash
-novel web --host 127.0.0.1 --port 8765
+novel web --path ./rain-station
+novel web --path ./rain-station --host 127.0.0.1 --port 9000
 ```
+
+默认端口从项目的 `project.yaml` 读取：
+
+```yaml
+web:
+  default_port: 8765
+```
+
+如果没有配置，默认使用 `8765`。命令行 `--port` 会覆盖项目配置。端口被占用时，命令会给出清晰错误提示并退出，例如建议改用 `novel web --port 8766`。
 
 打开 `http://127.0.0.1:8765`。Web UI 可以输入项目路径，查看状态和 canon，列出章节，触发计划、写作、润色、审核、Markdown 导出，并查看生成文件。Web API 调用同一套 core service，不返回真实 API Key。
 

@@ -50,6 +50,20 @@
       },
       "title": "TargetLength",
       "type": "object"
+    },
+    "WebConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "default_port": {
+          "default": 8765,
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Default Port",
+          "type": "integer"
+        }
+      },
+      "title": "WebConfig",
+      "type": "object"
     }
   },
   "additionalProperties": true,
@@ -119,6 +133,17 @@
       ],
       "default": null,
       "title": "Default Style Profile Id"
+    },
+    "web": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WebConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

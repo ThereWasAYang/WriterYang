@@ -9,6 +9,8 @@ genre: # 类型标签，可多个。
 target_length: # 长度规划。
   type: "long_novel" # 作品形态，long_novel 表示长篇。
   planned_chapters: 24 # 计划章节数，可随创作调整。
+web: # 本地 Web UI 设置。
+  default_port: 8765 # 默认 Web 端口；运行 novel web --path 当前项目时会读取它。
 narration: # 叙事设置。
   pov: "third_person_limited" # 叙事视角：第三人称有限视角。
   tense: "past" # 叙事时态。

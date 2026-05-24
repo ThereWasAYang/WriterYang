@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import errno
 from pathlib import Path
 
+from novel.cli import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import handle_api_request
-from novel.web_server import index_html
+from novel.web_server import WebServerError, index_html, run_web_server
 
 
 def test_api_status_endpoint(tmp_path: Path) -> None:
@@ -174,6 +176,35 @@ def test_frontend_basic_render() -> None:
     assert 'id="auditChapter"' in html
     assert 'id="exportMarkdown"' in html
     assert "fetch(" in html
+
+
+def test_web_port_can_be_read_from_project_config(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    project_path = root / "project.yaml"
+    project_path.write_text(
+        project_path.read_text(encoding="utf-8") + "\nweb:\n  default_port: 9012\n",
+        encoding="utf-8",
+    )
+
+    assert _resolve_web_port(str(root), None) == 9012
+    assert _resolve_web_port(str(root), 7777) == 7777
+
+
+def test_web_server_reports_port_conflict(monkeypatch) -> None:
+    def raise_port_conflict(*args: object, **kwargs: object) -> object:
+        raise OSError(errno.EADDRINUSE, "Address already in use")
+
+    monkeypatch.setattr("novel.web_server.ThreadingHTTPServer", raise_port_conflict)
+
+    try:
+        run_web_server(host="127.0.0.1", port=9012)
+    except WebServerError as exc:
+        message = str(exc)
+    else:  # pragma: no cover - this would block if the server started unexpectedly
+        raise AssertionError("expected port conflict")
+
+    assert "端口 9012 已被占用" in message
+    assert "novel web --port" in message
 
 
 def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:

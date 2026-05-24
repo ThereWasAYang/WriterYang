@@ -18,7 +18,10 @@ pytestmark = pytest.mark.web_e2e
 def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> None:
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     root = _workspace_ready_for_generation(tmp_path)
-    port = _free_port()
+    try:
+        port = _free_port()
+    except PermissionError:
+        pytest.skip("local port binding is not permitted in this sandbox")
     server = ThreadingHTTPServer(("127.0.0.1", port), _handler_class())
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -34,16 +37,22 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
             assert "project.yaml" in page.locator("#fileTree").inner_text()
 
             page.click("button[data-tab='providerConfig']")
-            page.wait_for_selector("#providerConfigPanel")
+            page.wait_for_function(
+                "() => document.querySelector('#providerConfigPanel')?.textContent?.includes('api_key_env')"
+            )
             assert "api_key_env" in page.locator("#providerConfigPanel").inner_text()
 
             page.click("button[data-tab='runLogs']")
             page.click("#planChapter")
-            page.wait_for_timeout(250)
+            page.wait_for_function(
+                "() => document.querySelector('#chapterList')?.textContent?.includes('plan')"
+            )
             page.click("#refreshProject")
             page.click("button[data-tab='chapterCompare']")
             page.click("#loadCompare")
-            page.wait_for_timeout(250)
+            page.wait_for_function(
+                "() => !document.querySelector('#planViewer')?.textContent?.includes('未加载')"
+            )
             assert "旧车站" in page.locator("#planViewer").inner_text()
             browser.close()
     except Exception as exc:

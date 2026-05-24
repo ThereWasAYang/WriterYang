@@ -11,7 +11,7 @@ from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
-from novel.core.search import retrieve_context
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -40,6 +40,7 @@ class ChapterPlanningResult:
     plan_json_path: Path
     plan_markdown_path: Path
     validation_report: ValidationReport
+    context_report_path: Path | None = None
 
 
 def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> ChapterPlanningResult:
@@ -62,12 +63,17 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
     inspiration_md = (root / "memory" / "inspiration.md").read_text(encoding="utf-8")
     inspiration_json = _read_optional_text(root / "memory" / "inspiration.json")
     style_guide = _read_optional_text(root / "memory" / "style_guide.md")
-    search_context = (
-        retrieve_context(root, chapter_number=options.chapter_number, instruction=options.instruction)
-        .render_for_prompt()
+    context_bundle = (
+        retrieve_context_bundle(
+            root,
+            chapter_number=options.chapter_number,
+            task="plan",
+            instruction=options.instruction,
+        )
         if options.use_search_context
-        else ""
+        else None
     )
+    search_context = context_bundle.render_for_prompt() if context_bundle else ""
 
     response = provider.generate(
         ModelRequest(
@@ -100,11 +106,13 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         backup_if_exists(plan_markdown_path, reason="force")
     atomic_write_model_json(plan_json_path, plan)
     atomic_write_text(plan_markdown_path, render_plan_markdown(plan))
+    context_report_path = write_context_report(root, context_bundle, force=options.force) if context_bundle else None
     return ChapterPlanningResult(
         plan=plan,
         plan_json_path=plan_json_path,
         plan_markdown_path=plan_markdown_path,
         validation_report=validate_project(root),
+        context_report_path=context_report_path,
     )
 
 

@@ -24,6 +24,7 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "current_state",
         "timeline",
         "chapter_plan",
+        "context_bundle",
         "audit_report",
         "state_update_proposal",
         "state_update_apply_log",

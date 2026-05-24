@@ -10,7 +10,7 @@ from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, 
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
-from novel.core.search import retrieve_context
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -39,6 +39,7 @@ class ChapterDraftingResult:
     draft_path: Path
     draft_markdown: str
     warnings: tuple[str, ...] = ()
+    context_report_path: Path | None = None
 
 
 def write_chapter_draft(
@@ -71,12 +72,18 @@ def write_chapter_draft(
     canon = load_canon_files(root)
     state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
     timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
-    search_context = (
-        retrieve_context(root, chapter_number=options.chapter_number, instruction=options.instruction)
-        .render_for_prompt()
+    context_bundle = (
+        retrieve_context_bundle(
+            root,
+            chapter_number=options.chapter_number,
+            task="write",
+            instruction=options.instruction,
+            plan=plan,
+        )
         if options.use_search_context
-        else ""
+        else None
     )
+    search_context = context_bundle.render_for_prompt() if context_bundle else ""
 
     model_request = ModelRequest(
         system_prompt=build_writer_system_prompt(),
@@ -113,10 +120,12 @@ def write_chapter_draft(
     if options.force:
         backup_if_exists(draft_path, reason="force")
     atomic_write_text(draft_path, draft_markdown)
+    context_report_path = write_context_report(root, context_bundle, force=options.force) if context_bundle else None
     return ChapterDraftingResult(
         draft_path=draft_path,
         draft_markdown=draft_markdown,
         warnings=tuple(warnings),
+        context_report_path=context_report_path,
     )
 
 

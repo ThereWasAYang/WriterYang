@@ -11,10 +11,12 @@ from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_j
 from novel.core.planning import (
     ChapterPlanningOptions,
     default_mock_chapter_plan_json,
+    parse_chapter_plan,
     plan_chapter,
 )
 from novel.core.providers import MockProvider
-from novel.core.search import rebuild_search_index, retrieve_context, search_project
+from novel.core.search import rebuild_search_index, retrieve_context, retrieve_context_bundle, search_project
+from novel.core.schemas import ContextBundle
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -111,6 +113,106 @@ def test_retriever_returns_explainable_sources(tmp_path: Path) -> None:
     assert "memory/" in rendered
 
 
+def test_context_bundle_schema_round_trips() -> None:
+    bundle = ContextBundle(
+        chapter_number=1,
+        task="write",
+        query="chapter 1 林澈",
+        included=[
+            {
+                "id": "char_lin_che",
+                "type": "character",
+                "source": "memory/canon/characters.json",
+                "visibility": "reader_visible",
+                "reason": "directly referenced by ChapterPlan",
+                "priority": 100,
+                "content": {"name": "林澈"},
+            }
+        ],
+        excluded=[
+            {
+                "id": "truth_station_overlap",
+                "type": "hidden_truth",
+                "source": "memory/canon/hidden_truths.json",
+                "visibility": "hidden_truth",
+                "reason": "protected from drafting output",
+            }
+        ],
+        created_at="2026-05-24T00:00:00Z",
+    )
+
+    reloaded = ContextBundle.model_validate_json(bundle.model_dump_json())
+
+    assert reloaded.included[0].visibility == "reader_visible"
+    assert reloaded.excluded[0].reason == "protected from drafting output"
+
+
+def test_context_bundle_expands_chapter_plan_entities_and_state(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    _write_current_state(root)
+    _write_timeline_event(root)
+    payload = json.loads(default_mock_chapter_plan_json(1))
+    payload["required_context"]["timeline_event_ids"] = ["event_broadcast"]
+    plan = parse_chapter_plan(json.dumps(payload, ensure_ascii=False))
+
+    bundle = retrieve_context_bundle(
+        root,
+        chapter_number=1,
+        task="write",
+        instruction="林澈调查广播",
+        plan=plan,
+        limit=20,
+    )
+
+    included = {(item.type, item.id): item for item in bundle.included}
+    assert ("character", "char_lin_che") in included
+    assert ("location", "loc_old_station") in included
+    assert ("item", "item_broken_ticket") in included
+    assert ("character_state", "state_char_lin_che") in included
+    assert ("item_state", "state_item_broken_ticket") in included
+    assert ("timeline_event", "event_broadcast") in included
+    assert included[("character", "char_lin_che")].priority == 100
+
+
+def test_context_bundle_protects_hidden_truth_for_write(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    plan = parse_chapter_plan(default_mock_chapter_plan_json(1))
+
+    bundle = retrieve_context_bundle(
+        root,
+        chapter_number=1,
+        task="write",
+        instruction="揭示隐藏真相",
+        plan=plan,
+        limit=20,
+    )
+    rendered = bundle.render_for_prompt()
+
+    assert "旧车站在特定雨夜会短暂连接过去的时间层" not in rendered
+    assert "广播来自过去的时间层" not in rendered
+    assert any(item.id == "truth_station_overlap" for item in bundle.excluded)
+    assert any("protected" in item.reason for item in bundle.excluded)
+    assert bundle.warnings
+
+
+def test_context_bundle_allows_hidden_truth_for_audit(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    plan = parse_chapter_plan(default_mock_chapter_plan_json(1))
+
+    bundle = retrieve_context_bundle(
+        root,
+        chapter_number=1,
+        task="audit",
+        instruction="检查是否提前揭示",
+        plan=plan,
+        limit=20,
+    )
+    rendered = bundle.render_for_prompt()
+
+    assert any(item.type == "hidden_truth" for item in bundle.included)
+    assert "旧车站在特定雨夜会短暂连接过去的时间层" in rendered
+
+
 def test_use_search_context_does_not_break_planning_prompt(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
     provider = MockProvider(fake_response=default_mock_chapter_plan_json(1))
@@ -126,8 +228,10 @@ def test_use_search_context_does_not_break_planning_prompt(tmp_path: Path) -> No
     )
 
     assert result.plan.chapter_number == 1
+    assert result.context_report_path is not None
+    assert result.context_report_path.is_file()
     assert provider.requests
-    assert "Search context" in provider.requests[0].user_prompt
+    assert "Context bundle" in provider.requests[0].user_prompt
 
 
 def test_cli_search_json_output(tmp_path: Path) -> None:
@@ -209,6 +313,51 @@ def _write_timeline_event(root: Path) -> None:
                         "participant_ids": ["char_lin_che"],
                     }
                 ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_current_state(root: Path) -> None:
+    (root / "memory" / "state" / "current_state.json").write_text(
+        json.dumps(
+            {
+                "story_position": {"latest_chapter": 0},
+                "character_states": [
+                    {
+                        "entity_id": "char_lin_che",
+                        "location_id": "loc_old_station",
+                        "health": "疲惫",
+                        "mental_state": "警觉",
+                        "knowledge": [],
+                        "goals": ["调查广播"],
+                        "possessions": [],
+                        "last_updated_chapter": 0,
+                    }
+                ],
+                "item_states": [
+                    {
+                        "entity_id": "item_broken_ticket",
+                        "holder_id": None,
+                        "location_id": "loc_old_station",
+                        "condition": "潮湿",
+                        "known_properties": [],
+                        "last_updated_chapter": 0,
+                    }
+                ],
+                "location_states": [
+                    {
+                        "entity_id": "loc_old_station",
+                        "accessibility": "可进入",
+                        "condition": "废弃",
+                        "active_events": [],
+                        "last_updated_chapter": 0,
+                    }
+                ],
             },
             ensure_ascii=False,
             indent=2,

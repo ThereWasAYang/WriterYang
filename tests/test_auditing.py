@@ -47,6 +47,29 @@ def test_mock_provider_can_generate_audit_report(tmp_path: Path) -> None:
     assert "只输出 AuditReport JSON" in provider.requests[0].system_prompt
 
 
+def test_audit_search_context_writes_report_and_includes_hidden_truth(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    provider = MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md"))
+
+    result = audit_chapter(
+        ChapterAuditOptions(
+            root=root,
+            chapter_number=1,
+            instruction="检查是否提前揭示隐藏真相",
+            use_search_context=True,
+        ),
+        provider,
+    )
+
+    assert result.context_report_path is not None
+    assert result.context_report_path.is_file()
+    prompt = provider.requests[0].user_prompt
+    assert "Context bundle" in prompt
+    assert "旧车站在特定雨夜会短暂连接过去的时间层" in prompt
+    report = result.context_report_path.read_text(encoding="utf-8")
+    assert "truth_station_overlap" in report
+
+
 def test_audit_chapter_cli_creates_audit_json(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
 

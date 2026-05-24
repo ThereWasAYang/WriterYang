@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
 import sqlite3
-from typing import Literal
+from typing import Any, Literal
 
 from novel.core.embeddings import (
     EmbeddingError,
@@ -13,7 +14,15 @@ from novel.core.embeddings import (
     create_embedding_provider,
     local_embedding_vector,
 )
-from novel.core.io import atomic_write_json, backup_if_exists, load_json
+from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json
+from novel.core.schemas import (
+    ChapterPlan,
+    ContextBundle,
+    ContextExclusion,
+    ContextItem,
+    ContextTask,
+    ContextVisibility,
+)
 
 
 SearchType = Literal["character", "location", "item", "event", "chapter", "all"]
@@ -203,6 +212,480 @@ def retrieve_context(
             )
         )
     return RetrievedContext(query=query, chapter_number=chapter_number, results=results)
+
+
+def retrieve_context_bundle(
+    root: Path,
+    *,
+    chapter_number: int,
+    task: ContextTask,
+    instruction: str | None,
+    plan: ChapterPlan | None = None,
+    limit: int = 12,
+    use_vector: bool = True,
+) -> ContextBundle:
+    root = root.resolve()
+    query_parts = [f"chapter {chapter_number}"]
+    if instruction and instruction.strip():
+        query_parts.append(instruction.strip())
+    query = " ".join(query_parts)
+    included: dict[tuple[str, str], ContextItem] = {}
+    excluded: dict[tuple[str, str], ContextExclusion] = {}
+    warnings: list[str] = []
+
+    data = _load_context_data(root)
+    direct_ids = _plan_entity_ids(plan)
+    direct_event_ids = _plan_timeline_event_ids(plan)
+    for entity_id in sorted(direct_ids):
+        _include_entity_context(
+            root=root,
+            data=data,
+            entity_id=entity_id,
+            task=task,
+            included=included,
+            excluded=excluded,
+        )
+    for event_id in sorted(direct_event_ids):
+        event = data["events_by_id"].get(event_id)
+        if event:
+            _put_context_item(
+                included,
+                ContextItem(
+                    id=event_id,
+                    type="timeline_event",
+                    source="memory/state/timeline.json",
+                    visibility="reader_visible" if event.get("reader_visible") else "author_only",
+                    reason="referenced by ChapterPlan.required_context.timeline_event_ids",
+                    priority=92,
+                    content=_safe_content(event),
+                ),
+            )
+
+    if _instruction_requests_hidden_reveal(instruction) and task in {"write", "polish"}:
+        warnings.append(
+            "instruction appears to request revealing hidden truth; hidden_truth content is still protected for this task"
+        )
+
+    for truth in data["hidden_truths"]:
+        _maybe_include_hidden_truth(
+            truth=truth,
+            task=task,
+            included=included,
+            excluded=excluded,
+            reason="hidden truth relevant to canon; protected by task visibility policy",
+        )
+    for thread in data["foreshadowing_threads"]:
+        _maybe_include_foreshadowing(
+            thread=thread,
+            task=task,
+            included=included,
+            excluded=excluded,
+            direct_ids=direct_ids,
+        )
+
+    search_results = _safe_retrieve_search_results(
+        root,
+        query=query,
+        chapter_number=chapter_number,
+        limit=limit,
+        use_vector=use_vector,
+    )
+    for result in search_results:
+        _include_search_result(result, task=task, included=included, excluded=excluded)
+
+    selected = sorted(included.values(), key=lambda item: (-item.priority, item.type, item.id))[:limit]
+    return ContextBundle(
+        chapter_number=chapter_number,
+        task=task,
+        query=query,
+        included=selected,
+        excluded=sorted(excluded.values(), key=lambda item: (item.type, item.id)),
+        warnings=warnings,
+        created_at=_utc_now(),
+    )
+
+
+def write_context_report(root: Path, bundle: ContextBundle, *, force: bool = False) -> Path:
+    chapter_dir = root.resolve() / "memory" / "chapters" / f"{bundle.chapter_number:03d}"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    target = chapter_dir / "context_report.json"
+    if target.exists() and not force:
+        target = chapter_dir / f"context_report.{bundle.task}.json"
+        counter = 1
+        while target.exists():
+            target = chapter_dir / f"context_report.{bundle.task}.{counter}.json"
+            counter += 1
+    elif target.exists() and force:
+        backup_if_exists(target, reason="force")
+    atomic_write_model_json(target, bundle)
+    return target
+
+
+def _load_context_data(root: Path) -> dict[str, Any]:
+    canon_dir = root / "memory" / "canon"
+    state_dir = root / "memory" / "state"
+    characters = _list_from_json(canon_dir / "characters.json", "characters")
+    locations = _list_from_json(canon_dir / "locations.json", "locations")
+    items = _list_from_json(canon_dir / "items.json", "items")
+    world_rules = _list_from_json(canon_dir / "world.json", "world_rules")
+    hidden_truths = _list_from_json(canon_dir / "hidden_truths.json", "hidden_truths")
+    foreshadowing_threads = _list_from_json(canon_dir / "foreshadowing.json", "foreshadowing_threads")
+    character_states = _list_from_json(state_dir / "current_state.json", "character_states")
+    item_states = _list_from_json(state_dir / "current_state.json", "item_states")
+    location_states = _list_from_json(state_dir / "current_state.json", "location_states")
+    events = _list_from_json(state_dir / "timeline.json", "events")
+    return {
+        "characters_by_id": _by_id(characters),
+        "locations_by_id": _by_id(locations),
+        "items_by_id": _by_id(items),
+        "world_rules_by_id": _by_id(world_rules),
+        "character_states_by_id": _by_key(character_states, "entity_id"),
+        "item_states_by_id": _by_key(item_states, "entity_id"),
+        "location_states_by_id": _by_key(location_states, "entity_id"),
+        "events_by_id": _by_id(events),
+        "events": events,
+        "hidden_truths": hidden_truths,
+        "foreshadowing_threads": foreshadowing_threads,
+    }
+
+
+def _list_from_json(path: Path, key: str) -> list[dict[str, Any]]:
+    data = _safe_load_json(path)
+    values = data.get(key) if isinstance(data, dict) else None
+    return [value for value in values if isinstance(value, dict)] if isinstance(values, list) else []
+
+
+def _by_id(values: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(value["id"]): value for value in values if isinstance(value.get("id"), str)}
+
+
+def _by_key(values: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
+    return {str(value[key]): value for value in values if isinstance(value.get(key), str)}
+
+
+def _plan_entity_ids(plan: ChapterPlan | None) -> set[str]:
+    if plan is None:
+        return set()
+    entity_ids = set(plan.required_context.canon_entity_ids)
+    entity_ids.update(plan.required_context.state_entity_ids)
+    for scene in plan.scenes:
+        entity_ids.add(scene.location_id)
+        entity_ids.update(scene.participant_ids)
+    return {entity_id for entity_id in entity_ids if entity_id}
+
+
+def _plan_timeline_event_ids(plan: ChapterPlan | None) -> set[str]:
+    if plan is None:
+        return set()
+    return {event_id for event_id in plan.required_context.timeline_event_ids if event_id}
+
+
+def _include_entity_context(
+    *,
+    root: Path,
+    data: dict[str, Any],
+    entity_id: str,
+    task: ContextTask,
+    included: dict[tuple[str, str], ContextItem],
+    excluded: dict[tuple[str, str], ContextExclusion],
+) -> None:
+    mappings = (
+        ("character", "memory/canon/characters.json", "characters_by_id", "character_states_by_id", "character_state"),
+        ("location", "memory/canon/locations.json", "locations_by_id", "location_states_by_id", "location_state"),
+        ("item", "memory/canon/items.json", "items_by_id", "item_states_by_id", "item_state"),
+        ("world_rule", "memory/canon/world.json", "world_rules_by_id", "", ""),
+    )
+    for entity_type, source, map_key, state_map_key, state_type in mappings:
+        value = data[map_key].get(entity_id)
+        if value:
+            _put_context_item(
+                included,
+                ContextItem(
+                    id=entity_id,
+                    type=entity_type,
+                    source=source,
+                    visibility=_visibility_for_canon(value),
+                    reason="directly referenced by ChapterPlan",
+                    priority=100,
+                    content=_safe_content(value),
+                ),
+            )
+            if state_map_key:
+                state_value = data[state_map_key].get(entity_id)
+                if state_value:
+                    _put_context_item(
+                        included,
+                        ContextItem(
+                            id=f"state_{entity_id}",
+                            type=state_type,
+                            source="memory/state/current_state.json",
+                            visibility="author_only",
+                            reason=f"current state for directly referenced {entity_type}",
+                            priority=95,
+                            content=_safe_content(state_value),
+                        ),
+                    )
+            _include_related_events(entity_id, data, included)
+            _include_related_hidden_material(entity_id, data, task, included, excluded)
+            return
+
+
+def _include_related_events(
+    entity_id: str,
+    data: dict[str, Any],
+    included: dict[tuple[str, str], ContextItem],
+) -> None:
+    for event in data["events"]:
+        event_id = event.get("id")
+        if not isinstance(event_id, str):
+            continue
+        if event.get("location_id") != entity_id and entity_id not in _string_list(event.get("participant_ids")):
+            continue
+        _put_context_item(
+            included,
+            ContextItem(
+                id=event_id,
+                type="timeline_event",
+                source="memory/state/timeline.json",
+                visibility="reader_visible" if event.get("reader_visible") else "author_only",
+                reason=f"timeline event references {entity_id}",
+                priority=84,
+                content=_safe_content(event),
+            ),
+        )
+
+
+def _include_related_hidden_material(
+    entity_id: str,
+    data: dict[str, Any],
+    task: ContextTask,
+    included: dict[tuple[str, str], ContextItem],
+    excluded: dict[tuple[str, str], ContextExclusion],
+) -> None:
+    for truth in data["hidden_truths"]:
+        if entity_id in _string_list(truth.get("related_entity_ids")):
+            _maybe_include_hidden_truth(
+                truth=truth,
+                task=task,
+                included=included,
+                excluded=excluded,
+                reason=f"hidden truth references {entity_id}",
+            )
+    for thread in data["foreshadowing_threads"]:
+        if entity_id in _string_list(thread.get("related_entity_ids")):
+            _maybe_include_foreshadowing(
+                thread=thread,
+                task=task,
+                included=included,
+                excluded=excluded,
+                direct_ids={entity_id},
+            )
+
+
+def _maybe_include_hidden_truth(
+    *,
+    truth: dict[str, Any],
+    task: ContextTask,
+    included: dict[tuple[str, str], ContextItem],
+    excluded: dict[tuple[str, str], ContextExclusion],
+    reason: str,
+) -> None:
+    truth_id = truth.get("id")
+    if not isinstance(truth_id, str):
+        return
+    if task in {"write", "polish"}:
+        _put_exclusion(
+            excluded,
+            ContextExclusion(
+                id=truth_id,
+                type="hidden_truth",
+                source="memory/canon/hidden_truths.json",
+                visibility="hidden_truth",
+                reason="protected from drafting output",
+            ),
+        )
+        return
+    _put_context_item(
+        included,
+        ContextItem(
+            id=truth_id,
+            type="hidden_truth",
+            source="memory/canon/hidden_truths.json",
+            visibility="hidden_truth" if task == "plan" else "audit_only",
+            reason=reason,
+            priority=78 if task == "plan" else 96,
+            content=_safe_content(truth),
+        ),
+    )
+
+
+def _maybe_include_foreshadowing(
+    *,
+    thread: dict[str, Any],
+    task: ContextTask,
+    included: dict[tuple[str, str], ContextItem],
+    excluded: dict[tuple[str, str], ContextExclusion],
+    direct_ids: set[str],
+) -> None:
+    thread_id = thread.get("id")
+    if not isinstance(thread_id, str):
+        return
+    has_hidden = bool(thread.get("hidden_truth") or thread.get("hidden_truth_id"))
+    is_related = bool(direct_ids.intersection(_string_list(thread.get("related_entity_ids")))) or not direct_ids
+    if not is_related:
+        return
+    if task in {"write", "polish"} and has_hidden:
+        safe_thread = dict(thread)
+        safe_thread.pop("hidden_truth", None)
+        _put_context_item(
+            included,
+            ContextItem(
+                id=thread_id,
+                type="foreshadowing",
+                source="memory/canon/foreshadowing.json",
+                visibility="author_only",
+                reason="related foreshadowing with hidden fields redacted",
+                priority=72,
+                content=_safe_content(safe_thread),
+            ),
+        )
+        _put_exclusion(
+            excluded,
+            ContextExclusion(
+                id=thread_id,
+                type="foreshadowing_hidden_detail",
+                source="memory/canon/foreshadowing.json",
+                visibility="hidden_truth",
+                reason="protected from drafting output",
+            ),
+        )
+        return
+    _put_context_item(
+        included,
+        ContextItem(
+            id=thread_id,
+            type="foreshadowing",
+            source="memory/canon/foreshadowing.json",
+            visibility="audit_only" if task == "audit" and has_hidden else "author_only",
+            reason="related foreshadowing thread",
+            priority=74,
+            content=_safe_content(thread),
+        ),
+    )
+
+
+def _safe_retrieve_search_results(
+    root: Path,
+    *,
+    query: str,
+    chapter_number: int,
+    limit: int,
+    use_vector: bool,
+) -> list[SearchResult]:
+    try:
+        return _diverse_context_results(
+            search_project(
+                root,
+                query,
+                search_type="all",
+                limit=max(limit * 3, limit),
+                highlight=True,
+                use_vector=use_vector,
+            ),
+            limit=limit,
+            chapter_number=chapter_number,
+        )
+    except SearchError:
+        rebuild_search_index(root)
+        return _diverse_context_results(
+            search_project(
+                root,
+                query,
+                search_type="all",
+                limit=max(limit * 3, limit),
+                highlight=True,
+                use_vector=use_vector,
+            ),
+            limit=limit,
+            chapter_number=chapter_number,
+        )
+
+
+def _include_search_result(
+    result: SearchResult,
+    *,
+    task: ContextTask,
+    included: dict[tuple[str, str], ContextItem],
+    excluded: dict[tuple[str, str], ContextExclusion],
+) -> None:
+    if task in {"write", "polish"} and result.path.endswith("hidden_truths.json"):
+        _put_exclusion(
+            excluded,
+            ContextExclusion(
+                id=result.id,
+                type="search_result",
+                source=result.path,
+                visibility="hidden_truth",
+                reason="protected from drafting output",
+            ),
+        )
+        return
+    _put_context_item(
+        included,
+        ContextItem(
+            id=result.id,
+            type=f"search_{result.type}",
+            source=result.path,
+            visibility="reader_visible" if result.type in {"character", "location", "item", "chapter", "event"} else "author_only",
+            reason=f"search match: {', '.join(result.matched_terms) if result.matched_terms else 'vector similarity'}",
+            priority=min(70 + result.score, 89),
+            content={
+                "title": result.title,
+                "excerpt": result.excerpt,
+                "matched_terms": list(result.matched_terms),
+                "metadata": result.metadata,
+            },
+        ),
+    )
+
+
+def _put_context_item(items: dict[tuple[str, str], ContextItem], item: ContextItem) -> None:
+    key = (item.type, item.id)
+    existing = items.get(key)
+    if existing is None or item.priority > existing.priority:
+        items[key] = item
+
+
+def _put_exclusion(items: dict[tuple[str, str], ContextExclusion], item: ContextExclusion) -> None:
+    items[(item.type, item.id)] = item
+
+
+def _visibility_for_canon(value: dict[str, Any]) -> ContextVisibility:
+    raw_visibility = value.get("visibility")
+    if raw_visibility == "hidden":
+        return "hidden_truth"
+    if value.get("private_author_notes"):
+        return "author_only"
+    return "reader_visible"
+
+
+def _safe_content(value: dict[str, Any]) -> dict[str, Any]:
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+def _string_list(value: object) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _instruction_requests_hidden_reveal(instruction: str | None) -> bool:
+    if not instruction:
+        return False
+    lowered = instruction.lower()
+    return any(marker in lowered for marker in ("揭示", "暴露隐藏真相", "隐藏真相", "reveal", "hidden truth"))
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def search_index_path(root: Path) -> Path:

@@ -163,6 +163,31 @@ def test_write_chapter_target_words_and_style_note_cli(tmp_path: Path) -> None:
     assert "Wrote chapter draft:" in stdout
 
 
+def test_write_chapter_search_context_writes_report_and_protects_hidden_truth(tmp_path: Path) -> None:
+    root = _workspace_with_plan(tmp_path)
+    provider = MockProvider(fake_response="雨声压低了旧车站的轮廓。")
+
+    result = write_chapter_draft(
+        ChapterDraftingOptions(
+            root=root,
+            chapter_number=1,
+            instruction="揭示隐藏真相",
+            use_search_context=True,
+        ),
+        provider,
+    )
+
+    assert result.context_report_path is not None
+    assert result.context_report_path.is_file()
+    prompt = provider.requests[0].user_prompt
+    assert "Context bundle" in prompt
+    assert "旧车站在特定雨夜会短暂连接过去的时间层" not in prompt
+    assert "广播来自过去的时间层" not in prompt
+    report = result.context_report_path.read_text(encoding="utf-8")
+    assert "truth_station_overlap" in report
+    assert "protected from drafting output" in report
+
+
 def _workspace_with_plan(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

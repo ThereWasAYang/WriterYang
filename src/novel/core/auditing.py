@@ -14,12 +14,13 @@ from novel.core.polishing import DraftDocument, PolishingError, read_markdown_wi
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
-from novel.core.search import retrieve_context
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditEvidence,
     AuditIssue,
     AuditReport,
     ChapterPlan,
+    ContextBundle,
     EntityState,
     ProjectConfig,
     TimelineFile,
@@ -61,6 +62,7 @@ class ChapterAuditResult:
     audit_path: Path
     report: AuditReport
     warnings: tuple[str, ...] = ()
+    context_report_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,7 @@ class AuditContext:
     state_json: str
     timeline_json: str
     search_context: str = ""
+    context_bundle: ContextBundle | None = None
 
 
 @dataclass(frozen=True)
@@ -163,10 +166,16 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
     if options.force:
         backup_if_exists(audit_path, reason="force")
     atomic_write_model_json(audit_path, report)
+    context_report_path = (
+        write_context_report(root, context.context_bundle, force=options.force)
+        if context.context_bundle
+        else None
+    )
     return ChapterAuditResult(
         audit_path=audit_path,
         report=report,
         warnings=precheck.warnings,
+        context_report_path=context_report_path,
     )
 
 
@@ -180,6 +189,17 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
     warnings: list[str] = []
     style_guide = _read_style_guide(root, warnings)
     canon = load_canon_files(root)
+    context_bundle = (
+        retrieve_context_bundle(
+            root,
+            chapter_number=options.chapter_number,
+            task="audit",
+            instruction=options.instruction,
+            plan=plan,
+        )
+        if options.use_search_context
+        else None
+    )
 
     return AuditContext(
         project=project,
@@ -193,12 +213,8 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
         canon_summary=format_canon_summary(canon),
         state_json=_read_required_json_text(root / "memory" / "state" / "current_state.json"),
         timeline_json=_read_required_json_text(root / "memory" / "state" / "timeline.json"),
-        search_context=(
-            retrieve_context(root, chapter_number=options.chapter_number, instruction=options.instruction)
-            .render_for_prompt()
-            if options.use_search_context
-            else ""
-        ),
+        search_context=context_bundle.render_for_prompt() if context_bundle else "",
+        context_bundle=context_bundle,
     )
 
 

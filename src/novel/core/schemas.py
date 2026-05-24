@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -505,6 +506,73 @@ class ChapterPlan(SchemaVersionedModel):
         return self
 
 
+ContextTask = Literal["plan", "write", "polish", "audit", "state_update"]
+ContextVisibility = Literal["reader_visible", "author_only", "hidden_truth", "audit_only"]
+
+
+class ContextItem(FlexibleModel):
+    id: EntityId = Field(min_length=1)
+    type: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    visibility: ContextVisibility
+    reason: str = Field(min_length=1)
+    priority: int
+    content: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContextExclusion(FlexibleModel):
+    id: EntityId = Field(min_length=1)
+    type: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    visibility: ContextVisibility
+    reason: str = Field(min_length=1)
+
+
+class ContextBundle(SchemaVersionedModel):
+    chapter_number: int = Field(ge=1)
+    task: ContextTask
+    query: str
+    included: list[ContextItem] = Field(default_factory=list)
+    excluded: list[ContextExclusion] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+    def render_for_prompt(self) -> str:
+        if not self.included and not self.excluded:
+            return (
+                "Context bundle: no related context was selected. "
+                "Do not invent missing context; rely on loaded canon/state/timeline.\n"
+            )
+        lines = [
+            "Context bundle (explainable retrieval):",
+            f"- task: {self.task}",
+            f"- query: {self.query}",
+            f"- chapter_number: {self.chapter_number}",
+            "- included:",
+        ]
+        if not self.included:
+            lines.append("  none")
+        for index, item in enumerate(sorted(self.included, key=lambda value: (-value.priority, value.type, value.id)), start=1):
+            lines.extend(
+                [
+                    f"  {index}. [{item.type}] {item.id} ({item.source})",
+                    f"     visibility: {item.visibility}; priority: {item.priority}; reason: {item.reason}",
+                    f"     content: {json_dumps_compact(item.content)}",
+                ]
+            )
+        if self.excluded:
+            lines.append("- excluded:")
+            for item in self.excluded:
+                lines.append(
+                    f"  - [{item.type}] {item.id} ({item.source}); "
+                    f"visibility: {item.visibility}; reason: {item.reason}"
+                )
+        if self.warnings:
+            lines.append("- warnings:")
+            lines.extend(f"  - {warning}" for warning in self.warnings)
+        return "\n".join(lines) + "\n"
+
+
 class AuditEvidence(FlexibleModel):
     source: str
     quote: str
@@ -552,3 +620,7 @@ def _require_unique_values(values: list[str], label: str) -> None:
         seen.add(value)
     if duplicates:
         raise ValueError(f"duplicate {label}: {', '.join(sorted(duplicates))}")
+
+
+def json_dumps_compact(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)

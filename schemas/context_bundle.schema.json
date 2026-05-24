@@ -1,0 +1,165 @@
+{
+  "$defs": {
+    "ContextExclusion": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "author_only",
+            "hidden_truth",
+            "audit_only"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source",
+        "visibility",
+        "reason"
+      ],
+      "title": "ContextExclusion",
+      "type": "object"
+    },
+    "ContextItem": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "author_only",
+            "hidden_truth",
+            "audit_only"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "priority": {
+          "title": "Priority",
+          "type": "integer"
+        },
+        "content": {
+          "additionalProperties": true,
+          "title": "Content",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source",
+        "visibility",
+        "reason",
+        "priority"
+      ],
+      "title": "ContextItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "task": {
+      "enum": [
+        "plan",
+        "write",
+        "polish",
+        "audit",
+        "state_update"
+      ],
+      "title": "Task",
+      "type": "string"
+    },
+    "query": {
+      "title": "Query",
+      "type": "string"
+    },
+    "included": {
+      "items": {
+        "$ref": "#/$defs/ContextItem"
+      },
+      "title": "Included",
+      "type": "array"
+    },
+    "excluded": {
+      "items": {
+        "$ref": "#/$defs/ContextExclusion"
+      },
+      "title": "Excluded",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "chapter_number",
+    "task",
+    "query",
+    "created_at"
+  ],
+  "title": "ContextBundle",
+  "type": "object"
+}

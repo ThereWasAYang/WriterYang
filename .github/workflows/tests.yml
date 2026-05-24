@@ -1,0 +1,23 @@
+name: Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: python -m pip install -e ".[dev]"
+      - name: Run tests without real APIs or browser E2E
+        run: pytest -m "not real_api and not web_e2e" -q
+      - name: Run secret scanner
+        run: python -c "from pathlib import Path; from novel.core.security import scan_security; r=scan_security(Path('.')); assert r.ok, [(f.code, str(f.path), f.line) for f in r.findings]"
+      - name: Check CLI entrypoint
+        run: novel --version

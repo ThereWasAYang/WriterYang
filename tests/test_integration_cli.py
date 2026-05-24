@@ -7,6 +7,7 @@ from pathlib import Path
 
 from novel.cli import build_parser, main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.locking import ProjectLock
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -143,6 +144,32 @@ def test_doctor_json_reports_project_and_env_without_leaking_values(tmp_path: Pa
     serialized = json.dumps(payload, ensure_ascii=False)
     assert "OPENAI_API_KEY" in serialized
     assert "sk-test-secret-never-leak" not in serialized
+
+
+def test_write_command_reports_project_locked_json(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+
+    with ProjectLock(root, task="test"):
+        code, stdout, stderr = _run_cli(
+            ["plan-chapter", "1", "--project", str(root), "--provider", "mock", "--json"]
+        )
+
+    assert code == 1
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "project_locked"
+
+
+def test_read_command_ignores_project_lock(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+
+    with ProjectLock(root, task="test"):
+        code, stdout, stderr = _run_cli(["status", "--project", str(root), "--json"])
+
+    assert code == 0
+    assert stderr == ""
+    assert json.loads(stdout)["ok"] is True
 
 
 def test_doctor_returns_nonzero_for_invalid_project_json(tmp_path: Path) -> None:

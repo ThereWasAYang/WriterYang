@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from novel.core.canon import format_canon_summary, load_canon_files
-from novel.core.io import load_json_model, load_yaml_model
+from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
@@ -110,7 +110,9 @@ def write_chapter_draft(
         created_at=_utc_now(),
     )
     chapter_dir.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text(draft_markdown, encoding="utf-8")
+    if options.force:
+        backup_if_exists(draft_path, reason="force")
+    atomic_write_text(draft_path, draft_markdown)
     return ChapterDraftingResult(
         draft_path=draft_path,
         draft_markdown=draft_markdown,

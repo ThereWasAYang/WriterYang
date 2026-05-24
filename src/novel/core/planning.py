@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from novel.core.canon import format_canon_summary, load_canon_files
-from novel.core.io import load_json_model, load_yaml_model
+from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
@@ -95,8 +95,11 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         )
 
     chapter_dir.mkdir(parents=True, exist_ok=True)
-    plan_json_path.write_text(plan.model_dump_json(indent=2) + "\n", encoding="utf-8")
-    plan_markdown_path.write_text(render_plan_markdown(plan), encoding="utf-8")
+    if options.force:
+        backup_if_exists(plan_json_path, reason="force")
+        backup_if_exists(plan_markdown_path, reason="force")
+    atomic_write_model_json(plan_json_path, plan)
+    atomic_write_text(plan_markdown_path, render_plan_markdown(plan))
     return ChapterPlanningResult(
         plan=plan,
         plan_json_path=plan_json_path,

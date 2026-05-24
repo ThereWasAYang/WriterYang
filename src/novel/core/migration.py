@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from novel.core.io import atomic_write_json, atomic_write_yaml, backup_if_exists
+
 
 CURRENT_SCHEMA_VERSION = 1
 
@@ -115,7 +117,8 @@ def _add_schema_version_to_yaml(
         return
     data["schema_version"] = CURRENT_SCHEMA_VERSION
     if not dry_run:
-        path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        backup_if_exists(path, reason="migration")
+        atomic_write_yaml(path, data)
     updated_files.append(path)
 
 
@@ -132,7 +135,8 @@ def _add_schema_version_to_json(
         return
     data = {"schema_version": CURRENT_SCHEMA_VERSION, **data}
     if not dry_run:
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        backup_if_exists(path, reason="migration")
+        atomic_write_json(path, data)
     updated_files.append(path)
 
 

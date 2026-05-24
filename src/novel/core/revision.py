@@ -9,7 +9,7 @@ from typing import Literal
 
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.drafting import _chapter_number_text
-from novel.core.io import load_json_model, load_yaml_model
+from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -130,7 +130,9 @@ def revise_chapter(
         body=body,
         created_at=_utc_now(),
     )
-    output_path.write_text(revised_markdown, encoding="utf-8")
+    if options.force:
+        backup_if_exists(output_path, reason="force")
+    atomic_write_text(output_path, revised_markdown)
 
     record = RevisionRecord(
         id=revision_id,
@@ -335,7 +337,8 @@ def _append_revision_log(path: Path, chapter_number: int, record: RevisionRecord
     else:
         log = RevisionLog(chapter_number=chapter_number, revisions=[])
     updated = log.model_copy(update={"revisions": [*log.revisions, record]})
-    path.write_text(updated.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    backup_if_exists(path, reason="revision_log")
+    atomic_write_model_json(path, updated)
 
 
 def _loop_instruction(instruction: str | None, round_number: int) -> str:
@@ -371,7 +374,7 @@ def _write_revision_loop_log(
         ],
         "errors": [],
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(path, payload)
     return path
 
 

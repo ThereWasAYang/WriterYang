@@ -18,6 +18,7 @@ from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, 
 from novel.core.exporting import MarkdownExportOptions, export_markdown, parse_chapter_selector
 from novel.core.inspection import format_canon, get_project_status
 from novel.core.io import load_json, load_json_model, load_yaml
+from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.schemas import ChapterPlan
@@ -106,19 +107,21 @@ def handle_api_request(
 
         data = _json_body(body)
         if method == "POST" and path == "/api/plan-chapter":
-            return _success(_plan_chapter(data))
+            return _success(_locked_write(data, "web plan-chapter", _plan_chapter))
         if method == "POST" and path == "/api/write-chapter":
-            return _success(_write_chapter(data))
+            return _success(_locked_write(data, "web write-chapter", _write_chapter))
         if method == "POST" and path == "/api/polish-chapter":
-            return _success(_polish_chapter(data))
+            return _success(_locked_write(data, "web polish-chapter", _polish_chapter))
         if method == "POST" and path == "/api/audit-chapter":
-            return _success(_audit_chapter(data))
+            return _success(_locked_write(data, "web audit-chapter", _audit_chapter))
         if method == "POST" and path == "/api/export/markdown":
-            return _success(_export_markdown(data))
+            return _success(_locked_write(data, "web export markdown", _export_markdown))
         if method == "POST" and path == "/api/generate-chapter":
-            return _success(_generate_chapter(data))
+            return _success(_locked_write(data, "web generate-chapter", _generate_chapter))
     except WebAPIError as exc:
         return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
+    except ProjectLockError as exc:
+        return _failure(409, "project_locked", str(exc), request_id=request_id)
     except FileNotFoundError as exc:
         return _failure(404, "file_not_found", str(exc), request_id=request_id)
     except PermissionError as exc:
@@ -130,6 +133,12 @@ def handle_api_request(
     except Exception as exc:
         return _failure(400, "operation_failed", str(exc), request_id=request_id)
     return _failure(404, "not_found", "not found", request_id=request_id)
+
+
+def _locked_write(data: dict[str, object], task: str, handler) -> dict[str, object]:
+    root = _root_from_body(data)
+    with ProjectLock(root, task=task):
+        return handler(data)
 
 
 def _success(data: dict[str, object], status: int = 200) -> APIResponse:

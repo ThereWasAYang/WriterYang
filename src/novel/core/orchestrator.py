@@ -11,6 +11,7 @@ from novel.core.canon import CanonSuggestOptions, load_canon_provider, suggest_c
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.exporting import MarkdownExportOptions, export_markdown
 from novel.core.inspiration import InspirationOptions, load_inspiration_provider, run_inspiration_agent
+from novel.core.io import atomic_write_model_json
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
@@ -420,7 +421,7 @@ def _write_run_log(path: Path, run_log: AgentRunLog, plan: OrchestratorPlan) -> 
             "execution_plan": format_orchestrator_plan(plan),
         }
     )
-    path.write_text(enriched.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    atomic_write_model_json(path, enriched)
 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:

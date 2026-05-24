@@ -3,14 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import os
 from pathlib import Path
 import re
+import tempfile
 from typing import Literal
 
 from docx import Document
 
 from novel.core.drafting import _chapter_number_text
-from novel.core.io import load_json_model, load_yaml_model
+from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.schemas import ExportManifest, ExportRecord, ExportSourceChapter, ProjectConfig
 
@@ -87,7 +89,10 @@ def export_markdown(options: MarkdownExportOptions) -> MarkdownExportResult:
         raise ExportError("no chapters selected for export")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
+    if options.force:
+        backup_if_exists(output_path, reason="force")
+    atomic_write_text(
+        output_path,
         render_markdown_export(
             title,
             chapters,
@@ -95,7 +100,6 @@ def export_markdown(options: MarkdownExportOptions) -> MarkdownExportResult:
             volume_title=options.volume_title,
             chapter_number_style=options.chapter_number_style,
         ),
-        encoding="utf-8",
     )
     manifest = update_export_manifest(
         root=root,
@@ -128,6 +132,8 @@ def export_docx(options: DocxExportOptions) -> DocxExportResult:
         raise ExportError("no chapters selected for export")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if options.force:
+        backup_if_exists(output_path, reason="force")
     render_docx_export(title, chapters, output_path)
     manifest = update_export_manifest(
         root=root,
@@ -234,7 +240,13 @@ def render_docx_export(title: str, chapters: list[ExportedChapter], output_path:
                 document.add_heading(line[2:].strip(), level=1)
             else:
                 document.add_paragraph(line)
-    document.save(output_path)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{output_path.name}.", suffix=".tmp", dir=str(output_path.parent))
+    os.close(fd)
+    try:
+        document.save(temp_name)
+        os.replace(temp_name, output_path)
+    finally:
+        Path(temp_name).unlink(missing_ok=True)
 
 
 def update_export_manifest(
@@ -270,7 +282,8 @@ def update_export_manifest(
     )
     manifest.exports.append(record)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(manifest.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    backup_if_exists(manifest_path, reason="export_manifest")
+    atomic_write_model_json(manifest_path, manifest)
     return manifest
 
 

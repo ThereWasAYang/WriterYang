@@ -13,7 +13,7 @@ from novel.core.embeddings import (
     create_embedding_provider,
     local_embedding_vector,
 )
-from novel.core.io import load_json
+from novel.core.io import atomic_write_json, backup_if_exists, load_json
 
 
 SearchType = Literal["character", "location", "item", "event", "chapter", "all"]
@@ -97,7 +97,8 @@ def rebuild_search_index(
         "version": 1,
         "documents": [_document_to_dict(document) for document in documents],
     }
-    index_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    backup_if_exists(index_path, reason="index_rebuild")
+    atomic_write_json(index_path, payload)
     provider = _load_embedding_provider(root, embedding_provider_name, embedding_config_path)
     _write_sqlite_index(sqlite_search_index_path(root), documents, provider)
     return SearchIndexResult(index_path=index_path, document_count=len(documents))

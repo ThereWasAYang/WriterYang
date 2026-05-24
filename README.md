@@ -414,8 +414,9 @@ CLI 集成约定：
 
 - 所有子命令都会注入 `--project`、`--json`、`--quiet`。
 - JSON 错误输出包含稳定 `error.code`、兼容字段 `error.type` 和 `error.exit_code`。
-- `novel doctor` 会检查依赖、项目结构、schema validation 和 API 环境变量是否设置，不输出真实密钥值。
+- `novel doctor` 会检查依赖、项目结构、schema validation、API 环境变量和 tracked 文件 secret scan，不输出真实密钥值。
 - `novel completion bash|zsh|fish` 会输出基础 shell completion 脚本。
+- 写入类命令会使用项目锁 `.writeryang.lock`，避免两个进程同时修改同一小说项目；异常退出留下的陈旧锁会自动清理。
 
 ## 发布检查
 

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 from novel.core.auditing import (
@@ -92,6 +93,7 @@ from novel.core.inspection import (
 )
 from novel.core.json_schema import export_json_schemas
 from novel.core.io import load_yaml
+from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.migration import MigrationError, migrate_project
 from novel.core.orchestrator import (
     OrchestratorError,
@@ -101,6 +103,7 @@ from novel.core.orchestrator import (
     orchestrate,
 )
 from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
+from novel.core.security import scan_security
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
 from novel.core.workflow import (
@@ -130,6 +133,12 @@ ERROR_CODES = {
     "workflow_error": "Chapter workflow failed.",
     "workspace_exists": "Workspace initialization would overwrite data.",
     "doctor_failed": "Doctor checks found blocking errors.",
+    "secret_detected": "Secret scanner found a raw secret-looking value.",
+    "invalid_env_example": ".env.example contains a non-empty or invalid value.",
+    "unsafe_config_secret": "Config contains a likely literal secret instead of an env var name.",
+    "project_locked": "Project workspace is locked by another writer process.",
+    "atomic_write_failed": "Atomic file write failed.",
+    "backup_failed": "File backup failed.",
     "error": "Generic command error.",
 }
 
@@ -267,6 +276,12 @@ def _safe_message(message: str) -> str:
     return redacted
 
 
+def _command_lock(args: argparse.Namespace, root: Path, task: str, *, enabled: bool = True):
+    if not enabled:
+        return nullcontext()
+    return ProjectLock(root, task=task)
+
+
 def _validation_payload(report) -> dict[str, object]:
     return {
         "root": str(report.root),
@@ -387,6 +402,19 @@ def run_doctor(root: Path) -> dict[str, object]:
     else:
         _doctor_check(checks, "project", "warning", f"{root} does not look like a novel workspace")
 
+    security_root = _repo_root()
+    if security_root:
+        security = scan_security(security_root)
+        if security.ok:
+            _doctor_check(checks, "security", "ok", "no tracked secrets detected")
+        else:
+            _doctor_check(
+                checks,
+                "security",
+                "error",
+                f"{len(security.findings)} security finding(s); run tests for details",
+            )
+
     error_count = sum(1 for check in checks if check["status"] == "error")
     warning_count = sum(1 for check in checks if check["status"] == "warning")
     return {
@@ -444,6 +472,14 @@ def _collect_env_names(value: object) -> set[str]:
         for item in value:
             names.update(_collect_env_names(item))
     return names
+
+
+def _repo_root() -> Path | None:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".git").exists():
+            return parent
+    return None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1332,7 +1368,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "migrate":
         try:
-            result = migrate_project(Path(args.path), dry_run=args.dry_run)
+            with _command_lock(args, Path(args.path), "migrate", enabled=not args.dry_run):
+                result = migrate_project(Path(args.path), dry_run=args.dry_run)
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except MigrationError as exc:
             return _failure(args, str(exc), error_type="migration_error")
         payload = {
@@ -1392,11 +1431,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "index":
         if args.index_command == "rebuild":
             try:
-                result = rebuild_search_index(
-                    Path(args.path),
-                    embedding_provider_name=args.embedding_provider,
-                    embedding_config_path=args.embedding_config,
-                )
+                with _command_lock(args, Path(args.path), "index rebuild"):
+                    result = rebuild_search_index(
+                        Path(args.path),
+                        embedding_provider_name=args.embedding_provider,
+                        embedding_config_path=args.embedding_config,
+                    )
+            except ProjectLockError as exc:
+                return _failure(args, str(exc), error_type="project_locked")
             except SearchError as exc:
                 return _failure(args, str(exc), error_type="search_error")
             return _success(
@@ -1459,18 +1501,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "ask":
         try:
-            result = orchestrate(
-                OrchestratorOptions(
-                    root=Path(args.path),
-                    request=args.request,
-                    provider_name=args.provider,
-                    dry_run=args.dry_run,
-                    force=args.force,
-                    max_steps=args.max_steps,
-                    max_retries=args.max_retries,
-                    max_agent_calls=args.max_agent_calls,
+            with _command_lock(args, Path(args.path), "ask", enabled=not args.dry_run):
+                result = orchestrate(
+                    OrchestratorOptions(
+                        root=Path(args.path),
+                        request=args.request,
+                        provider_name=args.provider,
+                        dry_run=args.dry_run,
+                        force=args.force,
+                        max_steps=args.max_steps,
+                        max_retries=args.max_retries,
+                        max_agent_calls=args.max_agent_calls,
+                    )
                 )
-            )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except OrchestratorError as exc:
             return _failure(args, str(exc), error_type="orchestrator_error")
         payload = {
@@ -1543,16 +1588,19 @@ def main(argv: list[str] | None = None) -> int:
                 agent_config_path=args.agent_config,
                 model_name=args.model,
             )
-            result = run_inspiration_agent(
-                InspirationOptions(
-                    root=root,
-                    source_text=source_text,
-                    source_type=source_type,
-                    write_json=args.json,
-                    overwrite=args.overwrite,
-                ),
-                provider,
-            )
+            with _command_lock(args, root, "inspire"):
+                result = run_inspiration_agent(
+                    InspirationOptions(
+                        root=root,
+                        source_text=source_text,
+                        source_type=source_type,
+                        write_json=args.json,
+                        overwrite=args.overwrite,
+                    ),
+                    provider,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except InspirationError as exc:
             return _failure(args, str(exc), error_type="inspiration_error")
         except Exception as exc:
@@ -1590,10 +1638,13 @@ def main(argv: list[str] | None = None) -> int:
                     agent_config_path=args.agent_config,
                     model_name=args.model,
                 )
-                result = suggest_canon(
-                    CanonSuggestOptions(root=root, output_path=args.output),
-                    provider,
-                )
+                with _command_lock(args, root, "canon suggest", enabled=args.output is not None):
+                    result = suggest_canon(
+                        CanonSuggestOptions(root=root, output_path=args.output),
+                        provider,
+                    )
+            except ProjectLockError as exc:
+                return _failure(args, str(exc), error_type="project_locked")
             except CanonError as exc:
                 return _failure(args, str(exc), error_type="canon_error")
             except Exception as exc:
@@ -1619,7 +1670,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.canon_command == "apply":
             try:
-                result = apply_canon_proposal(root, args.proposal_file)
+                with _command_lock(args, root, "canon apply"):
+                    result = apply_canon_proposal(root, args.proposal_file)
+            except ProjectLockError as exc:
+                return _failure(args, str(exc), error_type="project_locked")
             except CanonError as exc:
                 return _failure(args, str(exc), error_type="canon_error")
             if _wants_json(args):
@@ -1671,16 +1725,19 @@ def main(argv: list[str] | None = None) -> int:
                 agent_config_path=args.agent_config,
                 model_name=args.model,
             )
-            result = plan_chapter(
-                ChapterPlanningOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    instruction=instruction,
-                    force=args.force,
-                    use_search_context=args.use_search_context,
-                ),
-                provider,
-            )
+            with _command_lock(args, root, "plan-chapter"):
+                result = plan_chapter(
+                    ChapterPlanningOptions(
+                        root=root,
+                        chapter_number=args.chapter_number,
+                        instruction=instruction,
+                        force=args.force,
+                        use_search_context=args.use_search_context,
+                    ),
+                    provider,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except PlanningError as exc:
             return _failure(args, str(exc), error_type="planning_error")
         except Exception as exc:
@@ -1730,18 +1787,21 @@ def main(argv: list[str] | None = None) -> int:
                 agent_config_path=args.agent_config,
                 model_name=args.model,
             )
-            result = write_chapter_draft(
-                ChapterDraftingOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    instruction=instruction,
-                    force=args.force,
-                    target_words=args.target_words,
-                    style_note=args.style_note,
-                    use_search_context=args.use_search_context,
-                ),
-                provider,
-            )
+            with _command_lock(args, root, "write-chapter"):
+                result = write_chapter_draft(
+                    ChapterDraftingOptions(
+                        root=root,
+                        chapter_number=args.chapter_number,
+                        instruction=instruction,
+                        force=args.force,
+                        target_words=args.target_words,
+                        style_note=args.style_note,
+                        use_search_context=args.use_search_context,
+                    ),
+                    provider,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except DraftingError as exc:
             return _failure(args, str(exc), error_type="drafting_error")
         except Exception as exc:
@@ -1781,18 +1841,21 @@ def main(argv: list[str] | None = None) -> int:
                 agent_config_path=args.agent_config,
                 model_name=args.model,
             )
-            result = polish_chapter(
-                ChapterPolishingOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    instruction=instruction,
-                    force=args.force,
-                    style_note=args.style_note,
-                    keep_length=args.keep_length,
-                    edit_mode=edit_mode,
-                ),
-                provider,
-            )
+            with _command_lock(args, root, "polish-chapter"):
+                result = polish_chapter(
+                    ChapterPolishingOptions(
+                        root=root,
+                        chapter_number=args.chapter_number,
+                        instruction=instruction,
+                        force=args.force,
+                        style_note=args.style_note,
+                        keep_length=args.keep_length,
+                        edit_mode=edit_mode,
+                    ),
+                    provider,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except PolishingError as exc:
             return _failure(args, str(exc), error_type="polishing_error")
         except Exception as exc:
@@ -1830,19 +1893,22 @@ def main(argv: list[str] | None = None) -> int:
                 agent_config_path=args.agent_config,
                 model_name=args.model,
             )
-            result = audit_chapter(
-                ChapterAuditOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    instruction=instruction,
-                    force=args.force,
-                    strict=args.strict,
-                    focus=tuple(args.focus),
-                    audited_file=args.audited_file,
-                    use_search_context=args.use_search_context,
-                ),
-                provider,
-            )
+            with _command_lock(args, root, "audit-chapter"):
+                result = audit_chapter(
+                    ChapterAuditOptions(
+                        root=root,
+                        chapter_number=args.chapter_number,
+                        instruction=instruction,
+                        force=args.force,
+                        strict=args.strict,
+                        focus=tuple(args.focus),
+                        audited_file=args.audited_file,
+                        use_search_context=args.use_search_context,
+                    ),
+                    provider,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except AuditError as exc:
             return _failure(args, str(exc), error_type="audit_error")
         except Exception as exc:
@@ -1897,24 +1963,28 @@ def main(argv: list[str] | None = None) -> int:
                 save_as_version=args.save_as_version,
             )
             if args.max_rounds > 1:
-                loop_result = revise_chapter_loop(
-                    RevisionLoopOptions(
-                        base_options=base_options,
-                        max_rounds=args.max_rounds,
-                        confirm_loop=args.confirm_loop,
-                    ),
-                    provider,
-                    provider_name=args.provider,
-                )
-                result = loop_result.results[-1]
-                revision_loop_log_path = loop_result.run_log_path
+                with _command_lock(args, root, "revise-chapter"):
+                    loop_result = revise_chapter_loop(
+                        RevisionLoopOptions(
+                            base_options=base_options,
+                            max_rounds=args.max_rounds,
+                            confirm_loop=args.confirm_loop,
+                        ),
+                        provider,
+                        provider_name=args.provider,
+                    )
+                    result = loop_result.results[-1]
+                    revision_loop_log_path = loop_result.run_log_path
             else:
-                result = revise_chapter(
-                    base_options,
-                    provider,
-                    provider_name=args.provider,
-                )
-                revision_loop_log_path = None
+                with _command_lock(args, root, "revise-chapter"):
+                    result = revise_chapter(
+                        base_options,
+                        provider,
+                        provider_name=args.provider,
+                    )
+                    revision_loop_log_path = None
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except RevisionError as exc:
             return _failure(args, str(exc), error_type="revision_error")
         except Exception as exc:
@@ -1959,16 +2029,19 @@ def main(argv: list[str] | None = None) -> int:
                 agent_config_path=args.agent_config,
                 model_name=args.model,
             )
-            result = propose_state_update(
-                StateUpdateProposeOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    instruction=instruction,
-                    force=args.force,
-                    allow_unresolved_audit=args.allow_unresolved_audit,
-                ),
-                provider,
-            )
+            with _command_lock(args, root, "propose-state-update"):
+                result = propose_state_update(
+                    StateUpdateProposeOptions(
+                        root=root,
+                        chapter_number=args.chapter_number,
+                        instruction=instruction,
+                        force=args.force,
+                        allow_unresolved_audit=args.allow_unresolved_audit,
+                    ),
+                    provider,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except StateUpdateError as exc:
             return _failure(args, str(exc), error_type="state_update_error")
         except Exception as exc:
@@ -1995,9 +2068,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "apply-state-update":
         root = Path(args.path)
         try:
-            result = apply_state_update(
-                StateUpdateApplyOptions(root=root, chapter_number=args.chapter_number)
-            )
+            with _command_lock(args, root, "apply-state-update"):
+                result = apply_state_update(
+                    StateUpdateApplyOptions(root=root, chapter_number=args.chapter_number)
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except StateUpdateError as exc:
             return _failure(args, str(exc), error_type="state_update_error")
         except Exception as exc:
@@ -2046,17 +2122,20 @@ def main(argv: list[str] | None = None) -> int:
                 if args.propose
                 else None
             )
-            result = accept_chapter(
-                AcceptChapterOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    allow_issues=args.allow_issues,
-                    propose=args.propose,
-                    instruction=instruction,
-                    force_proposal=args.force,
-                ),
-                provider,
-            )
+            with _command_lock(args, root, "accept-chapter"):
+                result = accept_chapter(
+                    AcceptChapterOptions(
+                        root=root,
+                        chapter_number=args.chapter_number,
+                        allow_issues=args.allow_issues,
+                        propose=args.propose,
+                        instruction=instruction,
+                        force_proposal=args.force,
+                    ),
+                    provider,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except StateUpdateError as exc:
             return _failure(args, str(exc), error_type="state_update_error")
         except Exception as exc:
@@ -2106,23 +2185,26 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 0
             instruction = read_workflow_instruction(args.instruction, args.input)
-            result = generate_chapter(
-                GenerateChapterOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    instruction=instruction,
-                    force=args.force,
-                    resume=args.resume,
-                    provider_name=args.provider,
-                    agent_config_path=args.agent_config,
-                    model_name=args.model,
-                    target_words=args.target_words,
-                    style_note=args.style_note,
-                    skip_polish=args.skip_polish,
-                    skip_audit=args.skip_audit,
-                    stop_after=args.stop_after,
+            with _command_lock(args, root, "generate-chapter"):
+                result = generate_chapter(
+                    GenerateChapterOptions(
+                        root=root,
+                        chapter_number=args.chapter_number,
+                        instruction=instruction,
+                        force=args.force,
+                        resume=args.resume,
+                        provider_name=args.provider,
+                        agent_config_path=args.agent_config,
+                        model_name=args.model,
+                        target_words=args.target_words,
+                        style_note=args.style_note,
+                        skip_polish=args.skip_polish,
+                        skip_audit=args.skip_audit,
+                        stop_after=args.stop_after,
+                    )
                 )
-            )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
         except WorkflowError as exc:
             return _failure(args, str(exc), error_type="workflow_error")
         except Exception as exc:
@@ -2156,21 +2238,24 @@ def main(argv: list[str] | None = None) -> int:
         if args.export_command == "markdown":
             try:
                 chapters = parse_chapter_selector(args.chapters)
-                result = export_markdown(
-                    MarkdownExportOptions(
-                        root=root,
-                        chapters=chapters,
-                        from_chapter=args.from_chapter,
-                        to_chapter=args.to_chapter,
-                        include_unaccepted=args.include_unaccepted,
-                        output_path=args.output,
-                        title=args.title,
-                        include_toc=args.toc,
-                        volume_title=args.volume_title,
-                        chapter_number_style=args.chapter_number_style,
-                        force=args.force,
+                with _command_lock(args, root, "export markdown"):
+                    result = export_markdown(
+                        MarkdownExportOptions(
+                            root=root,
+                            chapters=chapters,
+                            from_chapter=args.from_chapter,
+                            to_chapter=args.to_chapter,
+                            include_unaccepted=args.include_unaccepted,
+                            output_path=args.output,
+                            title=args.title,
+                            include_toc=args.toc,
+                            volume_title=args.volume_title,
+                            chapter_number_style=args.chapter_number_style,
+                            force=args.force,
+                        )
                     )
-                )
+            except ProjectLockError as exc:
+                return _failure(args, str(exc), error_type="project_locked")
             except ExportError as exc:
                 return _failure(args, str(exc), error_type="export_error")
             except Exception as exc:
@@ -2196,18 +2281,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.export_command == "docx":
             try:
                 chapters = parse_chapter_selector(args.chapters)
-                result = export_docx(
-                    DocxExportOptions(
-                        root=root,
-                        chapters=chapters,
-                        from_chapter=args.from_chapter,
-                        to_chapter=args.to_chapter,
-                        include_unaccepted=args.include_unaccepted,
-                        output_path=args.output,
-                        title=args.title,
-                        force=args.force,
+                with _command_lock(args, root, "export docx"):
+                    result = export_docx(
+                        DocxExportOptions(
+                            root=root,
+                            chapters=chapters,
+                            from_chapter=args.from_chapter,
+                            to_chapter=args.to_chapter,
+                            include_unaccepted=args.include_unaccepted,
+                            output_path=args.output,
+                            title=args.title,
+                            force=args.force,
+                        )
                     )
-                )
+            except ProjectLockError as exc:
+                return _failure(args, str(exc), error_type="project_locked")
             except ExportError as exc:
                 return _failure(args, str(exc), error_type="export_error")
             except Exception as exc:

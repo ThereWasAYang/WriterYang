@@ -14,6 +14,8 @@ build/
 .vscode/
 **/memory/search_index.json
 **/memory/search_index.sqlite
+**/.writeryang.lock
+*.bak_*
 
 # Internal agent/project-planning docs. Keep these local; do not publish.
 AGENTS.md

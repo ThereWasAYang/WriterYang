@@ -7,7 +7,7 @@ from typing import Iterable
 
 from pydantic import ValidationError
 
-from novel.core.io import load_json_model, load_yaml_model
+from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
@@ -78,7 +78,7 @@ def suggest_canon(options: CanonSuggestOptions, provider: ModelProvider) -> Cano
         if output_path.exists():
             raise CanonError(f"{output_path} already exists; refusing to overwrite proposal")
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(proposal_json, encoding="utf-8")
+        atomic_write_text(output_path, proposal_json)
 
     return CanonSuggestResult(
         proposal=proposal,
@@ -153,14 +153,15 @@ def load_canon_files(root: Path) -> CanonFiles:
 
 def write_canon_files(root: Path, canon: CanonFiles) -> None:
     canon_dir = root / "memory" / "canon"
-    _write_json(canon_dir / "characters.json", {"characters": canon.characters.characters})
-    _write_json(canon_dir / "locations.json", {"locations": canon.locations.locations})
-    _write_json(canon_dir / "items.json", {"items": canon.items.items})
-    _write_json(canon_dir / "world.json", {"world_rules": canon.world.world_rules})
-    _write_json(canon_dir / "hidden_truths.json", {"hidden_truths": canon.hidden_truths.hidden_truths})
+    _write_json(canon_dir / "characters.json", {"characters": canon.characters.characters}, backup=True)
+    _write_json(canon_dir / "locations.json", {"locations": canon.locations.locations}, backup=True)
+    _write_json(canon_dir / "items.json", {"items": canon.items.items}, backup=True)
+    _write_json(canon_dir / "world.json", {"world_rules": canon.world.world_rules}, backup=True)
+    _write_json(canon_dir / "hidden_truths.json", {"hidden_truths": canon.hidden_truths.hidden_truths}, backup=True)
     _write_json(
         canon_dir / "foreshadowing.json",
         {"foreshadowing_threads": canon.foreshadowing.foreshadowing_threads},
+        backup=True,
     )
 
 
@@ -386,8 +387,10 @@ def _read_optional_text(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
-def _write_json(path: Path, data: object) -> None:
-    path.write_text(_to_json(data), encoding="utf-8")
+def _write_json(path: Path, data: object, *, backup: bool = False) -> None:
+    if backup:
+        backup_if_exists(path, reason="canon_apply")
+    atomic_write_text(path, _to_json(data))
 
 
 def _to_json(data: object) -> str:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from novel.core.io import load_yaml_model
+from novel.core.io import atomic_write_text, backup_if_exists, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
@@ -260,4 +260,6 @@ def _write_new_or_overwrite(path: Path, content: str, overwrite: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not overwrite:
         raise InspirationError(f"{path} already exists; use --overwrite to replace it")
-    path.write_text(content, encoding="utf-8")
+    if overwrite:
+        backup_if_exists(path, reason="overwrite")
+    atomic_write_text(path, content)

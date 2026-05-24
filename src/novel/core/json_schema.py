@@ -7,6 +7,7 @@ from typing import Type
 
 from pydantic import BaseModel
 
+from novel.core.io import atomic_write_json, backup_if_exists
 from novel.core.schemas import (
     AgentRunLog,
     AgentsConfig,
@@ -84,6 +85,7 @@ def export_json_schemas(output_dir: Path) -> list[Path]:
     written: list[Path] = []
     for name, schema in schema_payloads().items():
         path = output_dir / f"{name}.schema.json"
-        path.write_text(json.dumps(schema, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        backup_if_exists(path, reason="schema_export")
+        atomic_write_json(path, schema)
         written.append(path)
     return written

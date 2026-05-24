@@ -111,6 +111,12 @@ novel ask "请为第1章生成章节计划" --project ./rain-station --provider 
 - `workflow_error`
 - `workspace_exists`
 - `doctor_failed`
+- `secret_detected`
+- `invalid_env_example`
+- `unsafe_config_secret`
+- `project_locked`
+- `atomic_write_failed`
+- `backup_failed`
 - `error`
 
 `novel doctor --json` 会在 `error_codes` 字段返回同一份错误码说明。
@@ -120,6 +126,8 @@ novel ask "请为第1章生成章节计划" --project ./rain-station --provider 
 - `0`：成功。
 - `1`：命令失败、校验失败、文件缺失、输入非法或 provider 错误。
 - `2`：`argparse` 参数解析错误。
+
+写入类命令遇到同一项目已有 `.writeryang.lock` 时会返回 `project_locked`。只读命令不受锁影响。
 
 大多数命令级错误在 `--json` 模式下会以结构化 JSON 写到 stdout。参数解析错误发生在命令分发前，仍由 `argparse` 输出。
 

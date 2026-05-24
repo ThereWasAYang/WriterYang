@@ -103,14 +103,16 @@ def test_apply_state_update_rolls_back_when_timeline_write_fails(
     timeline_path = root / "memory" / "state" / "timeline.json"
     original_state = state_path.read_text(encoding="utf-8")
     original_timeline = timeline_path.read_text(encoding="utf-8")
-    original_write_text = Path.write_text
+    from novel.core import state_update as state_update_module
 
-    def flaky_write_text(self: Path, data: str, *args, **kwargs):
-        if self == timeline_path:
+    original_atomic_write_model_json = state_update_module.atomic_write_model_json
+
+    def flaky_atomic_write_model_json(path: Path, model) -> None:
+        if path == timeline_path:
             raise OSError("simulated timeline write failure")
-        return original_write_text(self, data, *args, **kwargs)
+        original_atomic_write_model_json(path, model)
 
-    monkeypatch.setattr(Path, "write_text", flaky_write_text)
+    monkeypatch.setattr(state_update_module, "atomic_write_model_json", flaky_atomic_write_model_json)
 
     try:
         apply_state_update(StateUpdateApplyOptions(root=root, chapter_number=1))

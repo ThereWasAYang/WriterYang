@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import re
 
+from novel.core.io import atomic_write_text
+
 
 DEFAULT_WORKSPACE_DIR = "novel-project"
 
@@ -129,7 +131,7 @@ def _workspace_dirs(root: Path) -> tuple[Path, ...]:
 def _write_new_file(path: Path, content: str) -> None:
     if path.exists():
         raise WorkspaceExistsError(f"{path} already exists")
-    path.write_text(content, encoding="utf-8")
+    atomic_write_text(path, content)
 
 
 def _project_id_from_title(title: str) -> str:

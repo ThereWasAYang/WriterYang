@@ -11,7 +11,7 @@ import yaml
 from pydantic import ValidationError
 
 from novel.core.canon import format_canon_summary, load_canon_files
-from novel.core.io import load_json_model, load_yaml_model
+from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -133,7 +133,9 @@ def propose_state_update(
         )
     warnings = validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
 
-    proposal_path.write_text(proposal.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    if options.force:
+        backup_if_exists(proposal_path, reason="force")
+    atomic_write_model_json(proposal_path, proposal)
     return StateUpdateProposeResult(
         proposal_path=proposal_path,
         proposal=proposal,
@@ -169,8 +171,8 @@ def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResu
     _validate_applied_state(updated_state)
     _validate_applied_timeline(root, updated_timeline)
 
-    state_backup = _backup_file(state_path)
-    timeline_backup = _backup_file(timeline_path)
+    state_backup = backup_file(state_path, reason="state_update")
+    timeline_backup = backup_file(timeline_path, reason="state_update")
     apply_log_path = _chapter_dir(root, options.chapter_number) / "state_update_apply_log.json"
     apply_log = _new_apply_log(
         chapter_number=options.chapter_number,
@@ -183,8 +185,8 @@ def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResu
         status="applied",
     )
     try:
-        state_path.write_text(updated_state.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        timeline_path.write_text(updated_timeline.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        atomic_write_model_json(state_path, updated_state)
+        atomic_write_model_json(timeline_path, updated_timeline)
     except Exception as exc:
         shutil.copy2(state_backup, state_path)
         shutil.copy2(timeline_backup, timeline_path)
@@ -194,11 +196,11 @@ def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResu
                 "errors": [f"{exc.__class__.__name__}: {exc}"],
             }
         )
-        apply_log_path.write_text(apply_log.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        atomic_write_model_json(apply_log_path, apply_log)
         raise StateUpdateError(
             f"state update write failed and was rolled back; see {apply_log_path}"
         ) from exc
-    apply_log_path.write_text(apply_log.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    atomic_write_model_json(apply_log_path, apply_log)
     return StateUpdateApplyResult(
         state_path=state_path,
         timeline_path=timeline_path,
@@ -412,7 +414,8 @@ def mark_chapter_accepted(root: Path, chapter_number: int) -> Path:
     metadata["status"] = "accepted"
     metadata["accepted_at"] = _utc_now()
     metadata_text = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
-    path.write_text(f"---\n{metadata_text}\n---\n\n{document.body.strip()}\n", encoding="utf-8")
+    backup_if_exists(path, reason="accept")
+    atomic_write_text(path, f"---\n{metadata_text}\n---\n\n{document.body.strip()}\n")
     return path
 
 
@@ -438,7 +441,8 @@ def write_chapter_metadata(
         accepted_at=accepted_at,
         updated_at=_utc_now(),
     )
-    metadata_path.write_text(metadata.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    backup_if_exists(metadata_path, reason="metadata")
+    atomic_write_model_json(metadata_path, metadata)
     return metadata_path
 
 
@@ -732,16 +736,6 @@ def _read_front_matter(path: Path) -> DraftDocument:
         raise StateUpdateError(str(exc)) from exc
 
 
-def _backup_file(path: Path) -> Path:
-    backup_path = path.with_name(f"{path.name}.bak_{_compact_utc_now()}")
-    counter = 1
-    while backup_path.exists():
-        backup_path = path.with_name(f"{path.name}.bak_{_compact_utc_now()}_{counter}")
-        counter += 1
-    shutil.copy2(path, backup_path)
-    return backup_path
-
-
 def _refuse_existing(path: Path, force: bool) -> None:
     if path.exists() and not force:
         raise StateUpdateError(f"{path} already exists; use --force to overwrite it")
@@ -780,7 +774,3 @@ def _chapter_dir(root: Path, chapter_number: int) -> Path:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _compact_utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")

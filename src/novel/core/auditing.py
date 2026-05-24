@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from novel.core.canon import format_canon_summary, load_canon_files
-from novel.core.io import load_json_model, load_yaml_model
+from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -160,7 +160,9 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         chapter_number=options.chapter_number,
         audited_file=options.audited_file,
     )
-    audit_path.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    if options.force:
+        backup_if_exists(audit_path, reason="force")
+    atomic_write_model_json(audit_path, report)
     return ChapterAuditResult(
         audit_path=audit_path,
         report=report,

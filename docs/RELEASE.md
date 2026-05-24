@@ -30,11 +30,10 @@ conda run -n py312 pytest
 发布前搜索是否误提交了真实密钥：
 
 ```bash
-rg "sk-[A-Za-z0-9_-]+" .
-rg "api_key:|OPENAI_API_KEY=.*|WRITER_API_KEY=.*" .
+python -c "from pathlib import Path; from novel.core.security import scan_security; r=scan_security(Path('.')); assert r.ok, [(f.code, str(f.path), f.line) for f in r.findings]"
 ```
 
-项目文件可以包含 `OPENAI_API_KEY` 这类环境变量名，但不能包含真实 key 值。
+项目文件可以包含 `OPENAI_API_KEY` 这类环境变量名，但不能包含真实 key 值。`.env.example` 只能包含空值变量名，例如 `OPENAI_API_KEY=`。
 
 ## 4. 示例项目
 

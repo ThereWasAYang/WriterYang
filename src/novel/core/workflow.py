@@ -23,6 +23,7 @@ from novel.core.polishing import (
     ChapterPolishingOptions,
     polish_chapter,
 )
+from novel.core.io import atomic_write_model_json
 from novel.core.providers import ModelProvider
 from novel.core.schemas import AgentRunLog, AgentRunStep
 
@@ -451,7 +452,7 @@ def _complete(
 
 def _write_run_log(root: Path, run_log_path: Path, run_log: AgentRunLog) -> None:
     run_log_path.parent.mkdir(parents=True, exist_ok=True)
-    run_log_path.write_text(run_log.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    atomic_write_model_json(run_log_path, run_log)
 
 
 def _should_stop(options: GenerateChapterOptions, step: StopAfter) -> bool:

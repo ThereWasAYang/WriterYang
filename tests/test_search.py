@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import json
+import sqlite3
 from pathlib import Path
 
 from novel.cli import main
@@ -25,7 +26,13 @@ def test_index_rebuild_creates_search_index(tmp_path: Path) -> None:
 
     assert result.index_path == root / "memory" / "search_index.json"
     assert result.index_path.is_file()
+    assert (root / "memory" / "search_index.sqlite").is_file()
     assert result.document_count > 0
+    with sqlite3.connect(root / "memory" / "search_index.sqlite") as conn:
+        vector_count = conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0]
+        fts_count = conn.execute("SELECT COUNT(*) FROM documents_fts").fetchone()[0]
+    assert vector_count == result.document_count
+    assert fts_count == result.document_count
 
 
 def test_search_finds_character(tmp_path: Path) -> None:
@@ -40,6 +47,17 @@ def test_search_finds_character(tmp_path: Path) -> None:
     assert "林澈" in results[0].excerpt
 
 
+def test_search_supports_chinese_tokenization_and_highlight(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    rebuild_search_index(root)
+
+    results = search_project(root, "旧物修复师", search_type="character", limit=5, highlight=True)
+
+    assert results
+    assert results[0].type == "character"
+    assert "<mark>" in results[0].highlighted_excerpt
+
+
 def test_search_finds_timeline_event(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
     _write_timeline_event(root)
@@ -50,6 +68,15 @@ def test_search_finds_timeline_event(tmp_path: Path) -> None:
     assert results
     assert results[0].id == "event_broadcast"
     assert results[0].metadata["chapter"] == 1
+
+
+def test_search_filters_by_chapter(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    _write_timeline_event(root)
+    rebuild_search_index(root)
+
+    assert search_project(root, "广播", search_type="event", chapter_number=1, limit=5)
+    assert search_project(root, "广播", search_type="event", chapter_number=2, limit=5) == []
 
 
 def test_search_finds_chapter_text(tmp_path: Path) -> None:
@@ -105,6 +132,33 @@ def test_cli_search_json_output(tmp_path: Path) -> None:
     assert stderr == ""
     payload = json.loads(stdout)
     assert payload[0]["type"] == "character"
+
+
+def test_cli_search_supports_highlight_and_chapter_filter(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    _write_timeline_event(root)
+    _run_cli(["index", "rebuild", "--path", str(root)])
+
+    code, stdout, stderr = _run_cli(
+        [
+            "search",
+            "广播",
+            "--path",
+            str(root),
+            "--type",
+            "event",
+            "--chapter",
+            "1",
+            "--highlight",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload[0]["metadata"]["chapter"] == 1
+    assert "<mark>" in payload[0]["highlighted_excerpt"]
 
 
 def _workspace_ready_for_search(tmp_path: Path) -> Path:

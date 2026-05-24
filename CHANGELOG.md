@@ -17,6 +17,7 @@
 - Canon apply 增加 proposal 内部和跨类型 ID 冲突检查。
 - Audit precheck 增加 plan 关键词和 hidden truth 直出检测。
 - `revise-chapter` 增加受控 revision loop：多轮修订必须显式 `--confirm-loop`，并写入 loop run log。
+- 搜索索引增强：增加中文 n-gram 分词、字段权重、章节过滤、结果高亮、SQLite FTS5 和本地 hash embedding 向量表。
 
 ## 0.1.0
 

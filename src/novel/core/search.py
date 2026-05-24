@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import json
 from pathlib import Path
 import re
+import sqlite3
 from typing import Literal
 
 from novel.core.io import load_json
@@ -35,6 +37,7 @@ class SearchResult:
     score: int
     matched_terms: tuple[str, ...]
     excerpt: str
+    highlighted_excerpt: str = ""
     metadata: dict[str, object] = field(default_factory=dict)
 
 
@@ -85,6 +88,7 @@ def rebuild_search_index(root: Path) -> SearchIndexResult:
         "documents": [_document_to_dict(document) for document in documents],
     }
     index_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_sqlite_index(sqlite_search_index_path(root), documents)
     return SearchIndexResult(index_path=index_path, document_count=len(documents))
 
 
@@ -94,6 +98,8 @@ def search_project(
     *,
     search_type: SearchType = "all",
     limit: int = 10,
+    chapter_number: int | None = None,
+    highlight: bool = False,
     rebuild_if_missing: bool = True,
 ) -> list[SearchResult]:
     root = root.resolve()
@@ -102,20 +108,30 @@ def search_project(
     if limit < 1:
         raise SearchError("--limit must be a positive integer")
     index_path = search_index_path(root)
+    sqlite_path = sqlite_search_index_path(root)
     if not index_path.exists():
         if not rebuild_if_missing:
             raise SearchError(f"{index_path} is missing; run novel index rebuild first")
         rebuild_search_index(root)
+    elif not sqlite_path.exists():
+        documents = _load_index(index_path)
+        _write_sqlite_index(sqlite_path, documents)
     documents = _load_index(index_path)
     terms = _query_terms(query)
+    candidate_ids = _sqlite_candidate_ids(sqlite_path, terms)
     results = [
         result
         for document in documents
+        if not candidate_ids or document.id in candidate_ids
         if _type_matches(document.type, search_type)
+        if _chapter_matches(document.metadata, chapter_number)
         for result in [_score_document(document, query, terms)]
         if result is not None
     ]
-    return sorted(results, key=lambda result: (-result.score, result.path, result.id))[:limit]
+    sorted_results = sorted(results, key=lambda result: (-result.score, result.path, result.id))[:limit]
+    if not highlight:
+        return sorted_results
+    return [_with_highlight(result) for result in sorted_results]
 
 
 def retrieve_context(
@@ -130,15 +146,31 @@ def retrieve_context(
         query_parts.append(instruction.strip())
     query = " ".join(query_parts)
     try:
-        results = tuple(search_project(root, query, search_type="all", limit=limit))
+        results = tuple(
+            _diverse_context_results(
+                search_project(root, query, search_type="all", limit=max(limit * 3, limit), highlight=True),
+                limit=limit,
+                chapter_number=chapter_number,
+            )
+        )
     except SearchError:
         rebuild_search_index(root)
-        results = tuple(search_project(root, query, search_type="all", limit=limit))
+        results = tuple(
+            _diverse_context_results(
+                search_project(root, query, search_type="all", limit=max(limit * 3, limit), highlight=True),
+                limit=limit,
+                chapter_number=chapter_number,
+            )
+        )
     return RetrievedContext(query=query, chapter_number=chapter_number, results=results)
 
 
 def search_index_path(root: Path) -> Path:
     return root.resolve() / "memory" / "search_index.json"
+
+
+def sqlite_search_index_path(root: Path) -> Path:
+    return root.resolve() / "memory" / "search_index.sqlite"
 
 
 def _collect_documents(root: Path) -> list[SearchDocument]:
@@ -177,7 +209,7 @@ def _canon_documents(root: Path) -> list[SearchDocument]:
                     path=_rel(root, path),
                     title=str(value.get(title_key) or entity_id),
                     text=_json_text(value),
-                    metadata={"entity_id": entity_id},
+                    metadata={"entity_id": entity_id, "entity_type": document_type},
                 )
             )
     return documents
@@ -267,22 +299,30 @@ def _score_document(
     raw_query: str,
     terms: list[str],
 ) -> SearchResult | None:
-    haystack = " ".join(
-        [document.id, document.type, document.path, document.title, document.text]
-    ).lower()
+    weighted_fields = (
+        (document.id, 8),
+        (document.title, 6),
+        (document.type, 3),
+        (document.path, 2),
+        (document.text, 1),
+        (_token_text(document), 1),
+    )
+    haystack = " ".join(value for value, _ in weighted_fields).lower()
     matched: list[str] = []
     score = 0
     raw = raw_query.strip().lower()
     if raw and raw in haystack:
         matched.append(raw_query.strip())
-        score += 8
+        score += 12
     for term in terms:
-        count = haystack.count(term.lower())
-        if count:
+        term_score = 0
+        for value, weight in weighted_fields:
+            count = value.lower().count(term.lower())
+            if count:
+                term_score += count * weight
+        if term_score:
             matched.append(term)
-            score += count
-            if term.lower() in document.title.lower() or term.lower() == document.id.lower():
-                score += 4
+            score += term_score
     if score <= 0:
         return None
     unique_terms = tuple(dict.fromkeys(matched))
@@ -294,12 +334,14 @@ def _score_document(
         score=score,
         matched_terms=unique_terms,
         excerpt=_excerpt(document.text, unique_terms),
+        highlighted_excerpt=_highlight(_excerpt(document.text, unique_terms), unique_terms),
         metadata=document.metadata,
     )
 
 
 def _query_terms(query: str) -> list[str]:
     terms = [part.lower() for part in re.findall(r"[A-Za-z0-9_]+", query) if len(part) > 1]
+    terms.extend(_chinese_terms(query))
     for chunk in re.split(r"\s+", query.strip()):
         cleaned = chunk.strip().lower()
         if cleaned and cleaned not in terms:
@@ -307,8 +349,26 @@ def _query_terms(query: str) -> list[str]:
     return terms or [query.strip().lower()]
 
 
+def _chinese_terms(text: str) -> list[str]:
+    chunks = re.findall(r"[\u4e00-\u9fff]+", text)
+    terms: list[str] = []
+    for chunk in chunks:
+        if len(chunk) <= 4:
+            terms.append(chunk)
+        for size in (2, 3):
+            for index in range(0, max(len(chunk) - size + 1, 0)):
+                terms.append(chunk[index : index + size])
+    return list(dict.fromkeys(terms))
+
+
 def _type_matches(document_type: str, search_type: SearchType) -> bool:
     return search_type == "all" or document_type == search_type
+
+
+def _chapter_matches(metadata: dict[str, object], chapter_number: int | None) -> bool:
+    if chapter_number is None:
+        return True
+    return metadata.get("chapter_number") == chapter_number or metadata.get("chapter") == chapter_number
 
 
 def _excerpt(text: str, terms: tuple[str, ...]) -> str:
@@ -322,6 +382,51 @@ def _excerpt(text: str, terms: tuple[str, ...]) -> str:
     prefix = "..." if start > 0 else ""
     suffix = "..." if end < len(compact) else ""
     return prefix + compact[start:end] + suffix
+
+
+def _highlight(text: str, terms: tuple[str, ...]) -> str:
+    highlighted = text
+    for term in sorted((term for term in terms if term), key=len, reverse=True):
+        highlighted = re.sub(re.escape(term), lambda match: f"<mark>{match.group(0)}</mark>", highlighted, flags=re.IGNORECASE)
+    return highlighted
+
+
+def _with_highlight(result: SearchResult) -> SearchResult:
+    return SearchResult(
+        id=result.id,
+        type=result.type,
+        path=result.path,
+        title=result.title,
+        score=result.score,
+        matched_terms=result.matched_terms,
+        excerpt=result.excerpt,
+        highlighted_excerpt=_highlight(result.excerpt, result.matched_terms),
+        metadata=result.metadata,
+    )
+
+
+def _diverse_context_results(
+    results: list[SearchResult],
+    *,
+    limit: int,
+    chapter_number: int,
+) -> list[SearchResult]:
+    def priority(result: SearchResult) -> tuple[int, int]:
+        chapter = result.metadata.get("chapter_number") or result.metadata.get("chapter")
+        near_chapter = isinstance(chapter, int) and abs(chapter - chapter_number) <= 1
+        type_priority = {"character": 0, "location": 1, "item": 2, "event": 3, "chapter": 4}.get(result.type, 5)
+        return (0 if near_chapter else 1, type_priority)
+
+    selected: list[SearchResult] = []
+    type_counts: dict[str, int] = {}
+    for result in sorted(results, key=lambda item: (priority(item), -item.score)):
+        if type_counts.get(result.type, 0) >= 3 and len(selected) < limit - 1:
+            continue
+        selected.append(result)
+        type_counts[result.type] = type_counts.get(result.type, 0) + 1
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 def _load_index(path: Path) -> list[SearchDocument]:
@@ -366,6 +471,77 @@ def _safe_load_json(path: Path) -> object:
 
 def _json_text(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _token_text(document: SearchDocument) -> str:
+    return " ".join(_query_terms(" ".join([document.id, document.title, document.text])))
+
+
+def _write_sqlite_index(path: Path, documents: list[SearchDocument]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as conn:
+        conn.execute("DROP TABLE IF EXISTS documents")
+        conn.execute("DROP TABLE IF EXISTS vectors")
+        conn.execute("DROP TABLE IF EXISTS documents_fts")
+        conn.execute(
+            "CREATE TABLE documents (id TEXT PRIMARY KEY, type TEXT, path TEXT, title TEXT, text TEXT, metadata TEXT)"
+        )
+        conn.execute(
+            "CREATE VIRTUAL TABLE documents_fts USING fts5(id, type, title, body, token_text)"
+        )
+        conn.execute("CREATE TABLE vectors (id TEXT PRIMARY KEY, dimensions INTEGER, vector TEXT)")
+        for document in documents:
+            conn.execute(
+                "INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    document.id,
+                    document.type,
+                    document.path,
+                    document.title,
+                    document.text,
+                    json.dumps(document.metadata, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+            conn.execute(
+                "INSERT INTO documents_fts (id, type, title, body, token_text) VALUES (?, ?, ?, ?, ?)",
+                (document.id, document.type, document.title, document.text, _token_text(document)),
+            )
+            vector = _local_embedding_vector(" ".join([document.title, document.text]))
+            conn.execute(
+                "INSERT INTO vectors VALUES (?, ?, ?)",
+                (document.id, len(vector), json.dumps(vector)),
+            )
+
+
+def _sqlite_candidate_ids(path: Path, terms: list[str]) -> set[str]:
+    if not path.exists() or not terms:
+        return set()
+    query_terms = [term.replace('"', '""') for term in terms[:12] if term]
+    if not query_terms:
+        return set()
+    match_query = " OR ".join(f'"{term}"' for term in query_terms)
+    try:
+        with sqlite3.connect(path) as conn:
+            rows = conn.execute(
+                "SELECT id FROM documents_fts WHERE documents_fts MATCH ? LIMIT 200",
+                (match_query,),
+            ).fetchall()
+    except sqlite3.Error:
+        return set()
+    return {str(row[0]) for row in rows}
+
+
+def _local_embedding_vector(text: str, dimensions: int = 32) -> list[float]:
+    vector = [0.0 for _ in range(dimensions)]
+    for term in _query_terms(text):
+        digest = hashlib.sha256(term.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:2], "big") % dimensions
+        sign = 1.0 if digest[2] % 2 == 0 else -1.0
+        vector[index] += sign
+    norm = sum(value * value for value in vector) ** 0.5
+    if norm:
+        vector = [round(value / norm, 6) for value in vector]
+    return vector
 
 
 def _markdown_title(text: str) -> str | None:

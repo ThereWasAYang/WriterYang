@@ -352,6 +352,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of results. Defaults to 10.",
     )
     search_parser.add_argument(
+        "--chapter",
+        type=int,
+        default=None,
+        help="Only return results associated with this chapter number.",
+    )
+    search_parser.add_argument(
+        "--highlight",
+        action="store_true",
+        help="Include highlighted excerpts with <mark>...</mark> tags.",
+    )
+    search_parser.add_argument(
         "--json",
         action="store_true",
         help="Output machine-readable JSON.",
@@ -1139,6 +1150,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.query,
                 search_type=args.type,
                 limit=args.limit,
+                chapter_number=args.chapter,
+                highlight=args.highlight,
             )
         except SearchError as exc:
             return _failure(args, str(exc), error_type="search_error")
@@ -1154,6 +1167,7 @@ def main(argv: list[str] | None = None) -> int:
                             "score": result.score,
                             "matched_terms": list(result.matched_terms),
                             "excerpt": result.excerpt,
+                            "highlighted_excerpt": result.highlighted_excerpt,
                             "metadata": result.metadata,
                         }
                         for result in results
@@ -1171,7 +1185,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{index}. [{result.type}] {result.title}")
             print(f"   path: {result.path}")
             print(f"   score: {result.score}; matched_terms: {terms}")
-            print(f"   excerpt: {result.excerpt}")
+            print(f"   excerpt: {result.highlighted_excerpt if args.highlight else result.excerpt}")
         return 0
 
     if args.command == "ask":

@@ -254,10 +254,17 @@ novel generate-chapter 1 --path ./rain-station --provider mock --force
 novel index rebuild --path ./rain-station
 novel search "林澈" --path ./rain-station --type character
 novel search "旧车站广播" --path ./rain-station --type event --limit 5
-novel search "破损车票" --path ./rain-station --type chapter --json
+novel search "破损车票" --path ./rain-station --type chapter --chapter 1 --highlight --json
 ```
 
-搜索索引位于 `memory/search_index.json`，可以随时重建。当前使用关键词匹配，不使用向量数据库。
+搜索索引位于 `memory/search_index.json` 和 `memory/search_index.sqlite`，可以随时重建。当前实现包括：
+
+- 中文检索增强：对连续中文文本生成 2-gram / 3-gram 检索 token。
+- 字段权重：`id`、标题、类型、路径、正文使用不同权重评分。
+- 过滤：支持 `--type character/location/item/event/chapter/all` 和 `--chapter`。
+- 高亮：`--highlight` 会返回 `<mark>...</mark>` 标记的 excerpt。
+- SQLite FTS：`memory/search_index.sqlite` 中包含 FTS5 表。
+- 本地向量表：SQLite 中包含 deterministic hash embedding 向量表，用于后续替换为真实 embedding provider。当前不需要配置 embedding API Key。
 
 规划、写作、审核可以选择加入检索上下文：
 

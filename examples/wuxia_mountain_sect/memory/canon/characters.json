@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "characters": [
+    {
+      "id": "char_yan_qingci",
+      "name": "燕青辞",
+      "role": "protagonist",
+      "reader_visible_summary": "云台山剑宗外门弟子，剑法基础扎实，性格沉静，擅长从细节里找破绽。",
+      "private_author_notes": "他父亲当年与旧掌门继位案有关，但前期本人并不知道。",
+      "aliases": ["青辞"],
+      "appearance": {
+        "age": "十八岁",
+        "clothing": "灰蓝外门弟子服，袖口常磨出线头"
+      },
+      "personality": {
+        "traits": ["克制", "耐心", "不轻信"],
+        "flaw": "习惯独自承担怀疑，不善求助"
+      },
+      "relationships": [
+        {
+          "target_id": "char_luo_mingshuang",
+          "type": "同门",
+          "reader_visible": true,
+          "description": "洛明霜曾在外门考核中指点过他。"
+        }
+      ],
+      "abilities": [
+        {
+          "name": "云台基础剑",
+          "description": "招式朴素，重在步法和守势。",
+          "limitations": "缺少内门剑诀，爆发不足。"
+        }
+      ],
+      "secrets": [],
+      "tags": ["protagonist", "outer_disciple"]
+    },
+    {
+      "id": "char_luo_mingshuang",
+      "name": "洛明霜",
+      "role": "deuteragonist",
+      "reader_visible_summary": "掌门亲传弟子，剑法清正，重视门规，也愿意听证据。",
+      "private_author_notes": "她对掌门有敬意，但并非无条件维护。",
+      "aliases": ["洛师姐"],
+      "relationships": [
+        {
+          "target_id": "char_yan_qingci",
+          "type": "同门师姐弟",
+          "reader_visible": true,
+          "description": "她认可燕青辞的基本功。"
+        },
+        {
+          "target_id": "char_shen_wenzhou",
+          "type": "旧同门",
+          "reader_visible": true,
+          "description": "幼年听过沈问舟的传闻。"
+        }
+      ],
+      "abilities": [
+        {
+          "name": "照雪剑",
+          "description": "掌门一脉剑法，讲究剑路明净、攻守分明。",
+          "limitations": "过于守礼时容易错失奇招。"
+        }
+      ],
+      "secrets": [],
+      "tags": ["inner_disciple"]
+    },
+    {
+      "id": "char_shen_wenzhou",
+      "name": "沈问舟",
+      "role": "mysterious_returnee",
+      "reader_visible_summary": "十年前被逐出云台山的大师兄，试剑前夜忽然回山。",
+      "private_author_notes": "他掌握旧掌门继位案的一部分证据，但回山也有私怨。",
+      "aliases": ["沈师兄", "弃徒沈问舟"],
+      "relationships": [
+        {
+          "target_id": "char_luo_mingshuang",
+          "type": "旧同门",
+          "reader_visible": true,
+          "description": "洛明霜只从长辈口中听过他的旧事。"
+        }
+      ],
+      "abilities": [
+        {
+          "name": "断云剑",
+          "description": "被逐后自创的剑路，善断对手节奏。",
+          "limitations": "旧伤未愈，持久战不利。"
+        }
+      ],
+      "secrets": [
+        {
+          "id": "secret_shen_partial_evidence",
+          "visibility": "hidden",
+          "description": "沈问舟只知道继位案的证据藏在祖师祠，却不知道完整真相。",
+          "planned_reveal": "中段揭示。"
+        }
+      ],
+      "tags": ["returnee", "suspect"]
+    }
+  ]
+}

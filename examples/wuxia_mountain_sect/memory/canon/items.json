@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "id": "item_half_sword_manual",
+      "name": "半截旧剑谱",
+      "type": "manual_fragment",
+      "reader_visible_summary": "祖师祠暗格里发现的半截剑谱，纸页受潮，末尾被人撕去。",
+      "private_author_notes": "剑谱其实是旧掌门继位案证据的一部分。",
+      "origin": "云台山旧藏",
+      "special_properties": [
+        {
+          "description": "纸页边缘有掌门一脉才使用的暗记。",
+          "visibility": "partially_revealed"
+        }
+      ],
+      "tags": ["clue", "manual"]
+    },
+    {
+      "id": "item_bamboo_token",
+      "name": "青竹令",
+      "type": "sect_token",
+      "reader_visible_summary": "云台山外门弟子的身份令牌。",
+      "private_author_notes": "燕青辞的令牌背面有一道旧划痕，可作为时间线线索。",
+      "origin": "云台山剑宗",
+      "special_properties": [],
+      "tags": ["token"]
+    }
+  ]
+}

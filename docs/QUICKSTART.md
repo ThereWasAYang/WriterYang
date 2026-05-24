@@ -1,0 +1,92 @@
+# 新手快速开始
+
+本教程用 `mock` provider 跑完整流程，不需要真实 API Key。目标是在 10 分钟内理解 WriterYang 的工作方式：所有中间结果都写入本地 Markdown / JSON / YAML 文件，作者可以随时检查和手动编辑。
+
+## 1. 安装
+
+```bash
+conda run -n py312 python -m pip install -e ".[dev]"
+novel --version
+```
+
+## 2. 创建项目
+
+```bash
+novel init "青灯客栈" --path ./qingdeng-inn
+```
+
+生成目录包括：
+
+- `project.yaml`：作品基本信息。
+- `config/agents.yaml`：各 agent 的模型配置，只保存环境变量名。
+- `memory/inspiration.md`：灵感和弱总纲。
+- `memory/canon/*.json`：人物、地点、物品、世界规则、隐藏真相和伏笔。
+- `memory/state/*.json`：当前状态和时间线。
+- `memory/chapters/`：章节计划、初稿、润色稿、审核报告。
+- `runs/`：运行日志。
+- `exports/`：导出结果。
+
+## 3. 写入灵感
+
+```bash
+novel inspire "雨夜客栈里，一盏青灯忽然照出二十年前失踪剑客的影子。" --path ./qingdeng-inn --provider mock --overwrite
+```
+
+检查文件：
+
+```bash
+cat ./qingdeng-inn/memory/inspiration.md
+```
+
+## 4. 生成并应用 canon
+
+```bash
+novel canon suggest --path ./qingdeng-inn --provider mock --output ./qingdeng-canon.json
+novel canon apply ./qingdeng-canon.json --path ./qingdeng-inn
+novel canon show --path ./qingdeng-inn
+```
+
+`suggest` 默认只生成 proposal；`apply` 才会写入正式 canon 文件。
+
+## 5. 生成章节
+
+```bash
+novel plan-chapter 1 --path ./qingdeng-inn --provider mock
+novel write-chapter 1 --path ./qingdeng-inn --provider mock
+novel polish-chapter 1 --path ./qingdeng-inn --provider mock
+novel audit-chapter 1 --path ./qingdeng-inn --provider mock
+```
+
+也可以一键跑流水线：
+
+```bash
+novel generate-chapter 1 --path ./qingdeng-inn --provider mock --force
+```
+
+## 6. 接受章节并更新状态
+
+只有审核通过或你明确允许问题继续时，才建议接受章节。
+
+```bash
+novel propose-state-update 1 --path ./qingdeng-inn --provider mock
+novel apply-state-update 1 --path ./qingdeng-inn
+novel accept-chapter 1 --path ./qingdeng-inn --allow-issues
+```
+
+## 7. 导出 Markdown
+
+```bash
+novel export markdown --path ./qingdeng-inn --include-unaccepted --toc --force
+```
+
+默认导出到 `exports/novel.md`，同时更新 `exports/export_manifest.json`。
+
+## 8. 常用检查
+
+```bash
+novel validate --path ./qingdeng-inn
+novel status --path ./qingdeng-inn
+novel doctor --project ./qingdeng-inn
+```
+
+如果你手动改了 `memory/` 里的文件，至少运行一次 `validate`。

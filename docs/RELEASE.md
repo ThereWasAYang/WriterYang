@@ -21,6 +21,8 @@ novel --version
 
 ```bash
 conda run -n py312 pytest
+conda run -n py312 ruff check .
+conda run -n py312 mypy src
 ```
 
 测试不能依赖真实 API Key。
@@ -51,6 +53,7 @@ novel status --path examples/rain_station
 ```bash
 python -m pip install -e ".[dev]"
 python -m build
+python -m twine check dist/*
 ```
 
 预期产物：
@@ -83,4 +86,18 @@ novel validate --path /tmp/writeryang-smoke
 
 ## 8. 发布
 
-当前发布流程尚未自动化。请在本地冒烟测试通过后，再按项目选定的包仓库流程发布。
+当前默认发布目标是 GitHub Release。
+
+1. 确认 `CHANGELOG.md` 中对应版本条目完整。
+2. 确认 `pyproject.toml` 和 `src/novel/__init__.py` 版本一致。
+3. 本地运行测试、lint、type check、build 和 `twine check`。
+4. 创建 tag：
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+5. GitHub Actions 的 `Release` workflow 会重新运行 secret scan、测试、lint、type check、build，并把 `dist/*` 上传到 GitHub Release。
+
+本仓库暂不配置 PyPI token 或 Trusted Publishing。需要 PyPI 发布时，再单独增加发布目标和平台侧授权。

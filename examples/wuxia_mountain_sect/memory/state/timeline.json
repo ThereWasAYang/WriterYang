@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "id": "event_shen_exiled",
+      "summary": "沈问舟十年前被逐出云台山，门内只留下含糊说法。",
+      "chapter": 1,
+      "in_story_time": "十年前",
+      "participant_ids": ["char_shen_wenzhou"],
+      "location_id": "loc_yuntai_sect",
+      "reader_visible": false,
+      "visibility": "partially_revealed",
+      "state_change_ids": [],
+      "causes": [],
+      "effects": ["沈问舟回山会引发门内紧张。"]
+    }
+  ]
+}

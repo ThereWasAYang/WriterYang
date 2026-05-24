@@ -1,8 +1,12 @@
 include README.md
 include CHANGELOG.md
+include CONTRIBUTING.md
 include pyproject.toml
 include docs/INTEGRATION.md
 include docs/RELEASE.md
+include docs/QUICKSTART.md
+include docs/MEMORY_EDITING.md
+include docs/MODEL_CONFIG_BEST_PRACTICES.md
 include docs/openclaw_tool_manifest.json
 recursive-include schemas *.json
 exclude AGENTS.md

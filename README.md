@@ -4,6 +4,12 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 
 当前版本重点是本地 CLI 和最小 Web UI。所有测试都使用 `MockProvider`，不依赖真实 API Key。
 
+## 新手入口
+
+- [新手快速开始](docs/QUICKSTART.md)：用 `mock` provider 跑通 10 分钟流程，不需要 API Key。
+- [作者如何手动编辑 memory 文件](docs/MEMORY_EDITING.md)：说明 inspiration、style、canon、state、timeline、章节文件的人工编辑边界。
+- [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 agent 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。
+
 ## 安装
 
 开发安装：
@@ -46,11 +52,48 @@ novel init "雨夜旧车站" --path ./rain-station
 ```bash
 novel validate --path examples/rain_station
 novel status --path examples/rain_station
+novel validate --path examples/wuxia_mountain_sect
+novel status --path examples/wuxia_mountain_sect
 ```
 
 示例项目的 `config/agents.yaml` 是 DeepSeek 真实 API 配置模板，并显式关闭 `thinking`。如果只想离线试用或跑 mock 流程，可以参考 `config/agents.mock.yaml`，或者在命令中传入 `--provider mock`。
+`examples/wuxia_mountain_sect` 是武侠长篇示例，配置项带中文注释，适合作为新项目配置模板。
 
 生成文件默认不会静默覆盖已有用户数据。
+
+## 中文长篇小说默认工作流
+
+推荐工作流：
+
+```text
+init -> inspire -> canon suggest/apply -> plan -> write -> polish -> audit -> propose/apply state -> accept -> export
+```
+
+对应命令：
+
+```bash
+novel init "新书名" --path ./my-novel
+novel inspire "一句或一段原始灵感" --path ./my-novel --provider mock --overwrite
+novel canon suggest --path ./my-novel --provider mock --output canon-proposal.json
+novel canon apply canon-proposal.json --path ./my-novel
+novel plan-chapter 1 --path ./my-novel --provider mock
+novel write-chapter 1 --path ./my-novel --provider mock
+novel polish-chapter 1 --path ./my-novel --provider mock
+novel audit-chapter 1 --path ./my-novel --provider mock
+novel propose-state-update 1 --path ./my-novel --provider mock
+novel apply-state-update 1 --path ./my-novel
+novel accept-chapter 1 --path ./my-novel --allow-issues
+novel export markdown --path ./my-novel --toc --force
+```
+
+人工编辑建议：
+
+- `inspire` 后可以手动改 `memory/inspiration.md`，让弱总纲更贴近作者意图。
+- `canon suggest` 后先看 proposal，再 `apply`；不要把隐藏真相写进读者可见摘要。
+- `plan` 后可以改 `plan.md` 或 `plan.json`，但要保持 ID 引用存在。
+- `write` / `polish` 后可以人工改正文；改完应重新 `audit`。
+- `audit` 有 high/critical 问题时，优先 `revise-chapter` 或人工修订，再接受章节。
+- `state/timeline` 默认通过 proposal 更新；不建议直接改正式 state/timeline，除非你清楚引用关系。
 
 ## 校验和查看项目
 

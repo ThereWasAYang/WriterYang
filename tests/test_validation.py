@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.schemas import Character, ProjectConfig
 from novel.core.validation import validate_project

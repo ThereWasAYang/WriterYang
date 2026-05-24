@@ -1,0 +1,74 @@
+# 模型配置最佳实践
+
+WriterYang 支持给不同 agent 配不同模型。推荐原则是：结构化和审核类任务低温、稳定；正文和润色类任务更重视中文表达、长上下文和风格控制。
+
+## Provider 字段
+
+`config/agents.yaml` 的 `provider` 当前支持：
+
+- `mock`：离线测试，不调用 API。
+- `openai`：标准 OpenAI API，默认 `https://api.openai.com/v1`。
+- `openai_compatible`：通用 Chat Completions 兼容接口，需要 `base_url_env`。
+- `deepseek`：DeepSeek 官方 API，支持 `thinking.type`。
+- `zai`：智谱 GLM 官方 API，默认 `https://open.bigmodel.cn/api/paas/v4`，支持 `thinking.type`。
+
+真实 API Key 只能放在环境变量中。配置文件只写环境变量名，例如：
+
+```yaml
+api_key_env: "WRITER_API_KEY"
+```
+
+## Thinking 开关
+
+默认建议：
+
+```yaml
+thinking:
+  type: "disabled"
+```
+
+原因：
+
+- `writer`、`polish` 的输出会直接写入 Markdown，关闭 thinking 可降低把分析性内容混入正文的风险。
+- `canon`、`state_update` 需要严格 JSON，关闭 thinking 更容易保持输出干净。
+- `plot`、`audit` 在复杂长篇中可以单独改成 `enabled`，用于增强推理和一致性检查。
+
+## 按 Agent 配置建议
+
+| Agent | 作用 | 能力重点 | 推荐配置 |
+| --- | --- | --- | --- |
+| `orchestrator` | 判断任务并串联工作流。 | 指令理解、流程稳定。 | `temperature: 0.2-0.5`，`reasoning: medium`，`max_context_tokens: 64000-128000`。 |
+| `inspiration` | 生成灵感和弱总纲。 | 创意、中文表达、弱约束。 | `temperature: 0.7-0.9`，`reasoning: medium`，`max_tokens: 4096-8192`。 |
+| `canon` | 生成设定 proposal。 | JSON 稳定、ID 稳定、设定一致。 | `temperature: 0.3-0.6`，`reasoning: medium`，`max_tokens: 8192`。 |
+| `plot` | 生成章节计划。 | 长上下文、剧情推理、伏笔控制。 | `temperature: 0.4-0.7`，`reasoning: high`，`max_context_tokens: 128000`。 |
+| `writer` | 生成初稿。 | 中文长文、角色声音、叙事节奏。 | `temperature: 0.7-1.0`，`max_tokens: 16000-32000`，`timeout_seconds: 120-180`。 |
+| `polish` | 润色初稿。 | 文风、节奏、事实保持。 | `temperature: 0.5-0.8`，`max_tokens: 16000-32000`。 |
+| `audit` | 一致性审核。 | 低幻觉、细节比对、JSON 输出。 | `temperature: 0-0.3`，复杂项目可 `thinking.type: enabled`。 |
+| `state_update` | 提取状态和时间线变化。 | 信息抽取、引用一致性。 | `temperature: 0-0.3`，`reasoning: low-medium`。 |
+
+## 参数解释
+
+- `model`：模型名。不同厂商不同，请以厂商控制台为准。
+- `base_url_env`：base URL 环境变量名。专门适配的 provider 可以不写，使用默认 URL。
+- `api_key_env`：API Key 环境变量名，必填。
+- `reasoning`：推理强度提示。并非所有厂商都支持，当前主要用于 provider 适配。
+- `thinking.type`：`enabled` 或 `disabled`。当前仅 `deepseek`、`zai` 会发送该厂商字段。
+- `max_context_tokens`：用于说明该 agent 可承载的上下文规模，后续检索和截断策略会参考。
+- `max_tokens`：控制模型最大输出长度。
+- `temperature`：随机性。越低越稳定，越高越发散。
+- `timeout_seconds`：请求超时。长章节写作建议更高。
+- `max_retries`：失败重试次数。
+
+## 推荐落地策略
+
+1. 先用 `mock` 跑通项目结构和流程。
+2. 只给 `inspiration`、`plot`、`writer`、`polish`、`audit` 配真实模型。
+3. JSON 输出类 agent 先低温测试，确认 schema 稳定。
+4. 正文类 agent 再调温度和 `max_tokens`。
+5. 真实 API 上线前运行：
+
+```bash
+novel doctor --project <project>
+novel validate --path <project>
+novel write-chapter 1 --path <project> --dry-run-provider
+```

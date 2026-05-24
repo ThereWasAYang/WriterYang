@@ -21,7 +21,7 @@ from novel.core.schemas import (
     ProjectConfig,
     WorldFile,
 )
-from novel.core.validation import ValidationReport, validate_canon, validate_project
+from novel.core.validation import ValidationReport, validate_project
 
 
 class CanonError(RuntimeError):

@@ -32,8 +32,22 @@ def test_example_project_validates() -> None:
     assert report.ok, [message.message for message in report.messages]
 
 
+def test_wuxia_example_project_validates() -> None:
+    report = validate_project(Path("examples/wuxia_mountain_sect"))
+
+    assert report.ok, [message.message for message in report.messages]
+
+
 def test_example_project_validates_from_cli() -> None:
     code, stdout, stderr = _run_cli(["validate", "--path", "examples/rain_station", "--json"])
+
+    assert code == 0
+    assert stderr == ""
+    assert '"ok": true' in stdout
+
+
+def test_wuxia_example_project_validates_from_cli() -> None:
+    code, stdout, stderr = _run_cli(["validate", "--path", "examples/wuxia_mountain_sect", "--json"])
 
     assert code == 0
     assert stderr == ""
@@ -72,6 +86,7 @@ def test_readme_core_commands_match_cli() -> None:
         "novel accept-chapter",
         "novel export markdown",
         "novel --version",
+        "novel validate --path examples/wuxia_mountain_sect",
     ):
         assert command in readme
     for parser_command in (
@@ -90,6 +105,28 @@ def test_readme_core_commands_match_cli() -> None:
         "export",
     ):
         assert parser_command in parser_help
+
+
+def test_user_docs_exist_and_mention_core_workflow() -> None:
+    docs = {
+        "docs/QUICKSTART.md": ("novel inspire", "novel canon apply", "novel export markdown"),
+        "docs/MEMORY_EDITING.md": ("hidden_truths.json", "reader_visible_summary", "novel validate"),
+        "docs/MODEL_CONFIG_BEST_PRACTICES.md": ("provider", "thinking", "temperature"),
+    }
+    for rel_path, expected in docs.items():
+        text = Path(rel_path).read_text(encoding="utf-8")
+        for phrase in expected:
+            assert phrase in text
+
+
+def test_github_workflows_cover_quality_build_and_release() -> None:
+    tests_workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
+    release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    for phrase in ("pytest", "python -m build", "twine check", "ruff check", "mypy src", "scan_security"):
+        assert phrase in tests_workflow
+    for phrase in ("tags:", "v*", "softprops/action-gh-release", "dist/*", "scan_security"):
+        assert phrase in release_workflow
 
 
 def test_package_console_script_entry_point_is_declared() -> None:

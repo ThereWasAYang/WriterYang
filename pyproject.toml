@@ -40,6 +40,7 @@ novel = "novel.cli:main"
 [tool.pytest.ini_options]
 markers = [
   "real_api: tests that call a real OpenAI-compatible API and require local credentials",
+  "web_e2e: browser-based Web UI end-to-end tests",
 ]
 
 [tool.setuptools.packages.find]

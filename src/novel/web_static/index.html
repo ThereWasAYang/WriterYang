@@ -13,73 +13,48 @@
     }
     * { box-sizing: border-box; }
     body { margin: 0; }
-    main {
-      display: grid;
-      grid-template-columns: 320px minmax(0, 1fr);
-      min-height: 100vh;
-    }
-    aside {
-      background: #ffffff;
-      border-right: 1px solid #dfe3e8;
-      padding: 18px;
-      overflow: auto;
-    }
-    section {
-      padding: 18px 22px;
-      min-width: 0;
-    }
+    main { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 100vh; }
+    aside { background: #fff; border-right: 1px solid #dfe3e8; padding: 18px; overflow: auto; }
+    section { padding: 18px 22px; min-width: 0; overflow: auto; }
     h1 { font-size: 22px; margin: 0 0 18px; }
     h2 { font-size: 15px; margin: 22px 0 10px; }
+    h3 { font-size: 13px; margin: 0 0 8px; color: #46515f; }
     label { display: block; font-size: 12px; font-weight: 700; margin: 12px 0 6px; color: #46515f; }
     input, textarea, select {
-      width: 100%;
-      border: 1px solid #cbd2da;
-      border-radius: 6px;
-      padding: 9px 10px;
-      background: #fff;
-      color: #20242a;
-      font: inherit;
+      width: 100%; border: 1px solid #cbd2da; border-radius: 6px; padding: 9px 10px;
+      background: #fff; color: #20242a; font: inherit;
     }
     textarea { min-height: 94px; resize: vertical; }
     button {
-      border: 1px solid #aeb8c3;
-      border-radius: 6px;
-      background: #ffffff;
-      color: #20242a;
-      padding: 8px 10px;
-      font: inherit;
-      cursor: pointer;
+      border: 1px solid #aeb8c3; border-radius: 6px; background: #fff; color: #20242a;
+      padding: 8px 10px; font: inherit; cursor: pointer;
     }
-    button.primary { background: #1f6feb; color: white; border-color: #1f6feb; }
+    button.primary { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+    button.tab.active { background: #20242a; color: #fff; border-color: #20242a; }
     button:disabled { opacity: .55; cursor: not-allowed; }
     .row { display: flex; gap: 8px; align-items: center; }
     .row > * { flex: 1; }
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-    .panel {
-      background: #ffffff;
-      border: 1px solid #dfe3e8;
-      border-radius: 8px;
-      padding: 14px;
-      margin-bottom: 14px;
-    }
+    .panel { background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .four { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .status-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .metric { border: 1px solid #e4e8ed; border-radius: 6px; padding: 10px; background: #fbfcfd; }
-    .metric b { display: block; font-size: 18px; }
+    .metric b { display: block; font-size: 18px; overflow-wrap: anywhere; }
     table { width: 100%; border-collapse: collapse; }
     th, td { border-bottom: 1px solid #e4e8ed; padding: 8px; text-align: left; vertical-align: top; }
     th { font-size: 12px; color: #5b6673; }
     pre {
-      white-space: pre-wrap;
-      overflow: auto;
-      max-height: 58vh;
-      margin: 0;
+      white-space: pre-wrap; overflow: auto; max-height: 54vh; margin: 0;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 13px;
-      line-height: 1.55;
+      font-size: 12px; line-height: 1.55;
     }
+    .chapter-pre { min-height: 240px; max-height: 52vh; background: #fbfcfd; border: 1px solid #e4e8ed; border-radius: 6px; padding: 10px; }
     .message { min-height: 22px; color: #435160; font-size: 13px; margin-top: 10px; }
     .error { color: #b42318; }
+    .file-tree { max-height: 38vh; overflow: auto; border: 1px solid #e4e8ed; border-radius: 6px; padding: 8px; background: #fbfcfd; }
+    .file-row { width: 100%; display: block; text-align: left; border: 0; background: transparent; padding: 4px 6px; font-size: 12px; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
@@ -117,6 +92,9 @@
       </div>
       <button id="exportMarkdown" style="width: 100%; margin-top: 8px;">导出 Markdown</button>
       <div id="message" class="message"></div>
+
+      <h2>项目文件树</h2>
+      <div id="fileTree" class="file-tree">未加载</div>
     </aside>
 
     <section>
@@ -138,22 +116,78 @@
 
       <div class="panel">
         <div class="row">
-          <h2 style="margin: 0;">文件查看</h2>
-          <select id="fileType">
-            <option value="plan">plan.json</option>
-            <option value="draft">draft.md</option>
-            <option value="polished">polished.md</option>
-            <option value="audit">audit.json</option>
-          </select>
-          <button id="viewFile">查看</button>
+          <button class="tab active" data-tab="chapterCompare">章节对照</button>
+          <button class="tab" data-tab="runLogs">运行日志</button>
+          <button class="tab" data-tab="providerConfig">Provider 配置</button>
+          <button class="tab" data-tab="stateTimeline">状态 / 时间线</button>
         </div>
-        <pre id="fileViewer">选择章节文件后查看。</pre>
+      </div>
+
+      <div id="chapterCompare" class="tabPanel">
+        <div class="panel">
+          <div class="row">
+            <h2 style="margin: 0;">plan / draft / polished / audit 对照</h2>
+            <button id="loadCompare">加载对照</button>
+          </div>
+          <div id="compareGrid" class="four">
+            <div><h3>plan.json</h3><pre id="planViewer" class="chapter-pre">未加载</pre></div>
+            <div><h3>draft.md</h3><pre id="draftViewer" class="chapter-pre">未加载</pre></div>
+            <div><h3>polished.md</h3><pre id="polishedViewer" class="chapter-pre">未加载</pre></div>
+            <div><h3>audit.json</h3><pre id="auditViewer" class="chapter-pre">未加载</pre></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="row">
+            <h2 style="margin: 0;">文件查看</h2>
+            <select id="fileType">
+              <option value="plan">plan.json</option>
+              <option value="draft">draft.md</option>
+              <option value="polished">polished.md</option>
+              <option value="audit">audit.json</option>
+            </select>
+            <button id="viewFile">查看</button>
+          </div>
+          <pre id="fileViewer">选择章节文件后查看。</pre>
+        </div>
+
+        <div class="panel">
+          <h2>Revision Diff</h2>
+          <div class="row">
+            <input id="diffLeft" placeholder="memory/chapters/001/polished.md">
+            <input id="diffRight" placeholder="memory/chapters/001/polished.v2.md">
+            <button id="loadDiff">查看 Diff</button>
+          </div>
+          <pre id="diffViewer" style="margin-top: 10px;">选择两个工作区文件后查看 unified diff。</pre>
+        </div>
+      </div>
+
+      <div id="runLogs" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row"><h2 style="margin: 0;">运行日志</h2><button id="loadRuns">刷新日志</button></div>
+          <div id="runLogPanel">未加载</div>
+        </div>
+      </div>
+
+      <div id="providerConfig" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row"><h2 style="margin: 0;">Provider 配置</h2><button id="loadProviderConfig">刷新配置</button></div>
+          <pre id="providerConfigPanel">未加载</pre>
+        </div>
+      </div>
+
+      <div id="stateTimeline" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row"><h2 style="margin: 0;">状态和时间线</h2><button id="loadStateTimeline">刷新状态</button></div>
+          <div id="stateTimelinePanel">未加载</div>
+        </div>
       </div>
     </section>
   </main>
 
   <script>
     const $ = (id) => document.getElementById(id);
+    const chapterFileTypes = ["plan", "draft", "polished", "audit"];
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -171,9 +205,11 @@
     async function apiGet(path, params) {
       const query = new URLSearchParams(params);
       const response = await fetch(`${path}?${query}`);
-      const data = await response.json();
-      if (!response.ok || data.ok === false) throw new Error(data.error || "API request failed");
-      return data;
+      const payload = await response.json();
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error?.message || "API request failed");
+      }
+      return payload.data || {};
     }
 
     async function apiPost(path, payload) {
@@ -183,21 +219,25 @@
         body: JSON.stringify(payload),
       });
       const data = await response.json();
-      if (!response.ok || data.ok === false) throw new Error(data.error || "API request failed");
-      return data;
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error?.message || "API request failed");
+      }
+      return data.data || {};
     }
 
     async function refreshAll() {
       try {
         const path = projectPath();
-        const [status, canon, chapters] = await Promise.all([
+        const [status, canon, chapters, files] = await Promise.all([
           apiGet("/api/project/status", { path }),
           apiGet("/api/canon", { path }),
           apiGet("/api/chapters", { path }),
+          apiGet("/api/file-tree", { path }),
         ]);
         renderStatus(status.status);
         $("canonPanel").textContent = canon.summary || "无";
         renderChapters(chapters.chapters || []);
+        renderFileTree(files.files || []);
         setMessage("项目已刷新");
       } catch (error) {
         setMessage(error.message, true);
@@ -216,7 +256,7 @@
         ["最近 run", status.latest_run_summary || "无"],
       ];
       $("statusPanel").innerHTML = rows.map(([label, value]) =>
-        `<div class="metric"><span>${label}</span><b>${value ?? ""}</b></div>`
+        `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value ?? "")}</b></div>`
       ).join("");
     }
 
@@ -228,10 +268,10 @@
       const body = chapters.map((chapter) => `
         <tr>
           <td>${chapter.chapter_number}</td>
-          <td>${chapter.title || ""}</td>
-          <td>${chapter.status || ""}</td>
+          <td>${escapeHtml(chapter.title || "")}</td>
+          <td>${escapeHtml(chapter.status || "")}</td>
           <td>${chapter.has_plan ? "plan " : ""}${chapter.has_draft ? "draft " : ""}${chapter.has_polished ? "polished " : ""}${chapter.has_audit ? "audit" : ""}</td>
-          <td>${chapter.audit_status || ""}</td>
+          <td>${escapeHtml(chapter.audit_status || "")}</td>
           <td><button data-chapter="${chapter.chapter_number}" class="select-chapter">选择</button></td>
         </tr>
       `).join("");
@@ -239,8 +279,34 @@
       document.querySelectorAll(".select-chapter").forEach((button) => {
         button.addEventListener("click", () => {
           $("chapterNumber").value = button.dataset.chapter;
+          loadCompare();
         });
       });
+    }
+
+    function renderFileTree(files) {
+      if (!files.length) {
+        $("fileTree").textContent = "暂无文件";
+        return;
+      }
+      $("fileTree").innerHTML = files.map((file) => {
+        const indent = "&nbsp;".repeat(Math.max(file.path.split("/").length - 1, 0) * 2);
+        const icon = file.type === "directory" ? "▸" : "·";
+        return `<button class="file-row" data-path="${escapeAttr(file.path)}">${indent}${icon} ${escapeHtml(file.path)}</button>`;
+      }).join("");
+      document.querySelectorAll(".file-row").forEach((button) => {
+        button.addEventListener("click", () => readWorkspaceFile(button.dataset.path));
+      });
+    }
+
+    async function readWorkspaceFile(relPath) {
+      try {
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        $("fileViewer").textContent = data.content || "";
+        setMessage(`已读取 ${data.path}`);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
     }
 
     async function runAction(endpoint, label) {
@@ -269,11 +335,105 @@
           chapter: chapterNumber(),
           file: $("fileType").value,
         });
-        $("fileViewer").textContent = data.exists ? data.content : `${data.path} 不存在`;
+        $("fileViewer").textContent = data.exists ? data.content : `${data.relative_path || data.path} 不存在`;
         setMessage("文件已加载");
       } catch (error) {
         setMessage(error.message, true);
       }
+    }
+
+    async function loadCompare() {
+      await Promise.all(chapterFileTypes.map(async (type) => {
+        const target = $(`${type}Viewer`);
+        try {
+          const data = await apiGet("/api/chapter-file", {
+            path: projectPath(),
+            chapter: chapterNumber(),
+            file: type,
+          });
+          target.textContent = data.exists ? data.content : `${data.relative_path} 不存在`;
+        } catch (error) {
+          target.textContent = error.message;
+        }
+      }));
+      setMessage("章节对照已加载");
+    }
+
+    async function loadRuns() {
+      try {
+        const data = await apiGet("/api/runs", { path: projectPath() });
+        const runRows = (data.run_logs || []).map((run) => `
+          <tr><td>${escapeHtml(run.run_id || "")}</td><td>${escapeHtml(run.task || "")}</td><td>${escapeHtml(run.status || "")}</td><td>${escapeHtml(run.started_at || "")}</td><td>${escapeHtml(run.path || "")}</td></tr>
+        `).join("");
+        const callRows = (data.provider_calls || []).map((call) => `
+          <tr><td>${escapeHtml(call.provider || "")}</td><td>${escapeHtml(call.model || "")}</td><td>${escapeHtml(call.status || "")}</td><td>${escapeHtml(call.started_at || "")}</td><td>${escapeHtml(call.error_type || "")}</td></tr>
+        `).join("");
+        $("runLogPanel").innerHTML = `
+          <h3>Run logs</h3><table><thead><tr><th>run_id</th><th>task</th><th>status</th><th>started_at</th><th>path</th></tr></thead><tbody>${runRows || "<tr><td colspan='5'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Provider calls</h3><table><thead><tr><th>provider</th><th>model</th><th>status</th><th>started_at</th><th>error</th></tr></thead><tbody>${callRows || "<tr><td colspan='5'>无</td></tr>"}</tbody></table>
+        `;
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadProviderConfig() {
+      try {
+        const data = await apiGet("/api/provider-config", { path: projectPath() });
+        $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadStateTimeline() {
+      try {
+        const data = await apiGet("/api/state-timeline", { path: projectPath() });
+        const events = data.timeline?.events || [];
+        const eventRows = events.map((event) => `
+          <tr><td>${escapeHtml(event.id || "")}</td><td>${escapeHtml(event.chapter || "")}</td><td>${escapeHtml(event.summary || "")}</td><td>${escapeHtml(event.location_id || "")}</td></tr>
+        `).join("");
+        $("stateTimelinePanel").innerHTML = `
+          <pre>${escapeHtml(JSON.stringify(data.summary || {}, null, 2))}</pre>
+          <h3 style="margin-top: 16px;">Timeline</h3>
+          <table><thead><tr><th>id</th><th>chapter</th><th>summary</th><th>location</th></tr></thead><tbody>${eventRows || "<tr><td colspan='4'>无</td></tr>"}</tbody></table>
+        `;
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadDiff() {
+      try {
+        const data = await apiGet("/api/diff", {
+          path: projectPath(),
+          left: $("diffLeft").value.trim(),
+          right: $("diffRight").value.trim(),
+        });
+        $("diffViewer").textContent = data.diff || "两个文件没有差异。";
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    function showTab(tabId) {
+      document.querySelectorAll(".tabPanel").forEach((panel) => panel.classList.add("hidden"));
+      document.querySelectorAll(".tab").forEach((button) => button.classList.remove("active"));
+      $(tabId).classList.remove("hidden");
+      document.querySelector(`[data-tab="${tabId}"]`).classList.add("active");
+      if (tabId === "runLogs") loadRuns();
+      if (tabId === "providerConfig") loadProviderConfig();
+      if (tabId === "stateTimeline") loadStateTimeline();
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[char]));
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/`/g, "&#96;");
     }
 
     $("openProject").addEventListener("click", refreshAll);
@@ -284,6 +444,14 @@
     $("auditChapter").addEventListener("click", () => runAction("/api/audit-chapter", "审核"));
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));
     $("viewFile").addEventListener("click", viewFile);
+    $("loadCompare").addEventListener("click", loadCompare);
+    $("loadRuns").addEventListener("click", loadRuns);
+    $("loadProviderConfig").addEventListener("click", loadProviderConfig);
+    $("loadStateTimeline").addEventListener("click", loadStateTimeline);
+    $("loadDiff").addEventListener("click", loadDiff);
+    document.querySelectorAll(".tab").forEach((button) => {
+      button.addEventListener("click", () => showTab(button.dataset.tab));
+    });
     $("projectPath").value = localStorage.getItem("writeryang.projectPath") || "";
     $("projectPath").addEventListener("change", () => localStorage.setItem("writeryang.projectPath", $("projectPath").value));
   </script>

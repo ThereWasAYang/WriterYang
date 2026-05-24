@@ -21,8 +21,9 @@ def test_api_status_endpoint(tmp_path: Path) -> None:
 
     assert status == 200
     assert payload["ok"] is True
-    assert payload["status"]["title"] == "雨夜旧车站"  # type: ignore[index]
-    assert payload["status"]["inspiration_exists"] is True  # type: ignore[index]
+    assert payload["data"]["status"]["title"] == "雨夜旧车站"  # type: ignore[index]
+    assert payload["data"]["status"]["inspiration_exists"] is True  # type: ignore[index]
+    assert "error" not in payload
 
 
 def test_api_response_does_not_leak_api_key_values(tmp_path: Path, monkeypatch) -> None:
@@ -42,12 +43,127 @@ def test_api_response_does_not_leak_api_key_values(tmp_path: Path, monkeypatch) 
     assert "api_key_env" not in serialized
 
 
+def test_api_error_response_has_stable_shape_and_redacts_keys(monkeypatch) -> None:
+    monkeypatch.setenv("SECRET_TOKEN", "super-secret-value")
+
+    status, payload = handle_api_request(
+        "GET",
+        "/api/read-file",
+        "path=/not-a-workspace&file=super-secret-value",
+        None,
+    )
+
+    assert status == 400
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "invalid_project"  # type: ignore[index]
+    assert payload["error"]["request_id"]  # type: ignore[index]
+    assert "super-secret-value" not in json.dumps(payload, ensure_ascii=False)
+
+
+def test_api_file_tree_excludes_env_and_search_index(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    (root / ".env.real").write_text("SHOULD_NOT_APPEAR=1\n", encoding="utf-8")
+    (root / "memory" / "search_index.json").write_text("{}", encoding="utf-8")
+    (root / "memory" / "chapters" / "001").mkdir(parents=True)
+    (root / "memory" / "chapters" / "001" / "draft.md").write_text("draft", encoding="utf-8")
+
+    status, payload = handle_api_request("GET", "/api/file-tree", f"path={root}", None)
+
+    assert status == 200
+    paths = [item["path"] for item in payload["data"]["files"]]  # type: ignore[index]
+    assert "memory/chapters/001/draft.md" in paths
+    assert ".env.real" not in paths
+    assert "memory/search_index.json" not in paths
+
+
+def test_api_read_file_uses_workspace_whitelist(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    (root / ".env").write_text("SECRET=1\n", encoding="utf-8")
+
+    ok_status, ok_payload = handle_api_request(
+        "GET",
+        "/api/read-file",
+        f"path={root}&file=project.yaml",
+        None,
+    )
+    bad_status, bad_payload = handle_api_request(
+        "GET",
+        "/api/read-file",
+        f"path={root}&file=.env",
+        None,
+    )
+
+    assert ok_status == 200
+    assert ok_payload["data"]["exists"] is True  # type: ignore[index]
+    assert bad_status == 403
+    assert bad_payload["error"]["code"] == "forbidden_file"  # type: ignore[index]
+
+
+def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret-never-return")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-secret-never-return")
+
+    status, payload = handle_api_request("GET", "/api/provider-config", f"path={root}", None)
+
+    assert status == 200
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert "sk-test-secret-never-return" not in serialized
+    assert "dashscope-secret-never-return" not in serialized
+    assert "OPENAI_API_KEY" in serialized
+    env_entries = payload["data"]["agents"]["env"]  # type: ignore[index]
+    assert any(item["name"] == "OPENAI_API_KEY" and item["exists"] is True for item in env_entries)
+
+
+def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    handle_api_request(
+        "POST",
+        "/api/generate-chapter",
+        "",
+        json.dumps({"path": str(root), "chapter_number": 1, "provider": "mock"}),
+    )
+
+    runs_status, runs_payload = handle_api_request("GET", "/api/runs", f"path={root}", None)
+    state_status, state_payload = handle_api_request("GET", "/api/state-timeline", f"path={root}", None)
+
+    assert runs_status == 200
+    assert runs_payload["data"]["run_logs"]  # type: ignore[index]
+    assert state_status == 200
+    assert "timeline_event_count" in state_payload["data"]["summary"]  # type: ignore[index]
+
+
+def test_api_diff_endpoint_returns_unified_diff(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True)
+    (chapter_dir / "polished.md").write_text("旧文本\n", encoding="utf-8")
+    (chapter_dir / "polished.v2.md").write_text("新文本\n", encoding="utf-8")
+
+    status, payload = handle_api_request(
+        "GET",
+        "/api/diff",
+        f"path={root}&left=memory/chapters/001/polished.md&right=memory/chapters/001/polished.v2.md",
+        None,
+    )
+
+    assert status == 200
+    assert "--- memory/chapters/001/polished.md" in payload["data"]["diff"]  # type: ignore[index]
+    assert "+新文本" in payload["data"]["diff"]  # type: ignore[index]
+
+
 def test_frontend_basic_render() -> None:
     html = index_html()
 
     assert 'id="projectPath"' in html
     assert 'id="instruction"' in html
+    assert 'id="fileTree"' in html
     assert 'id="chapterList"' in html
+    assert 'id="compareGrid"' in html
+    assert 'id="runLogs"' in html
+    assert 'id="providerConfig"' in html
+    assert 'id="stateTimeline"' in html
+    assert 'id="diffViewer"' in html
     assert 'id="planChapter"' in html
     assert 'id="writeChapter"' in html
     assert 'id="polishChapter"' in html
@@ -75,7 +191,7 @@ def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:
 
     assert status == 200
     assert payload["ok"] is True
-    assert payload["status"] == "completed"
+    assert payload["data"]["status"] == "completed"  # type: ignore[index]
     chapter_dir = root / "memory" / "chapters" / "001"
     assert (chapter_dir / "plan.json").is_file()
     assert (chapter_dir / "draft.md").is_file()
@@ -89,7 +205,7 @@ def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:
         None,
     )
     assert chapters_status == 200
-    assert chapters_payload["chapters"][0]["has_audit"] is True  # type: ignore[index]
+    assert chapters_payload["data"]["chapters"][0]["has_audit"] is True  # type: ignore[index]
 
 
 def _workspace_ready_for_generation(tmp_path: Path) -> Path:

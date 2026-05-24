@@ -358,6 +358,38 @@ novel web --host 127.0.0.1 --port 8765
 
 打开 `http://127.0.0.1:8765`。Web UI 可以输入项目路径，查看状态和 canon，列出章节，触发计划、写作、润色、审核、Markdown 导出，并查看生成文件。Web API 调用同一套 core service，不返回真实 API Key。
 
+当前 Web 工作台还支持：
+
+- 项目文件树：只显示工作区内安全文件，排除 `.env*`、search index、备份和缓存。
+- 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
+- Revision diff：只读展示两个工作区文件的 unified diff。
+- 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
+- Provider 配置：只读展示 `config/agents.yaml`、`config/embeddings.yaml`，只显示环境变量名和是否存在，不显示真实值。
+- 状态 / 时间线：以表格和摘要方式查看 `current_state.json`、`timeline.json`。
+
+Web API 统一返回：
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+错误返回包含稳定错误码和 request id：
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "invalid_project",
+    "message": "...",
+    "details": {},
+    "request_id": "web_..."
+  }
+}
+```
+
 ## 外部 Agent / openclaw 调用
 
 自动化工具建议使用 `--project --json --quiet`：
@@ -375,6 +407,8 @@ novel ask "请为第1章生成章节计划" --project ./rain-station --provider 
 
 ```bash
 conda run -n py312 pytest
+conda run -n py312 pytest tests/test_web.py
+conda run -n py312 pytest -m web_e2e
 conda run -n py312 python -m build
 novel validate --path examples/rain_station
 ```

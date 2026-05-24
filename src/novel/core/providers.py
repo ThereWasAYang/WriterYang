@@ -12,6 +12,7 @@ from typing import Iterable, Mapping
 from urllib import error, request
 
 from novel.core.schemas import AgentConfig
+from novel.core.usage import refresh_provider_usage_summary_for_log
 
 
 @dataclass(frozen=True)
@@ -313,6 +314,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 )
                 with request.urlopen(http_request, timeout=self.timeout_seconds) as response:
                     response_body = response.read().decode("utf-8")
+                usage = _token_usage_from_response_body(response_body)
                 self._write_call_log(
                     ProviderCallLog(
                         request_id=request_id,
@@ -326,6 +328,9 @@ class OpenAICompatibleProvider(ModelProvider):
                         duration_ms=_duration_ms(started),
                         stream=stream,
                         json_schema_name=model_request.json_schema_name,
+                        prompt_tokens=usage.prompt_tokens if usage else None,
+                        completion_tokens=usage.completion_tokens if usage else None,
+                        total_tokens=usage.total_tokens if usage else None,
                     )
                 )
                 return response_body
@@ -392,6 +397,10 @@ class OpenAICompatibleProvider(ModelProvider):
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(entry.__dict__, ensure_ascii=False, default=str) + "\n")
+        try:
+            refresh_provider_usage_summary_for_log(self.log_path)
+        except Exception:
+            return
 
 
 class ProviderFactory:
@@ -573,6 +582,17 @@ def _token_usage_from_raw(raw: Mapping[str, object]) -> TokenUsage:
         completion_tokens=_optional_int(raw.get("completion_tokens")),
         total_tokens=_optional_int(raw.get("total_tokens")),
     )
+
+
+def _token_usage_from_response_body(response_body: str) -> TokenUsage | None:
+    try:
+        raw = json.loads(response_body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(raw, Mapping):
+        return None
+    usage = raw.get("usage")
+    return _token_usage_from_raw(usage) if isinstance(usage, Mapping) else None
 
 
 def _optional_int(value: object) -> int | None:

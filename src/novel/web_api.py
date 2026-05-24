@@ -21,6 +21,7 @@ from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.schemas import ChapterPlan
+from novel.core.usage import summarize_provider_usage
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
 
 
@@ -91,6 +92,8 @@ def handle_api_request(
             return _success(_read_workspace_file(_root_from_query(query), query.get("file") or ""))
         if method == "GET" and path == "/api/runs":
             return _success(_runs_summary(_root_from_query(query)))
+        if method == "GET" and path == "/api/usage":
+            return _success({"usage": summarize_provider_usage(_root_from_query(query)).as_dict()})
         if method == "GET" and path == "/api/provider-config":
             return _success(_provider_config_summary(_root_from_query(query)))
         if method == "GET" and path == "/api/state-timeline":
@@ -367,7 +370,11 @@ def _runs_summary(root: Path) -> dict[str, object]:
                 }
             )
     provider_calls = _provider_call_summary(runs_dir / "provider_calls.jsonl")
-    return {"run_logs": run_logs, "provider_calls": provider_calls}
+    return {
+        "run_logs": run_logs,
+        "provider_calls": provider_calls,
+        "provider_usage": summarize_provider_usage(root).as_dict(),
+    }
 
 
 def _provider_config_summary(root: Path) -> dict[str, object]:

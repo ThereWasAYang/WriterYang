@@ -104,6 +104,7 @@ from novel.core.orchestrator import (
 )
 from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
 from novel.core.security import scan_security
+from novel.core.usage import UsageError, summarize_provider_usage
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
 from novel.core.workflow import (
@@ -129,6 +130,7 @@ ERROR_CODES = {
     "revision_error": "Chapter revision failed.",
     "search_error": "Search index or query failed.",
     "state_update_error": "State/timeline update failed.",
+    "usage_error": "Provider usage statistics could not be read.",
     "validation_failed": "Project validation failed.",
     "workflow_error": "Chapter workflow failed.",
     "workspace_exists": "Workspace initialization would overwrite data.",
@@ -314,9 +316,30 @@ def _status_payload(status) -> dict[str, object]:
     }
 
 
+def _format_usage_summary(summary: dict[str, object]) -> list[str]:
+    total = summary.get("total")
+    total = total if isinstance(total, dict) else {}
+    last_call = summary.get("last_call")
+    lines = [
+        "Provider usage:",
+        f"Calls: {total.get('call_count', 0)} "
+        f"(success: {total.get('success_count', 0)}, failed: {total.get('failed_count', 0)})",
+        f"Tokens: total={total.get('total_tokens', 0)}, "
+        f"prompt={total.get('prompt_tokens', 0)}, completion={total.get('completion_tokens', 0)}",
+        f"Unknown token calls: {total.get('unknown_token_call_count', 0)}",
+    ]
+    if isinstance(last_call, dict):
+        lines.append(
+            "Last call: "
+            f"{last_call.get('provider', 'unknown')} / {last_call.get('model', 'unknown')} / "
+            f"{last_call.get('status', 'unknown')}"
+        )
+    return lines
+
+
 def completion_script(shell: str) -> str:
     commands = (
-        "init validate migrate schema index search ask status show inspire canon plan-chapter "
+        "init validate migrate schema index search ask status usage show inspire canon plan-chapter "
         "write-chapter polish-chapter audit-chapter revise-chapter propose-state-update "
         "apply-state-update accept-chapter generate-chapter export web doctor completion"
     )
@@ -677,6 +700,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_parser = subparsers.add_parser("status", help="Show project status")
     status_parser.add_argument(
+        "--path",
+        default=".",
+        help="Workspace directory to inspect. Defaults to the current directory.",
+    )
+
+    usage_parser = subparsers.add_parser("usage", help="Show provider token usage statistics")
+    usage_parser.add_argument(
         "--path",
         default=".",
         help="Workspace directory to inspect. Defaults to the current directory.",
@@ -1550,6 +1580,15 @@ def main(argv: list[str] | None = None) -> int:
             {"command": "status", "status": _status_payload(status)},
             [format_status(status, Path(args.path))],
         )
+
+    if args.command == "usage":
+        try:
+            summary = summarize_provider_usage(Path(args.path))
+        except UsageError as exc:
+            return _failure(args, str(exc), error_type="usage_error")
+        payload = {"command": "usage", "usage": summary.as_dict()}
+        lines = _format_usage_summary(summary.as_dict())
+        return _success(args, payload, lines)
 
     if args.command == "show":
         try:

@@ -107,6 +107,7 @@ novel ask "请为第1章生成章节计划" --project ./rain-station --provider 
 - `revision_error`
 - `search_error`
 - `state_update_error`
+- `usage_error`
 - `validation_failed`
 - `workflow_error`
 - `workspace_exists`

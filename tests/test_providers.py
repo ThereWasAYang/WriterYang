@@ -314,7 +314,10 @@ def test_provider_sends_max_tokens_from_agent_config(monkeypatch: pytest.MonkeyP
             return None
 
         def read(self) -> bytes:
-            return b'{"choices":[{"message":{"content":"ok"}}]}'
+            return (
+                b'{"choices":[{"message":{"content":"ok"}}],'
+                b'"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}'
+            )
 
     def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
         captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
@@ -345,7 +348,10 @@ def test_provider_retries_retryable_http_errors(monkeypatch: pytest.MonkeyPatch)
             return None
 
         def read(self) -> bytes:
-            return b'{"choices":[{"message":{"content":"ok"}}]}'
+            return (
+                b'{"choices":[{"message":{"content":"ok"}}],'
+                b'"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}'
+            )
 
     def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
         nonlocal calls
@@ -418,7 +424,10 @@ def test_provider_writes_safe_call_log(monkeypatch: pytest.MonkeyPatch, tmp_path
             return None
 
         def read(self) -> bytes:
-            return b'{"choices":[{"message":{"content":"ok"}}]}'
+            return (
+                b'{"choices":[{"message":{"content":"ok"}}],'
+                b'"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}'
+            )
 
     monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: FakeResponse())
 
@@ -428,8 +437,15 @@ def test_provider_writes_safe_call_log(monkeypatch: pytest.MonkeyPatch, tmp_path
     entry = json.loads(text)
     assert entry["status"] == "success"
     assert entry["json_schema_name"] == "TestSchema"
+    assert entry["prompt_tokens"] == 7
+    assert entry["completion_tokens"] == 3
+    assert entry["total_tokens"] == 10
     assert secret not in text
     assert "Authorization" not in text
+    usage = json.loads((tmp_path / "provider_usage.json").read_text(encoding="utf-8"))
+    assert usage["total"]["call_count"] == 1
+    assert usage["total"]["total_tokens"] == 10
+    assert usage["by_provider"]["openai"]["total_tokens"] == 10
 
 
 def test_provider_stream_parses_sse_chunks(monkeypatch: pytest.MonkeyPatch) -> None:

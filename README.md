@@ -160,6 +160,15 @@ agents:
 
 Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。日志只记录 provider、model、endpoint、耗时、重试次数、状态、错误类型和 token 用量等安全信息，不记录 prompt 正文、响应正文或真实 API Key。
 
+每次真实 provider 调用完成后，工具会根据调用日志刷新 `runs/provider_usage.json`，用于实时统计当前小说项目的累计调用量和 token 消耗。可以用下面的命令查看：
+
+```bash
+novel usage --path ./rain-station
+novel usage --path ./rain-station --json
+```
+
+如果某个厂商响应没有返回 token usage，统计中会把该调用计入 `unknown_token_call_count`，但不会阻断主流程。
+
 生成命令支持临时覆盖：
 
 ```bash

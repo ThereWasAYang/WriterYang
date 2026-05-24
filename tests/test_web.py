@@ -129,6 +129,10 @@ def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
 
     assert runs_status == 200
     assert runs_payload["data"]["run_logs"]  # type: ignore[index]
+    assert "provider_usage" in runs_payload["data"]  # type: ignore[operator]
+    usage_status, usage_payload = handle_api_request("GET", "/api/usage", f"path={root}", None)
+    assert usage_status == 200
+    assert usage_payload["data"]["usage"]["total"]["call_count"] == 0  # type: ignore[index]
     assert state_status == 200
     assert "timeline_event_count" in state_payload["data"]["summary"]  # type: ignore[index]
 

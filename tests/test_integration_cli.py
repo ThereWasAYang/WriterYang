@@ -185,6 +185,53 @@ def test_doctor_returns_nonzero_for_invalid_project_json(tmp_path: Path) -> None
     assert payload["error_count"] >= 1
 
 
+def test_usage_json_summarizes_provider_calls(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    log_path = root / "runs" / "provider_calls.jsonl"
+    log_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "request_id": "req_1",
+                        "provider": "zai",
+                        "model": "glm-test",
+                        "status": "success",
+                        "started_at": "2026-05-24T00:00:00Z",
+                        "ended_at": "2026-05-24T00:00:01Z",
+                        "prompt_tokens": 7,
+                        "completion_tokens": 3,
+                        "total_tokens": 10,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "request_id": "req_2",
+                        "provider": "deepseek",
+                        "model": "deepseek-test",
+                        "status": "failed",
+                        "error_type": "timeout",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    code, stdout, stderr = _run_cli(["usage", "--project", str(root), "--json", "--quiet"])
+
+    assert code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["ok"] is True
+    assert payload["command"] == "usage"
+    assert payload["usage"]["total"]["call_count"] == 2
+    assert payload["usage"]["total"]["total_tokens"] == 10
+    assert payload["usage"]["by_provider"]["zai"]["total_tokens"] == 10
+    assert payload["usage"]["by_status"]["failed"]["failed_count"] == 1
+
+
 def test_completion_outputs_shell_script() -> None:
     code, stdout, stderr = _run_cli(["completion", "bash"])
 

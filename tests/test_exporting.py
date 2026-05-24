@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+import hashlib
 from io import StringIO
 import json
 from pathlib import Path
@@ -137,6 +138,54 @@ def test_export_markdown_updates_manifest(tmp_path: Path) -> None:
     assert record.source_chapters == [1, 2]
     assert record.output_path == "exports/novel.md"
     assert record.title == "导出标题"
+    assert len(record.source_chapter_details) == 2
+    first_detail = record.source_chapter_details[0]
+    first_path = root / first_detail.path
+    assert first_detail.chapter_number == 1
+    assert first_detail.accepted is True
+    assert first_detail.sha256 == hashlib.sha256(first_path.read_bytes()).hexdigest()
+
+
+def test_export_markdown_can_include_toc_volume_and_arabic_chapter_numbers(tmp_path: Path) -> None:
+    root = _workspace_with_chapters(tmp_path)
+
+    code, stdout, stderr = _run_cli(
+        [
+            "export",
+            "markdown",
+            "--path",
+            str(root),
+            "--toc",
+            "--volume-title",
+            "第一卷 雨声",
+            "--chapter-number-style",
+            "arabic",
+        ]
+    )
+
+    assert code == 0
+    assert stderr == ""
+    output = (root / "exports" / "novel.md").read_text(encoding="utf-8")
+    assert "## 目录" in output
+    assert "- 第一卷 雨声" in output
+    assert "  - [第1章 雨夜旧车站](#第1章-雨夜旧车站)" in output
+    assert "## 第一卷 雨声" in output
+    assert "## 第1章 雨夜旧车站" in output
+    assert "## 第2章 桥下的回声" in output
+
+
+def test_export_markdown_supports_plain_chapter_number_style(tmp_path: Path) -> None:
+    root = _workspace_with_chapters(tmp_path)
+
+    code, _, stderr = _run_cli(
+        ["export", "markdown", "--path", str(root), "--chapter-number-style", "plain"]
+    )
+
+    assert code == 0
+    assert stderr == ""
+    output = (root / "exports" / "novel.md").read_text(encoding="utf-8")
+    assert "## 1. 雨夜旧车站" in output
+    assert "## 2. 桥下的回声" in output
 
 
 def test_export_docx_generates_nonempty_file(tmp_path: Path) -> None:
@@ -234,6 +283,10 @@ def test_export_docx_updates_manifest(tmp_path: Path) -> None:
     assert record.source_chapters == [1, 2]
     assert record.output_path == "exports/novel.docx"
     assert record.title == "导出标题"
+    assert len(record.source_chapter_details) == 2
+    assert record.source_chapter_details[0].sha256 == hashlib.sha256(
+        (root / record.source_chapter_details[0].path).read_bytes()
+    ).hexdigest()
 
 
 def _workspace_with_chapters(tmp_path: Path) -> Path:

@@ -993,6 +993,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override exported work title.",
     )
     export_markdown_parser.add_argument(
+        "--toc",
+        action="store_true",
+        help="Include a Markdown table of contents.",
+    )
+    export_markdown_parser.add_argument(
+        "--volume-title",
+        default=None,
+        help="Optional volume title inserted before chapters and inside the table of contents.",
+    )
+    export_markdown_parser.add_argument(
+        "--chapter-number-style",
+        choices=("chinese", "arabic", "chapter", "plain"),
+        default="chinese",
+        help="Chapter heading style. Defaults to chinese, for example 第一章.",
+    )
+    export_markdown_parser.add_argument(
         "--force",
         action="store_true",
         help="Overwrite existing output Markdown.",
@@ -1932,6 +1948,9 @@ def main(argv: list[str] | None = None) -> int:
                         include_unaccepted=args.include_unaccepted,
                         output_path=args.output,
                         title=args.title,
+                        include_toc=args.toc,
+                        volume_title=args.volume_title,
+                        chapter_number_style=args.chapter_number_style,
                         force=args.force,
                     )
                 )

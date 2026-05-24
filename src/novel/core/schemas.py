@@ -427,10 +427,19 @@ class AgentRunLog(SchemaVersionedModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class ExportSourceChapter(FlexibleModel):
+    chapter_number: int = Field(ge=1)
+    title: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    accepted: bool
+    sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
 class ExportRecord(FlexibleModel):
     id: str = Field(min_length=1, pattern=r"^export_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
     type: Literal["markdown", "docx", "html", "txt"]
     source_chapters: list[int] = Field(min_length=1)
+    source_chapter_details: list[ExportSourceChapter] = Field(default_factory=list)
     output_path: str = Field(min_length=1)
     created_at: datetime
     title: str | None = None

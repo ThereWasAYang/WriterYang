@@ -337,7 +337,15 @@ novel export markdown --path ./rain-station --chapters 1,2,3
 novel export markdown --path ./rain-station --from 1 --to 10
 novel export markdown --path ./rain-station --include-unaccepted
 novel export markdown --path ./rain-station --output exports/book.md --title "雨夜旧车站" --force
+novel export markdown --path ./rain-station --toc --volume-title "第一卷 雨声"
+novel export markdown --path ./rain-station --chapter-number-style arabic
 ```
+
+Markdown 导出支持：
+
+- `--toc`：生成 Markdown 目录。
+- `--volume-title`：在目录和正文前插入卷标题。
+- `--chapter-number-style chinese|arabic|chapter|plain`：控制章节标题编号样式，默认 `chinese`，例如 `第一章`。
 
 Word 导出：
 
@@ -348,7 +356,7 @@ novel export docx --path ./rain-station --include-unaccepted
 novel export docx --path ./rain-station --output exports/book.docx --title "雨夜旧车站" --force
 ```
 
-导出会更新 `exports/export_manifest.json`。Word 导出依赖 `python-docx`。
+导出会更新 `exports/export_manifest.json`。manifest 会记录导出文件、章节列表，以及每个源 `polished.md` 的相对路径、标题、accepted 状态和 `sha256`，方便追踪导出来源。Word 导出依赖 `python-docx`；当前优先完善 Markdown 导出，DOCX 暂不继续优化排版。
 
 ## 最小 Web UI
 

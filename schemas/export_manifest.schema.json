@@ -27,6 +27,13 @@
           "title": "Source Chapters",
           "type": "array"
         },
+        "source_chapter_details": {
+          "items": {
+            "$ref": "#/$defs/ExportSourceChapter"
+          },
+          "title": "Source Chapter Details",
+          "type": "array"
+        },
         "output_path": {
           "minLength": 1,
           "title": "Output Path",
@@ -58,6 +65,46 @@
         "created_at"
       ],
       "title": "ExportRecord",
+      "type": "object"
+    },
+    "ExportSourceChapter": {
+      "additionalProperties": true,
+      "properties": {
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "accepted": {
+          "title": "Accepted",
+          "type": "boolean"
+        },
+        "sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chapter_number",
+        "title",
+        "path",
+        "accepted",
+        "sha256"
+      ],
+      "title": "ExportSourceChapter",
       "type": "object"
     }
   },

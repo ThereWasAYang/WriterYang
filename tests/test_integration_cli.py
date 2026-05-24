@@ -33,6 +33,8 @@ def test_json_error_output_is_valid_json(tmp_path: Path) -> None:
     payload = json.loads(stdout)
     assert payload["ok"] is False
     assert payload["error"]["type"] == "project_read_error"
+    assert payload["error"]["code"] == "project_read_error"
+    assert payload["error"]["exit_code"] == 1
 
 
 def test_project_alias_selects_workspace(tmp_path: Path) -> None:
@@ -76,9 +78,13 @@ def test_integration_doc_commands_match_cli() -> None:
     assert "novel status --project ./rain-station --json --quiet" in doc
     assert "novel ask" in doc
     assert "novel generate-chapter 1" in doc
+    assert "novel doctor --project ./rain-station --json --quiet" in doc
+    assert "project_read_error" in doc
     assert "docs/openclaw_tool_manifest.json" in doc
     assert "status" in parser.format_help()
     assert "ask" in parser.format_help()
+    assert "doctor" in parser.format_help()
+    assert "completion" in parser.format_help()
 
 
 def test_ask_json_dry_run_output(tmp_path: Path) -> None:
@@ -118,6 +124,58 @@ def test_canon_show_contract_alias_outputs_json(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["command"] == "canon show"
     assert "characters" in payload["output"].lower()
+
+
+def test_doctor_json_reports_project_and_env_without_leaking_values(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready(tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret-never-leak")
+
+    code, stdout, stderr = _run_cli(["doctor", "--project", str(root), "--json", "--quiet"])
+
+    assert code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["ok"] is True
+    assert payload["command"] == "doctor"
+    assert payload["root"] == str(root.resolve())
+    assert payload["error_count"] == 0
+    assert "project_read_error" in payload["error_codes"]
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert "OPENAI_API_KEY" in serialized
+    assert "sk-test-secret-never-leak" not in serialized
+
+
+def test_doctor_returns_nonzero_for_invalid_project_json(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    (root / "project.yaml").write_text("bad: [", encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(["doctor", "--project", str(root), "--json"])
+
+    assert code == 1
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["ok"] is False
+    assert payload["error_count"] >= 1
+
+
+def test_completion_outputs_shell_script() -> None:
+    code, stdout, stderr = _run_cli(["completion", "bash"])
+
+    assert code == 0
+    assert stderr == ""
+    assert "complete -F _novel_completion novel" in stdout
+    assert "doctor" in stdout
+
+
+def test_completion_json_output() -> None:
+    code, stdout, stderr = _run_cli(["completion", "fish", "--json", "--quiet"])
+
+    assert code == 0
+    assert stderr == ""
+    payload = json.loads(stdout)
+    assert payload["ok"] is True
+    assert payload["shell"] == "fish"
+    assert "complete -c novel" in payload["script"]
 
 
 def _workspace_ready(tmp_path: Path) -> Path:

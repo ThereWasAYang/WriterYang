@@ -404,10 +404,18 @@ Web API 统一返回：
 
 ```bash
 novel status --project ./rain-station --json --quiet
+novel doctor --project ./rain-station --json --quiet
 novel ask "请为第1章生成章节计划" --project ./rain-station --provider mock --json --quiet
 ```
 
 更多说明见 [docs/INTEGRATION.md](docs/INTEGRATION.md) 和 [docs/openclaw_tool_manifest.json](docs/openclaw_tool_manifest.json)。
+
+CLI 集成约定：
+
+- 所有子命令都会注入 `--project`、`--json`、`--quiet`。
+- JSON 错误输出包含稳定 `error.code`、兼容字段 `error.type` 和 `error.exit_code`。
+- `novel doctor` 会检查依赖、项目结构、schema validation 和 API 环境变量是否设置，不输出真实密钥值。
+- `novel completion bash|zsh|fish` 会输出基础 shell completion 脚本。
 
 ## 发布检查
 

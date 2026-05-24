@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -90,6 +91,7 @@ from novel.core.inspection import (
     get_project_status,
 )
 from novel.core.json_schema import export_json_schemas
+from novel.core.io import load_yaml
 from novel.core.migration import MigrationError, migrate_project
 from novel.core.orchestrator import (
     OrchestratorError,
@@ -108,6 +110,28 @@ from novel.core.workflow import (
     read_workflow_instruction,
 )
 from novel import __version__
+
+
+ERROR_CODES = {
+    "audit_error": "Audit generation or validation failed.",
+    "canon_error": "Canon operation failed.",
+    "drafting_error": "Chapter drafting failed.",
+    "export_error": "Export operation failed.",
+    "inspiration_error": "Inspiration generation failed.",
+    "migration_error": "Schema migration failed.",
+    "orchestrator_error": "Orchestrator request failed.",
+    "planning_error": "Chapter planning failed.",
+    "polishing_error": "Chapter polishing failed.",
+    "project_read_error": "Project data could not be read.",
+    "revision_error": "Chapter revision failed.",
+    "search_error": "Search index or query failed.",
+    "state_update_error": "State/timeline update failed.",
+    "validation_failed": "Project validation failed.",
+    "workflow_error": "Chapter workflow failed.",
+    "workspace_exists": "Workspace initialization would overwrite data.",
+    "doctor_failed": "Doctor checks found blocking errors.",
+    "error": "Generic command error.",
+}
 
 
 def _add_agent_runtime_args(parser: argparse.ArgumentParser) -> None:
@@ -215,7 +239,17 @@ def _success(args: argparse.Namespace, payload: dict[str, object], lines: list[s
 def _failure(args: argparse.Namespace, message: str, *, code: int = 1, error_type: str = "error") -> int:
     safe = _safe_message(message)
     if _wants_json(args):
-        _print_json({"ok": False, "error": {"type": error_type, "message": safe, "code": code}})
+        _print_json(
+            {
+                "ok": False,
+                "error": {
+                    "type": error_type,
+                    "code": error_type,
+                    "message": safe,
+                    "exit_code": code,
+                },
+            }
+        )
     else:
         print(f"error: {safe}", file=sys.stderr)
     return code
@@ -263,6 +297,153 @@ def _status_payload(status) -> dict[str, object]:
         "latest_run_summary": status.latest_run_summary,
         "accepted_chapter_count": status.accepted_chapter_count,
     }
+
+
+def completion_script(shell: str) -> str:
+    commands = (
+        "init validate migrate schema index search ask status show inspire canon plan-chapter "
+        "write-chapter polish-chapter audit-chapter revise-chapter propose-state-update "
+        "apply-state-update accept-chapter generate-chapter export web doctor completion"
+    )
+    common_options = "--help --json --quiet --project --path"
+    if shell == "bash":
+        return (
+            "_novel_completion() {\n"
+            "  local cur prev\n"
+            "  COMPREPLY=()\n"
+            "  cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
+            f"  local commands=\"{commands}\"\n"
+            f"  local options=\"{common_options} --version\"\n"
+            "  if [[ ${COMP_CWORD} -eq 1 ]]; then\n"
+            "    COMPREPLY=( $(compgen -W \"$commands $options\" -- \"$cur\") )\n"
+            "  else\n"
+            "    COMPREPLY=( $(compgen -W \"$commands $options\" -- \"$cur\") )\n"
+            "  fi\n"
+            "}\n"
+            "complete -F _novel_completion novel\n"
+        )
+    if shell == "zsh":
+        return (
+            "#compdef novel\n"
+            "_novel() {\n"
+            "  local -a commands options\n"
+            f"  commands=({commands})\n"
+            f"  options=({common_options} --version)\n"
+            "  _describe 'command' commands || _describe 'option' options\n"
+            "}\n"
+            "compdef _novel novel\n"
+        )
+    if shell == "fish":
+        lines = ["complete -c novel -f"]
+        for command in commands.split():
+            lines.append(f"complete -c novel -n '__fish_use_subcommand' -a {command}")
+        for option in (common_options + " --version").split():
+            lines.append(f"complete -c novel -l {option.removeprefix('--')}")
+        return "\n".join(lines) + "\n"
+    raise ValueError(f"unsupported shell: {shell}")
+
+
+def run_doctor(root: Path) -> dict[str, object]:
+    root = root.expanduser().resolve()
+    checks: list[dict[str, object]] = []
+    _doctor_check(checks, "python", "ok", f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    for module_name, label, required in (
+        ("pydantic", "dependency:pydantic", True),
+        ("yaml", "dependency:PyYAML", True),
+        ("docx", "dependency:python-docx", True),
+        ("playwright", "dependency:playwright", False),
+    ):
+        exists = importlib.util.find_spec(module_name) is not None
+        status = "ok" if exists else ("error" if required else "warning")
+        message = "installed" if exists else ("missing required dependency" if required else "missing optional dependency")
+        _doctor_check(checks, label, status, message)
+
+    if (root / "project.yaml").exists():
+        _doctor_check(checks, "project", "ok", str(root))
+        for rel_path in (
+            "project.yaml",
+            "config/agents.yaml",
+            "config/embeddings.yaml",
+            "memory/canon/characters.json",
+            "memory/state/current_state.json",
+            "memory/state/timeline.json",
+        ):
+            path = root / rel_path
+            _doctor_check(
+                checks,
+                f"file:{rel_path}",
+                "ok" if path.exists() else "error",
+                "present" if path.exists() else "missing",
+            )
+        report = validate_project(root)
+        _doctor_check(
+            checks,
+            "validation",
+            "ok" if report.ok else "error",
+            f"{len(report.errors)} error(s), {len(report.warnings)} warning(s)",
+        )
+        for config_rel in ("config/agents.yaml", "config/embeddings.yaml"):
+            checks.extend(_doctor_env_checks(root / config_rel))
+    else:
+        _doctor_check(checks, "project", "warning", f"{root} does not look like a novel workspace")
+
+    error_count = sum(1 for check in checks if check["status"] == "error")
+    warning_count = sum(1 for check in checks if check["status"] == "warning")
+    return {
+        "root": str(root),
+        "ok": error_count == 0,
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "checks": checks,
+        "error_codes": ERROR_CODES,
+    }
+
+
+def format_doctor_result(result: dict[str, object]) -> list[str]:
+    lines = [
+        f"Doctor: {'passed' if result['ok'] else 'failed'}",
+        f"Root: {result['root']}",
+        f"Errors: {result['error_count']}; warnings: {result['warning_count']}",
+    ]
+    for check in result["checks"]:  # type: ignore[index]
+        lines.append(f"{check['status']}: {check['name']}: {check['message']}")
+    return lines
+
+
+def _doctor_check(checks: list[dict[str, object]], name: str, status: str, message: str) -> None:
+    checks.append({"name": name, "status": status, "message": message})
+
+
+def _doctor_env_checks(path: Path) -> list[dict[str, object]]:
+    checks: list[dict[str, object]] = []
+    if not path.exists():
+        return checks
+    try:
+        config = load_yaml(path)
+    except Exception as exc:
+        _doctor_check(checks, f"env:{path.name}", "error", f"could not read config: {exc}")
+        return checks
+    for env_name in sorted(_collect_env_names(config)):
+        _doctor_check(
+            checks,
+            f"env:{env_name}",
+            "ok" if os.environ.get(env_name) else "warning",
+            "set" if os.environ.get(env_name) else "not set",
+        )
+    return checks
+
+
+def _collect_env_names(value: object) -> set[str]:
+    names: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in {"api_key_env", "base_url_env"} and isinstance(item, str):
+                names.add(item)
+            names.update(_collect_env_names(item))
+    elif isinstance(value, list):
+        for item in value:
+            names.update(_collect_env_names(item))
+    return names
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -321,6 +502,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("schemas"),
         help="Output directory. Defaults to ./schemas.",
+    )
+
+    completion_parser = subparsers.add_parser("completion", help="Print shell completion script")
+    completion_parser.add_argument(
+        "shell",
+        choices=("bash", "zsh", "fish"),
+        help="Shell to generate completion for.",
+    )
+
+    doctor_parser = subparsers.add_parser("doctor", help="Check local environment and project health")
+    doctor_parser.add_argument(
+        "--path",
+        default=".",
+        help="Workspace directory to check. Defaults to the current directory.",
     )
 
     index_parser = subparsers.add_parser("index", help="Manage the local search index")
@@ -1171,6 +1366,28 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 [f"Wrote {len(paths)} JSON Schema file(s) to {args.output}"],
             )
+
+    if args.command == "completion":
+        script = completion_script(args.shell)
+        if _wants_json(args):
+            _print_json({"ok": True, "command": "completion", "shell": args.shell, "script": script})
+        elif not _quiet(args):
+            print(script, end="" if script.endswith("\n") else "\n")
+        return 0
+
+    if args.command == "doctor":
+        result = run_doctor(Path(args.path))
+        payload = {"command": "doctor", **result}
+        lines = format_doctor_result(result)
+        if result["error_count"]:
+            if _wants_json(args):
+                _print_json({"ok": False, **payload})
+                return 1
+            if not _quiet(args):
+                for line in lines:
+                    print(line)
+            return 1
+        return _success(args, payload, lines)
 
     if args.command == "index":
         if args.index_command == "rebuild":

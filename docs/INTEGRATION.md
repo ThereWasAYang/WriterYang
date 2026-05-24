@@ -26,6 +26,7 @@ novel status --project ./rain-station --json --quiet
 novel init "雨夜旧车站" --project ./rain-station --json --quiet
 novel validate --project ./rain-station --json --quiet
 novel status --project ./rain-station --json --quiet
+novel doctor --project ./rain-station --json --quiet
 ```
 
 生成流程：
@@ -82,11 +83,37 @@ novel ask "请为第1章生成章节计划" --project ./rain-station --provider 
   "ok": false,
   "error": {
     "type": "planning_error",
+    "code": "planning_error",
     "message": "memory/inspiration.md is missing; run novel inspire first",
-    "code": 1
+    "exit_code": 1
   }
 }
 ```
+
+## 稳定错误码
+
+`error.code` 与 `error.type` 保持一致，当前稳定值包括：
+
+- `audit_error`
+- `canon_error`
+- `drafting_error`
+- `export_error`
+- `inspiration_error`
+- `migration_error`
+- `orchestrator_error`
+- `planning_error`
+- `polishing_error`
+- `project_read_error`
+- `revision_error`
+- `search_error`
+- `state_update_error`
+- `validation_failed`
+- `workflow_error`
+- `workspace_exists`
+- `doctor_failed`
+- `error`
+
+`novel doctor --json` 会在 `error_codes` 字段返回同一份错误码说明。
 
 ## 常见退出码
 
@@ -95,6 +122,20 @@ novel ask "请为第1章生成章节计划" --project ./rain-station --provider 
 - `2`：`argparse` 参数解析错误。
 
 大多数命令级错误在 `--json` 模式下会以结构化 JSON 写到 stdout。参数解析错误发生在命令分发前，仍由 `argparse` 输出。
+
+## Shell Completion
+
+WriterYang 可以输出基础 shell completion 脚本：
+
+```bash
+novel completion bash > ~/.local/share/bash-completion/completions/novel
+novel completion zsh > ~/.zfunc/_novel
+novel completion fish > ~/.config/fish/completions/novel.fish
+```
+
+## Doctor
+
+`novel doctor` 检查本地 Python 版本、关键依赖、项目结构、schema validation，以及 `config/agents.yaml` / `config/embeddings.yaml` 声明的环境变量是否存在。它只输出环境变量名和是否设置，不输出真实值。
 
 ## openclaw 调用示例
 

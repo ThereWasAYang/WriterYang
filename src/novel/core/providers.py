@@ -469,7 +469,7 @@ def _default_base_url(provider: str) -> str:
     if provider == "deepseek":
         return "https://api.deepseek.com"
     if provider == "zai":
-        return "https://api.z.ai/api/paas/v4"
+        return "https://open.bigmodel.cn/api/paas/v4"
     return "https://api.openai.com/v1"
 
 

@@ -281,8 +281,8 @@ def test_zai_provider_sends_vendor_thinking_payload(monkeypatch: pytest.MonkeyPa
     response = provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
 
     assert isinstance(provider, OpenAICompatibleProvider)
-    assert provider.base_url == "https://api.z.ai/api/paas/v4"
-    assert captured["url"] == "https://api.z.ai/api/paas/v4/chat/completions"
+    assert provider.base_url == "https://open.bigmodel.cn/api/paas/v4"
+    assert captured["url"] == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
     assert captured["body"] == {
         "model": "glm-5.1",
         "messages": [

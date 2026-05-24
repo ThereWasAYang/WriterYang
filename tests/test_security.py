@@ -32,7 +32,7 @@ def test_env_example_requires_empty_values(tmp_path: Path) -> None:
 def test_config_rejects_literal_api_key(tmp_path: Path) -> None:
     path = tmp_path / "agents.yaml"
     path.write_text(
-        "agents:\n  writer:\n    provider: openai\n    api_key_env: sk-real-looking-secret-value\n",
+        "agents:\n  writer:\n    provider: openai\n    api_key_env: sk-test-real-looking-secret-value\n",
         encoding="utf-8",
     )
 
@@ -40,7 +40,7 @@ def test_config_rejects_literal_api_key(tmp_path: Path) -> None:
 
     assert findings
     assert findings[0].code == "unsafe_config_secret"
-    assert "sk-real-looking-secret-value" not in findings[0].message
+    assert "sk-test-real-looking-secret-value" not in findings[0].message
 
 
 def test_atomic_write_preserves_original_on_replace_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -100,20 +100,20 @@ agents:
 | `openai` | 标准 OpenAI API | 默认 base URL 为 `https://api.openai.com/v1`，结构化输出优先使用 `response_format: json_schema`，不发送厂商私有 `thinking`。 |
 | `openai_compatible` | 通用 OpenAI Chat Completions 兼容接口 | 需要配置 `base_url_env`，结构化输出使用较通用的 `response_format: json_object`，不发送厂商私有 `thinking`。适合尚未做专门适配的第三方兼容服务。 |
 | `deepseek` | DeepSeek 官方 API | 默认 base URL 为 `https://api.deepseek.com`，会发送 DeepSeek 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
-| `zai` | Z.ai / GLM 官方 API | 默认 base URL 为 `https://api.z.ai/api/paas/v4`，会发送 Z.ai/GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
+| `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
 
 示例项目提供两个配置文件：
 
-- `examples/rain_station/config/agents.yaml`：DeepSeek 真实 API 模板，适合复制到新项目后替换模型名和环境变量名。使用 Z.ai/GLM 时把 `provider` 改为 `zai`，并把 `base_url_env` / `api_key_env` 指向 Z.ai 的环境变量名。
+- `examples/rain_station/config/agents.yaml`：DeepSeek 真实 API 模板，适合复制到新项目后替换模型名和环境变量名。使用智谱 GLM 时把 `provider` 改为 `zai`，并把 `base_url_env` / `api_key_env` 指向智谱的环境变量名。
 - `examples/rain_station/config/agents.mock.yaml`：mock provider 模板，适合测试、文档示例和无 API Key 的本地演示。
 - `examples/rain_station/config/embeddings.yaml`：embedding provider 模板，默认使用本地 hash embedding，也给出阿里 DashScope 和智谱 embedding-3 的真实 API 配置示例。
 
 厂商差异：
 
 - `deepseek`：默认 base URL 为 `https://api.deepseek.com`，发送 `thinking.type`；开启 thinking 时会发送 `reasoning_effort`，并避免发送无效的 `temperature`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
-- `zai`：默认 base URL 为 `https://api.z.ai/api/paas/v4`，发送 `thinking.type`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
+- `zai`：默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，发送 `thinking.type`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
 
 Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。日志只记录 provider、model、endpoint、耗时、重试次数、状态、错误类型和 token 用量等安全信息，不记录 prompt 正文、响应正文或真实 API Key。
 
@@ -449,7 +449,7 @@ DEEPSEEK_API_KEY=
 DEEPSEEK_V4PRO_MODEL=
 ```
 
-Z.ai/GLM 可使用：
+智谱 GLM 可使用：
 
 ```bash
 ZAI_BASE_URL=

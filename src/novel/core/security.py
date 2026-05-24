@@ -173,7 +173,7 @@ def _looks_like_raw_secret_assignment(line: str) -> bool:
     if not match:
         return False
     value = match.group(2).strip().strip("\"'")
-    if not value or value.startswith("${") or value.startswith("$"):
+    if not value or value.startswith("${") or value.startswith("$") or value.startswith(("(", "[", "{")):
         return False
     if ENV_NAME_PATTERN.match(value):
         return False

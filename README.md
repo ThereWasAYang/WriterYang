@@ -108,6 +108,7 @@ agents:
 
 - `examples/rain_station/config/agents.yaml`：DeepSeek 真实 API 模板，适合复制到新项目后替换模型名和环境变量名。使用 Z.ai/GLM 时把 `provider` 改为 `zai`，并把 `base_url_env` / `api_key_env` 指向 Z.ai 的环境变量名。
 - `examples/rain_station/config/agents.mock.yaml`：mock provider 模板，适合测试、文档示例和无 API Key 的本地演示。
+- `examples/rain_station/config/embeddings.yaml`：embedding provider 模板，默认使用本地 hash embedding，也给出阿里 DashScope 和智谱 embedding-3 的真实 API 配置示例。
 
 厂商差异：
 
@@ -252,9 +253,12 @@ novel generate-chapter 1 --path ./rain-station --provider mock --force
 
 ```bash
 novel index rebuild --path ./rain-station
+novel index rebuild --path ./rain-station --embedding-provider dashscope
 novel search "林澈" --path ./rain-station --type character
 novel search "旧车站广播" --path ./rain-station --type event --limit 5
 novel search "破损车票" --path ./rain-station --type chapter --chapter 1 --highlight --json
+novel search "旧物修复师" --path ./rain-station --use-vector
+novel search "旧物修复师" --path ./rain-station --use-vector --embedding-provider dashscope
 ```
 
 搜索索引位于 `memory/search_index.json` 和 `memory/search_index.sqlite`，可以随时重建。当前实现包括：
@@ -264,7 +268,45 @@ novel search "破损车票" --path ./rain-station --type chapter --chapter 1 --h
 - 过滤：支持 `--type character/location/item/event/chapter/all` 和 `--chapter`。
 - 高亮：`--highlight` 会返回 `<mark>...</mark>` 标记的 excerpt。
 - SQLite FTS：`memory/search_index.sqlite` 中包含 FTS5 表。
-- 本地向量表：SQLite 中包含 deterministic hash embedding 向量表，用于后续替换为真实 embedding provider。当前不需要配置 embedding API Key。
+- 向量表：SQLite 中包含 embedding 向量表。默认使用本地 deterministic hash embedding，不需要 API Key；需要真实语义向量时，可切换到厂商 embedding provider。
+
+Embedding 配置位于 `config/embeddings.yaml`，格式示例：
+
+```yaml
+schema_version: 1
+active_provider: "local"
+providers:
+  local:
+    provider: "local_hash"
+    model: "local-hash-v1"
+    dimensions: 32
+  dashscope:
+    provider: "dashscope"
+    base_url_env: "DASHSCOPE_EMBEDDING_BASE_URL"
+    api_key_env: "DASHSCOPE_API_KEY"
+    model: "text-embedding-v4"
+    dimensions: 1024
+    timeout_seconds: 30
+    max_retries: 1
+  zhipu:
+    provider: "zhipu"
+    base_url_env: "ZHIPU_EMBEDDING_BASE_URL"
+    api_key_env: "ZHIPU_API_KEY"
+    model: "embedding-3"
+    dimensions: 2048
+```
+
+`embedding provider` 当前支持：
+
+| provider | 用途 | 默认 base URL |
+| --- | --- | --- |
+| `local_hash` | 离线测试、无 API Key 使用 | 无网络调用 |
+| `dashscope` | 阿里 DashScope `text-embedding-v4` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `zhipu` | 智谱 `embedding-3` | `https://open.bigmodel.cn/api/paas/v4` |
+| `openai` | 标准 OpenAI embeddings | `https://api.openai.com/v1` |
+| `openai_compatible` | 其他 OpenAI-compatible embeddings | 必须通过 `base_url_env` 配置 |
+
+真实 embedding API 使用 OpenAI-compatible `/embeddings` 请求形态。API Key 只通过环境变量读取，不写入项目文件，也不会写入搜索索引或错误消息。
 
 规划、写作、审核可以选择加入检索上下文：
 

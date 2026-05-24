@@ -331,6 +331,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Workspace directory. Defaults to the current directory.",
     )
+    index_rebuild.add_argument(
+        "--embedding-config",
+        type=Path,
+        default=None,
+        help="Embedding config file. Defaults to config/embeddings.yaml in the workspace.",
+    )
+    index_rebuild.add_argument(
+        "--embedding-provider",
+        default="config",
+        choices=("config", "local_hash", "dashscope", "zhipu", "openai", "openai_compatible"),
+        help="Embedding provider to use for vector indexing. Defaults to config active_provider.",
+    )
 
     search_parser = subparsers.add_parser("search", help="Search project memory")
     search_parser.add_argument("query", help="Keyword query")
@@ -361,6 +373,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--highlight",
         action="store_true",
         help="Include highlighted excerpts with <mark>...</mark> tags.",
+    )
+    search_parser.add_argument(
+        "--use-vector",
+        action="store_true",
+        help="Use stored embedding vectors to boost lexical search results.",
+    )
+    search_parser.add_argument(
+        "--embedding-config",
+        type=Path,
+        default=None,
+        help="Embedding config file. Defaults to config/embeddings.yaml in the workspace.",
+    )
+    search_parser.add_argument(
+        "--embedding-provider",
+        default="config",
+        choices=("config", "local_hash", "dashscope", "zhipu", "openai", "openai_compatible"),
+        help="Embedding provider for query embedding when --use-vector is enabled.",
     )
     search_parser.add_argument(
         "--json",
@@ -1130,7 +1159,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "index":
         if args.index_command == "rebuild":
             try:
-                result = rebuild_search_index(Path(args.path))
+                result = rebuild_search_index(
+                    Path(args.path),
+                    embedding_provider_name=args.embedding_provider,
+                    embedding_config_path=args.embedding_config,
+                )
             except SearchError as exc:
                 return _failure(args, str(exc), error_type="search_error")
             return _success(
@@ -1152,6 +1185,9 @@ def main(argv: list[str] | None = None) -> int:
                 limit=args.limit,
                 chapter_number=args.chapter,
                 highlight=args.highlight,
+                use_vector=args.use_vector,
+                embedding_provider_name=args.embedding_provider,
+                embedding_config_path=args.embedding_config,
             )
         except SearchError as exc:
             return _failure(args, str(exc), error_type="search_error")

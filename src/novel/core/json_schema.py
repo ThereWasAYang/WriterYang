@@ -15,6 +15,7 @@ from novel.core.schemas import (
     ChapterMetadata,
     ChapterPlan,
     CharactersFile,
+    EmbeddingsConfig,
     EntityState,
     ExportManifest,
     ForeshadowingFile,
@@ -41,6 +42,7 @@ class SchemaDefinition:
 SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
     SchemaDefinition("project", ProjectConfig, "project.yaml"),
     SchemaDefinition("agents", AgentsConfig, "config/agents.yaml"),
+    SchemaDefinition("embeddings", EmbeddingsConfig, "config/embeddings.yaml"),
     SchemaDefinition("inspiration", InspirationBrief, "memory/inspiration.json"),
     SchemaDefinition("characters", CharactersFile, "memory/canon/characters.json"),
     SchemaDefinition("locations", LocationsFile, "memory/canon/locations.json"),

@@ -47,6 +47,16 @@ def test_search_finds_character(tmp_path: Path) -> None:
     assert "林澈" in results[0].excerpt
 
 
+def test_search_can_use_vector_scores(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    rebuild_search_index(root, embedding_provider_name="local_hash")
+
+    results = search_project(root, "修复旧物的人", search_type="all", limit=5, use_vector=True)
+
+    assert results
+    assert any("vector_score" in result.metadata for result in results)
+
+
 def test_search_supports_chinese_tokenization_and_highlight(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
     rebuild_search_index(root)
@@ -122,16 +132,17 @@ def test_use_search_context_does_not_break_planning_prompt(tmp_path: Path) -> No
 
 def test_cli_search_json_output(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
-    _run_cli(["index", "rebuild", "--path", str(root)])
+    _run_cli(["index", "rebuild", "--path", str(root), "--embedding-provider", "local_hash"])
 
     code, stdout, stderr = _run_cli(
-        ["search", "林澈", "--path", str(root), "--type", "character", "--json"]
+        ["search", "林澈", "--path", str(root), "--type", "character", "--use-vector", "--json"]
     )
 
     assert code == 0
     assert stderr == ""
     payload = json.loads(stdout)
     assert payload[0]["type"] == "character"
+    assert "vector_score" in payload[0]["metadata"]
 
 
 def test_cli_search_supports_highlight_and_chapter_filter(tmp_path: Path) -> None:

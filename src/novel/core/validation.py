@@ -16,6 +16,7 @@ from novel.core.schemas import (
     ChapterMetadata,
     ChapterPlan,
     CharactersFile,
+    EmbeddingsConfig,
     EntityState,
     ForeshadowingFile,
     HiddenTruthsFile,
@@ -68,6 +69,7 @@ class ValidationReport:
 class LoadedProject:
     project: ProjectConfig | None = None
     agents: AgentsConfig | None = None
+    embeddings: EmbeddingsConfig | None = None
     characters: CharactersFile | None = None
     locations: LocationsFile | None = None
     items: ItemsFile | None = None
@@ -114,6 +116,7 @@ def _load_project_files(root: Path, report: ValidationReport, *, include_state: 
     loaded = LoadedProject(
         project=_load_required_yaml(root / "project.yaml", ProjectConfig, report),
         agents=_load_required_yaml(root / "config" / "agents.yaml", AgentsConfig, report),
+        embeddings=_load_optional_yaml(root / "config" / "embeddings.yaml", EmbeddingsConfig, report),
         characters=_load_required_json(
             root / "memory" / "canon" / "characters.json", CharactersFile, report
         ),
@@ -144,6 +147,7 @@ def _validate_loaded_project(
     _validate_schema_versions(report, root, loaded)
     _validate_duplicate_ids(report, root, loaded)
     _validate_agent_names(report, root, loaded.agents)
+    _validate_embedding_config(report, root, loaded.embeddings)
     _validate_references(report, root, loaded)
     if include_state:
         _validate_optional_agent_outputs(report, root)
@@ -155,6 +159,7 @@ def _validate_schema_versions(report: ValidationReport, root: Path, loaded: Load
     files = (
         (root / "project.yaml", loaded.project),
         (root / "config" / "agents.yaml", loaded.agents),
+        (root / "config" / "embeddings.yaml", loaded.embeddings),
         (root / "memory" / "canon" / "characters.json", loaded.characters),
         (root / "memory" / "canon" / "locations.json", loaded.locations),
         (root / "memory" / "canon" / "items.json", loaded.items),
@@ -192,6 +197,19 @@ def _load_required_json(path: Path, model_type: type, report: ValidationReport):
 def _load_required_yaml(path: Path, model_type: type, report: ValidationReport):
     if not path.exists():
         report.error(path, "required file is missing")
+        return None
+    try:
+        return load_yaml_model(path, model_type)
+    except ValidationError as exc:
+        _add_validation_error(report, path, exc)
+    except Exception as exc:
+        report.error(path, f"could not load YAML: {exc}")
+    return None
+
+
+def _load_optional_yaml(path: Path, model_type: type, report: ValidationReport):
+    if not path.exists():
+        report.warning(path, "optional file is missing")
         return None
     try:
         return load_yaml_model(path, model_type)
@@ -301,6 +319,23 @@ def _validate_single_agent_config(
 ) -> None:
     if config.api_key_env.startswith(("sk-", "sk_")):
         report.error(path, f"agent {name} appears to store a raw API key")
+
+
+def _validate_embedding_config(
+    report: ValidationReport, root: Path, embeddings: EmbeddingsConfig | None
+) -> None:
+    if not embeddings:
+        return
+    path = root / "config" / "embeddings.yaml"
+    supported = {"local_hash", "dashscope", "zhipu", "openai", "openai_compatible"}
+    for name, config in embeddings.providers.items():
+        provider = config.provider.lower()
+        if provider not in supported:
+            report.warning(path, f"embedding provider {name} uses unsupported provider: {config.provider}")
+        if provider != "local_hash" and not config.api_key_env:
+            report.error(path, f"embedding provider {name} requires api_key_env")
+        if config.api_key_env and config.api_key_env.startswith(("sk-", "sk_")):
+            report.error(path, f"embedding provider {name} appears to store a raw API key")
 
 
 def _validate_references(report: ValidationReport, root: Path, loaded: LoadedProject) -> None:

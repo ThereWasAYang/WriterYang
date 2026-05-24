@@ -18,6 +18,7 @@
 - Audit precheck 增加 plan 关键词和 hidden truth 直出检测。
 - `revise-chapter` 增加受控 revision loop：多轮修订必须显式 `--confirm-loop`，并写入 loop run log。
 - 搜索索引增强：增加中文 n-gram 分词、字段权重、章节过滤、结果高亮、SQLite FTS5 和本地 hash embedding 向量表。
+- 增加真实 embedding provider 抽象和适配：`local_hash`、阿里 DashScope `text-embedding-v4`、智谱 `embedding-3`，并为 `index rebuild` / `search --use-vector` 接入可配置 embedding。
 
 ## 0.1.0
 

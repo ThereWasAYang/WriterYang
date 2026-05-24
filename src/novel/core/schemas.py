@@ -71,6 +71,35 @@ class AgentsConfig(SchemaVersionedModel):
     agents: dict[str, AgentConfig] = Field(min_length=1)
 
 
+class EmbeddingProviderConfig(FlexibleModel):
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    api_key_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
+    base_url_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
+    dimensions: int | None = Field(default=None, gt=0)
+    batch_size: int = Field(default=16, gt=0)
+    timeout_seconds: float | None = Field(default=None, gt=0)
+    max_retries: int | None = Field(default=None, ge=0)
+
+    @field_validator("api_key_env", "base_url_env")
+    @classmethod
+    def reject_raw_keys(cls, value: str | None) -> str | None:
+        if value and value.startswith(("sk-", "sk_")):
+            raise ValueError("store environment variable names, not raw API keys")
+        return value
+
+
+class EmbeddingsConfig(SchemaVersionedModel):
+    active_provider: str = Field(default="local", min_length=1)
+    providers: dict[str, EmbeddingProviderConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_active_provider(self) -> EmbeddingsConfig:
+        if self.active_provider not in self.providers:
+            raise ValueError(f"active_provider is not configured: {self.active_provider}")
+        return self
+
+
 class InspirationBrief(SchemaVersionedModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     source_type: str = Field(min_length=1)

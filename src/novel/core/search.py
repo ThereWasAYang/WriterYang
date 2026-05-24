@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import hashlib
 import json
 from pathlib import Path
 import re
 import sqlite3
 from typing import Literal
 
+from novel.core.embeddings import (
+    EmbeddingError,
+    EmbeddingProvider,
+    create_embedding_provider,
+    local_embedding_vector,
+)
 from novel.core.io import load_json
 
 
@@ -77,7 +82,12 @@ class RetrievedContext:
         return "\n".join(lines) + "\n"
 
 
-def rebuild_search_index(root: Path) -> SearchIndexResult:
+def rebuild_search_index(
+    root: Path,
+    *,
+    embedding_provider_name: str = "config",
+    embedding_config_path: Path | None = None,
+) -> SearchIndexResult:
     root = root.resolve()
     if not (root / "project.yaml").exists():
         raise SearchError(f"{root} does not look like a novel workspace")
@@ -88,7 +98,8 @@ def rebuild_search_index(root: Path) -> SearchIndexResult:
         "documents": [_document_to_dict(document) for document in documents],
     }
     index_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    _write_sqlite_index(sqlite_search_index_path(root), documents)
+    provider = _load_embedding_provider(root, embedding_provider_name, embedding_config_path)
+    _write_sqlite_index(sqlite_search_index_path(root), documents, provider)
     return SearchIndexResult(index_path=index_path, document_count=len(documents))
 
 
@@ -101,6 +112,9 @@ def search_project(
     chapter_number: int | None = None,
     highlight: bool = False,
     rebuild_if_missing: bool = True,
+    use_vector: bool = False,
+    embedding_provider_name: str = "config",
+    embedding_config_path: Path | None = None,
 ) -> list[SearchResult]:
     root = root.resolve()
     if not query.strip():
@@ -112,21 +126,31 @@ def search_project(
     if not index_path.exists():
         if not rebuild_if_missing:
             raise SearchError(f"{index_path} is missing; run novel index rebuild first")
-        rebuild_search_index(root)
+        rebuild_search_index(
+            root,
+            embedding_provider_name=embedding_provider_name,
+            embedding_config_path=embedding_config_path,
+        )
     elif not sqlite_path.exists():
         documents = _load_index(index_path)
-        _write_sqlite_index(sqlite_path, documents)
+        provider = _load_embedding_provider(root, embedding_provider_name, embedding_config_path)
+        _write_sqlite_index(sqlite_path, documents, provider)
     documents = _load_index(index_path)
     terms = _query_terms(query)
     candidate_ids = _sqlite_candidate_ids(sqlite_path, terms)
+    vector_scores = (
+        _vector_scores(sqlite_path, query, _load_embedding_provider(root, embedding_provider_name, embedding_config_path))
+        if use_vector
+        else {}
+    )
     results = [
-        result
+        _result_with_vector_score(document, result, vector_scores.get(document.id, 0.0))
         for document in documents
-        if not candidate_ids or document.id in candidate_ids
+        if not candidate_ids or document.id in candidate_ids or document.id in vector_scores
         if _type_matches(document.type, search_type)
         if _chapter_matches(document.metadata, chapter_number)
         for result in [_score_document(document, query, terms)]
-        if result is not None
+        if result is not None or (use_vector and document.id in vector_scores)
     ]
     sorted_results = sorted(results, key=lambda result: (-result.score, result.path, result.id))[:limit]
     if not highlight:
@@ -140,6 +164,7 @@ def retrieve_context(
     chapter_number: int,
     instruction: str | None,
     limit: int = 8,
+    use_vector: bool = True,
 ) -> RetrievedContext:
     query_parts = [f"chapter {chapter_number}"]
     if instruction and instruction.strip():
@@ -148,7 +173,14 @@ def retrieve_context(
     try:
         results = tuple(
             _diverse_context_results(
-                search_project(root, query, search_type="all", limit=max(limit * 3, limit), highlight=True),
+                search_project(
+                    root,
+                    query,
+                    search_type="all",
+                    limit=max(limit * 3, limit),
+                    highlight=True,
+                    use_vector=use_vector,
+                ),
                 limit=limit,
                 chapter_number=chapter_number,
             )
@@ -157,7 +189,14 @@ def retrieve_context(
         rebuild_search_index(root)
         results = tuple(
             _diverse_context_results(
-                search_project(root, query, search_type="all", limit=max(limit * 3, limit), highlight=True),
+                search_project(
+                    root,
+                    query,
+                    search_type="all",
+                    limit=max(limit * 3, limit),
+                    highlight=True,
+                    use_vector=use_vector,
+                ),
                 limit=limit,
                 chapter_number=chapter_number,
             )
@@ -477,7 +516,8 @@ def _token_text(document: SearchDocument) -> str:
     return " ".join(_query_terms(" ".join([document.id, document.title, document.text])))
 
 
-def _write_sqlite_index(path: Path, documents: list[SearchDocument]) -> None:
+def _write_sqlite_index(path: Path, documents: list[SearchDocument], provider: EmbeddingProvider | None = None) -> None:
+    provider = provider or create_embedding_provider(path.parent.parent, provider_name="local_hash")
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.execute("DROP TABLE IF EXISTS documents")
@@ -489,7 +529,10 @@ def _write_sqlite_index(path: Path, documents: list[SearchDocument]) -> None:
         conn.execute(
             "CREATE VIRTUAL TABLE documents_fts USING fts5(id, type, title, body, token_text)"
         )
-        conn.execute("CREATE TABLE vectors (id TEXT PRIMARY KEY, dimensions INTEGER, vector TEXT)")
+        conn.execute(
+            "CREATE TABLE vectors (id TEXT PRIMARY KEY, provider TEXT, model TEXT, dimensions INTEGER, vector TEXT)"
+        )
+        vectors = _embed_documents(provider, documents)
         for document in documents:
             conn.execute(
                 "INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)",
@@ -506,10 +549,10 @@ def _write_sqlite_index(path: Path, documents: list[SearchDocument]) -> None:
                 "INSERT INTO documents_fts (id, type, title, body, token_text) VALUES (?, ?, ?, ?, ?)",
                 (document.id, document.type, document.title, document.text, _token_text(document)),
             )
-            vector = _local_embedding_vector(" ".join([document.title, document.text]))
+            vector = vectors.get(document.id) or local_embedding_vector(" ".join([document.title, document.text]))
             conn.execute(
-                "INSERT INTO vectors VALUES (?, ?, ?)",
-                (document.id, len(vector), json.dumps(vector)),
+                "INSERT INTO vectors VALUES (?, ?, ?, ?, ?)",
+                (document.id, provider.provider_name, provider.model, len(vector), json.dumps(vector)),
             )
 
 
@@ -531,17 +574,104 @@ def _sqlite_candidate_ids(path: Path, terms: list[str]) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
-def _local_embedding_vector(text: str, dimensions: int = 32) -> list[float]:
-    vector = [0.0 for _ in range(dimensions)]
-    for term in _query_terms(text):
-        digest = hashlib.sha256(term.encode("utf-8")).digest()
-        index = int.from_bytes(digest[:2], "big") % dimensions
-        sign = 1.0 if digest[2] % 2 == 0 else -1.0
-        vector[index] += sign
-    norm = sum(value * value for value in vector) ** 0.5
-    if norm:
-        vector = [round(value / norm, 6) for value in vector]
-    return vector
+def _load_embedding_provider(
+    root: Path,
+    provider_name: str,
+    config_path: Path | None,
+) -> EmbeddingProvider:
+    try:
+        return create_embedding_provider(
+            root,
+            provider_name=provider_name,
+            config_path=config_path,
+        )
+    except EmbeddingError as exc:
+        raise SearchError(str(exc)) from exc
+
+
+def _embed_documents(provider: EmbeddingProvider, documents: list[SearchDocument]) -> dict[str, list[float]]:
+    if not documents:
+        return {}
+    texts = [" ".join([document.title, document.text]) for document in documents]
+    try:
+        response = provider.embed_texts(texts)
+    except EmbeddingError as exc:
+        raise SearchError(str(exc)) from exc
+    if len(response.vectors) != len(texts):
+        raise SearchError("embedding provider returned the wrong number of vectors")
+    return {document.id: vector for document, vector in zip(documents, response.vectors)}
+
+
+def _vector_scores(path: Path, query: str, provider: EmbeddingProvider) -> dict[str, float]:
+    if not path.exists():
+        return {}
+    try:
+        query_response = provider.embed_texts([query])
+        query_vector = query_response.vectors[0]
+    except (EmbeddingError, IndexError) as exc:
+        raise SearchError(str(exc)) from exc
+    scores: dict[str, float] = {}
+    try:
+        with sqlite3.connect(path) as conn:
+            rows = conn.execute("SELECT id, vector FROM vectors").fetchall()
+    except sqlite3.Error:
+        return scores
+    for document_id, raw_vector in rows:
+        try:
+            vector = json.loads(raw_vector)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(vector, list):
+            score = _cosine_similarity(query_vector, [float(value) for value in vector])
+            if score > 0:
+                scores[str(document_id)] = score
+    return scores
+
+
+def _result_with_vector_score(
+    document: SearchDocument,
+    result: SearchResult | None,
+    vector_score: float,
+) -> SearchResult:
+    if result is None:
+        matched_terms: tuple[str, ...] = ()
+        result = SearchResult(
+            id=document.id,
+            type=document.type,
+            path=document.path,
+            title=document.title,
+            score=0,
+            matched_terms=matched_terms,
+            excerpt=_excerpt(document.text, matched_terms),
+            highlighted_excerpt="",
+            metadata=document.metadata,
+        )
+    if vector_score <= 0:
+        return result
+    metadata = dict(result.metadata)
+    metadata["vector_score"] = round(vector_score, 4)
+    return SearchResult(
+        id=result.id,
+        type=result.type,
+        path=result.path,
+        title=result.title,
+        score=result.score + int(vector_score * 20),
+        matched_terms=result.matched_terms,
+        excerpt=result.excerpt,
+        highlighted_excerpt=result.highlighted_excerpt,
+        metadata=metadata,
+    )
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right))
+    left_norm = sum(a * a for a in left) ** 0.5
+    right_norm = sum(b * b for b in right) ** 0.5
+    if not left_norm or not right_norm:
+        return 0.0
+    return dot / (left_norm * right_norm)
 
 
 def _markdown_title(text: str) -> str | None:

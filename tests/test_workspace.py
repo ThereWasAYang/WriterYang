@@ -20,6 +20,7 @@ class WorkspaceInitTest(unittest.TestCase):
             self.assertEqual(result.root, root)
             self.assertTrue((root / "project.yaml").is_file())
             self.assertTrue((root / "config" / "agents.yaml").is_file())
+            self.assertTrue((root / "config" / "embeddings.yaml").is_file())
             self.assertTrue((root / "memory" / "inspiration.md").is_file())
             self.assertTrue((root / "memory" / "style_guide.md").is_file())
             self.assertTrue((root / "memory" / "chapters").is_dir())
@@ -67,8 +68,11 @@ class WorkspaceInitTest(unittest.TestCase):
             init_workspace(InitOptions(title="Test Novel", root=root))
 
             agents_yaml = (root / "config" / "agents.yaml").read_text(encoding="utf-8")
+            embeddings_yaml = (root / "config" / "embeddings.yaml").read_text(encoding="utf-8")
             self.assertIn('api_key_env: "OPENAI_API_KEY"', agents_yaml)
             self.assertNotIn("sk-", agents_yaml)
+            self.assertIn('api_key_env: "DASHSCOPE_API_KEY"', embeddings_yaml)
+            self.assertNotIn("sk-", embeddings_yaml)
 
     def test_init_refuses_to_overwrite_existing_workspace_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

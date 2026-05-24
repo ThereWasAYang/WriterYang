@@ -12,6 +12,7 @@ def test_schema_payloads_cover_project_json_files() -> None:
     expected = {
         "project",
         "agents",
+        "embeddings",
         "inspiration",
         "characters",
         "locations",

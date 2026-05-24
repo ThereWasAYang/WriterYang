@@ -63,6 +63,7 @@ def init_workspace(options: InitOptions) -> InitResult:
             updated_at=timestamp,
         ),
         root / "config" / "agents.yaml": _agents_yaml(),
+        root / "config" / "embeddings.yaml": _embeddings_yaml(),
         root / "memory" / "inspiration.md": _inspiration_markdown(),
         root / "memory" / "style_guide.md": _style_guide_markdown(),
         root / "memory" / "canon" / "characters.json": _json({"characters": []}),
@@ -213,6 +214,37 @@ def _agents_yaml() -> str:
             ]
         )
     return "".join(lines)
+
+
+def _embeddings_yaml() -> str:
+    return (
+        "schema_version: 1\n"
+        'active_provider: "local"\n'
+        "providers:\n"
+        "  local:\n"
+        '    provider: "local_hash"\n'
+        '    model: "local-hash-v1"\n'
+        "    dimensions: 32\n"
+        "    batch_size: 64\n"
+        "  dashscope:\n"
+        '    provider: "dashscope"\n'
+        '    base_url_env: "DASHSCOPE_EMBEDDING_BASE_URL"\n'
+        '    api_key_env: "DASHSCOPE_API_KEY"\n'
+        '    model: "text-embedding-v4"\n'
+        "    dimensions: 1024\n"
+        "    batch_size: 16\n"
+        "    timeout_seconds: 30\n"
+        "    max_retries: 1\n"
+        "  zhipu:\n"
+        '    provider: "zhipu"\n'
+        '    base_url_env: "ZHIPU_EMBEDDING_BASE_URL"\n'
+        '    api_key_env: "ZHIPU_API_KEY"\n'
+        '    model: "embedding-3"\n'
+        "    dimensions: 2048\n"
+        "    batch_size: 16\n"
+        "    timeout_seconds: 30\n"
+        "    max_retries: 1\n"
+    )
 
 
 def _inspiration_markdown() -> str:

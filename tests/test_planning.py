@@ -10,6 +10,7 @@ from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_j
 from novel.core.io import load_json_model
 from novel.core.planning import (
     ChapterPlanningOptions,
+    PlanningError,
     default_mock_chapter_plan_json,
     parse_chapter_plan,
     plan_chapter,
@@ -178,16 +179,39 @@ def test_plan_chapter_missing_canon_has_clear_error(tmp_path: Path) -> None:
     assert "canon has no characters" in stderr
 
 
-def test_plan_validation_warns_for_missing_references(tmp_path: Path) -> None:
+def test_plan_chapter_blocks_missing_references_before_write(tmp_path: Path) -> None:
     root = _workspace_with_canon(tmp_path)
     bad_plan = json.loads(default_mock_chapter_plan_json(1))
     bad_plan["scenes"][0]["location_id"] = "loc_missing"
     provider = MockProvider(fake_response=json.dumps(bad_plan, ensure_ascii=False))
 
+    try:
+        plan_chapter(ChapterPlanningOptions(root=root, chapter_number=1), provider)
+    except PlanningError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected PlanningError")
+
+    assert "missing location_id: loc_missing" in message
+    assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
+
+
+def test_plan_chapter_repairs_missing_references_once(tmp_path: Path) -> None:
+    root = _workspace_with_canon(tmp_path)
+    bad_plan = json.loads(default_mock_chapter_plan_json(1))
+    bad_plan["scenes"][0]["participant_ids"] = ["char_missing"]
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(bad_plan, ensure_ascii=False),
+            default_mock_chapter_plan_json(1),
+        ]
+    )
+
     result = plan_chapter(ChapterPlanningOptions(root=root, chapter_number=1), provider)
 
     assert result.validation_report.ok
-    assert any("loc_missing" in message.message for message in result.validation_report.warnings)
+    assert result.plan.scenes[0].participant_ids == ["char_lin_che"]
+    assert len(provider.requests) == 2
 
 
 def _workspace_with_canon(tmp_path: Path) -> Path:

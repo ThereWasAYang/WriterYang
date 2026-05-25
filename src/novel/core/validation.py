@@ -342,9 +342,10 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
     character_ids = _ids(loaded.characters.characters if loaded.characters else [])
     location_ids = _ids(loaded.locations.locations if loaded.locations else [])
     item_ids = _ids(loaded.items.items if loaded.items else [])
+    world_ids = _ids(loaded.world.world_rules if loaded.world else [])
     truth_ids = _ids(loaded.hidden_truths.hidden_truths if loaded.hidden_truths else [])
     thread_ids = _ids(loaded.foreshadowing.foreshadowing_threads if loaded.foreshadowing else [])
-    entity_ids = character_ids | location_ids | item_ids
+    entity_ids = character_ids | location_ids | item_ids | world_ids
     timeline_ids = _ids(loaded.timeline.events if loaded.timeline else [])
 
     if loaded.characters:
@@ -773,7 +774,7 @@ def _validate_optional_chapter_json(
 def _validate_run_and_export_outputs(report: ValidationReport, root: Path) -> None:
     runs_dir = root / "runs"
     if runs_dir.exists():
-        for run_path in sorted(runs_dir.glob("*.json")):
+        for run_path in sorted(runs_dir.glob("run_*.json")):
             _validate_optional_chapter_json(report, run_path, AgentRunLog)
     export_manifest_path = root / "exports" / "export_manifest.json"
     _validate_optional_chapter_json(report, export_manifest_path, ExportManifest)
@@ -788,14 +789,15 @@ def _validate_state_update_proposal_references(
     character_ids = _ids(loaded.characters.characters if loaded.characters else [])
     location_ids = _ids(loaded.locations.locations if loaded.locations else [])
     item_ids = _ids(loaded.items.items if loaded.items else [])
-    entity_ids = character_ids | location_ids | item_ids
+    entity_ids = character_ids | location_ids | item_ids | {"story_position"}
     timeline_ids = _ids(loaded.timeline.events if loaded.timeline else [])
     change_ids = {change.id for change in proposal.state_changes}
+    applied_event_ids = _applied_event_ids_for_proposal(path, proposal)
     for change in proposal.state_changes:
         if change.entity_id not in entity_ids:
             report.warning(path, f"state change {change.id} references missing entity: {change.entity_id}")
     for event in proposal.timeline_events:
-        if event.id in timeline_ids:
+        if event.id in timeline_ids and event.id not in applied_event_ids:
             report.error(path, f"timeline event id already exists: {event.id}")
         if event.location_id and event.location_id not in location_ids:
             report.warning(path, f"timeline event {event.id} location_id references missing location: {event.location_id}")
@@ -808,6 +810,19 @@ def _validate_state_update_proposal_references(
         for change_id in event.state_change_ids:
             if change_id not in change_ids and not _state_change_id_exists(path.parents[3], change_id):
                 report.warning(path, f"timeline event {event.id} references missing state_change_id: {change_id}")
+
+
+def _applied_event_ids_for_proposal(path: Path, proposal: StateUpdateProposal) -> set[str]:
+    apply_log_path = path.with_name("state_update_apply_log.json")
+    if not apply_log_path.exists():
+        return set()
+    try:
+        apply_log = load_json_model(apply_log_path, StateUpdateApplyLog)
+    except Exception:
+        return set()
+    if apply_log.status != "applied" or apply_log.chapter_number != proposal.chapter_number:
+        return set()
+    return {event.id for event in proposal.timeline_events}
 
 
 def _validate_chapter_markdown(
@@ -857,8 +872,8 @@ def _validate_chapter_metadata_links(
             report.error(path, "accepted chapter is missing polished.md")
         else:
             try:
-                metadata = _read_markdown_metadata(polished_path)
-                if metadata.get("status") != "accepted":
+                front_matter = _read_markdown_metadata(polished_path)
+                if front_matter.get("status") != "accepted":
                     report.error(path, "accepted metadata conflicts with polished.md front matter status")
             except Exception as exc:
                 report.error(path, f"could not read accepted polished.md front matter: {exc}")

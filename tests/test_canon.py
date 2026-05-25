@@ -9,12 +9,14 @@ from novel.cli import main
 from novel.core.canon import (
     CanonError,
     CanonSuggestOptions,
+    apply_canon_proposal,
     default_mock_canon_proposal_json,
     parse_canon_proposal,
     suggest_canon,
     validate_canon_proposal,
 )
 from novel.core.providers import MockProvider
+from novel.core.validation import ValidationReport
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -67,6 +69,29 @@ def test_canon_suggest_can_save_proposal_file(tmp_path: Path) -> None:
     assert data["characters"][0]["id"] == "char_lin_che"
 
 
+def test_canon_suggest_repairs_low_risk_shape_errors(tmp_path: Path) -> None:
+    root = _workspace_with_inspiration(tmp_path)
+    malformed = json.loads(default_mock_canon_proposal_json())
+    malformed["characters"][0]["relationships"] = {}
+    malformed["characters"][0]["aliases"] = "旧物修复师"
+    malformed["locations"][0].pop("type")
+    malformed["items"][0].pop("type")
+    malformed["world_rules"][0].pop("visibility")
+    malformed["hidden_truths"][0]["summary"] = malformed["hidden_truths"][0].pop("title")
+    malformed["foreshadowing_threads"][0].pop("status")
+    provider = MockProvider(fake_response=[json.dumps(malformed, ensure_ascii=False)])
+
+    result = suggest_canon(CanonSuggestOptions(root=root), provider)
+
+    assert result.proposal.characters[0].relationships == []
+    assert result.proposal.characters[0].aliases == ["旧物修复师"]
+    assert result.proposal.locations[0].type == "unspecified"
+    assert result.proposal.items[0].type == "unspecified"
+    assert result.proposal.world_rules[0].visibility == "reader_visible"
+    assert result.proposal.hidden_truths[0].title == "旧车站是时间交叠点"
+    assert result.proposal.foreshadowing_threads[0].status == "active"
+
+
 def test_canon_apply_merges_proposal_into_empty_canon(tmp_path: Path) -> None:
     root = _workspace_with_inspiration(tmp_path)
     proposal_path = tmp_path / "proposal.json"
@@ -101,6 +126,31 @@ def test_canon_apply_fails_on_duplicate_id(tmp_path: Path) -> None:
     assert second == 1
     assert stdout == ""
     assert "character id conflict: char_lin_che" in stderr
+
+
+def test_canon_apply_rolls_back_when_post_write_validation_fails(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_with_inspiration(tmp_path)
+    proposal_path = tmp_path / "proposal.json"
+    proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
+    original_characters = (root / "memory" / "canon" / "characters.json").read_text(encoding="utf-8")
+
+    from novel.core import canon as canon_module
+
+    def failing_validate_canon(_root: Path) -> ValidationReport:
+        report = ValidationReport(root=_root)
+        report.error(_root / "memory" / "canon" / "characters.json", "forced canon validation failure")
+        return report
+
+    monkeypatch.setattr(canon_module, "validate_canon", failing_validate_canon)
+
+    try:
+        apply_canon_proposal(root, proposal_path)
+    except CanonError as exc:
+        assert "forced canon validation failure" in str(exc)
+    else:
+        raise AssertionError("expected CanonError")
+
+    assert (root / "memory" / "canon" / "characters.json").read_text(encoding="utf-8") == original_characters
 
 
 def test_canon_proposal_rejects_cross_type_duplicate_ids() -> None:

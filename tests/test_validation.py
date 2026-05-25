@@ -72,6 +72,27 @@ def test_validate_fresh_workspace_passes(tmp_path: Path) -> None:
     assert report.errors == []
 
 
+def test_validate_ignores_provider_usage_summary(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    runs_dir = root / "runs"
+    runs_dir.mkdir(exist_ok=True)
+    _write_json(
+        runs_dir / "provider_usage.json",
+        {
+            "schema_version": 1,
+            "total_calls": 2,
+            "total_tokens": 1234,
+            "by_agent": {"writer": {"calls": 1, "total_tokens": 1000}},
+        },
+    )
+
+    report = validate_project(root)
+
+    assert report.ok
+    assert not any("provider_usage" in str(message.path) for message in report.errors)
+
+
 def test_validate_reports_unsupported_file_schema_version(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
@@ -359,6 +380,59 @@ def test_validate_reports_invalid_chapter_plan_and_audit(tmp_path: Path) -> None
     assert not report.ok
     assert any("scene numbers must be sequential" in msg.message for msg in report.errors)
     assert any("passed audit reports cannot contain high" in msg.message for msg in report.errors)
+
+
+def test_validate_chapter_plan_allows_world_rule_references(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    _write_json(
+        root / "memory" / "canon" / "world.json",
+        {
+            "world_rules": [
+                {
+                    "id": "rule_no_supernatural",
+                    "name": "现实边界",
+                    "description": "异常保持现实解释空间。",
+                    "visibility": "reader_visible",
+                }
+            ]
+        },
+    )
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir()
+    _write_json(
+        chapter_dir / "plan.json",
+        {
+            "chapter_number": 1,
+            "title": "旧车站",
+            "goal": "引出异常。",
+            "summary": "林澈进入旧车站。",
+            "required_context": {
+                "canon_entity_ids": ["rule_no_supernatural"],
+                "state_entity_ids": [],
+                "timeline_event_ids": [],
+            },
+            "scenes": [
+                {
+                    "scene_number": 1,
+                    "location_id": "loc_missing",
+                    "participant_ids": [],
+                    "purpose": "制造悬疑",
+                    "summary": "广播响起。",
+                    "emotional_beat": "紧张",
+                    "plot_points": [],
+                }
+            ],
+            "must_include": [],
+            "must_avoid": [],
+            "expected_state_changes": [],
+            "ending_hook": "广播叫出了他的名字。",
+        },
+    )
+
+    report = validate_project(root)
+
+    assert not any("rule_no_supernatural" in message.message for message in report.warnings)
 
 
 def test_validate_reports_chapter_output_linkage_errors(tmp_path: Path) -> None:

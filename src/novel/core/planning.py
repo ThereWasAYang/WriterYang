@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.canon import CanonFiles, format_canon_summary, load_canon_files
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -18,7 +18,7 @@ from novel.core.schemas import (
     ProjectConfig,
     TimelineFile,
 )
-from novel.core.validation import ValidationReport, validate_project
+from novel.core.validation import ValidationReport
 
 
 class PlanningError(RuntimeError):
@@ -75,30 +75,28 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
     )
     search_context = context_bundle.render_for_prompt() if context_bundle else ""
 
-    response = provider.generate(
-        ModelRequest(
-            system_prompt=build_planning_system_prompt(),
-            user_prompt=build_planning_user_prompt(
-                project=project,
-                chapter_number=options.chapter_number,
-                inspiration_md=inspiration_md,
-                inspiration_json=inspiration_json,
-                style_guide=style_guide,
-                canon_summary=format_canon_summary(canon),
-                state=state,
-                timeline=timeline,
-                instruction=options.instruction,
-                search_context=search_context,
-            ),
-            context=format_canon_summary(canon),
-            json_schema_name="ChapterPlan",
-        )
+    canon_summary = format_canon_summary(canon)
+    user_prompt = build_planning_user_prompt(
+        project=project,
+        chapter_number=options.chapter_number,
+        inspiration_md=inspiration_md,
+        inspiration_json=inspiration_json,
+        style_guide=style_guide,
+        canon_summary=canon_summary,
+        state=state,
+        timeline=timeline,
+        instruction=options.instruction,
+        search_context=search_context,
     )
-    plan = parse_chapter_plan(response.content)
-    if plan.chapter_number != options.chapter_number:
-        raise PlanningError(
-            f"provider returned chapter_number {plan.chapter_number}, expected {options.chapter_number}"
-        )
+    plan = _generate_chapter_plan_with_repair(
+        provider=provider,
+        user_prompt=user_prompt,
+        canon_summary=canon_summary,
+        chapter_number=options.chapter_number,
+        canon=canon,
+        state=state,
+        timeline=timeline,
+    )
 
     chapter_dir.mkdir(parents=True, exist_ok=True)
     if options.force:
@@ -111,7 +109,7 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         plan=plan,
         plan_json_path=plan_json_path,
         plan_markdown_path=plan_markdown_path,
-        validation_report=validate_project(root),
+        validation_report=ValidationReport(root=root),
         context_report_path=context_report_path,
     )
 
@@ -173,9 +171,9 @@ def build_planning_user_prompt(
         "- 只生成本章计划，不要写正文。\n"
         "- 不要修改 canon。\n"
         "- 不要直接更新 state/timeline。\n"
-        "- location_id 尽量引用已有 locations。\n"
-        "- participant_ids 尽量引用已有 characters。\n"
-        "- required_context 中的 ID 尽量来自已有 canon/state/timeline。\n"
+        "- location_id 必须引用已有 locations，禁止发明新地点 ID。\n"
+        "- participant_ids 必须引用已有 characters，禁止发明新角色 ID。\n"
+        "- required_context 中的 ID 必须来自已有 canon/state/timeline，禁止发明新 ID。\n"
         "- 不要提前揭示 hidden_truths，除非用户额外要求明确要求。\n"
         "- 输出必须是 JSON，不要 Markdown。\n\n"
         f"用户额外要求：\n{instruction or '无'}\n\n"
@@ -200,6 +198,151 @@ def parse_chapter_plan(content: str) -> ChapterPlan:
         return ChapterPlan.model_validate(data)
     except ValidationError as exc:
         raise PlanningError(f"provider returned invalid ChapterPlan: {exc}") from exc
+
+
+def _generate_chapter_plan_with_repair(
+    *,
+    provider: ModelProvider,
+    user_prompt: str,
+    canon_summary: str,
+    chapter_number: int,
+    canon: CanonFiles,
+    state: EntityState,
+    timeline: TimelineFile,
+) -> ChapterPlan:
+    response = provider.generate(
+        ModelRequest(
+            system_prompt=build_planning_system_prompt(),
+            user_prompt=user_prompt,
+            context=canon_summary,
+            json_schema_name="ChapterPlan",
+        )
+    )
+    try:
+        plan = parse_chapter_plan(response.content)
+        _validate_plan_for_write(plan, chapter_number, canon, state, timeline)
+        return plan
+    except PlanningError as first_error:
+        repair_response = provider.generate(
+            ModelRequest(
+                system_prompt=build_planning_system_prompt(),
+                user_prompt=_repair_prompt(
+                    schema_name="ChapterPlan",
+                    original_prompt=user_prompt,
+                    invalid_output=response.content,
+                    error=str(first_error),
+                    allowed_ids=_allowed_id_summary(canon, state, timeline),
+                ),
+                context=canon_summary,
+                json_schema_name="ChapterPlan",
+            )
+        )
+        try:
+            plan = parse_chapter_plan(repair_response.content)
+            _validate_plan_for_write(plan, chapter_number, canon, state, timeline)
+            return plan
+        except PlanningError as second_error:
+            raise PlanningError(
+                f"provider returned invalid ChapterPlan after repair retry: {second_error}"
+            ) from second_error
+
+
+def _validate_plan_for_write(
+    plan: ChapterPlan,
+    chapter_number: int,
+    canon: CanonFiles,
+    state: EntityState,
+    timeline: TimelineFile,
+) -> None:
+    if plan.chapter_number != chapter_number:
+        raise PlanningError(f"provider returned chapter_number {plan.chapter_number}, expected {chapter_number}")
+    errors = _plan_reference_errors(plan, canon, state, timeline)
+    if errors:
+        raise PlanningError("provider returned ChapterPlan with missing references: " + "; ".join(errors))
+
+
+def _plan_reference_errors(
+    plan: ChapterPlan,
+    canon: CanonFiles,
+    state: EntityState,
+    timeline: TimelineFile,
+) -> list[str]:
+    character_ids = {item.id for item in canon.characters.characters}
+    location_ids = {item.id for item in canon.locations.locations}
+    item_ids = {item.id for item in canon.items.items}
+    world_ids = {item.id for item in canon.world.world_rules}
+    canon_ids = character_ids | location_ids | item_ids | world_ids
+    state_ids = (
+        {item.entity_id for item in state.character_states}
+        | {item.entity_id for item in state.item_states}
+        | {item.entity_id for item in state.location_states}
+        | {"story_position"}
+        | canon_ids
+    )
+    timeline_ids = {event.id for event in timeline.events}
+
+    errors: list[str] = []
+    for scene in plan.scenes:
+        if scene.location_id not in location_ids:
+            errors.append(f"scene {scene.scene_number} references missing location_id: {scene.location_id}")
+        for participant_id in scene.participant_ids:
+            if participant_id not in character_ids:
+                errors.append(
+                    f"scene {scene.scene_number} references missing participant_id: {participant_id}"
+                )
+    for entity_id in plan.required_context.canon_entity_ids:
+        if entity_id not in canon_ids:
+            errors.append(f"required_context.canon_entity_ids references missing ID: {entity_id}")
+    for entity_id in plan.required_context.state_entity_ids:
+        if entity_id not in state_ids:
+            errors.append(f"required_context.state_entity_ids references missing ID: {entity_id}")
+    for event_id in plan.required_context.timeline_event_ids:
+        if event_id not in timeline_ids:
+            errors.append(f"required_context.timeline_event_ids references missing ID: {event_id}")
+    return errors
+
+
+def _allowed_id_summary(canon: CanonFiles, state: EntityState, timeline: TimelineFile) -> str:
+    return (
+        "允许引用的 ID：\n"
+        f"- characters: {', '.join(item.id for item in canon.characters.characters) or 'none'}\n"
+        f"- locations: {', '.join(item.id for item in canon.locations.locations) or 'none'}\n"
+        f"- items: {', '.join(item.id for item in canon.items.items) or 'none'}\n"
+        f"- world_rules: {', '.join(item.id for item in canon.world.world_rules) or 'none'}\n"
+        "- state entities: "
+        + (
+            ", ".join(
+                sorted(
+                    {item.entity_id for item in state.character_states}
+                    | {item.entity_id for item in state.item_states}
+                    | {item.entity_id for item in state.location_states}
+                    | {"story_position"}
+                )
+            )
+            or "none"
+        )
+        + "\n"
+        f"- timeline events: {', '.join(event.id for event in timeline.events) or 'none'}\n"
+    )
+
+
+def _repair_prompt(
+    *,
+    schema_name: str,
+    original_prompt: str,
+    invalid_output: str,
+    error: str,
+    allowed_ids: str,
+) -> str:
+    return (
+        f"你上一次输出的 {schema_name} JSON 无法通过解析、schema 校验或引用校验。\n"
+        "请只输出修正后的 JSON，不要解释，不要 Markdown 包装。\n"
+        "不要发明角色、地点、物品、state 或 timeline ID；只能使用下方允许 ID。\n\n"
+        f"{allowed_ids}\n"
+        f"校验错误摘要：\n{error[:2400]}\n\n"
+        f"上一次输出：\n{invalid_output[:6000]}\n\n"
+        f"原始任务要求：\n{original_prompt[:6000]}\n"
+    )
 
 
 def render_plan_markdown(plan: ChapterPlan) -> str:

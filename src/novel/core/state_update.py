@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Literal
 
@@ -115,23 +116,11 @@ def propose_state_update(
     context = load_state_update_context(root, options.chapter_number)
     _ensure_audit_allows_progress(context.audit, allow_issues=options.allow_unresolved_audit)
 
-    response = provider.generate(
-        ModelRequest(
-            system_prompt=build_state_update_system_prompt(),
-            user_prompt=build_state_update_user_prompt(
-                context=context,
-                instruction=options.instruction,
-            ),
-            context=context.canon_summary,
-            json_schema_name="StateUpdateProposal",
-        )
+    user_prompt = build_state_update_user_prompt(
+        context=context,
+        instruction=options.instruction,
     )
-    proposal = parse_state_update_proposal(response.content)
-    if proposal.chapter_number != options.chapter_number:
-        raise StateUpdateError(
-            f"provider returned chapter_number {proposal.chapter_number}, expected {options.chapter_number}"
-        )
-    warnings = validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
+    proposal, warnings = _generate_state_update_proposal_with_repair(provider, context, user_prompt, options)
 
     if options.force:
         backup_if_exists(proposal_path, reason="force")
@@ -151,7 +140,7 @@ def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResu
     if not proposal_path.exists():
         raise StateUpdateError(f"{proposal_path} is missing; run novel propose-state-update first")
 
-    proposal = load_json_model(proposal_path, StateUpdateProposal)
+    proposal = parse_state_update_proposal(proposal_path.read_text(encoding="utf-8"))
     if proposal.chapter_number != options.chapter_number:
         raise StateUpdateError(
             f"state_update_proposal.json chapter_number {proposal.chapter_number} does not match "
@@ -238,7 +227,7 @@ def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None
             provider,
         )
 
-    apply_result = apply_state_update(
+    apply_result = _load_existing_apply_result(root, options.chapter_number) or apply_state_update(
         StateUpdateApplyOptions(root=root, chapter_number=options.chapter_number)
     )
     accepted_path = mark_chapter_accepted(root, options.chapter_number)
@@ -255,6 +244,32 @@ def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None
         accepted_path=accepted_path,
         metadata_path=metadata_path,
         metadata=metadata,
+    )
+
+
+def _load_existing_apply_result(root: Path, chapter_number: int) -> StateUpdateApplyResult | None:
+    apply_log_path = _chapter_dir(root, chapter_number) / "state_update_apply_log.json"
+    if not apply_log_path.exists():
+        return None
+    apply_log = load_json_model(apply_log_path, StateUpdateApplyLog)
+    if apply_log.chapter_number != chapter_number:
+        raise StateUpdateError(
+            f"state_update_apply_log.json chapter_number {apply_log.chapter_number} does not match "
+            f"requested chapter {chapter_number}"
+        )
+    if apply_log.status != "applied":
+        raise StateUpdateError(f"existing state update apply log is not applied: {apply_log.status}")
+    state_path = root / apply_log.state_path
+    timeline_path = root / apply_log.timeline_path
+    return StateUpdateApplyResult(
+        state_path=state_path,
+        timeline_path=timeline_path,
+        state_backup_path=root / apply_log.state_backup_path,
+        timeline_backup_path=root / apply_log.timeline_backup_path,
+        apply_log_path=apply_log_path,
+        apply_log=apply_log,
+        state=load_json_model(state_path, EntityState),
+        timeline=load_json_model(timeline_path, TimelineFile),
     )
 
 
@@ -344,6 +359,8 @@ def validate_state_update_proposal(
                 f"timeline event {event.id} references missing state changes: {', '.join(missing_change_ids)}"
             )
 
+    _validate_proposed_item_holder_location_conflicts(root, proposal, item_ids)
+
     if check_existing_timeline_ids:
         timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
         existing_event_ids = {event.id for event in timeline.events}
@@ -357,6 +374,36 @@ def validate_state_update_proposal(
     for message in canon_report.warnings:
         warnings.append(f"canon warning: {message.message}")
     return warnings
+
+
+def _validate_proposed_item_holder_location_conflicts(
+    root: Path,
+    proposal: StateUpdateProposal,
+    item_ids: set[str],
+) -> None:
+    state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
+    item_positions = {
+        item.entity_id: {"holder_id": item.holder_id, "location_id": item.location_id}
+        for item in state.item_states
+    }
+    for item_id in item_ids:
+        item_positions.setdefault(item_id, {"holder_id": None, "location_id": None})
+    for change in proposal.state_changes:
+        if change.entity_id not in item_ids or change.field not in {"holder_id", "location_id"}:
+            continue
+        item_positions.setdefault(change.entity_id, {"holder_id": None, "location_id": None})
+        item_positions[change.entity_id][change.field] = change.new_value
+    conflicts = [
+        item_id
+        for item_id, position in item_positions.items()
+        if position.get("holder_id") and position.get("location_id")
+    ]
+    if conflicts:
+        raise StateUpdateError(
+            "item holder/location conflict in proposed changes: "
+            + ", ".join(sorted(conflicts))
+            + ". Set either holder_id or location_id, not both."
+        )
 
 
 def apply_state_changes_to_state(
@@ -478,6 +525,14 @@ def build_state_update_user_prompt(
         "StateChange 字段：id, chapter, entity_id, field, old_value, new_value, reason, source。\n"
         "TimelineEvent 字段：id, chapter, scene, in_story_time, location_id, participant_ids, "
         "summary, reader_visible, causes, effects, state_change_ids, tags。\n\n"
+        "字段约束：\n"
+        "- StateChange.id 和 TimelineEvent.id 必须使用小写字母、数字和下划线。\n"
+        "- entity_id 必须引用已有 character/location/item，或使用 story_position。\n"
+        "- character 可用 field: location_id, health, mental_state, knowledge, goals, possessions, last_updated_chapter。\n"
+        "- item 可用 field: holder_id, location_id, condition, known_properties, last_updated_chapter。\n"
+        "- location 可用 field: accessibility, condition, active_events, last_updated_chapter。\n"
+        "- story_position 可用 field: latest_chapter, in_story_time, summary。\n"
+        "- 不要把 field 写成 location 或 holder；应写成 location_id 或 holder_id。\n\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
         f"AuditReport：\n{context.audit.model_dump_json(indent=2)}\n\n"
         f"Polished metadata：\n{json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
@@ -495,9 +550,133 @@ def parse_state_update_proposal(content: str) -> StateUpdateProposal:
     except json.JSONDecodeError as exc:
         raise StateUpdateError(f"provider did not return valid StateUpdateProposal JSON: {exc}") from exc
     try:
-        return StateUpdateProposal.model_validate(data)
+        return StateUpdateProposal.model_validate(_normalize_state_update_data(data))
     except ValidationError as exc:
         raise StateUpdateError(f"provider returned invalid StateUpdateProposal: {exc}") from exc
+
+
+def _generate_state_update_proposal_with_repair(
+    provider: ModelProvider,
+    context: StateUpdateContext,
+    user_prompt: str,
+    options: StateUpdateProposeOptions,
+) -> tuple[StateUpdateProposal, tuple[str, ...]]:
+    request = ModelRequest(
+        system_prompt=build_state_update_system_prompt(),
+        user_prompt=user_prompt,
+        context=context.canon_summary,
+        json_schema_name="StateUpdateProposal",
+    )
+    response = provider.generate(request)
+    try:
+        proposal = _parse_and_validate_state_update_response(response.content, options)
+        warnings = validate_state_update_proposal(options.root, proposal, check_existing_timeline_ids=False)
+        return proposal, tuple(warnings)
+    except StateUpdateError as first_error:
+        repair_response = provider.generate(
+            ModelRequest(
+                system_prompt=build_state_update_system_prompt(),
+                user_prompt=_repair_prompt(
+                    schema_name="StateUpdateProposal",
+                    original_prompt=user_prompt,
+                    invalid_output=response.content,
+                    error=str(first_error),
+                ),
+                context=context.canon_summary,
+                json_schema_name="StateUpdateProposal",
+            )
+        )
+        try:
+            proposal = _parse_and_validate_state_update_response(repair_response.content, options)
+            warnings = validate_state_update_proposal(options.root, proposal, check_existing_timeline_ids=False)
+            return proposal, tuple(warnings)
+        except StateUpdateError as second_error:
+            raise StateUpdateError(
+                "provider returned invalid StateUpdateProposal after repair retry: "
+                f"{second_error}"
+            ) from second_error
+
+
+def _parse_and_validate_state_update_response(
+    content: str,
+    options: StateUpdateProposeOptions,
+) -> StateUpdateProposal:
+    proposal = parse_state_update_proposal(content)
+    if proposal.chapter_number != options.chapter_number:
+        raise StateUpdateError(
+            f"provider returned chapter_number {proposal.chapter_number}, expected {options.chapter_number}"
+        )
+    return proposal
+
+
+def _normalize_state_update_data(data: object) -> object:
+    if not isinstance(data, dict):
+        return data
+    normalized = dict(data)
+    changes = normalized.get("state_changes")
+    if isinstance(changes, list):
+        normalized_changes = []
+        for change in changes:
+            if not isinstance(change, dict):
+                normalized_changes.append(change)
+                continue
+            item = dict(change)
+            field = item.get("field")
+            if field == "location":
+                item["field"] = "location_id"
+            elif field == "holder":
+                item["field"] = "holder_id"
+            _normalize_state_change_values(item)
+            normalized_changes.append(item)
+        normalized["state_changes"] = normalized_changes
+    events = normalized.get("timeline_events")
+    if isinstance(events, list):
+        normalized_events = []
+        for event in events:
+            if not isinstance(event, dict):
+                normalized_events.append(event)
+                continue
+            item = dict(event)
+            if "location" in item and "location_id" not in item:
+                item["location_id"] = item.pop("location")
+            normalized_events.append(item)
+        normalized["timeline_events"] = normalized_events
+    return normalized
+
+
+def _normalize_state_change_values(item: dict[str, object]) -> None:
+    field = item.get("field")
+    if field in {"knowledge", "goals", "known_properties", "active_events"}:
+        for value_key in ("old_value", "new_value"):
+            if isinstance(item.get(value_key), str):
+                item[value_key] = [item[value_key]]
+    if field == "possessions":
+        for value_key in ("old_value", "new_value"):
+            value = item.get(value_key)
+            if isinstance(value, str):
+                ids = _extract_entity_ids(value)
+                item[value_key] = ids if ids else [value]
+
+
+def _extract_entity_ids(value: str) -> list[str]:
+    return re.findall(r"\b[a-z]+_[a-z0-9_]+\b", value)
+
+
+def _repair_prompt(
+    *,
+    schema_name: str,
+    original_prompt: str,
+    invalid_output: str,
+    error: str,
+) -> str:
+    return (
+        f"你上一次输出的 {schema_name} JSON 无法通过解析、schema 校验或引用校验。\n"
+        "请只输出修正后的 JSON，不要解释，不要 Markdown 包装。\n"
+        "不要创造正文中没有发生的重大事件，不要修改 canon。\n\n"
+        f"校验错误摘要：\n{error[:2400]}\n\n"
+        f"上一次输出：\n{invalid_output[:6000]}\n\n"
+        f"原始任务要求：\n{original_prompt[:6000]}\n"
+    )
 
 
 def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
@@ -600,7 +779,9 @@ def _validate_state_change_field(
     if change.field == "holder_id" and change.new_value is not None and change.new_value not in character_ids:
         raise StateUpdateError(f"state change {change.id} references missing holder: {change.new_value}")
     if change.field == "possessions":
-        values = change.new_value if isinstance(change.new_value, list) else []
+        if not isinstance(change.new_value, list):
+            raise StateUpdateError(f"state change {change.id} possessions value must be a list")
+        values = change.new_value
         for item_id in values:
             if item_id not in item_ids:
                 raise StateUpdateError(f"state change {change.id} references missing possession: {item_id}")

@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import shutil
 from typing import Iterable
 
 from pydantic import ValidationError
 
-from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.io import atomic_write_text, backup_file, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
@@ -21,7 +22,7 @@ from novel.core.schemas import (
     ProjectConfig,
     WorldFile,
 )
-from novel.core.validation import ValidationReport, validate_project
+from novel.core.validation import ValidationReport, validate_canon
 
 
 class CanonError(RuntimeError):
@@ -55,22 +56,14 @@ def suggest_canon(options: CanonSuggestOptions, provider: ModelProvider) -> Cano
     style_guide = _read_optional_text(root / "memory" / "style_guide.md")
     existing_summary = format_canon_summary(load_canon_files(root))
 
-    response = provider.generate(
-        ModelRequest(
-            system_prompt=build_canon_system_prompt(),
-            user_prompt=build_canon_user_prompt(
-                project=project,
-                inspiration_md=inspiration_md,
-                inspiration_json=inspiration_json,
-                style_guide=style_guide,
-                existing_summary=existing_summary,
-            ),
-            context=existing_summary,
-            json_schema_name="CanonProposal",
-        )
+    user_prompt = build_canon_user_prompt(
+        project=project,
+        inspiration_md=inspiration_md,
+        inspiration_json=inspiration_json,
+        style_guide=style_guide,
+        existing_summary=existing_summary,
     )
-    proposal = parse_canon_proposal(response.content)
-    validate_canon_proposal(proposal)
+    proposal = _generate_canon_proposal_with_repair(provider, user_prompt, existing_summary)
     proposal_json = proposal.model_dump_json(indent=2) + "\n"
 
     output_path = options.output_path
@@ -109,8 +102,16 @@ def apply_canon_proposal(root: Path, proposal_path: Path) -> CanonApplyResult:
     canon.hidden_truths.hidden_truths.extend(proposal.hidden_truths)
     canon.foreshadowing.foreshadowing_threads.extend(proposal.foreshadowing_threads)
 
-    write_canon_files(root, canon)
-    return CanonApplyResult(validation_report=validate_project(root))
+    backups = _backup_existing_canon_files(root)
+    try:
+        write_canon_files(root, canon, backup=False)
+        report = validate_canon(root)
+        if not report.ok:
+            raise CanonError(format_canon_validation_report(report))
+    except Exception:
+        _restore_backups(backups)
+        raise
+    return CanonApplyResult(validation_report=report)
 
 
 def load_canon_provider(
@@ -151,17 +152,17 @@ def load_canon_files(root: Path) -> CanonFiles:
     )
 
 
-def write_canon_files(root: Path, canon: CanonFiles) -> None:
+def write_canon_files(root: Path, canon: CanonFiles, *, backup: bool = True) -> None:
     canon_dir = root / "memory" / "canon"
-    _write_json(canon_dir / "characters.json", {"characters": canon.characters.characters}, backup=True)
-    _write_json(canon_dir / "locations.json", {"locations": canon.locations.locations}, backup=True)
-    _write_json(canon_dir / "items.json", {"items": canon.items.items}, backup=True)
-    _write_json(canon_dir / "world.json", {"world_rules": canon.world.world_rules}, backup=True)
-    _write_json(canon_dir / "hidden_truths.json", {"hidden_truths": canon.hidden_truths.hidden_truths}, backup=True)
+    _write_json(canon_dir / "characters.json", {"characters": canon.characters.characters}, backup=backup)
+    _write_json(canon_dir / "locations.json", {"locations": canon.locations.locations}, backup=backup)
+    _write_json(canon_dir / "items.json", {"items": canon.items.items}, backup=backup)
+    _write_json(canon_dir / "world.json", {"world_rules": canon.world.world_rules}, backup=backup)
+    _write_json(canon_dir / "hidden_truths.json", {"hidden_truths": canon.hidden_truths.hidden_truths}, backup=backup)
     _write_json(
         canon_dir / "foreshadowing.json",
         {"foreshadowing_threads": canon.foreshadowing.foreshadowing_threads},
-        backup=True,
+        backup=backup,
     )
 
 
@@ -225,17 +226,25 @@ def build_canon_user_prompt(
         f"类型：{', '.join(project.genre)}\n\n"
         "请输出严格 JSON，结构如下：\n"
         "{\n"
-        '  "characters": [],\n'
-        '  "locations": [],\n'
-        '  "items": [],\n'
-        '  "world_rules": [],\n'
-        '  "hidden_truths": [],\n'
-        '  "foreshadowing_threads": [],\n'
+        '  "characters": [{"id": "char_x", "name": "姓名", "role": "protagonist", "reader_visible_summary": "读者可见摘要", "aliases": [], "relationships": [], "tags": []}],\n'
+        '  "locations": [{"id": "loc_x", "name": "地点名", "type": "station", "reader_visible_summary": "读者可见摘要", "connected_location_ids": [], "rules": [], "tags": []}],\n'
+        '  "items": [{"id": "item_x", "name": "物品名", "type": "clue", "reader_visible_summary": "读者可见摘要", "special_properties": [], "tags": []}],\n'
+        '  "world_rules": [{"id": "rule_x", "name": "规则名", "description": "规则说明", "visibility": "reader_visible", "limitations": [], "known_by_character_ids": []}],\n'
+        '  "hidden_truths": [{"id": "truth_x", "title": "隐藏真相标题", "description": "只给作者看的隐藏背景", "visibility": "hidden", "importance": "medium", "related_entity_ids": [], "foreshadowing_ids": []}],\n'
+        '  "foreshadowing_threads": [{"id": "thread_x", "type": "clue", "title": "伏笔标题", "introduced_in_chapter": 1, "description": "伏笔说明", "status": "active", "importance": "medium", "hidden_truth_id": "truth_x", "related_entity_ids": []}],\n'
         '  "notes": []\n'
         "}\n\n"
         "要求：\n"
         "- 不要输出 Markdown。\n"
         "- ID 使用稳定前缀：char_, loc_, item_, rule_, truth_, thread_。\n"
+        "- 所有 id 必须匹配 ^[a-z0-9_]+$。\n"
+        "- characters 每项必须包含 id, name, role, reader_visible_summary；relationships 必须是数组。\n"
+        "- locations 每项必须包含 id, name, type, reader_visible_summary。\n"
+        "- items 每项必须包含 id, name, type, reader_visible_summary。\n"
+        "- world_rules 每项必须包含 id, name, description, visibility；visibility 只能是 reader_visible/hidden/partially_revealed。\n"
+        "- hidden_truths 每项必须包含 id, title, description, visibility, importance；importance 只能是 low/medium/high/critical。\n"
+        "- foreshadowing_threads 每项必须包含 id, type, title, introduced_in_chapter, description, status, importance；status 只能是 active/inactive/resolved/unresolved/deprecated。\n"
+        "- aliases, tags, relationships, limitations, related_entity_ids, foreshadowing_ids 必须是数组，不能是对象或字符串。\n"
         "- reader_visible_summary 只写读者可见信息。\n"
         "- hidden_truths 不得混入 reader_visible_summary。\n"
         "- foreshadowing_threads 应关联 hidden_truth_id 或 related_entity_ids。\n\n"
@@ -253,9 +262,135 @@ def parse_canon_proposal(content: str) -> CanonProposal:
     except json.JSONDecodeError as exc:
         raise CanonError(f"provider did not return valid CanonProposal JSON: {exc}") from exc
     try:
-        return CanonProposal.model_validate(data)
+        return CanonProposal.model_validate(_normalize_canon_proposal_data(data))
     except ValidationError as exc:
         raise CanonError(f"provider returned invalid CanonProposal: {exc}") from exc
+
+
+def _generate_canon_proposal_with_repair(
+    provider: ModelProvider,
+    user_prompt: str,
+    existing_summary: str,
+) -> CanonProposal:
+    response = provider.generate(
+        ModelRequest(
+            system_prompt=build_canon_system_prompt(),
+            user_prompt=user_prompt,
+            context=existing_summary,
+            json_schema_name="CanonProposal",
+        )
+    )
+    try:
+        proposal = parse_canon_proposal(response.content)
+        validate_canon_proposal(proposal)
+        return proposal
+    except CanonError as exc:
+        repair_response = provider.generate(
+            ModelRequest(
+                system_prompt=build_canon_system_prompt(),
+                user_prompt=_repair_prompt(
+                    schema_name="CanonProposal",
+                    original_prompt=user_prompt,
+                    invalid_output=response.content,
+                    error=str(exc),
+                ),
+                context=existing_summary,
+                json_schema_name="CanonProposal",
+            )
+        )
+        proposal = parse_canon_proposal(repair_response.content)
+        validate_canon_proposal(proposal)
+        return proposal
+
+
+def _repair_prompt(*, schema_name: str, original_prompt: str, invalid_output: str, error: str) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        f"上一次输出不是合法的 {schema_name}。请只输出修复后的严格 JSON，不要解释。\n"
+        f"错误摘要：\n{error[:4000]}\n\n"
+        f"上一次输出：\n{invalid_output[:12000]}\n"
+    )
+
+
+def _normalize_canon_proposal_data(data: object) -> object:
+    if not isinstance(data, dict):
+        return data
+    normalized = dict(data)
+    list_fields = {
+        "aliases",
+        "tags",
+        "relationships",
+        "abilities",
+        "secrets",
+        "rules",
+        "connected_location_ids",
+        "special_properties",
+        "limitations",
+        "known_by_character_ids",
+        "related_entity_ids",
+        "foreshadowing_ids",
+    }
+    for collection_name in (
+        "characters",
+        "locations",
+        "items",
+        "world_rules",
+        "hidden_truths",
+        "foreshadowing_threads",
+        "notes",
+    ):
+        value = normalized.get(collection_name)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            normalized[collection_name] = []
+            continue
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            _normalize_canon_item(collection_name, item)
+            for field in list_fields:
+                if field in item:
+                    item[field] = _normalize_list_field(item[field])
+    return normalized
+
+
+def _normalize_canon_item(collection_name: str, item: dict[str, object]) -> None:
+    if collection_name in {"locations", "items"}:
+        item.setdefault("type", "unspecified")
+    if collection_name == "world_rules":
+        item.setdefault("visibility", "reader_visible")
+    if collection_name == "hidden_truths":
+        _copy_first_present(item, "title", ("name", "summary", "label"))
+        _copy_first_present(item, "description", ("content", "summary", "truth", "private_author_notes", "notes"))
+        item.setdefault("visibility", "hidden")
+        item.setdefault("importance", "medium")
+    if collection_name == "foreshadowing_threads":
+        item.setdefault("type", "clue")
+        _copy_first_present(item, "title", ("name", "summary", "description"))
+        item.setdefault("introduced_in_chapter", 1)
+        item.setdefault("status", "active")
+        item.setdefault("importance", "medium")
+
+
+def _copy_first_present(item: dict[str, object], target: str, aliases: tuple[str, ...]) -> None:
+    if item.get(target):
+        return
+    for alias in aliases:
+        value = item.get(alias)
+        if isinstance(value, str) and value.strip():
+            item[target] = value
+            return
+
+
+def _normalize_list_field(value: object) -> list[object]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return []
+    if value is None:
+        return []
+    return [value]
 
 
 def validate_canon_proposal(proposal: CanonProposal) -> None:
@@ -389,8 +524,33 @@ def _read_optional_text(path: Path) -> str:
 
 def _write_json(path: Path, data: object, *, backup: bool = False) -> None:
     if backup:
-        backup_if_exists(path, reason="canon_apply")
+        backup_file(path, reason="canon_apply")
     atomic_write_text(path, _to_json(data))
+
+
+def _canon_file_paths(root: Path) -> tuple[Path, ...]:
+    canon_dir = root / "memory" / "canon"
+    return (
+        canon_dir / "characters.json",
+        canon_dir / "locations.json",
+        canon_dir / "items.json",
+        canon_dir / "world.json",
+        canon_dir / "hidden_truths.json",
+        canon_dir / "foreshadowing.json",
+    )
+
+
+def _backup_existing_canon_files(root: Path) -> dict[Path, Path]:
+    backups: dict[Path, Path] = {}
+    for path in _canon_file_paths(root):
+        if path.exists():
+            backups[path] = backup_file(path, reason="canon_apply")
+    return backups
+
+
+def _restore_backups(backups: dict[Path, Path]) -> None:
+    for path, backup_path in backups.items():
+        shutil.copy2(backup_path, path)
 
 
 def _to_json(data: object) -> str:

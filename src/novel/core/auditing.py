@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 from typing import Literal
 
 from pydantic import ValidationError
@@ -109,20 +110,13 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
     context = load_audit_context(root, options)
     precheck = run_deterministic_prechecks(root, options, context)
 
-    response = provider.generate(
-        ModelRequest(
-            system_prompt=build_audit_system_prompt(),
-            user_prompt=build_audit_user_prompt(
-                context=context,
-                instruction=options.instruction,
-                strict=options.strict,
-                focus=options.focus,
-            ),
-            context=context.canon_summary,
-            json_schema_name="AuditReport",
-        )
+    user_prompt = build_audit_user_prompt(
+        context=context,
+        instruction=options.instruction,
+        strict=options.strict,
+        focus=options.focus,
     )
-    provider_report = parse_audit_report(response.content)
+    provider_report = _generate_audit_report_with_repair(provider, context, user_prompt)
     if provider_report.chapter_number != options.chapter_number:
         precheck = _append_precheck_issue(
             precheck,
@@ -406,6 +400,11 @@ def build_audit_user_prompt(
         "请输出严格 JSON，符合 AuditReport schema，至少包含：\n"
         "chapter_number, audited_file, overall_status, summary, issues, passed_checks, created_at。\n"
         "issues 每项至少包含 id, severity, type, description, evidence, suggested_fix。\n\n"
+        "字段约束：\n"
+        "- issue.id 必须使用小写字母、数字和下划线，例如 audit_001_001，不要使用连字符。\n"
+        "- issue.evidence 必须是数组，每项包含 source 和 quote；不要把 evidence 写成字符串。\n"
+        "- severity 只能是 low, medium, high, critical。\n"
+        "- overall_status 只能是 passed, needs_revision, blocked。\n\n"
         "Severity policy：\n"
         "- critical：会导致章节无法继续使用的问题，例如重大设定矛盾、主角死亡但后文当作未死亡、章节编号错乱。\n"
         "- high：明显影响连续性的问题，例如物品位置错误、角色知道了不该知道的信息、提前揭示重大隐藏真相。\n"
@@ -435,9 +434,91 @@ def parse_audit_report(content: str) -> AuditReport:
     except json.JSONDecodeError as exc:
         raise AuditError(f"provider did not return valid AuditReport JSON: {exc}") from exc
     try:
-        return AuditReport.model_validate(data)
+        return AuditReport.model_validate(_normalize_audit_report_data(data))
     except ValidationError as exc:
         raise AuditError(f"provider returned invalid AuditReport: {exc}") from exc
+
+
+def _generate_audit_report_with_repair(
+    provider: ModelProvider,
+    context: AuditContext,
+    user_prompt: str,
+) -> AuditReport:
+    request = ModelRequest(
+        system_prompt=build_audit_system_prompt(),
+        user_prompt=user_prompt,
+        context=context.canon_summary,
+        json_schema_name="AuditReport",
+    )
+    response = provider.generate(request)
+    try:
+        return parse_audit_report(response.content)
+    except AuditError as first_error:
+        repair_response = provider.generate(
+            ModelRequest(
+                system_prompt=build_audit_system_prompt(),
+                user_prompt=_repair_prompt(
+                    schema_name="AuditReport",
+                    original_prompt=user_prompt,
+                    invalid_output=response.content,
+                    error=str(first_error),
+                ),
+                context=context.canon_summary,
+                json_schema_name="AuditReport",
+            )
+        )
+        try:
+            return parse_audit_report(repair_response.content)
+        except AuditError as second_error:
+            raise AuditError(
+                f"provider returned invalid AuditReport after repair retry: {second_error}"
+            ) from second_error
+
+
+def _normalize_audit_report_data(data: object) -> object:
+    if not isinstance(data, dict):
+        return data
+    normalized = dict(data)
+    audited_file = str(normalized.get("audited_file") or "audited_file")
+    issues = normalized.get("issues")
+    if isinstance(issues, list):
+        normalized_issues = []
+        for index, issue in enumerate(issues, start=1):
+            if not isinstance(issue, dict):
+                normalized_issues.append(issue)
+                continue
+            item = dict(issue)
+            if "id" in item:
+                item["id"] = _normalize_issue_id(str(item["id"]), index)
+            evidence = item.get("evidence")
+            if isinstance(evidence, str):
+                item["evidence"] = [{"source": audited_file, "quote": evidence}]
+            elif isinstance(evidence, dict):
+                item["evidence"] = [evidence]
+            normalized_issues.append(item)
+        normalized["issues"] = normalized_issues
+    return normalized
+
+
+def _normalize_issue_id(value: str, index: int) -> str:
+    normalized = re.sub(r"[^a-z0-9_]+", "_", value.lower()).strip("_")
+    return normalized or f"issue_{index}"
+
+
+def _repair_prompt(
+    *,
+    schema_name: str,
+    original_prompt: str,
+    invalid_output: str,
+    error: str,
+) -> str:
+    return (
+        f"你上一次输出的 {schema_name} JSON 无法通过解析或 schema 校验。\n"
+        "请只输出修正后的 JSON，不要解释，不要 Markdown 包装。\n\n"
+        f"校验错误摘要：\n{error[:2400]}\n\n"
+        f"上一次输出：\n{invalid_output[:6000]}\n\n"
+        f"原始任务要求：\n{original_prompt[:6000]}\n"
+    )
 
 
 def combine_audit_reports(

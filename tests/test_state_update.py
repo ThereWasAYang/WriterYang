@@ -20,7 +20,9 @@ from novel.core.state_update import (
     StateUpdateProposeOptions,
     default_mock_state_update_proposal_json,
     apply_state_update,
+    parse_state_update_proposal,
     propose_state_update,
+    validate_state_update_proposal,
 )
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -91,6 +93,21 @@ def test_apply_state_update_applies_legal_proposal_and_creates_backups(tmp_path:
     assert state.story_position.latest_chapter == 1
     assert state.item_states[0].holder_id == "char_lin_che"
     assert timeline.events[0].id == "event_001_001"
+
+
+def test_apply_state_update_normalizes_saved_proposal_list_strings(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    proposal_path = root / "memory" / "chapters" / "001" / "state_update_proposal.json"
+    proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+    proposal["state_changes"][0]["new_value"] = "破损车票（item_broken_ticket）"
+    proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(["apply-state-update", "1", "--path", str(root)])
+
+    assert code == 0
+    assert stderr == ""
+    assert "state_update_apply_log.json" in stdout
 
 
 def test_apply_state_update_rolls_back_when_timeline_write_fails(
@@ -201,13 +218,76 @@ def test_apply_state_update_fails_on_item_holder_location_conflict(tmp_path: Pat
         + "\n",
         encoding="utf-8",
     )
-    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    propose_code, _, propose_stderr = _run_cli(
+        ["propose-state-update", "1", "--path", str(root), "--provider", "mock"]
+    )
 
     code, stdout, stderr = _run_cli(["apply-state-update", "1", "--path", str(root)])
 
+    assert propose_code == 1
+    assert "item holder/location conflict" in propose_stderr
     assert code == 1
     assert stdout == ""
-    assert "has both holder_id and location_id" in stderr
+    assert "state_update_proposal.json is missing" in stderr
+
+
+def test_parse_state_update_proposal_normalizes_common_field_aliases() -> None:
+    data = json.loads(default_mock_state_update_proposal_json(1))
+    data["state_changes"][0]["field"] = "location"
+    data["state_changes"][0]["new_value"] = "loc_old_station"
+    data["timeline_events"][0]["location"] = data["timeline_events"][0].pop("location_id")
+
+    proposal = parse_state_update_proposal(json.dumps(data, ensure_ascii=False))
+
+    assert proposal.state_changes[0].field == "location_id"
+    assert proposal.timeline_events[0].location_id == "loc_old_station"
+
+
+def test_parse_state_update_proposal_normalizes_list_field_strings() -> None:
+    data = json.loads(default_mock_state_update_proposal_json(1))
+    data["state_changes"][0]["field"] = "knowledge"
+    data["state_changes"][0]["new_value"] = "知道旧车站广播异常"
+    data["state_changes"][1]["field"] = "possessions"
+    data["state_changes"][1]["new_value"] = "破损车票（item_broken_ticket）"
+
+    proposal = parse_state_update_proposal(json.dumps(data, ensure_ascii=False))
+
+    assert proposal.state_changes[0].new_value == ["知道旧车站广播异常"]
+    assert proposal.state_changes[1].new_value == ["item_broken_ticket"]
+
+
+def test_validate_state_update_rejects_unknown_field(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
+    proposal.state_changes[0].field = "unknown_field"
+
+    try:
+        validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
+    except Exception as exc:
+        assert "unsupported field: unknown_field" in str(exc)
+    else:
+        raise AssertionError("expected unsupported field failure")
+
+
+def test_validate_state_update_rejects_item_holder_location_conflict(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
+    proposal.state_changes.append(
+        proposal.state_changes[1].model_copy(
+            update={
+                "id": "change_001_004",
+                "field": "location_id",
+                "new_value": "loc_old_station",
+            }
+        )
+    )
+
+    try:
+        validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
+    except Exception as exc:
+        assert "item holder/location conflict" in str(exc)
+    else:
+        raise AssertionError("expected holder/location conflict failure")
 
 
 def test_accept_chapter_passed_audit_applies_update_and_marks_accepted(tmp_path: Path) -> None:
@@ -228,6 +308,23 @@ def test_accept_chapter_passed_audit_applies_update_and_marks_accepted(tmp_path:
     assert structured.status == "accepted"
     assert structured.accepted_at is not None
     assert structured.state_update_apply_log_path == "memory/chapters/001/state_update_apply_log.json"
+
+
+def test_accept_chapter_after_apply_is_idempotent(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    first_apply, _, _ = _run_cli(["apply-state-update", "1", "--path", str(root)])
+    timeline_before = json.loads((root / "memory" / "state" / "timeline.json").read_text(encoding="utf-8"))
+
+    code, stdout, stderr = _run_cli(["accept-chapter", "1", "--path", str(root)])
+    timeline_after = json.loads((root / "memory" / "state" / "timeline.json").read_text(encoding="utf-8"))
+
+    assert first_apply == 0
+    assert code == 0
+    assert stderr == ""
+    assert "Accepted chapter:" in stdout
+    assert timeline_after == timeline_before
+    assert len(timeline_after["events"]) == 1
 
 
 def test_propose_state_update_blocked_audit_fails_by_default(tmp_path: Path) -> None:

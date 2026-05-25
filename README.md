@@ -82,7 +82,7 @@ novel polish-chapter 1 --path ./my-novel --provider mock
 novel audit-chapter 1 --path ./my-novel --provider mock
 novel propose-state-update 1 --path ./my-novel --provider mock
 novel apply-state-update 1 --path ./my-novel
-novel accept-chapter 1 --path ./my-novel --allow-issues
+novel accept-chapter 1 --path ./my-novel
 novel export markdown --path ./my-novel --toc --force
 ```
 
@@ -94,6 +94,9 @@ novel export markdown --path ./my-novel --toc --force
 - `write` / `polish` 后可以人工改正文；改完应重新 `audit`。
 - `audit` 有 high/critical 问题时，优先 `revise-chapter` 或人工修订，再接受章节。
 - `state/timeline` 默认通过 proposal 更新；不建议直接改正式 state/timeline，除非你清楚引用关系。
+- 推荐顺序是 `propose-state-update -> apply-state-update -> accept-chapter`。如果已成功 `apply`，`accept-chapter` 会识别 `state_update_apply_log.json`，不会重复追加 timeline 事件。
+- 便捷方式是 `accept-chapter --propose --provider config`：在没有 proposal 时自动生成并应用状态更新。
+- 真实 API 的结构化输出可能第一次不符合 schema；Canon、ChapterPlan、Audit、StateUpdate 会自动做一次 repair retry。仍失败时，先看错误摘要和 `runs/` 日志。
 
 ## 校验和查看项目
 
@@ -283,6 +286,8 @@ novel accept-chapter 1 --path ./rain-station --propose --provider mock
 
 proposal 文件会保存为 `memory/chapters/{chapter_number}/state_update_proposal.json`。
 `apply-state-update` 会在写入前为 state 和 timeline 创建时间戳备份，并写入 `state_update_apply_log.json`。如果写入失败，会尝试从备份回滚。高危审核问题会阻止接受章节，除非显式传入 `--allow-issues`。
+推荐流程是先 `propose-state-update`，人工检查 proposal，再 `apply-state-update`，最后 `accept-chapter`。如果 apply log 已存在且状态为 `applied`，`accept-chapter` 只标记章节 accepted，不会重复应用 state/timeline 更新。
+如果想一步完成，可以使用 `novel accept-chapter 1 --path ./rain-station --propose --provider config`；这会在缺少 proposal 时生成并应用。
 接受章节后会写入结构化状态文件 `memory/chapters/{chapter_number}/metadata.json`，同时保留 `polished.md` front matter 中的 `status: accepted` 以兼容导出流程。
 
 ## 一键生成章节流水线

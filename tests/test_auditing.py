@@ -204,6 +204,64 @@ def test_audit_chapter_flags_enter_prompt(tmp_path: Path) -> None:
     assert "Draft body" in prompt
 
 
+def test_parse_audit_report_normalizes_issue_id_and_string_evidence() -> None:
+    payload = {
+        "chapter_number": 1,
+        "audited_file": "polished.md",
+        "overall_status": "needs_revision",
+        "summary": "发现一处连续性问题。",
+        "issues": [
+            {
+                "id": "ISS-2-1",
+                "severity": "medium",
+                "type": "continuity_issue",
+                "description": "证据字段被模型输出为字符串。",
+                "evidence": "角色突然知道了隐藏信息。",
+                "suggested_fix": "改成角色尚未得知的信息范围。",
+            }
+        ],
+        "passed_checks": [],
+        "created_at": "2026-05-22T00:00:00Z",
+    }
+
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+
+    assert report.issues[0].id == "iss_2_1"
+    assert report.issues[0].evidence[0].source == "polished.md"
+    assert report.issues[0].evidence[0].quote == "角色突然知道了隐藏信息。"
+
+
+def test_audit_chapter_repairs_invalid_provider_report_once(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    bad = json.dumps(
+        {
+            "chapter_number": 1,
+            "audited_file": "polished.md",
+            "overall_status": "passed",
+            "summary": "状态不合法。",
+            "issues": [
+                {
+                    "id": "ISS-2-1",
+                    "severity": "high",
+                    "type": "continuity_issue",
+                    "description": "passed 状态不能包含 high issue。",
+                    "evidence": "example",
+                    "suggested_fix": "改为 needs_revision。",
+                }
+            ],
+            "passed_checks": [],
+            "created_at": "2026-05-22T00:00:00Z",
+        },
+        ensure_ascii=False,
+    )
+    provider = MockProvider(fake_response=[bad, default_mock_audit_report_json(1, "polished.md")])
+
+    result = audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
+
+    assert result.report.overall_status == "passed"
+    assert len(provider.requests) == 2
+
+
 def test_audit_chapter_missing_polished_has_clear_error(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     (root / "memory" / "chapters" / "001" / "polished.md").unlink()

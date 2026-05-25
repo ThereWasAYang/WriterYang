@@ -7,11 +7,10 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.workflow import GenerateChapterOptions, generate_chapter
 from novel.core.workspace import InitOptions, init_workspace
 
 
-def test_ask_identifies_and_runs_chapter_plan_task(tmp_path: Path) -> None:
+def test_ask_creates_creation_session_and_outline(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
     code, stdout, stderr = _run_cli(
@@ -20,45 +19,28 @@ def test_ask_identifies_and_runs_chapter_plan_task(tmp_path: Path) -> None:
 
     assert code == 0
     assert stderr == ""
-    assert "Task: plan" in stdout
-    assert "orchestrator -> plot" in stdout
+    assert "Session:" in stdout
+    assert "outline proposal generated" in stdout
+    assert list((root / "memory" / "sessions").glob("session_*/session.json"))
     assert (root / "memory" / "chapters" / "001" / "plan.json").is_file()
 
 
-def test_ask_identifies_and_runs_write_task(tmp_path: Path) -> None:
+def test_ask_json_returns_session_id(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
-    assert _run_cli(
-        ["ask", "请为第1章生成章节计划", "--path", str(root), "--provider", "mock"]
-    )[0] == 0
 
     code, stdout, stderr = _run_cli(
-        ["ask", "请写第1章初稿", "--path", str(root), "--provider", "mock"]
+        ["ask", "请写第1章初稿", "--path", str(root), "--provider", "mock", "--json", "--quiet"]
     )
 
     assert code == 0
     assert stderr == ""
-    assert "Task: write" in stdout
-    assert (root / "memory" / "chapters" / "001" / "draft.md").is_file()
+    payload = json.loads(stdout)
+    assert payload["ok"] is True
+    assert payload["task"] == "creation_session"
+    assert payload["session_id"].startswith("session_")
 
 
-def test_ask_identifies_and_runs_audit_task(tmp_path: Path) -> None:
-    root = _workspace_ready(tmp_path)
-    result = generate_chapter(
-        GenerateChapterOptions(root=root, chapter_number=1, provider_name="mock", skip_audit=True)
-    )
-    assert result.run_log.status == "completed"
-
-    code, stdout, stderr = _run_cli(
-        ["ask", "请审核第1章一致性", "--path", str(root), "--provider", "mock"]
-    )
-
-    assert code == 0
-    assert stderr == ""
-    assert "Task: audit" in stdout
-    assert (root / "memory" / "chapters" / "001" / "audit.json").is_file()
-
-
-def test_ask_dry_run_does_not_write_files(tmp_path: Path) -> None:
+def test_ask_dry_run_keeps_legacy_orchestrator_plan_without_writing(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
     code, stdout, stderr = _run_cli(
@@ -102,7 +84,7 @@ def test_ask_stops_when_max_steps_exceeded(tmp_path: Path) -> None:
     assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
 
 
-def test_ask_run_log_records_handoff_trace(tmp_path: Path) -> None:
+def test_ask_no_longer_writes_run_log_for_session_start(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
     code, _, stderr = _run_cli(
@@ -111,12 +93,7 @@ def test_ask_run_log_records_handoff_trace(tmp_path: Path) -> None:
 
     assert code == 0
     assert stderr == ""
-    run_log = _latest_run_log(root)
-    assert run_log["task"] == "ask"
-    assert run_log["orchestrator_task"] == "plan"
-    assert run_log["handoff_trace"][0]["source"] == "orchestrator"
-    assert run_log["handoff_trace"][0]["target"] == "plot"
-    assert run_log["steps"][0]["agent"] == "plot_agent"
+    assert not list((root / "runs").glob("run_*.json"))
 
 
 def _workspace_ready(tmp_path: Path) -> Path:
@@ -130,12 +107,6 @@ def _workspace_ready(tmp_path: Path) -> Path:
     proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
     assert apply_canon_proposal(root, proposal_path).validation_report.ok
     return root
-
-
-def _latest_run_log(root: Path) -> dict[str, object]:
-    paths = sorted((root / "runs").glob("run_*.json"))
-    assert paths
-    return json.loads(paths[-1].read_text(encoding="utf-8"))
 
 
 def _run_cli(args: list[str]) -> tuple[int, str, str]:

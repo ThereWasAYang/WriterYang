@@ -158,6 +158,23 @@ def test_api_diff_endpoint_returns_unified_diff(tmp_path: Path) -> None:
     assert "+新文本" in payload["data"]["diff"]  # type: ignore[index]
 
 
+def test_api_session_start_endpoint_creates_outline(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "写第1章", "chapters": "1", "provider": "mock"}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    session = payload["data"]["session"]  # type: ignore[index]
+    assert session["status"] == "outline_proposed"
+    assert (root / "memory" / "sessions" / session["session_id"] / "outline_proposal.md").is_file()
+
+
 def test_frontend_basic_render() -> None:
     html = index_html()
 
@@ -170,6 +187,8 @@ def test_frontend_basic_render() -> None:
     assert 'id="providerConfig"' in html
     assert 'id="stateTimeline"' in html
     assert 'id="diffViewer"' in html
+    assert 'id="sessionStart"' in html
+    assert 'id="sessionRun"' in html
     assert 'id="planChapter"' in html
     assert 'id="writeChapter"' in html
     assert 'id="polishChapter"' in html

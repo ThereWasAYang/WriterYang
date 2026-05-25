@@ -91,6 +91,19 @@
         <button id="auditChapter">审核</button>
       </div>
       <button id="exportMarkdown" style="width: 100%; margin-top: 8px;">导出 Markdown</button>
+
+      <h2>本次创作 Session</h2>
+      <label for="sessionChapters">章节范围</label>
+      <input id="sessionChapters" placeholder="1 或 1-2" value="1">
+      <label for="sessionId">Session ID</label>
+      <input id="sessionId" placeholder="session_...">
+      <div class="actions">
+        <button id="sessionStart">创建大纲</button>
+        <button id="sessionApprove">批准大纲</button>
+        <button id="sessionRun">开始写作</button>
+        <button id="sessionArchive">归档</button>
+      </div>
+      <button id="sessionAccept" style="width: 100%; margin-top: 8px;">认可本次创作</button>
       <div id="message" class="message"></div>
 
       <h2>项目文件树</h2>
@@ -328,6 +341,29 @@
       }
     }
 
+    async function runSessionAction(endpoint, payload, label) {
+      try {
+        const data = await apiPost(endpoint, payload);
+        const session = data.session || {};
+        if (session.session_id) $("sessionId").value = session.session_id;
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        setMessage(`${label}完成`);
+        await refreshAll();
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    function sessionPayload() {
+      return {
+        path: projectPath(),
+        session_id: $("sessionId").value.trim(),
+        intent: $("instruction").value.trim(),
+        chapters: $("sessionChapters").value.trim(),
+        provider: $("provider").value,
+      };
+    }
+
     async function viewFile() {
       try {
         const data = await apiGet("/api/chapter-file", {
@@ -443,6 +479,11 @@
     $("polishChapter").addEventListener("click", () => runAction("/api/polish-chapter", "润色"));
     $("auditChapter").addEventListener("click", () => runAction("/api/audit-chapter", "审核"));
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));
+    $("sessionStart").addEventListener("click", () => runSessionAction("/api/session/start", sessionPayload(), "创建 Session 大纲"));
+    $("sessionApprove").addEventListener("click", () => runSessionAction("/api/session/approve-outline", sessionPayload(), "批准 Session 大纲"));
+    $("sessionRun").addEventListener("click", () => runSessionAction("/api/session/run", sessionPayload(), "Session 写作"));
+    $("sessionAccept").addEventListener("click", () => runSessionAction("/api/session/accept", sessionPayload(), "认可 Session"));
+    $("sessionArchive").addEventListener("click", () => runSessionAction("/api/session/archive", sessionPayload(), "归档 Session"));
     $("viewFile").addEventListener("click", viewFile);
     $("loadCompare").addEventListener("click", loadCompare);
     $("loadRuns").addEventListener("click", loadRuns);

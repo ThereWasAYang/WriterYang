@@ -21,6 +21,21 @@ from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.schemas import ChapterPlan
+from novel.core.session import (
+    SessionActionOptions,
+    SessionInstructionOptions,
+    SessionRunOptions,
+    SessionStartOptions,
+    accept_session,
+    approve_outline,
+    archive_session,
+    load_session,
+    parse_range,
+    revise_content,
+    revise_outline,
+    run_session,
+    start_session,
+)
 from novel.core.usage import summarize_provider_usage
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
 
@@ -98,6 +113,10 @@ def handle_api_request(
             return _success(_provider_config_summary(_root_from_query(query)))
         if method == "GET" and path == "/api/state-timeline":
             return _success(_state_timeline_summary(_root_from_query(query)))
+        if method == "GET" and path == "/api/session":
+            root = _root_from_query(query)
+            session = load_session(root, query.get("session_id") or "")
+            return _success({"session": session.model_dump(mode="json")})
         if method == "GET" and path == "/api/diff":
             return _success(
                 _workspace_diff(
@@ -120,6 +139,20 @@ def handle_api_request(
             return _success(_locked_write(data, "web export markdown", _export_markdown))
         if method == "POST" and path == "/api/generate-chapter":
             return _success(_locked_write(data, "web generate-chapter", _generate_chapter))
+        if method == "POST" and path == "/api/session/start":
+            return _success(_locked_write(data, "web session start", _session_start))
+        if method == "POST" and path == "/api/session/revise-outline":
+            return _success(_locked_write(data, "web session revise-outline", _session_revise_outline))
+        if method == "POST" and path == "/api/session/approve-outline":
+            return _success(_locked_write(data, "web session approve-outline", _session_approve_outline))
+        if method == "POST" and path == "/api/session/run":
+            return _success(_locked_write(data, "web session run", _session_run))
+        if method == "POST" and path == "/api/session/revise-content":
+            return _success(_locked_write(data, "web session revise-content", _session_revise_content))
+        if method == "POST" and path == "/api/session/accept":
+            return _success(_locked_write(data, "web session accept", _session_accept))
+        if method == "POST" and path == "/api/session/archive":
+            return _success(_locked_write(data, "web session archive", _session_archive))
     except WebAPIError as exc:
         return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
     except ProjectLockError as exc:
@@ -304,6 +337,104 @@ def _generate_chapter(data: dict[str, object]) -> dict[str, object]:
         "message": result.message,
         "run_log_path": str(result.run_log_path),
         "status": result.run_log.status,
+    }
+
+
+def _session_start(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    chapter_range = parse_range(str(data.get("chapters") or data.get("chapter") or "1"))
+    segment_range = parse_range(str(data["segments"])) if data.get("segments") else None
+    result = start_session(
+        SessionStartOptions(
+            root=root,
+            user_intent=str(data.get("intent") or ""),
+            chapter_range=chapter_range,
+            segment_range=segment_range,
+            provider_name=str(data.get("provider") or "mock"),
+            force=bool(data.get("force")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_revise_outline(data: dict[str, object]) -> dict[str, object]:
+    result = revise_outline(
+        SessionInstructionOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            instruction=str(data.get("instruction") or ""),
+            provider_name=str(data.get("provider") or "mock"),
+            force=bool(data.get("force")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_approve_outline(data: dict[str, object]) -> dict[str, object]:
+    result = approve_outline(
+        SessionActionOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            force=bool(data.get("force")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_run(data: dict[str, object]) -> dict[str, object]:
+    result = run_session(
+        SessionRunOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            provider_name=str(data.get("provider") or "mock"),
+            force=bool(data.get("force")),
+            max_auto_revision_rounds=_optional_int(data.get("max_auto_revision_rounds")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
+    result = revise_content(
+        SessionInstructionOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            instruction=str(data.get("instruction") or ""),
+            provider_name=str(data.get("provider") or "mock"),
+            force=bool(data.get("force")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_accept(data: dict[str, object]) -> dict[str, object]:
+    result = accept_session(
+        SessionActionOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            provider_name=str(data.get("provider") or "mock"),
+            force=bool(data.get("force")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_archive(data: dict[str, object]) -> dict[str, object]:
+    result = archive_session(
+        SessionActionOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            force=bool(data.get("force")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_result_payload(result) -> dict[str, object]:
+    return {
+        "session": result.session.model_dump(mode="json"),
+        "session_path": str(result.session_path),
+        "message": result.message,
     }
 
 

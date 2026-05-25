@@ -63,6 +63,23 @@ from novel.core.revision import (
     revise_chapter_loop,
 )
 from novel.core.search import SearchError, rebuild_search_index, search_project
+from novel.core.session import (
+    CreationSessionError,
+    SessionActionOptions,
+    SessionInstructionOptions,
+    SessionResult,
+    SessionRunOptions,
+    SessionStartOptions,
+    accept_session,
+    approve_outline,
+    archive_session,
+    parse_range,
+    revise_content,
+    revise_outline,
+    run_session,
+    show_session,
+    start_session,
+)
 from novel.core.state_update import (
     AcceptChapterOptions,
     StateUpdateApplyOptions,
@@ -164,6 +181,103 @@ def _add_agent_runtime_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Show the provider configuration that would be used without calling the provider.",
     )
+
+
+def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
+    command = args.session_command
+    if command == "start":
+        chapters = _resolve_session_chapters(args)
+        segments = parse_range(args.segments) if getattr(args, "segments", None) else None
+        return start_session(
+            SessionStartOptions(
+                root=root,
+                user_intent=args.intent,
+                chapter_range=chapters,
+                segment_range=segments,
+                provider_name=args.provider,
+                force=args.force,
+            )
+        )
+    if command == "show":
+        return show_session(root, args.session_id)
+    if command == "revise-outline":
+        return revise_outline(
+            SessionInstructionOptions(
+                root=root,
+                session_id=args.session_id,
+                instruction=args.instruction,
+                provider_name=args.provider,
+                force=args.force,
+            )
+        )
+    if command == "approve-outline":
+        return approve_outline(SessionActionOptions(root=root, session_id=args.session_id, force=args.force))
+    if command == "run":
+        return run_session(
+            SessionRunOptions(
+                root=root,
+                session_id=args.session_id,
+                provider_name=args.provider,
+                force=args.force,
+                max_auto_revision_rounds=args.max_auto_revision_rounds,
+            )
+        )
+    if command == "revise-content":
+        return revise_content(
+            SessionInstructionOptions(
+                root=root,
+                session_id=args.session_id,
+                instruction=args.instruction,
+                provider_name=args.provider,
+                force=args.force,
+            )
+        )
+    if command == "accept":
+        return accept_session(
+            SessionActionOptions(root=root, session_id=args.session_id, provider_name=args.provider, force=args.force)
+        )
+    if command == "archive":
+        return archive_session(SessionActionOptions(root=root, session_id=args.session_id, force=args.force))
+    raise CreationSessionError(f"unknown session command: {command}")
+
+
+def _resolve_session_chapters(args: argparse.Namespace) -> tuple[int, ...]:
+    chapters = getattr(args, "chapters", None)
+    chapter = getattr(args, "chapter", None)
+    if chapters and chapter:
+        raise CreationSessionError("provide either --chapters or --chapter, not both")
+    if chapters:
+        return parse_range(chapters)
+    if chapter:
+        return (int(chapter),)
+    raise CreationSessionError("provide --chapters or --chapter")
+
+
+def _session_payload(command: str, result: SessionResult) -> dict[str, object]:
+    return {
+        "command": f"session {command}",
+        "session_id": result.session.session_id,
+        "status": result.session.status,
+        "outline_status": result.session.outline_status,
+        "content_status": result.session.content_status,
+        "chapter_range": result.session.chapter_range,
+        "segment_range": result.session.segment_range,
+        "approved_outline_path": result.session.approved_outline_path,
+        "final_output_paths": result.session.final_output_paths,
+        "archive_paths": result.session.archive_paths,
+        "session_path": str(result.session_path),
+        "message": result.message,
+    }
+
+
+def _extract_chapter_from_text(text: str) -> int | None:
+    match = re.search(r"第\s*(\d+)\s*章", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"chapter\s*(\d+)", text, flags=re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return None
 
 
 def _print_dry_run_provider(
@@ -353,7 +467,7 @@ def _resolve_web_port(path: str, explicit_port: int | None) -> int:
 
 def completion_script(shell: str) -> str:
     commands = (
-        "init validate migrate schema index search ask status usage show inspire canon plan-chapter "
+        "init validate migrate schema index search ask session status usage show inspire canon plan-chapter "
         "write-chapter polish-chapter audit-chapter revise-chapter propose-state-update "
         "apply-state-update accept-chapter generate-chapter export web doctor completion"
     )
@@ -711,6 +825,88 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print allowed handoff rules before the plan.",
     )
+
+    session_parser = subparsers.add_parser("session", help="Manage collaborative creation sessions")
+    session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
+    session_start = session_subparsers.add_parser("start", help="Start a collaborative creation session")
+    session_start.add_argument("intent", help="User intent for this creation session")
+    session_start.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_start.add_argument("--chapters", default=None, help="Chapter range, for example 3 or 3-4.")
+    session_start.add_argument("--chapter", type=int, default=None, help="Single chapter for segment sessions.")
+    session_start.add_argument("--segments", default=None, help="Segment range for a chapter, for example 8-10.")
+    session_start.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for outline generation.",
+    )
+    session_start.add_argument("--force", action="store_true", help="Overwrite outline artifacts if needed.")
+
+    session_show = session_subparsers.add_parser("show", help="Show a creation session")
+    session_show.add_argument("session_id", help="Session id")
+    session_show.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+
+    session_revise_outline = session_subparsers.add_parser("revise-outline", help="Revise a session outline proposal")
+    session_revise_outline.add_argument("session_id", help="Session id")
+    session_revise_outline.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_revise_outline.add_argument("--instruction", required=True, help="Outline revision instruction.")
+    session_revise_outline.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for outline revision.",
+    )
+    session_revise_outline.add_argument("--force", action="store_true", help="Overwrite outline artifacts if needed.")
+
+    session_approve = session_subparsers.add_parser("approve-outline", help="Approve a session outline")
+    session_approve.add_argument("session_id", help="Session id")
+    session_approve.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_approve.add_argument("--force", action="store_true", help="Overwrite approved outline artifacts.")
+
+    session_run = session_subparsers.add_parser("run", help="Run a session after outline approval")
+    session_run.add_argument("session_id", help="Session id")
+    session_run.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_run.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for session generation.",
+    )
+    session_run.add_argument("--force", action="store_true", help="Overwrite generated artifacts.")
+    session_run.add_argument(
+        "--max-auto-revision-rounds",
+        type=int,
+        default=None,
+        help="Maximum automatic repair rounds. Defaults to session setting.",
+    )
+
+    session_revise_content = session_subparsers.add_parser("revise-content", help="Revise generated session content")
+    session_revise_content.add_argument("session_id", help="Session id")
+    session_revise_content.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_revise_content.add_argument("--instruction", required=True, help="User feedback for content revision.")
+    session_revise_content.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for content revision.",
+    )
+    session_revise_content.add_argument("--force", action="store_true", help="Overwrite selected revision artifacts.")
+
+    session_accept = session_subparsers.add_parser("accept", help="Accept generated session content")
+    session_accept.add_argument("session_id", help="Session id")
+    session_accept.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_accept.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for missing state proposals.",
+    )
+    session_accept.add_argument("--force", action="store_true", help="Overwrite missing state proposals if needed.")
+
+    session_archive = session_subparsers.add_parser("archive", help="Archive accepted session content")
+    session_archive.add_argument("session_id", help="Session id")
+    session_archive.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_archive.add_argument("--force", action="store_true", help="Overwrite archive files.")
 
     status_parser = subparsers.add_parser("status", help="Show project status")
     status_parser.add_argument(
@@ -1551,43 +1747,92 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ask":
         try:
             with _command_lock(args, Path(args.path), "ask", enabled=not args.dry_run):
-                result = orchestrate(
-                    OrchestratorOptions(
+                if args.max_steps < 1:
+                    raise OrchestratorError("max_steps must be at least 1")
+                if args.max_agent_calls < 1:
+                    raise OrchestratorError("max_agent_calls must be at least 1")
+                if args.dry_run:
+                    result = orchestrate(
+                        OrchestratorOptions(
+                            root=Path(args.path),
+                            request=args.request,
+                            provider_name=args.provider,
+                            dry_run=True,
+                            force=args.force,
+                            max_steps=args.max_steps,
+                            max_retries=args.max_retries,
+                            max_agent_calls=args.max_agent_calls,
+                        )
+                    )
+                    payload = {
+                        "command": "ask",
+                        "task": result.plan.task,
+                        "chapter_number": result.plan.chapter_number,
+                        "message": result.message,
+                        "run_log_path": str(result.run_log_path) if result.run_log_path else None,
+                        "handoff_trace": [entry.as_dict() for entry in result.plan.handoff_trace],
+                    }
+                    if _wants_json(args):
+                        _print_json({"ok": True, **payload})
+                        return 0
+                    if not _quiet(args):
+                        if args.show_handoff_rules:
+                            print(handoff_rules_text())
+                            print("")
+                        print(format_orchestrator_plan(result.plan))
+                        print(result.message)
+                    return 0
+                chapter = _extract_chapter_from_text(args.request) or 1
+                session_result = start_session(
+                    SessionStartOptions(
                         root=Path(args.path),
-                        request=args.request,
+                        user_intent=args.request,
+                        chapter_range=(chapter,),
                         provider_name=args.provider,
-                        dry_run=args.dry_run,
                         force=args.force,
-                        max_steps=args.max_steps,
-                        max_retries=args.max_retries,
-                        max_agent_calls=args.max_agent_calls,
                     )
                 )
         except ProjectLockError as exc:
             return _failure(args, str(exc), error_type="project_locked")
-        except OrchestratorError as exc:
+        except (OrchestratorError, CreationSessionError) as exc:
             return _failure(args, str(exc), error_type="orchestrator_error")
         payload = {
             "command": "ask",
-            "task": result.plan.task,
-            "chapter_number": result.plan.chapter_number,
-            "message": result.message,
-            "run_log_path": str(result.run_log_path) if result.run_log_path else None,
-            "handoff_trace": [entry.as_dict() for entry in result.plan.handoff_trace],
+            "task": "creation_session",
+            "chapter_number": session_result.session.chapter_range[0],
+            "session_id": session_result.session.session_id,
+            "message": session_result.message,
+            "session_path": str(session_result.session_path),
+            "status": session_result.session.status,
         }
         if _wants_json(args):
             _print_json({"ok": True, **payload})
             return 0
         if _quiet(args):
             return 0
-        if args.show_handoff_rules:
-            print(handoff_rules_text())
-            print("")
-        print(format_orchestrator_plan(result.plan))
-        print(result.message)
-        if result.run_log_path:
-            print(f"Run log: {result.run_log_path}")
+        print(f"Session: {session_result.session.session_id}")
+        print(session_result.message)
+        print(f"Session file: {session_result.session_path}")
+        print("Next: review outline_proposal.md, then run novel session approve-outline <session_id>")
         return 0
+
+    if args.command == "session":
+        try:
+            root = Path(args.path)
+            with _command_lock(args, root, f"session {args.session_command}"):
+                result = _run_session_command(args, root)
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
+        except CreationSessionError as exc:
+            return _failure(args, str(exc), error_type="session_error")
+        payload = _session_payload(args.session_command, result)
+        lines = [
+            f"Session: {result.session.session_id}",
+            result.message,
+            f"Status: {result.session.status}",
+            f"Session file: {result.session_path}",
+        ]
+        return _success(args, payload, lines)
 
     if args.command == "status":
         try:

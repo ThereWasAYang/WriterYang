@@ -11,6 +11,18 @@ EntityId = str
 Visibility = Literal["reader_visible", "hidden", "partially_revealed"]
 Importance = Literal["low", "medium", "high", "critical"]
 GenericStatus = Literal["active", "inactive", "resolved", "unresolved", "deprecated"]
+CreationScopeType = Literal["chapters", "segments"]
+CreationSessionStatus = Literal[
+    "drafting_intent",
+    "outline_proposed",
+    "outline_approved",
+    "generating",
+    "needs_user_review",
+    "accepted",
+    "archived",
+]
+CreationOutlineStatus = Literal["draft", "proposed", "approved"]
+CreationContentStatus = Literal["not_started", "generating", "needs_revision", "needs_user_review", "accepted", "archived"]
 
 
 class FlexibleModel(BaseModel):
@@ -409,6 +421,65 @@ class ChapterMetadata(SchemaVersionedModel):
     state_update_apply_log_path: str | None = None
     accepted_at: datetime | None = None
     updated_at: datetime
+
+
+class CreationArchiveEntry(FlexibleModel):
+    source_path: str = Field(min_length=1)
+    archive_path: str = Field(min_length=1)
+    sha256: str = Field(min_length=64, max_length=64)
+    created_at: datetime
+
+
+class CreationSession(SchemaVersionedModel):
+    session_id: str = Field(min_length=1, pattern=r"^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
+    scope_type: CreationScopeType
+    chapter_range: list[int] = Field(min_length=1)
+    segment_range: list[int] | None = None
+    user_intent: str = Field(min_length=1)
+    status: CreationSessionStatus
+    outline_status: CreationOutlineStatus = "draft"
+    content_status: CreationContentStatus = "not_started"
+    approved_outline_path: str | None = None
+    final_output_paths: list[str] = Field(default_factory=list)
+    audit_history: list[str] = Field(default_factory=list)
+    revision_history: list[str] = Field(default_factory=list)
+    archive_paths: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    max_auto_revision_rounds: int = Field(default=3, ge=0)
+
+    @model_validator(mode="after")
+    def validate_scope_and_status(self) -> CreationSession:
+        if sorted(set(self.chapter_range)) != self.chapter_range:
+            raise ValueError("chapter_range must be sorted and unique")
+        if self.scope_type == "segments" and not self.segment_range:
+            raise ValueError("segment sessions require segment_range")
+        if self.status in {"outline_approved", "generating", "needs_user_review", "accepted", "archived"}:
+            if self.outline_status != "approved":
+                raise ValueError("approved-or-later sessions require outline_status=approved")
+        if self.status == "archived" and self.content_status != "archived":
+            raise ValueError("archived sessions require content_status=archived")
+        return self
+
+
+class CreationOutlineChapter(FlexibleModel):
+    chapter_number: int = Field(ge=1)
+    title: str = Field(min_length=1)
+    plan_path: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+
+
+class CreationOutline(SchemaVersionedModel):
+    session_id: str = Field(min_length=1)
+    user_intent: str = Field(min_length=1)
+    chapters: list[CreationOutlineChapter] = Field(min_length=1)
+    created_at: datetime
+
+
+class CreationArchiveManifest(SchemaVersionedModel):
+    session_id: str = Field(min_length=1)
+    created_at: datetime
+    entries: list[CreationArchiveEntry] = Field(default_factory=list)
 
 
 class AgentRunStep(FlexibleModel):

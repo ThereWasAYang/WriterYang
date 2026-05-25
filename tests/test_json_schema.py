@@ -30,6 +30,9 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "state_update_apply_log",
         "chapter_metadata",
         "revision_log",
+        "creation_session",
+        "creation_outline",
+        "creation_archive",
         "run_log",
         "export_manifest",
     }

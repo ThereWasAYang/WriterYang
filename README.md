@@ -63,10 +63,10 @@ novel status --path examples/wuxia_mountain_sect
 
 ## 中文长篇小说默认工作流
 
-推荐工作流：
+推荐工作流已经改为“协作式创作 Session”。用户先和工具确认本次创作范围，系统生成可协商大纲；用户批准大纲后才自动进入写作、润色、审核和状态更新 proposal；用户认可最终内容后再接受和归档。
 
 ```text
-init -> inspire -> canon suggest/apply -> plan -> write -> polish -> audit -> propose/apply state -> accept -> export
+init -> inspire -> canon suggest/apply -> session start/outline -> approve outline -> session run -> user review -> session accept/archive -> export
 ```
 
 对应命令：
@@ -76,13 +76,12 @@ novel init "新书名" --path ./my-novel
 novel inspire "一句或一段原始灵感" --path ./my-novel --provider mock --overwrite
 novel canon suggest --path ./my-novel --provider mock --output canon-proposal.json
 novel canon apply canon-proposal.json --path ./my-novel
-novel plan-chapter 1 --path ./my-novel --provider mock
-novel write-chapter 1 --path ./my-novel --provider mock
-novel polish-chapter 1 --path ./my-novel --provider mock
-novel audit-chapter 1 --path ./my-novel --provider mock
-novel propose-state-update 1 --path ./my-novel --provider mock
-novel apply-state-update 1 --path ./my-novel
-novel accept-chapter 1 --path ./my-novel
+novel session start "写第1章：雨夜旧车站，建立调查动机" --path ./my-novel --chapters 1 --provider mock
+novel session approve-outline <session_id> --path ./my-novel
+novel session run <session_id> --path ./my-novel --provider mock
+novel session revise-content <session_id> --path ./my-novel --provider mock --instruction "加强压抑感，减少解释"
+novel session accept <session_id> --path ./my-novel --provider mock
+novel session archive <session_id> --path ./my-novel
 novel export markdown --path ./my-novel --toc --force
 ```
 
@@ -90,12 +89,14 @@ novel export markdown --path ./my-novel --toc --force
 
 - `inspire` 后可以手动改 `memory/inspiration.md`，让弱总纲更贴近作者意图。
 - `canon suggest` 后先看 proposal，再 `apply`；不要把隐藏真相写进读者可见摘要。
-- `plan` 后可以改 `plan.md` 或 `plan.json`，但要保持 ID 引用存在。
-- `write` / `polish` 后可以人工改正文；改完应重新 `audit`。
-- `audit` 有 high/critical 问题时，优先 `revise-chapter` 或人工修订，再接受章节。
+- `session start` 后先看 `memory/sessions/{session_id}/outline_proposal.md`，不满意就 `session revise-outline`。
+- `session approve-outline` 后，后续写作必须遵守 approved outline。
+- `session run` 会自动写作、润色、审核；audit 发现 high/critical 硬伤时会自动尝试修复，超过轮数才停给用户。
+- 用户看到最终内容后用 `session revise-content` 提意见；系统生成新版本，不覆盖归档内容。
+- `session accept` 后才应用状态更新并标记章节 accepted；`session archive` 会复制本次创作文件并记录 sha256。
 - `state/timeline` 默认通过 proposal 更新；不建议直接改正式 state/timeline，除非你清楚引用关系。
-- 推荐顺序是 `propose-state-update -> apply-state-update -> accept-chapter`。如果已成功 `apply`，`accept-chapter` 会识别 `state_update_apply_log.json`，不会重复追加 timeline 事件。
-- 便捷方式是 `accept-chapter --propose --provider config`：在没有 proposal 时自动生成并应用状态更新。
+- 归档后的内容默认不可变；如需修改，应创建新的 revision session。
+- 底层 `plan-chapter/write-chapter/polish-chapter/audit-chapter` 仍保留给调试和高级用户，但日常创作推荐用 `novel ask` / `novel session`。
 - 真实 API 的结构化输出可能第一次不符合 schema；Canon、ChapterPlan、Audit、StateUpdate 会自动做一次 repair retry。仍失败时，先看错误摘要和 `runs/` 日志。
 
 ## 校验和查看项目
@@ -376,13 +377,14 @@ novel audit-chapter 1 --path ./rain-station --provider mock --use-search-context
 ## 受控编排
 
 ```bash
-novel ask "请为第1章生成章节计划" --path ./rain-station --provider mock
-novel ask "请写第1章初稿" --path ./rain-station --provider mock
-novel ask "请审核第1章一致性" --path ./rain-station --provider mock
+novel ask "写第1章：雨夜旧车站，建立调查动机" --path ./rain-station --provider mock
+novel session show <session_id> --path ./rain-station
+novel session approve-outline <session_id> --path ./rain-station
+novel session run <session_id> --path ./rain-station --provider mock
 novel ask "请为第1章生成章节计划" --path ./rain-station --provider mock --dry-run
 ```
 
-`novel ask` 是规则化 orchestrator，不做自由多 agent 辩论。它会记录 `handoff_trace` 到 run log。
+`novel ask` 是规则化 orchestrator，不做自由多 agent 辩论。非 dry-run 时，它会创建 Creation Session 和大纲 proposal；dry-run 仍只显示分类和 handoff 计划，不写文件。
 
 ## 导出
 

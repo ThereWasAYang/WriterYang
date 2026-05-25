@@ -16,6 +16,9 @@ from novel.core.schemas import (
     ChapterMetadata,
     ChapterPlan,
     CharactersFile,
+    CreationArchiveManifest,
+    CreationOutline,
+    CreationSession,
     EmbeddingsConfig,
     EntityState,
     ForeshadowingFile,
@@ -153,6 +156,7 @@ def _validate_loaded_project(
         _validate_optional_agent_outputs(report, root)
         _validate_chapter_outputs(report, root, loaded)
         _validate_run_and_export_outputs(report, root)
+        _validate_session_outputs(report, root)
 
 
 def _validate_schema_versions(report: ValidationReport, root: Path, loaded: LoadedProject) -> None:
@@ -778,6 +782,19 @@ def _validate_run_and_export_outputs(report: ValidationReport, root: Path) -> No
             _validate_optional_chapter_json(report, run_path, AgentRunLog)
     export_manifest_path = root / "exports" / "export_manifest.json"
     _validate_optional_chapter_json(report, export_manifest_path, ExportManifest)
+
+
+def _validate_session_outputs(report: ValidationReport, root: Path) -> None:
+    sessions_dir = root / "memory" / "sessions"
+    if sessions_dir.exists():
+        for session_dir in sorted(path for path in sessions_dir.glob("session_*") if path.is_dir()):
+            _validate_optional_chapter_json(report, session_dir / "session.json", CreationSession)
+            _validate_optional_chapter_json(report, session_dir / "outline_proposal.json", CreationOutline)
+            _validate_optional_chapter_json(report, session_dir / "approved_outline.json", CreationOutline)
+    archive_dir = root / "memory" / "archive"
+    if archive_dir.exists():
+        for manifest_path in sorted(archive_dir.glob("session_*/manifest.json")):
+            _validate_optional_chapter_json(report, manifest_path, CreationArchiveManifest)
 
 
 def _validate_state_update_proposal_references(

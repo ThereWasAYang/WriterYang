@@ -5,3 +5,4 @@
 每个问题都必须包含 severity、type、evidence、suggested_fix。
 不要修改正文，不要更新 canon/state/timeline。
 如果没有发现问题，也要输出合法的 AuditReport JSON。
+这是内部任务，请直接输出审核 JSON，不要向用户或上游 Agent 反问；无法判断的内容写入 low/medium issue 或 passed_checks 说明。

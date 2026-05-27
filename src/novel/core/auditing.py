@@ -9,6 +9,11 @@ from typing import Literal
 
 from pydantic import ValidationError
 
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    generate_with_output_guard,
+)
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.consistency import check_chapter_consistency
 from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
@@ -123,7 +128,7 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         strict=options.strict,
         focus=options.focus,
     )
-    provider_report = _generate_audit_report_with_repair(provider, context, user_prompt)
+    provider_report = _generate_audit_report_with_repair(provider, context, user_prompt, root)
     if provider_report.chapter_number != options.chapter_number:
         precheck = _append_precheck_issue(
             precheck,
@@ -488,6 +493,7 @@ def _generate_audit_report_with_repair(
     provider: ModelProvider,
     context: AuditContext,
     user_prompt: str,
+    root: Path,
 ) -> AuditReport:
     request = ModelRequest(
         system_prompt=build_audit_system_prompt(),
@@ -495,25 +501,55 @@ def _generate_audit_report_with_repair(
         context=context.canon_summary,
         json_schema_name="AuditReport",
     )
-    response = provider.generate(request)
+    content = generate_with_output_guard(
+        provider,
+        request,
+        root=root,
+        invocation=AgentInvocationContext(
+            agent_name="audit",
+            caller="cli",
+            interaction_mode="internal_task",
+            task="audit_chapter",
+            chapter_number=context.plan.chapter_number,
+        ),
+        contract=AgentOutputContract(
+            output_kind="json",
+            target_name="AuditReport",
+            json_schema_name="AuditReport",
+        ),
+    )
     try:
-        return parse_audit_report(response.content)
+        return parse_audit_report(content)
     except AuditError as first_error:
-        repair_response = provider.generate(
+        repair_content = generate_with_output_guard(
+            provider,
             ModelRequest(
                 system_prompt=build_audit_system_prompt(),
                 user_prompt=_repair_prompt(
                     schema_name="AuditReport",
                     original_prompt=user_prompt,
-                    invalid_output=response.content,
+                    invalid_output=content,
                     error=str(first_error),
                 ),
                 context=context.canon_summary,
                 json_schema_name="AuditReport",
-            )
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="audit",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="audit_chapter_repair",
+                chapter_number=context.plan.chapter_number,
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="AuditReport",
+                json_schema_name="AuditReport",
+            ),
         )
         try:
-            return parse_audit_report(repair_response.content)
+            return parse_audit_report(repair_content)
         except AuditError as second_error:
             raise AuditError(
                 f"provider returned invalid AuditReport after repair retry: {second_error}"

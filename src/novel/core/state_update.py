@@ -11,6 +11,11 @@ from typing import Any, Literal
 import yaml
 from pydantic import ValidationError
 
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    generate_with_output_guard,
+)
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
@@ -567,27 +572,57 @@ def _generate_state_update_proposal_with_repair(
         context=context.canon_summary,
         json_schema_name="StateUpdateProposal",
     )
-    response = provider.generate(request)
+    content = generate_with_output_guard(
+        provider,
+        request,
+        root=options.root,
+        invocation=AgentInvocationContext(
+            agent_name="state_update",
+            caller="cli",
+            interaction_mode="internal_task",
+            task="propose_state_update",
+            chapter_number=options.chapter_number,
+        ),
+        contract=AgentOutputContract(
+            output_kind="json",
+            target_name="StateUpdateProposal",
+            json_schema_name="StateUpdateProposal",
+        ),
+    )
     try:
-        proposal = _parse_and_validate_state_update_response(response.content, options)
+        proposal = _parse_and_validate_state_update_response(content, options)
         warnings = validate_state_update_proposal(options.root, proposal, check_existing_timeline_ids=False)
         return proposal, tuple(warnings)
     except StateUpdateError as first_error:
-        repair_response = provider.generate(
+        repair_content = generate_with_output_guard(
+            provider,
             ModelRequest(
                 system_prompt=build_state_update_system_prompt(),
                 user_prompt=_repair_prompt(
                     schema_name="StateUpdateProposal",
                     original_prompt=user_prompt,
-                    invalid_output=response.content,
+                    invalid_output=content,
                     error=str(first_error),
                 ),
                 context=context.canon_summary,
                 json_schema_name="StateUpdateProposal",
-            )
+            ),
+            root=options.root,
+            invocation=AgentInvocationContext(
+                agent_name="state_update",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="propose_state_update_repair",
+                chapter_number=options.chapter_number,
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="StateUpdateProposal",
+                json_schema_name="StateUpdateProposal",
+            ),
         )
         try:
-            proposal = _parse_and_validate_state_update_response(repair_response.content, options)
+            proposal = _parse_and_validate_state_update_response(repair_content, options)
             warnings = validate_state_update_proposal(options.root, proposal, check_existing_timeline_ids=False)
             return proposal, tuple(warnings)
         except StateUpdateError as second_error:

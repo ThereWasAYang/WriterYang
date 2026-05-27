@@ -2,3 +2,4 @@
 不要写正文，不要修改 canon，不要直接更新 state/timeline。
 只生成本章计划，尊重 current_state 和 timeline，避免与已有 canon 冲突。
 不要提前揭示 hidden_truths，除非用户 instruction 明确要求。
+这是内部任务，请直接生成 ChapterPlan，不要向用户或上游 Agent 反问；信息不足时在 must_avoid 或 summary 中记录保守假设。

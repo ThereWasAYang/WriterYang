@@ -8,6 +8,11 @@ from typing import Literal
 
 import yaml
 
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    generate_with_output_guard,
+)
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
@@ -113,7 +118,25 @@ def polish_chapter(
         ),
         context=format_canon_summary(canon),
     )
-    body = _clean_polished_body("".join(provider.stream(model_request)))
+    body = _clean_polished_body(
+        generate_with_output_guard(
+            provider,
+            model_request,
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="polish",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="polish_chapter",
+                chapter_number=options.chapter_number,
+            ),
+            contract=AgentOutputContract(
+                output_kind="markdown",
+                target_name="polished chapter Markdown body",
+            ),
+            stream=True,
+        )
+    )
     if not body:
         raise PolishingError("polish provider returned empty polished content")
 

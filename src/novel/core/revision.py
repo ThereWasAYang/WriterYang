@@ -7,6 +7,11 @@ from pathlib import Path
 import re
 from typing import Literal
 
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    generate_with_output_guard,
+)
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
@@ -105,14 +110,27 @@ def revise_chapter(
             f"chapter {options.chapter_number}"
         )
 
-    response = provider.generate(
+    content = generate_with_output_guard(
+        provider,
         ModelRequest(
             system_prompt=build_revision_system_prompt(),
             user_prompt=build_revision_user_prompt(context, options),
             context=context.canon_summary,
-        )
+        ),
+        root=root,
+        invocation=AgentInvocationContext(
+            agent_name="revision",
+            caller="cli",
+            interaction_mode="internal_task",
+            task="revise_chapter",
+            chapter_number=options.chapter_number,
+        ),
+        contract=AgentOutputContract(
+            output_kind="markdown",
+            target_name="revised chapter Markdown body",
+        ),
     )
-    body = _clean_revised_body(response.content)
+    body = _clean_revised_body(content)
     if not body:
         raise RevisionError("revision provider returned empty content")
 

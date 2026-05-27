@@ -48,6 +48,17 @@ def test_mock_provider_can_generate_state_update_proposal(tmp_path: Path) -> Non
     assert "只输出结构化 JSON" in provider.requests[0].system_prompt
 
 
+def test_state_update_agent_question_repairs_once(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    provider = MockProvider(fake_response=["是否现在更新状态文件？", default_mock_state_update_proposal_json(1)])
+
+    result = propose_state_update(StateUpdateProposeOptions(root=root, chapter_number=1), provider)
+
+    assert result.proposal.chapter_number == 1
+    assert len(provider.requests) == 2
+    assert "不要向用户或上游 Agent 提问" in provider.requests[1].user_prompt
+
+
 def test_propose_state_update_does_not_modify_state_or_timeline(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     state_path = root / "memory" / "state" / "current_state.json"

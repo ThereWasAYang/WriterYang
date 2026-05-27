@@ -6,6 +6,11 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    generate_with_output_guard,
+)
 from novel.core.canon import CanonFiles, format_canon_summary, load_canon_files
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -89,6 +94,7 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         search_context=search_context,
     )
     plan = _generate_chapter_plan_with_repair(
+        root=root,
         provider=provider,
         user_prompt=user_prompt,
         canon_summary=canon_summary,
@@ -202,6 +208,7 @@ def parse_chapter_plan(content: str) -> ChapterPlan:
 
 def _generate_chapter_plan_with_repair(
     *,
+    root: Path,
     provider: ModelProvider,
     user_prompt: str,
     canon_summary: str,
@@ -210,35 +217,63 @@ def _generate_chapter_plan_with_repair(
     state: EntityState,
     timeline: TimelineFile,
 ) -> ChapterPlan:
-    response = provider.generate(
+    content = generate_with_output_guard(
+        provider,
         ModelRequest(
             system_prompt=build_planning_system_prompt(),
             user_prompt=user_prompt,
             context=canon_summary,
             json_schema_name="ChapterPlan",
-        )
+        ),
+        root=root,
+        invocation=AgentInvocationContext(
+            agent_name="plot",
+            caller="cli",
+            interaction_mode="internal_task",
+            task="plan_chapter",
+            chapter_number=chapter_number,
+        ),
+        contract=AgentOutputContract(
+            output_kind="json",
+            target_name="ChapterPlan",
+            json_schema_name="ChapterPlan",
+        ),
     )
     try:
-        plan = parse_chapter_plan(response.content)
+        plan = parse_chapter_plan(content)
         _validate_plan_for_write(plan, chapter_number, canon, state, timeline)
         return plan
     except PlanningError as first_error:
-        repair_response = provider.generate(
+        repair_content = generate_with_output_guard(
+            provider,
             ModelRequest(
                 system_prompt=build_planning_system_prompt(),
                 user_prompt=_repair_prompt(
                     schema_name="ChapterPlan",
                     original_prompt=user_prompt,
-                    invalid_output=response.content,
+                    invalid_output=content,
                     error=str(first_error),
                     allowed_ids=_allowed_id_summary(canon, state, timeline),
                 ),
                 context=canon_summary,
                 json_schema_name="ChapterPlan",
-            )
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="plot",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="plan_chapter_repair",
+                chapter_number=chapter_number,
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="ChapterPlan",
+                json_schema_name="ChapterPlan",
+            ),
         )
         try:
-            plan = parse_chapter_plan(repair_response.content)
+            plan = parse_chapter_plan(repair_content)
             _validate_plan_for_write(plan, chapter_number, canon, state, timeline)
             return plan
         except PlanningError as second_error:

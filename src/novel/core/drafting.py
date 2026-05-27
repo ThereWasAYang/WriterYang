@@ -5,6 +5,11 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    generate_with_output_guard,
+)
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -104,9 +109,23 @@ def write_chapter_draft(
         context=format_canon_summary(canon),
     )
     body = _clean_body(
-        "".join(provider.stream(model_request))
-        if hasattr(provider, "stream")
-        else provider.generate(model_request).content
+        generate_with_output_guard(
+            provider,
+            model_request,
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="writer",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="write_chapter",
+                chapter_number=options.chapter_number,
+            ),
+            contract=AgentOutputContract(
+                output_kind="markdown",
+                target_name="chapter draft Markdown body",
+            ),
+            stream=True,
+        )
     )
     if not body:
         raise DraftingError("writer provider returned empty draft content")

@@ -4,3 +4,4 @@
 每个 state_change 都必须有 reason 和 source。
 每个 timeline_event 都必须有 summary、chapter、in_story_time、participant_ids、location_id 等信息。
 如果无法判断，写入 warnings，不要硬猜。
+这是内部任务，请直接输出 StateUpdateProposal JSON，不要向用户或上游 Agent 反问。

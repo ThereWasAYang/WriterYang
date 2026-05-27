@@ -8,6 +8,11 @@ from typing import Iterable
 
 from pydantic import ValidationError
 
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    generate_with_output_guard,
+)
 from novel.core.io import atomic_write_text, backup_file, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -63,7 +68,7 @@ def suggest_canon(options: CanonSuggestOptions, provider: ModelProvider) -> Cano
         style_guide=style_guide,
         existing_summary=existing_summary,
     )
-    proposal = _generate_canon_proposal_with_repair(provider, user_prompt, existing_summary)
+    proposal = _generate_canon_proposal_with_repair(root, provider, user_prompt, existing_summary)
     proposal_json = proposal.model_dump_json(indent=2) + "\n"
 
     output_path = options.output_path
@@ -268,40 +273,67 @@ def parse_canon_proposal(content: str) -> CanonProposal:
 
 
 def _generate_canon_proposal_with_repair(
+    root: Path,
     provider: ModelProvider,
     user_prompt: str,
     existing_summary: str,
 ) -> CanonProposal:
-    response = provider.generate(
-        ModelRequest(
-            system_prompt=build_canon_system_prompt(),
-            user_prompt=user_prompt,
-            context=existing_summary,
+    request = ModelRequest(
+        system_prompt=build_canon_system_prompt(),
+        user_prompt=user_prompt,
+        context=existing_summary,
+        json_schema_name="CanonProposal",
+    )
+    content = generate_with_output_guard(
+        provider,
+        request,
+        root=root,
+        invocation=AgentInvocationContext(
+            agent_name="canon",
+            caller="cli",
+            interaction_mode="internal_task",
+            task="canon_suggest",
+        ),
+        contract=AgentOutputContract(
+            output_kind="json",
+            target_name="CanonProposal",
             json_schema_name="CanonProposal",
-        )
+        ),
     )
     try:
-        proposal = parse_canon_proposal(response.content)
+        proposal = parse_canon_proposal(content)
         validate_canon_proposal(proposal)
         return proposal
     except CanonError as exc:
-        repair_response = provider.generate(
+        repair_content = generate_with_output_guard(
+            provider,
             ModelRequest(
                 system_prompt=build_canon_system_prompt(),
                 user_prompt=_repair_prompt(
                     schema_name="CanonProposal",
                     original_prompt=user_prompt,
-                    invalid_output=response.content,
+                    invalid_output=content,
                     error=str(exc),
                 ),
                 context=existing_summary,
                 json_schema_name="CanonProposal",
-            )
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="canon",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="canon_suggest_repair",
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="CanonProposal",
+                json_schema_name="CanonProposal",
+            ),
         )
-        proposal = parse_canon_proposal(repair_response.content)
+        proposal = parse_canon_proposal(repair_content)
         validate_canon_proposal(proposal)
         return proposal
-
 
 def _repair_prompt(*, schema_name: str, original_prompt: str, invalid_output: str, error: str) -> str:
     return (

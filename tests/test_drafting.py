@@ -40,6 +40,36 @@ def test_mock_provider_can_generate_chapter_draft(tmp_path: Path) -> None:
     assert "不要输出大纲、解释、分析或 JSON" in provider.requests[0].system_prompt
 
 
+def test_writer_output_question_repairs_once(tmp_path: Path) -> None:
+    root = _workspace_with_plan(tmp_path)
+    provider = MockProvider(fake_response=["请提供目标文风后我再写，可以吗？", "雨声压低了旧车站的轮廓。"])
+
+    result = write_chapter_draft(ChapterDraftingOptions(root=root, chapter_number=1), provider)
+
+    assert "雨声压低了旧车站的轮廓。" in result.draft_markdown
+    assert len(provider.requests) == 2
+    assert "不要向用户或上游 Agent 提问" in provider.requests[1].user_prompt
+    logs = list((root / "runs" / "agent_output_violations").glob("*.json"))
+    assert len(logs) == 1
+    assert "请提供目标文风" in logs[0].read_text(encoding="utf-8")
+
+
+def test_writer_output_question_twice_fails_without_writing_draft(tmp_path: Path) -> None:
+    root = _workspace_with_plan(tmp_path)
+    provider = MockProvider(fake_response=["请提供目标文风后我再写，可以吗？", "请补充角色动机。"])
+
+    try:
+        write_chapter_draft(ChapterDraftingOptions(root=root, chapter_number=1), provider)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected output contract failure")
+
+    assert "agent output violated contract after repair retry" in message
+    assert not (root / "memory" / "chapters" / "001" / "draft.md").exists()
+    assert len(list((root / "runs" / "agent_output_violations").glob("*.json"))) == 2
+
+
 def test_write_chapter_cli_creates_draft_with_front_matter(tmp_path: Path) -> None:
     root = _workspace_with_plan(tmp_path)
 

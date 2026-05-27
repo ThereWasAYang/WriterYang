@@ -47,6 +47,17 @@ def test_mock_provider_can_generate_audit_report(tmp_path: Path) -> None:
     assert "只输出 AuditReport JSON" in provider.requests[0].system_prompt
 
 
+def test_audit_agent_question_repairs_once(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    provider = MockProvider(fake_response=["是否需要重点检查时间线？", default_mock_audit_report_json(1, "polished.md")])
+
+    result = audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
+
+    assert result.report.overall_status == "passed"
+    assert len(provider.requests) == 2
+    assert "不要向用户或上游 Agent 提问" in provider.requests[1].user_prompt
+
+
 def test_audit_search_context_writes_report_and_includes_hidden_truth(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     provider = MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md"))

@@ -7,6 +7,11 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    generate_with_output_guard,
+)
 from novel.core.io import atomic_write_text, backup_if_exists, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -58,9 +63,26 @@ def run_inspiration_agent(
         context=_project_context(project),
         json_schema_name="InspirationBrief" if options.write_json else None,
     )
-    response = provider.generate(model_request)
-    markdown = _ensure_markdown(response.content, source_text)
-    brief = _brief_from_response(response.content, source_text, options.source_type)
+    content = generate_with_output_guard(
+        provider,
+        model_request,
+        root=root,
+        invocation=AgentInvocationContext(
+            agent_name="inspiration",
+            caller="cli",
+            interaction_mode="internal_task",
+            task="inspire",
+        ),
+        contract=AgentOutputContract(
+            output_kind="markdown",
+            target_name="Inspiration Markdown",
+            json_schema_name="InspirationBrief" if options.write_json else None,
+            allow_json_payload=options.write_json,
+            disallow_outline_or_analysis=False,
+        ),
+    )
+    markdown = _ensure_markdown(content, source_text)
+    brief = _brief_from_response(content, source_text, options.source_type)
 
     _write_new_or_overwrite(markdown_path, markdown, options.overwrite)
     if json_path:

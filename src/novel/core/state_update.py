@@ -742,11 +742,11 @@ def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
 
 
 def _ensure_audit_allows_progress(audit: AuditReport, *, allow_issues: bool) -> None:
-    severe = [issue for issue in audit.issues if issue.severity in {"high", "critical"}]
+    severe = [issue for issue in audit.issues if issue.severity in {"medium", "high", "critical"}]
     if audit.overall_status == "blocked" or severe:
         if not allow_issues:
             raise StateUpdateError(
-                "audit has unresolved high or critical issues; pass the explicit allow flag to continue"
+                "audit has unresolved medium, high, or critical issues; pass the explicit allow flag to continue"
             )
 
 

@@ -80,6 +80,7 @@ novel session start "写第1章：雨夜旧车站，建立调查动机" --path .
 novel session approve-outline <session_id> --path ./my-novel
 novel session run <session_id> --path ./my-novel --provider mock
 novel session revise-content <session_id> --path ./my-novel --provider mock --instruction "加强压抑感，减少解释"
+novel session revise-content <session_id> --path ./my-novel --provider mock --from-audit
 novel session accept <session_id> --path ./my-novel --provider mock
 novel session archive <session_id> --path ./my-novel
 novel export markdown --path ./my-novel --toc --force
@@ -91,7 +92,8 @@ novel export markdown --path ./my-novel --toc --force
 - `canon suggest` 后先看 proposal，再 `apply`；不要把隐藏真相写进读者可见摘要。
 - `session start` 后先看 `memory/sessions/{session_id}/outline_proposal.md`，不满意就 `session revise-outline`。
 - `session approve-outline` 后，后续写作必须遵守 approved outline。
-- `session run` 会自动写作、润色、审核；audit 发现 high/critical 硬伤时会自动尝试修复，超过轮数才停给用户。
+- `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复，超过轮数才停给用户。
+- low 级别 audit issue 不会被静默自动修改，会展示给作者；作者可选择直接接受，或运行 `session revise-content <session_id> --from-audit` 生成修订版本。
 - 用户看到最终内容后用 `session revise-content` 提意见；系统生成新版本，不覆盖归档内容。
 - `session accept` 后才应用状态更新并标记章节 accepted；`session archive` 会复制本次创作文件并记录 sha256。
 - `state/timeline` 默认通过 proposal 更新；不建议直接改正式 state/timeline，除非你清楚引用关系。
@@ -288,7 +290,7 @@ novel accept-chapter 1 --path ./rain-station --propose --provider mock
 ```
 
 proposal 文件会保存为 `memory/chapters/{chapter_number}/state_update_proposal.json`。
-`apply-state-update` 会在写入前为 state 和 timeline 创建时间戳备份，并写入 `state_update_apply_log.json`。如果写入失败，会尝试从备份回滚。高危审核问题会阻止接受章节，除非显式传入 `--allow-issues`。
+`apply-state-update` 会在写入前为 state 和 timeline 创建时间戳备份，并写入 `state_update_apply_log.json`。如果写入失败，会尝试从备份回滚。medium/high/critical 审核问题会阻止接受章节，除非显式传入 `--allow-issues`。low 问题会保留给作者决定是否修复。
 推荐流程是先 `propose-state-update`，人工检查 proposal，再 `apply-state-update`，最后 `accept-chapter`。如果 apply log 已存在且状态为 `applied`，`accept-chapter` 只标记章节 accepted，不会重复应用 state/timeline 更新。
 如果想一步完成，可以使用 `novel accept-chapter 1 --path ./rain-station --propose --provider config`；这会在缺少 proposal 时生成并应用。
 接受章节后会写入结构化状态文件 `memory/chapters/{chapter_number}/metadata.json`，同时保留 `polished.md` front matter 中的 `status: accepted` 以兼容导出流程。

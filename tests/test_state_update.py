@@ -350,7 +350,7 @@ def test_propose_state_update_blocked_audit_fails_by_default(tmp_path: Path) -> 
 
     assert code == 1
     assert stdout == ""
-    assert "unresolved high or critical issues" in stderr
+    assert "unresolved medium, high, or critical issues" in stderr
 
 
 def test_accept_chapter_can_auto_propose_when_missing(tmp_path: Path) -> None:
@@ -387,7 +387,7 @@ def test_accept_chapter_blocked_audit_fails_by_default(tmp_path: Path) -> None:
 
     assert code == 1
     assert stdout == ""
-    assert "unresolved high or critical issues" in stderr
+    assert "unresolved medium, high, or critical issues" in stderr
 
 
 def test_accept_chapter_allow_issues_can_continue_with_blocked_audit(tmp_path: Path) -> None:

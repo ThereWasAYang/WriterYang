@@ -8,7 +8,8 @@ from pathlib import Path
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import load_json_model
-from novel.core.schemas import CreationArchiveManifest, CreationSession
+from novel.core.schemas import AuditReport, CreationArchiveManifest, CreationSession
+from novel.core.session import _has_hard_issues
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -74,6 +75,30 @@ def test_session_run_requires_approved_outline(tmp_path: Path) -> None:
     assert "approve the outline" in stderr
 
 
+def test_session_auto_repair_treats_medium_issues_as_blocking() -> None:
+    report = AuditReport.model_validate(
+        {
+            "chapter_number": 1,
+            "audited_file": "polished.md",
+            "overall_status": "needs_revision",
+            "summary": "中等级别问题需要自动修复。",
+            "issues": [
+                {
+                    "id": "audit_001_medium",
+                    "severity": "medium",
+                    "type": "plot_logic_issue",
+                    "description": "转场逻辑不足。",
+                    "evidence": [{"source": "polished.md", "quote": "忽然"}],
+                    "suggested_fix": "补足因果过渡。",
+                }
+            ],
+            "created_at": "2026-05-22T00:00:00Z",
+        }
+    )
+
+    assert _has_hard_issues(report)
+
+
 def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
     _run_cli(
@@ -103,6 +128,40 @@ def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
     manifest = load_json_model(root / "memory" / "archive" / session.session_id / "manifest.json", CreationArchiveManifest)
     assert manifest.entries
     assert all(len(entry.sha256) == 64 for entry in manifest.entries)
+
+
+def test_session_revise_content_can_use_low_audit_issues_when_user_chooses(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
+    audit_path = root / "memory" / "chapters" / "001" / "audit.json"
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["overall_status"] = "passed"
+    audit["issues"] = [
+        {
+            "id": "audit_001_low",
+            "severity": "low",
+            "type": "style_mismatch",
+            "description": "局部称呼略显突兀。",
+            "evidence": [{"source": "polished.md", "quote": "姑娘"}],
+            "suggested_fix": "用户选择后再统一称呼。",
+        }
+    ]
+    audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(
+        ["session", "revise-content", session.session_id, "--path", str(root), "--provider", "mock", "--from-audit"]
+    )
+
+    assert code == 0
+    assert stderr == ""
+    assert "Content revised for user review" in stdout
+    assert (root / "memory" / "chapters" / "001" / "revision_log.json").is_file()
+    revised = _latest_session(root)
+    assert revised.final_output_paths
+    assert revised.final_output_paths[-1].endswith(".md")
 
 
 def test_archived_session_is_immutable(tmp_path: Path) -> None:

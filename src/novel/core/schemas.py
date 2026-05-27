@@ -673,12 +673,12 @@ class AuditReport(SchemaVersionedModel):
     passed_checks: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def passed_reports_have_no_high_severity_issues(self) -> AuditReport:
+    def passed_reports_have_no_blocking_severity_issues(self) -> AuditReport:
         if self.overall_status == "passed":
-            severe = [issue.id for issue in self.issues if issue.severity in {"high", "critical"}]
+            severe = [issue.id for issue in self.issues if issue.severity in {"medium", "high", "critical"}]
             if severe:
                 raise ValueError(
-                    "passed audit reports cannot contain high or critical issues: "
+                    "passed audit reports cannot contain medium, high, or critical issues: "
                     + ", ".join(severe)
                 )
         for issue in self.issues:

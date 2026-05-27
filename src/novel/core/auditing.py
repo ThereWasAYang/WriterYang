@@ -451,8 +451,9 @@ def build_audit_user_prompt(
         "- medium：影响阅读或逻辑但可轻微修改的问题，例如动机解释不足、场景转场不清楚。\n"
         "- low：轻微风格或表述问题，例如语气略偏、局部重复。\n\n"
         "Status policy：存在 critical 时 overall_status 必须是 blocked；"
-        "存在 high 且无 critical 时必须是 needs_revision；"
-        "passed 不得包含 high 或 critical issues。\n\n"
+        "存在 medium/high 且无 critical 时必须是 needs_revision；"
+        "只有 low issues 时 overall_status 应为 passed，交给用户决定是否修复；"
+        "passed 不得包含 medium/high/critical issues。\n\n"
         "Deterministic checks 已经由程序完成。请不要机械重复这些结论；"
         "请在此基础上补充语义层审核，例如人物是否知道不该知道的信息、动机因果是否合理、"
         "hidden truth 是否被暗示过度。\n"
@@ -719,10 +720,10 @@ def _status_for_issues(
 ) -> Literal["passed", "needs_revision", "blocked"]:
     if any(issue.severity == "critical" for issue in issues):
         return "blocked"
-    if any(issue.severity == "high" for issue in issues):
+    if any(issue.severity in {"medium", "high"} for issue in issues):
         return "needs_revision"
-    if issues and preferred == "passed":
-        return "needs_revision"
+    if issues:
+        return "passed"
     return preferred
 
 

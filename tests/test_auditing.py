@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from novel.cli import main
+from novel.cli import _audit_issue_lines, main
 from novel.core.auditing import (
     AuditError,
     ChapterAuditOptions,
@@ -335,6 +335,39 @@ def test_parse_audit_report_normalizes_issue_id_and_string_evidence() -> None:
     assert report.issues[0].evidence[0].quote == "角色突然知道了隐藏信息。"
 
 
+def test_low_only_audit_issues_are_passed_and_displayed(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    payload = {
+        "chapter_number": 1,
+        "audited_file": "polished.md",
+        "overall_status": "needs_revision",
+        "summary": "只有轻微风格建议。",
+        "issues": [
+            {
+                "id": "audit_001_low",
+                "severity": "low",
+                "type": "style_mismatch",
+                "description": "称呼略显老派。",
+                "evidence": [{"source": "polished.md", "quote": "姑娘"}],
+                "suggested_fix": "由用户决定是否统一口癖。",
+            }
+        ],
+        "passed_checks": [],
+        "created_at": "2026-05-22T00:00:00Z",
+    }
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=json.dumps(payload, ensure_ascii=False)),
+    )
+    report = result.report
+    lines = _audit_issue_lines(report)
+
+    assert report.overall_status == "passed"
+    assert any("称呼略显老派" in line for line in lines)
+    assert any("not auto-fixed" in line for line in lines)
+
+
 def test_audit_chapter_repairs_invalid_provider_report_once(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     bad = json.dumps(
@@ -410,7 +443,7 @@ def test_audit_chapter_plan_chapter_mismatch_becomes_critical_issue(tmp_path: Pa
     assert any(issue.severity == "critical" for issue in report.issues)
 
 
-def test_passed_audit_report_cannot_have_high_or_critical_issues() -> None:
+def test_passed_audit_report_cannot_have_medium_high_or_critical_issues() -> None:
     bad_report = json.dumps(
         {
             "chapter_number": 1,

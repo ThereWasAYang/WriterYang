@@ -60,9 +60,10 @@ class SessionRunOptions:
 class SessionInstructionOptions:
     root: Path
     session_id: str
-    instruction: str
+    instruction: str | None
     provider_name: ProviderName = "config"
     force: bool = False
+    from_audit: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,8 @@ def revise_outline(options: SessionInstructionOptions) -> SessionResult:
     _ensure_session_mutable(root, session)
     if session.status == "archived":
         raise CreationSessionError("archived sessions cannot be revised")
+    if not options.instruction or not options.instruction.strip():
+        raise CreationSessionError("outline revision requires --instruction")
     merged_intent = f"{session.user_intent}\n\n用户对大纲的修改意见：{options.instruction.strip()}"
     session = session.model_copy(update={"user_intent": merged_intent, "updated_at": _utc_now()})
     session = _write_outline_proposal(root, session, options.provider_name, force=True)
@@ -234,6 +237,8 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
     _ensure_session_mutable(root, session)
     if session.content_status not in {"needs_user_review", "needs_revision"}:
         raise CreationSessionError("content can be revised only after generation has produced reviewable content")
+    if not options.from_audit and not (options.instruction and options.instruction.strip()):
+        raise CreationSessionError("content revision requires --instruction or --from-audit")
     revisions: list[str] = []
     for chapter_number in session.chapter_range:
         provider = load_revision_provider(root, options.provider_name, target="polished")
@@ -242,6 +247,7 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
                 root=root,
                 chapter_number=chapter_number,
                 instruction=options.instruction,
+                from_audit=options.from_audit,
                 target="polished",
                 force=options.force,
             ),
@@ -442,7 +448,9 @@ def _auto_repair_chapter(
     round_number: int,
 ) -> Path:
     issue_summary = "; ".join(
-        f"{issue.severity}/{issue.type}: {issue.description}" for issue in audit_report.issues if issue.severity in {"high", "critical"}
+        f"{issue.severity}/{issue.type}: {issue.description}"
+        for issue in audit_report.issues
+        if issue.severity in {"medium", "high", "critical"}
     )
     provider = load_revision_provider(root, provider_name, target="polished")
     result = revise_chapter(
@@ -450,7 +458,7 @@ def _auto_repair_chapter(
             root=root,
             chapter_number=chapter_number,
             instruction=(
-                f"自动修复第 {round_number} 轮。必须解决以下 audit hard issues，"
+                f"自动修复第 {round_number} 轮。必须解决以下 audit medium/high/critical issues，"
                 f"不得改变已批准大纲的核心剧情：{issue_summary}"
             ),
             from_audit=True,
@@ -519,7 +527,7 @@ def _render_outline_markdown(outline: CreationOutline) -> str:
 
 
 def _has_hard_issues(report: AuditReport) -> bool:
-    return any(issue.severity in {"high", "critical"} for issue in report.issues)
+    return any(issue.severity in {"medium", "high", "critical"} for issue in report.issues)
 
 
 def _load_audit(root: Path, chapter_number: int) -> AuditReport:

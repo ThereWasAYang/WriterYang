@@ -109,7 +109,7 @@ from novel.core.inspection import (
     get_project_status,
 )
 from novel.core.json_schema import export_json_schemas
-from novel.core.io import load_yaml, load_yaml_model
+from novel.core.io import load_json_model, load_yaml, load_yaml_model
 from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.migration import MigrationError, migrate_project
 from novel.core.orchestrator import (
@@ -121,7 +121,7 @@ from novel.core.orchestrator import (
 )
 from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
 from novel.core.security import scan_security
-from novel.core.schemas import ProjectConfig
+from novel.core.schemas import AuditReport, ProjectConfig
 from novel.core.usage import UsageError, summarize_provider_usage
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
@@ -230,6 +230,7 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 instruction=args.instruction,
                 provider_name=args.provider,
                 force=args.force,
+                from_audit=args.from_audit,
             )
         )
     if command == "accept":
@@ -268,6 +269,49 @@ def _session_payload(command: str, result: SessionResult) -> dict[str, object]:
         "session_path": str(result.session_path),
         "message": result.message,
     }
+
+
+def _audit_issue_lines(report: AuditReport) -> list[str]:
+    if not report.issues:
+        return []
+    lines = ["Audit issues:"]
+    for issue in sorted(report.issues, key=lambda item: _severity_rank(item.severity), reverse=True):
+        lines.append(f"- [{issue.severity}/{issue.type}] {issue.id}: {issue.description}")
+        if issue.suggested_fix:
+            lines.append(f"  suggested_fix: {issue.suggested_fix}")
+    if all(issue.severity == "low" for issue in report.issues):
+        lines.append("Low issues are not auto-fixed; choose whether to revise with revise-chapter --from-audit.")
+    return lines
+
+
+def _session_low_issue_lines(root: Path, audit_history: list[str]) -> list[str]:
+    low_issues: list[str] = []
+    for audit_path_text in audit_history:
+        audit_path = root / audit_path_text
+        if not audit_path.exists():
+            continue
+        try:
+            report = load_json_model(audit_path, AuditReport)
+        except Exception:
+            continue
+        for issue in report.issues:
+            if issue.severity != "low":
+                continue
+            low_issues.append(
+                f"- [{issue.severity}/{issue.type}] {issue.id}: {issue.description}"
+                + (f" suggested_fix: {issue.suggested_fix}" if issue.suggested_fix else "")
+            )
+    if not low_issues:
+        return []
+    return [
+        "Low audit issues for user review:",
+        *low_issues,
+        "Choose: accept as-is, or run session revise-content <session_id> --from-audit to create a revised version.",
+    ]
+
+
+def _severity_rank(severity: str) -> int:
+    return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(severity, 0)
 
 
 def _extract_chapter_from_text(text: str) -> int | None:
@@ -883,7 +927,12 @@ def build_parser() -> argparse.ArgumentParser:
     session_revise_content = session_subparsers.add_parser("revise-content", help="Revise generated session content")
     session_revise_content.add_argument("session_id", help="Session id")
     session_revise_content.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
-    session_revise_content.add_argument("--instruction", required=True, help="User feedback for content revision.")
+    session_revise_content.add_argument("--instruction", default=None, help="User feedback for content revision.")
+    session_revise_content.add_argument(
+        "--from-audit",
+        action="store_true",
+        help="Use current audit.json issues as the revision target. Useful when choosing to fix low issues.",
+    )
     session_revise_content.add_argument(
         "--provider",
         default="config",
@@ -1296,7 +1345,7 @@ def build_parser() -> argparse.ArgumentParser:
     propose_state_parser.add_argument(
         "--allow-unresolved-audit",
         action="store_true",
-        help="Allow proposal generation when audit has high or critical issues.",
+        help="Allow proposal generation when audit has medium, high, or critical issues.",
     )
 
     apply_state_parser = subparsers.add_parser(
@@ -1323,7 +1372,7 @@ def build_parser() -> argparse.ArgumentParser:
     accept_parser.add_argument(
         "--allow-issues",
         action="store_true",
-        help="Allow acceptance when audit has high or critical issues.",
+        help="Allow acceptance when audit has medium, high, or critical issues.",
     )
     accept_parser.add_argument(
         "--propose",
@@ -1831,6 +1880,7 @@ def main(argv: list[str] | None = None) -> int:
             result.message,
             f"Status: {result.session.status}",
             f"Session file: {result.session_path}",
+            *_session_low_issue_lines(root, result.session.audit_history),
         ]
         return _success(args, payload, lines)
 
@@ -2228,6 +2278,7 @@ def main(argv: list[str] | None = None) -> int:
                 if result.deterministic_highest_severity
                 else ""
             ),
+            *_audit_issue_lines(result.report),
         ]
         return _success(
             args,
@@ -2236,6 +2287,7 @@ def main(argv: list[str] | None = None) -> int:
                 "audit_path": str(result.audit_path),
                 "overall_status": result.report.overall_status,
                 "issue_count": len(result.report.issues),
+                "issues": [issue.model_dump(mode="json") for issue in result.report.issues],
                 "deterministic_issue_count": len(result.deterministic_findings),
                 "deterministic_highest_severity": result.deterministic_highest_severity,
                 "warnings": list(result.warnings),

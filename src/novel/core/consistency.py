@@ -524,7 +524,7 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
         blocking_issues = [
             issue
             for issue in audit_data.get("issues", [])
-            if isinstance(issue, dict) and issue.get("severity") in {"high", "critical"}
+            if isinstance(issue, dict) and issue.get("severity") in {"medium", "high", "critical"}
         ]
         if audit_data.get("overall_status") == "blocked" or blocking_issues:
             findings.append(
@@ -532,7 +532,7 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
                     id=f"cons_accepted_audit_{metadata.chapter_number:03d}",
                     severity="critical",
                     type="continuity_issue",
-                    description="Accepted chapter must not have high or critical audit issues.",
+                    description="Accepted chapter must not have medium, high, or critical audit issues.",
                     source=chapter_dir / "metadata.json",
                     quote=f"audit_path={metadata.audit_path or 'audit.json'}",
                     suggested_fix="Resolve blocking audit issues and rerun accept-chapter after audit passes.",

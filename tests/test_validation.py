@@ -379,7 +379,10 @@ def test_validate_reports_invalid_chapter_plan_and_audit(tmp_path: Path) -> None
 
     assert not report.ok
     assert any("scene numbers must be sequential" in msg.message for msg in report.errors)
-    assert any("passed audit reports cannot contain high" in msg.message for msg in report.errors)
+    assert any(
+        "passed audit reports cannot contain medium, high, or critical" in msg.message
+        for msg in report.errors
+    )
 
 
 def test_validate_chapter_plan_allows_world_rule_references(tmp_path: Path) -> None:
@@ -475,7 +478,10 @@ def test_validate_fails_accepted_chapter_with_blocking_audit_or_missing_state_ap
     report = validate_project(root)
 
     assert not report.ok
-    assert any("Accepted chapter must not have high or critical audit issues" in msg.message for msg in report.errors)
+    assert any(
+        "Accepted chapter must not have medium, high, or critical audit issues" in msg.message
+        for msg in report.errors
+    )
     assert any("Accepted chapter must have an applied state update log" in msg.message for msg in report.errors)
 
 

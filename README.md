@@ -10,6 +10,13 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 - [作者如何手动编辑 memory 文件](docs/MEMORY_EDITING.md)：说明 inspiration、style、canon、state、timeline、章节文件的人工编辑边界。
 - [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 agent 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。
 
+## 开发者入口
+
+- [开发者指南](docs/DEVELOPER_GUIDE.md)：工程结构、分层原则、新功能开发、BUG 定位和安全重构流程。
+- [代码库参考手册](docs/CODEBASE_REFERENCE.md)：逐模块说明入口文件、core service、schema、prompt、tests 和主要函数职责。
+- [Agent Prompt 组装说明](docs/AGENT_PROMPT_ASSEMBLY.md)：说明每个 Agent 的 system/user prompt 如何由项目文件和上下文组装。
+- [调试与重构手册](docs/DEBUGGING_AND_REFACTORING.md)：常见故障路径、日志位置、provider 调试和重构 checklist。
+
 ## 安装
 
 开发安装：

@@ -402,11 +402,15 @@
           <tr><td>${escapeHtml(run.run_id || "")}</td><td>${escapeHtml(run.task || "")}</td><td>${escapeHtml(run.status || "")}</td><td>${escapeHtml(run.started_at || "")}</td><td>${escapeHtml(run.path || "")}</td></tr>
         `).join("");
         const callRows = (data.provider_calls || []).map((call) => `
-          <tr><td>${escapeHtml(call.provider || "")}</td><td>${escapeHtml(call.model || "")}</td><td>${escapeHtml(call.status || "")}</td><td>${escapeHtml(call.started_at || "")}</td><td>${escapeHtml(call.error_type || "")}</td></tr>
+          <tr><td>${escapeHtml(call.provider || "")}</td><td>${escapeHtml(call.model || "")}</td><td>${escapeHtml(call.status || "")}</td><td>${escapeHtml(call.started_at || "")}</td><td>${escapeHtml(call.error_type || "")}</td><td>${escapeHtml(call.model_io_path || "")}</td></tr>
+        `).join("");
+        const ioRows = (data.model_io_logs || []).map((log) => `
+          <tr><td>${escapeHtml(log.agent_name || "")}</td><td>${escapeHtml(log.provider || "")}</td><td>${escapeHtml(log.model || "")}</td><td>${escapeHtml(log.status || "")}</td><td>${escapeHtml(log.started_at || "")}</td><td>${escapeHtml(log.model_io_path || "")}</td></tr>
         `).join("");
         $("runLogPanel").innerHTML = `
           <h3>Run logs</h3><table><thead><tr><th>run_id</th><th>task</th><th>status</th><th>started_at</th><th>path</th></tr></thead><tbody>${runRows || "<tr><td colspan='5'>无</td></tr>"}</tbody></table>
-          <h3 style="margin-top: 16px;">Provider calls</h3><table><thead><tr><th>provider</th><th>model</th><th>status</th><th>started_at</th><th>error</th></tr></thead><tbody>${callRows || "<tr><td colspan='5'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Provider calls</h3><table><thead><tr><th>provider</th><th>model</th><th>status</th><th>started_at</th><th>error</th><th>model_io</th></tr></thead><tbody>${callRows || "<tr><td colspan='6'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Model I/O</h3><table><thead><tr><th>agent</th><th>provider</th><th>model</th><th>status</th><th>started_at</th><th>path</th></tr></thead><tbody>${ioRows || "<tr><td colspan='6'>无</td></tr>"}</tbody></table>
         `;
       } catch (error) {
         setMessage(error.message, true);

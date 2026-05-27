@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 import json
 import os
@@ -11,6 +11,7 @@ import time
 from typing import Iterable, Mapping
 from urllib import error, request
 
+from novel.core.io import atomic_write_json
 from novel.core.schemas import AgentConfig
 from novel.core.usage import refresh_provider_usage_summary_for_log
 
@@ -21,6 +22,7 @@ class ModelRequest:
     user_prompt: str
     context: str | None = None
     json_schema_name: str | None = None
+    request_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,7 @@ class ProviderCallLog:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    model_io_path: str | None = None
 
 
 class ModelProvider(ABC):
@@ -101,6 +104,9 @@ class ModelProvider(ABC):
 
     def stream(self, model_request: ModelRequest) -> Iterable[str]:
         yield self.generate(model_request).content
+
+    def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
+        return None
 
 
 @dataclass
@@ -121,6 +127,17 @@ class MockProvider(ModelProvider):
             yield from self.stream_chunks
             return
         yield self._coerce_response(self._next_fake_response()).content
+
+    def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
+        payload: dict[str, object] = {
+            "provider": "mock",
+            "messages": _messages_from_request(model_request),
+        }
+        if stream:
+            payload["stream"] = True
+        if model_request.json_schema_name:
+            payload["json_schema_name"] = model_request.json_schema_name
+        return payload
 
     def _next_fake_response(self) -> ModelResponse | str | Mapping[str, object] | None:
         if isinstance(self.fake_response, list):
@@ -148,6 +165,154 @@ class MockProvider(ModelProvider):
                 reasoning_content=reasoning if isinstance(reasoning, str) else None,
             )
         return ModelResponse(content=self.fixed_text, raw_response=self.fixed_text)
+
+
+@dataclass
+class LoggingModelProvider(ModelProvider):
+    provider: ModelProvider
+    agent_name: str
+    provider_name: str
+    model: str
+    root: Path
+
+    def generate(self, model_request: ModelRequest) -> ModelResponse:
+        request_id = model_request.request_id or _request_id()
+        request_with_id = replace(model_request, request_id=request_id)
+        started = time.monotonic()
+        started_at = _utc_now()
+        try:
+            response = self.provider.generate(request_with_id)
+        except Exception as exc:
+            self._write_model_io(
+                request_with_id,
+                request_id=request_id,
+                started_at=started_at,
+                ended_at=_utc_now(),
+                duration_ms=_duration_ms(started),
+                status="failed",
+                stream=False,
+                error_payload={
+                    "type": exc.__class__.__name__,
+                    "message": _redact_text(str(exc), self._secret_values()),
+                },
+            )
+            raise
+        self._write_model_io(
+            request_with_id,
+            request_id=request_id,
+            started_at=started_at,
+            ended_at=_utc_now(),
+            duration_ms=_duration_ms(started),
+            status="success",
+            stream=False,
+            response=response,
+        )
+        return response
+
+    def stream(self, model_request: ModelRequest) -> Iterable[str]:
+        request_id = model_request.request_id or _request_id()
+        request_with_id = replace(model_request, request_id=request_id)
+        started = time.monotonic()
+        started_at = _utc_now()
+        chunks: list[str] = []
+        try:
+            for chunk in self.provider.stream(request_with_id):
+                chunks.append(chunk)
+                yield chunk
+        except Exception as exc:
+            self._write_model_io(
+                request_with_id,
+                request_id=request_id,
+                started_at=started_at,
+                ended_at=_utc_now(),
+                duration_ms=_duration_ms(started),
+                status="failed",
+                stream=True,
+                stream_chunks=len(chunks),
+                response=ModelResponse(content="".join(chunks)),
+                error_payload={
+                    "type": exc.__class__.__name__,
+                    "message": _redact_text(str(exc), self._secret_values()),
+                },
+            )
+            raise
+        self._write_model_io(
+            request_with_id,
+            request_id=request_id,
+            started_at=started_at,
+            ended_at=_utc_now(),
+            duration_ms=_duration_ms(started),
+            status="success",
+            stream=True,
+            stream_chunks=len(chunks),
+            response=ModelResponse(content="".join(chunks)),
+        )
+
+    def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
+        return self.provider.debug_payload(model_request, stream=stream)
+
+    def _write_model_io(
+        self,
+        model_request: ModelRequest,
+        *,
+        request_id: str,
+        started_at: str,
+        ended_at: str,
+        duration_ms: int,
+        status: str,
+        stream: bool,
+        response: ModelResponse | None = None,
+        stream_chunks: int | None = None,
+        error_payload: dict[str, object] | None = None,
+    ) -> None:
+        model_io_dir = self.root / "runs" / "model_io"
+        model_io_path = model_io_dir / f"{request_id}.json"
+        secret_values = self._secret_values()
+        payload = _redact_data(self.provider.debug_payload(model_request, stream=stream), secret_values)
+        log = {
+            "schema_version": "1.0",
+            "request_id": request_id,
+            "agent_name": self.agent_name,
+            "provider": self.provider_name,
+            "model": self.model,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_ms": duration_ms,
+            "status": status,
+            "stream": stream,
+            "stream_chunks": stream_chunks,
+            "json_schema_name": model_request.json_schema_name,
+            "request": {
+                "system_prompt": _redact_text(model_request.system_prompt, secret_values),
+                "user_prompt": _redact_text(model_request.user_prompt, secret_values),
+                "context": _redact_text(model_request.context, secret_values),
+                "payload": payload,
+            },
+            "response": _response_payload(response, secret_values),
+            "error": error_payload,
+            "token_usage": _token_usage_payload(response.token_usage if response else None),
+            "provider_call_log_path": "runs/provider_calls.jsonl",
+        }
+        atomic_write_json(model_io_path, log)
+        _append_jsonl(
+            model_io_dir / "index.jsonl",
+            {
+                "request_id": request_id,
+                "agent_name": self.agent_name,
+                "provider": self.provider_name,
+                "model": self.model,
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "status": status,
+                "stream": stream,
+                "json_schema_name": model_request.json_schema_name,
+                "model_io_path": f"runs/model_io/{request_id}.json",
+            },
+        )
+
+    def _secret_values(self) -> tuple[str, ...]:
+        api_key = getattr(self.provider, "api_key", None)
+        return (api_key,) if isinstance(api_key, str) and api_key else ()
 
 
 @dataclass(frozen=True)
@@ -229,6 +394,9 @@ class OpenAICompatibleProvider(ModelProvider):
         payload = self._payload(model_request, stream=True)
         yield from self._request_stream(payload, model_request)
 
+    def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
+        return self._payload(model_request, stream=stream)
+
     def _payload(self, model_request: ModelRequest, *, stream: bool) -> dict[str, object]:
         payload: dict[str, object] = {
             "model": self.model,
@@ -295,7 +463,7 @@ class OpenAICompatibleProvider(ModelProvider):
     ) -> str:
         endpoint = f"{self.base_url}/chat/completions"
         body = json.dumps(payload).encode("utf-8")
-        request_id = _request_id()
+        request_id = model_request.request_id or _request_id()
         started = time.monotonic()
         started_at = _utc_now()
         attempts = self.max_retries + 1
@@ -331,6 +499,7 @@ class OpenAICompatibleProvider(ModelProvider):
                         prompt_tokens=usage.prompt_tokens if usage else None,
                         completion_tokens=usage.completion_tokens if usage else None,
                         total_tokens=usage.total_tokens if usage else None,
+                        model_io_path=f"runs/model_io/{request_id}.json",
                     )
                 )
                 return response_body
@@ -388,6 +557,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 http_status=http_status,
                 error_type=err.__class__.__name__,
                 error_message=str(err),
+                model_io_path=f"runs/model_io/{request_id}.json",
             )
         )
 
@@ -496,6 +666,56 @@ def _duration_ms(started: float) -> int:
 
 def _safe_endpoint(endpoint: str) -> str:
     return endpoint.split("?", 1)[0]
+
+
+def _response_payload(response: ModelResponse | None, secret_values: tuple[str, ...]) -> dict[str, object] | None:
+    if response is None:
+        return None
+    return {
+        "content": _redact_text(response.content, secret_values),
+        "reasoning_content": _redact_text(response.reasoning_content, secret_values),
+        "raw_response": _redact_data(response.raw_response, secret_values),
+    }
+
+
+def _token_usage_payload(token_usage: TokenUsage | None) -> dict[str, int | None] | None:
+    return asdict(token_usage) if token_usage else None
+
+
+def _append_jsonl(path: Path, data: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
+
+
+def _redact_data(value: object, secret_values: tuple[str, ...]) -> object:
+    if isinstance(value, str):
+        return _redact_text(value, secret_values)
+    if isinstance(value, Mapping):
+        redacted: dict[str, object] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text.lower() in {"authorization", "api_key", "apikey", "token", "secret"}:
+                redacted[key_text] = "[redacted]"
+            else:
+                redacted[key_text] = _redact_data(item, secret_values)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_data(item, secret_values) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_data(item, secret_values) for item in value]
+    return value
+
+
+def _redact_text(value: str | None, secret_values: tuple[str, ...]) -> str | None:
+    if value is None:
+        return None
+    redacted = value.replace("Authorization", "[redacted-header]")
+    for secret in secret_values:
+        if secret:
+            redacted = redacted.replace(secret, "[redacted]")
+            redacted = redacted.replace(f"Bearer {secret}", "Bearer [redacted]")
+    return redacted
 
 
 def _is_retryable_http_status(status: int) -> bool:

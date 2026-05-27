@@ -9,11 +9,12 @@ import yaml
 from novel.cli import main
 from novel.core.provider_config import (
     ProviderOverrides,
+    create_agent_provider,
     describe_agent_provider,
     load_agents_config,
     resolve_agent_config,
 )
-from novel.core.providers import MissingProviderEnvError, MockProvider, ProviderFactory
+from novel.core.providers import LoggingModelProvider, MissingProviderEnvError, MockProvider, ProviderFactory
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -174,6 +175,34 @@ def test_provider_descriptor_does_not_include_real_api_key(tmp_path: Path) -> No
 
     assert "WRITER_API_KEY" in text
     assert "sk-" not in text
+
+
+def test_create_agent_provider_wraps_mock_with_model_io_logging(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    config_path = root / "config" / "agents.yaml"
+    provider = create_agent_provider(
+        config_path,
+        "writer",
+        overrides=ProviderOverrides(provider_name="mock"),
+        mock_response="章节正文",
+    )
+
+    assert isinstance(provider, LoggingModelProvider)
+    response = provider.generate(provider_request())
+
+    assert response.content == "章节正文"
+    logs = list((root / "runs" / "model_io").glob("provider_*.json"))
+    assert len(logs) == 1
+    text = logs[0].read_text(encoding="utf-8")
+    assert '"agent_name": "writer"' in text
+    assert "章节正文" in text
+
+
+def provider_request():
+    from novel.core.providers import ModelRequest
+
+    return ModelRequest(system_prompt="系统", user_prompt="用户")
 
 
 def _agents_config(tmp_path: Path) -> Path:

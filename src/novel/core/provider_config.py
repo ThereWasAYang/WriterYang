@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from novel.core.io import load_yaml_model
-from novel.core.providers import MockProvider, ModelProvider, ProviderFactory
+from novel.core.providers import LoggingModelProvider, MockProvider, ModelProvider, ProviderFactory
 from novel.core.schemas import AgentConfig, AgentsConfig
 
 
@@ -95,9 +95,17 @@ def create_agent_provider(
         overrides=overrides,
     )
     if config.provider == "mock":
-        return MockProvider(fake_response=mock_response)
-    log_path = config_path.parent.parent / "runs" / "provider_calls.jsonl"
-    return ProviderFactory(log_path=log_path).create(config)
+        provider: ModelProvider = MockProvider(fake_response=mock_response)
+    else:
+        log_path = config_path.parent.parent / "runs" / "provider_calls.jsonl"
+        provider = ProviderFactory(log_path=log_path).create(config)
+    return LoggingModelProvider(
+        provider=provider,
+        agent_name=agent_name,
+        provider_name=config.provider,
+        model=config.model,
+        root=config_path.parent.parent,
+    )
 
 
 def describe_agent_provider(

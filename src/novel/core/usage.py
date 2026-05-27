@@ -160,6 +160,7 @@ def _safe_last_call(entry: dict[str, Any]) -> dict[str, Any]:
         "prompt_tokens",
         "completion_tokens",
         "total_tokens",
+        "model_io_path",
     }
     return {key: entry.get(key) for key in allowed if key in entry}
 

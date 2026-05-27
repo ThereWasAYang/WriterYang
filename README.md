@@ -162,7 +162,9 @@ agents:
 - `deepseek`：默认 base URL 为 `https://api.deepseek.com`，发送 `thinking.type`；开启 thinking 时会发送 `reasoning_effort`，并避免发送无效的 `temperature`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
 - `zai`：默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，发送 `thinking.type`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
 
-Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。日志只记录 provider、model、endpoint、耗时、重试次数、状态、错误类型和 token 用量等安全信息，不记录 prompt 正文、响应正文或真实 API Key。
+Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。这是轻量元数据日志，只记录 provider、model、endpoint、耗时、重试次数、状态、错误类型、token 用量和对应的 `model_io_path`，不记录真实 API Key。
+
+为了方便 debug，每次 Agent 模型调用还会把完整输入输出写入 `runs/model_io/{request_id}.json`，并追加摘要到 `runs/model_io/index.jsonl`。完整日志包含 system prompt、user prompt、上下文、发送给 provider 的安全请求体、模型正文输出、reasoning 内容、原始响应和错误信息；不会写入 HTTP header、Authorization、真实 API Key 或环境变量值。注意：这些日志会包含小说正文、隐藏设定和作者指令，仅适合本地排查，默认不应提交到 Git。
 
 每次真实 provider 调用完成后，工具会根据调用日志刷新 `runs/provider_usage.json`，用于实时统计当前小说项目的累计调用量和 token 消耗。可以用下面的命令查看：
 

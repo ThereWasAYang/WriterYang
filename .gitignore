@@ -14,6 +14,7 @@ build/
 .vscode/
 **/memory/search_index.json
 **/memory/search_index.sqlite
+**/runs/model_io/
 **/.writeryang.lock
 *.bak_*
 

@@ -504,6 +504,7 @@ def _runs_summary(root: Path) -> dict[str, object]:
     return {
         "run_logs": run_logs,
         "provider_calls": provider_calls,
+        "model_io_logs": _model_io_summary(runs_dir / "model_io" / "index.jsonl"),
         "provider_usage": summarize_provider_usage(root).as_dict(),
     }
 
@@ -652,9 +653,38 @@ def _provider_call_summary(path: Path) -> list[dict[str, object]]:
                     "attempt_count": data.get("attempt_count"),
                     "error_type": data.get("error_type"),
                     "http_status": data.get("http_status"),
+                    "model_io_path": data.get("model_io_path"),
                 }
             )
     return calls
+
+
+def _model_io_summary(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()[-50:]
+    logs: list[dict[str, object]] = []
+    for line in lines:
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            logs.append(
+                {
+                    "request_id": data.get("request_id"),
+                    "agent_name": data.get("agent_name"),
+                    "provider": data.get("provider"),
+                    "model": data.get("model"),
+                    "status": data.get("status"),
+                    "started_at": data.get("started_at"),
+                    "ended_at": data.get("ended_at"),
+                    "stream": data.get("stream"),
+                    "json_schema_name": data.get("json_schema_name"),
+                    "model_io_path": data.get("model_io_path"),
+                }
+            )
+    return logs
 
 
 def _safe_config_file(path: Path) -> dict[str, object]:

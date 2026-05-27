@@ -6,6 +6,7 @@ from urllib import error
 import pytest
 
 from novel.core.providers import (
+    LoggingModelProvider,
     MissingProviderEnvError,
     MockProvider,
     ModelRequest,
@@ -446,6 +447,155 @@ def test_provider_writes_safe_call_log(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert usage["total"]["call_count"] == 1
     assert usage["total"]["total_tokens"] == 10
     assert usage["by_provider"]["openai"]["total_tokens"] == 10
+
+
+def test_logging_provider_writes_mock_model_io(tmp_path) -> None:
+    provider = LoggingModelProvider(
+        provider=MockProvider(
+            fake_response={
+                "content": "mock output",
+                "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+            }
+        ),
+        agent_name="writer",
+        provider_name="mock",
+        model="mock-model",
+        root=tmp_path,
+    )
+
+    response = provider.generate(
+        ModelRequest(
+            system_prompt="system text",
+            user_prompt="user text",
+            context="context text",
+            json_schema_name="DraftChapter",
+        )
+    )
+
+    assert response.content == "mock output"
+    logs = list((tmp_path / "runs" / "model_io").glob("provider_*.json"))
+    assert len(logs) == 1
+    data = json.loads(logs[0].read_text(encoding="utf-8"))
+    assert data["agent_name"] == "writer"
+    assert data["provider"] == "mock"
+    assert data["model"] == "mock-model"
+    assert data["status"] == "success"
+    assert data["request"]["system_prompt"] == "system text"
+    assert data["request"]["user_prompt"] == "user text"
+    assert data["request"]["context"] == "context text"
+    assert data["request"]["payload"]["provider"] == "mock"
+    assert data["response"]["content"] == "mock output"
+    assert data["token_usage"]["total_tokens"] == 5
+    index = (tmp_path / "runs" / "model_io" / "index.jsonl").read_text(encoding="utf-8")
+    assert "runs/model_io/" in index
+
+
+def test_logging_provider_links_openai_call_log_to_model_io(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    secret = "secret-test-key"
+    inner = OpenAICompatibleProvider(
+        model="test-model",
+        api_key=secret,
+        base_url="https://example.test/v1",
+        log_path=tmp_path / "runs" / "provider_calls.jsonl",
+    )
+    provider = LoggingModelProvider(
+        provider=inner,
+        agent_name="audit",
+        provider_name="openai_compatible",
+        model="test-model",
+        root=tmp_path,
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":"ok","reasoning_content":"think"}}],'
+                b'"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}'
+            )
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: FakeResponse())
+
+    response = provider.generate(ModelRequest(system_prompt="s", user_prompt="u", json_schema_name="AuditReport"))
+
+    assert response.content == "ok"
+    provider_call = json.loads((tmp_path / "runs" / "provider_calls.jsonl").read_text(encoding="utf-8"))
+    assert provider_call["model_io_path"].startswith("runs/model_io/provider_")
+    model_io_path = tmp_path / provider_call["model_io_path"]
+    data = json.loads(model_io_path.read_text(encoding="utf-8"))
+    assert data["request_id"] == provider_call["request_id"]
+    assert data["agent_name"] == "audit"
+    assert data["request"]["payload"]["messages"][0]["content"] == "s"
+    assert data["response"]["content"] == "ok"
+    assert data["response"]["reasoning_content"] == "think"
+    assert data["response"]["raw_response"]["choices"][0]["message"]["content"] == "ok"
+    text = model_io_path.read_text(encoding="utf-8") + (tmp_path / "runs" / "provider_calls.jsonl").read_text(encoding="utf-8")
+    assert secret not in text
+    assert "Authorization" not in text
+
+
+def test_logging_provider_writes_failed_model_io_without_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    secret = "secret-test-key"
+    inner = OpenAICompatibleProvider(
+        model="test-model",
+        api_key=secret,
+        base_url="https://example.test/v1",
+        log_path=tmp_path / "runs" / "provider_calls.jsonl",
+    )
+    provider = LoggingModelProvider(
+        provider=inner,
+        agent_name="writer",
+        provider_name="openai_compatible",
+        model="test-model",
+        root=tmp_path,
+    )
+
+    def fail_urlopen(*args: object, **kwargs: object) -> object:
+        raise RuntimeError(f"transport failed with hidden credential {secret}")
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fail_urlopen)
+
+    with pytest.raises(ProviderError):
+        provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+    logs = list((tmp_path / "runs" / "model_io").glob("provider_*.json"))
+    assert len(logs) == 1
+    text = logs[0].read_text(encoding="utf-8")
+    data = json.loads(text)
+    assert data["status"] == "failed"
+    assert data["error"]["type"] == "ProviderError"
+    assert secret not in text
+    assert "Authorization" not in text
+
+
+def test_logging_provider_records_stream_output(tmp_path) -> None:
+    provider = LoggingModelProvider(
+        provider=MockProvider(stream_chunks=["hello", " world"]),
+        agent_name="writer",
+        provider_name="mock",
+        model="mock-model",
+        root=tmp_path,
+    )
+
+    chunks = list(provider.stream(ModelRequest(system_prompt="s", user_prompt="u")))
+
+    assert "".join(chunks) == "hello world"
+    logs = list((tmp_path / "runs" / "model_io").glob("provider_*.json"))
+    data = json.loads(logs[0].read_text(encoding="utf-8"))
+    assert data["stream"] is True
+    assert data["stream_chunks"] == 2
+    assert data["response"]["content"] == "hello world"
 
 
 def test_provider_stream_parses_sse_chunks(monkeypatch: pytest.MonkeyPatch) -> None:

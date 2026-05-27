@@ -453,6 +453,59 @@ def test_validate_reports_chapter_output_linkage_errors(tmp_path: Path) -> None:
     assert any("front matter chapter_number 2 does not match 1" in msg.message for msg in report.errors)
 
 
+def test_validate_fails_accepted_chapter_without_passed_audit_or_state_apply(tmp_path: Path) -> None:
+    root = _workspace_with_accepted_chapter(tmp_path)
+    audit_path = root / "memory" / "chapters" / "001" / "audit.json"
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["overall_status"] = "needs_revision"
+    audit["summary"] = "仍需修改。"
+    audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (root / "memory" / "chapters" / "001" / "state_update_apply_log.json").unlink()
+
+    report = validate_project(root)
+
+    assert not report.ok
+    assert any("Accepted chapter must have a passed audit report" in msg.message for msg in report.errors)
+    assert any("Accepted chapter must have an applied state update log" in msg.message for msg in report.errors)
+
+
+def test_validate_reports_hidden_truth_in_reader_visible_summary(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    _write_json(
+        root / "memory" / "canon" / "hidden_truths.json",
+        {
+            "hidden_truths": [
+                {
+                    "id": "truth_station_overlap",
+                    "title": "旧车站是时间交叠点",
+                    "description": "旧车站在特定雨夜会短暂连接过去的时间层。",
+                    "visibility": "hidden",
+                    "importance": "critical",
+                }
+            ]
+        },
+    )
+    _write_json(
+        root / "memory" / "canon" / "locations.json",
+        {
+            "locations": [
+                {
+                    "id": "loc_old_station",
+                    "name": "旧车站",
+                    "type": "交通设施",
+                    "reader_visible_summary": "旧车站在特定雨夜会短暂连接过去的时间层。",
+                }
+            ]
+        },
+    )
+
+    report = validate_project(root)
+
+    assert not report.ok
+    assert any("Reader-visible summary" in msg.message for msg in report.errors)
+
+
 def _workspace_with_accepted_chapter(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

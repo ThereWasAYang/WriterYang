@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.consistency import check_chapter_consistency
 from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -64,6 +65,8 @@ class ChapterAuditResult:
     report: AuditReport
     warnings: tuple[str, ...] = ()
     context_report_path: Path | None = None
+    deterministic_findings: tuple[AuditIssue, ...] = ()
+    deterministic_highest_severity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,7 @@ class AuditContext:
     canon_summary: str
     state_json: str
     timeline_json: str
+    deterministic_summary: str = ""
     search_context: str = ""
     context_bundle: ContextBundle | None = None
 
@@ -88,6 +92,8 @@ class PrecheckResult:
     issues: tuple[AuditIssue, ...]
     passed_checks: tuple[str, ...]
     warnings: tuple[str, ...]
+    deterministic_issues: tuple[AuditIssue, ...] = ()
+    deterministic_highest_severity: str | None = None
 
 
 def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> ChapterAuditResult:
@@ -109,6 +115,7 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
 
     context = load_audit_context(root, options)
     precheck = run_deterministic_prechecks(root, options, context)
+    context = _with_deterministic_summary(context, precheck)
 
     user_prompt = build_audit_user_prompt(
         context=context,
@@ -170,6 +177,8 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         report=report,
         warnings=precheck.warnings,
         context_report_path=context_report_path,
+        deterministic_findings=precheck.deterministic_issues,
+        deterministic_highest_severity=precheck.deterministic_highest_severity,
     )
 
 
@@ -270,7 +279,17 @@ def run_deterministic_prechecks(
     _validate_timeline_file(root, issues, passed_checks)
     _validate_canon_files(root, issues, passed_checks)
     _validate_audited_body_against_plan(chapter_dir, options, context, issues, passed_checks)
-    _validate_hidden_truth_not_revealed(root, options, context, issues, passed_checks)
+
+    consistency = check_chapter_consistency(
+        root,
+        options.chapter_number,
+        audited_body=context.audited_body,
+        audited_file=options.audited_file,
+        include_existing_audit=False,
+    )
+    deterministic_issues = tuple(finding.to_audit_issue() for finding in consistency.findings)
+    issues.extend(deterministic_issues)
+    passed_checks.extend(consistency.passed_checks)
 
     if not (root / "memory" / "style_guide.md").exists():
         warnings.append("memory/style_guide.md is missing; using default style guidance")
@@ -279,7 +298,28 @@ def run_deterministic_prechecks(
         issues=tuple(issues),
         passed_checks=tuple(passed_checks),
         warnings=tuple(warnings),
+        deterministic_issues=deterministic_issues,
+        deterministic_highest_severity=consistency.highest_severity,
     )
+
+
+def _with_deterministic_summary(context: AuditContext, precheck: PrecheckResult) -> AuditContext:
+    return replace(context, deterministic_summary=_deterministic_summary_from_issues(precheck.deterministic_issues))
+
+
+def _deterministic_summary_from_issues(issues: tuple[AuditIssue, ...]) -> str:
+    if not issues:
+        return "Deterministic consistency checks: no blocking issues found.\n"
+    lines = ["Deterministic consistency checks:"]
+    for issue in issues:
+        evidence = issue.evidence[0] if issue.evidence else None
+        source = evidence.source if evidence else ""
+        quote = evidence.quote if evidence else ""
+        lines.append(
+            f"- {issue.id} [{issue.severity}/{issue.type}] {issue.description} "
+            f"source={source} evidence={quote}"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def _validate_audited_body_against_plan(
@@ -413,6 +453,10 @@ def build_audit_user_prompt(
         "Status policy：存在 critical 时 overall_status 必须是 blocked；"
         "存在 high 且无 critical 时必须是 needs_revision；"
         "passed 不得包含 high 或 critical issues。\n\n"
+        "Deterministic checks 已经由程序完成。请不要机械重复这些结论；"
+        "请在此基础上补充语义层审核，例如人物是否知道不该知道的信息、动机因果是否合理、"
+        "hidden truth 是否被暗示过度。\n"
+        f"{context.deterministic_summary}\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
         f"Audited file metadata：\n{json.dumps(context.audited_document.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
         f"Audited file body：\n{context.audited_body}\n\n"

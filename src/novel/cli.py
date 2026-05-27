@@ -2222,6 +2222,12 @@ def main(argv: list[str] | None = None) -> int:
             f"Wrote chapter audit: {result.audit_path}",
             f"Audit status: {result.report.overall_status}",
             f"Issues: {len(result.report.issues)}",
+            f"Deterministic issues: {len(result.deterministic_findings)}"
+            + (
+                f" (highest: {result.deterministic_highest_severity})"
+                if result.deterministic_highest_severity
+                else ""
+            ),
         ]
         return _success(
             args,
@@ -2230,6 +2236,8 @@ def main(argv: list[str] | None = None) -> int:
                 "audit_path": str(result.audit_path),
                 "overall_status": result.report.overall_status,
                 "issue_count": len(result.report.issues),
+                "deterministic_issue_count": len(result.deterministic_findings),
+                "deterministic_highest_severity": result.deterministic_highest_severity,
                 "warnings": list(result.warnings),
             },
             lines,

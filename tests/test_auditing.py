@@ -79,6 +79,7 @@ def test_audit_chapter_cli_creates_audit_json(tmp_path: Path) -> None:
     assert stderr == ""
     assert "Wrote chapter audit:" in stdout
     assert "Audit status: passed" in stdout
+    assert "Deterministic issues: 0" in stdout
     audit_path = root / "memory" / "chapters" / "001" / "audit.json"
     report = AuditReport.model_validate(json.loads(audit_path.read_text(encoding="utf-8")))
     assert report.chapter_number == 1
@@ -156,6 +157,109 @@ def test_audit_precheck_flags_hidden_truth_text_in_polished_body(tmp_path: Path)
 
     assert result.report.overall_status == "needs_revision"
     assert any(issue.type == "premature_reveal" for issue in result.report.issues)
+
+
+def test_audit_precheck_flags_character_knows_unrevealed_hidden_truth(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    _write_json(
+        root / "memory" / "state" / "current_state.json",
+        {
+            "story_position": {"latest_chapter": 0},
+            "character_states": [
+                {
+                    "entity_id": "char_lin_che",
+                    "knowledge": ["truth_station_overlap"],
+                    "possessions": [],
+                    "last_updated_chapter": 0,
+                }
+            ],
+            "item_states": [],
+            "location_states": [],
+        },
+    )
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+
+    assert result.report.overall_status == "needs_revision"
+    assert any(issue.type == "premature_reveal" and "knows hidden truth" in issue.description for issue in result.report.issues)
+    assert result.deterministic_highest_severity == "high"
+
+
+def test_audit_precheck_flags_item_holder_location_conflict(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    _write_json(
+        root / "memory" / "state" / "current_state.json",
+        {
+            "story_position": {"latest_chapter": 0},
+            "character_states": [
+                {"entity_id": "char_lin_che", "possessions": ["item_broken_ticket"], "last_updated_chapter": 0}
+            ],
+            "item_states": [
+                {
+                    "entity_id": "item_broken_ticket",
+                    "holder_id": "char_lin_che",
+                    "location_id": "loc_old_station",
+                    "last_updated_chapter": 0,
+                }
+            ],
+            "location_states": [],
+        },
+    )
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+
+    assert result.report.overall_status == "needs_revision"
+    assert any(issue.id == "cons_item_holder_location_item_broken_ticket" for issue in result.report.issues)
+
+
+def test_audit_precheck_flags_timeline_reversed_cause(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    _write_json(
+        root / "memory" / "state" / "timeline.json",
+        {
+            "events": [
+                {
+                    "id": "event_late",
+                    "chapter": 2,
+                    "in_story_time": "第二章",
+                    "summary": "未来原因。",
+                    "reader_visible": True,
+                },
+                {
+                    "id": "event_early",
+                    "chapter": 1,
+                    "in_story_time": "第一章",
+                    "summary": "提前发生的结果。",
+                    "reader_visible": True,
+                    "causes": ["event_late"],
+                },
+            ]
+        },
+    )
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+
+    assert result.report.overall_status == "needs_revision"
+    assert any(issue.type == "timeline_conflict" for issue in result.report.issues)
+
+
+def test_audit_prompt_includes_deterministic_summary(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    provider = MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md"))
+
+    audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
+
+    assert "Deterministic consistency checks" in provider.requests[0].user_prompt
+    assert "请不要机械重复这些结论" in provider.requests[0].user_prompt
 
 
 def test_audit_chapter_input_instruction(tmp_path: Path) -> None:
@@ -364,3 +468,7 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     with redirect_stdout(stdout), redirect_stderr(stderr):
         code = main(args)
     return code, stdout.getvalue(), stderr.getvalue()
+
+
+def _write_json(path: Path, data: object) -> None:
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 from pydantic import ValidationError
 import yaml
 
+from novel.core.consistency import check_project_consistency
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.schemas import (
@@ -157,6 +158,7 @@ def _validate_loaded_project(
         _validate_chapter_outputs(report, root, loaded)
         _validate_run_and_export_outputs(report, root)
         _validate_session_outputs(report, root)
+        _validate_consistency_findings(report, root)
 
 
 def _validate_schema_versions(report: ValidationReport, root: Path, loaded: LoadedProject) -> None:
@@ -795,6 +797,16 @@ def _validate_session_outputs(report: ValidationReport, root: Path) -> None:
     if archive_dir.exists():
         for manifest_path in sorted(archive_dir.glob("session_*/manifest.json")):
             _validate_optional_chapter_json(report, manifest_path, CreationArchiveManifest)
+
+
+def _validate_consistency_findings(report: ValidationReport, root: Path) -> None:
+    result = check_project_consistency(root)
+    for finding in result.findings:
+        message = f"{finding.id}: {finding.description} Evidence: {finding.quote}"
+        if finding.severity in {"high", "critical"}:
+            report.error(finding.source, message)
+        else:
+            report.warning(finding.source, message)
 
 
 def _validate_state_update_proposal_references(

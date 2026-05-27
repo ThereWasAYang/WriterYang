@@ -453,20 +453,54 @@ def test_validate_reports_chapter_output_linkage_errors(tmp_path: Path) -> None:
     assert any("front matter chapter_number 2 does not match 1" in msg.message for msg in report.errors)
 
 
-def test_validate_fails_accepted_chapter_without_passed_audit_or_state_apply(tmp_path: Path) -> None:
+def test_validate_fails_accepted_chapter_with_blocking_audit_or_missing_state_apply(tmp_path: Path) -> None:
     root = _workspace_with_accepted_chapter(tmp_path)
     audit_path = root / "memory" / "chapters" / "001" / "audit.json"
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
-    audit["overall_status"] = "needs_revision"
-    audit["summary"] = "仍需修改。"
+    audit["overall_status"] = "blocked"
+    audit["summary"] = "存在阻断问题。"
+    audit["issues"] = [
+        {
+            "id": "audit_001_critical",
+            "severity": "critical",
+            "type": "state_conflict",
+            "description": "章节编号错乱。",
+            "evidence": [{"source": "audit.json", "quote": "critical"}],
+            "suggested_fix": "重新审核并修复。",
+        }
+    ]
     audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (root / "memory" / "chapters" / "001" / "state_update_apply_log.json").unlink()
 
     report = validate_project(root)
 
     assert not report.ok
-    assert any("Accepted chapter must have a passed audit report" in msg.message for msg in report.errors)
+    assert any("Accepted chapter must not have high or critical audit issues" in msg.message for msg in report.errors)
     assert any("Accepted chapter must have an applied state update log" in msg.message for msg in report.errors)
+
+
+def test_validate_allows_accepted_chapter_with_non_blocking_audit_issues(tmp_path: Path) -> None:
+    root = _workspace_with_accepted_chapter(tmp_path)
+    audit_path = root / "memory" / "chapters" / "001" / "audit.json"
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["overall_status"] = "needs_revision"
+    audit["summary"] = "存在轻微问题。"
+    audit["issues"] = [
+        {
+            "id": "audit_001_low",
+            "severity": "low",
+            "type": "style_mismatch",
+            "description": "局部语气略可调整。",
+            "evidence": [{"source": "polished.md", "quote": "雨声"}],
+            "suggested_fix": "可后续微调。",
+        }
+    ]
+    audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    report = validate_project(root)
+
+    assert report.ok
+    assert any("Accepted chapter audit has non-blocking issues" in msg.message for msg in report.warnings)
 
 
 def test_validate_reports_hidden_truth_in_reader_visible_summary(tmp_path: Path) -> None:

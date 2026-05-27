@@ -508,18 +508,48 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
     findings: list[ConsistencyFinding] = []
     audit_path = snapshot.root / metadata.audit_path if metadata.audit_path else chapter_dir / "audit.json"
     audit_data = _load_json_dict(audit_path)
-    if not isinstance(audit_data, dict) or audit_data.get("overall_status") != "passed":
+    if not isinstance(audit_data, dict):
         findings.append(
             ConsistencyFinding(
                 id=f"cons_accepted_audit_{metadata.chapter_number:03d}",
                 severity="critical",
                 type="continuity_issue",
-                description="Accepted chapter must have a passed audit report.",
+                description="Accepted chapter must have a readable audit report.",
                 source=chapter_dir / "metadata.json",
                 quote=f"audit_path={metadata.audit_path or 'audit.json'}",
-                suggested_fix="Resolve audit issues and rerun accept-chapter after audit passes.",
+                suggested_fix="Regenerate audit.json and rerun accept-chapter.",
             )
         )
+    else:
+        blocking_issues = [
+            issue
+            for issue in audit_data.get("issues", [])
+            if isinstance(issue, dict) and issue.get("severity") in {"high", "critical"}
+        ]
+        if audit_data.get("overall_status") == "blocked" or blocking_issues:
+            findings.append(
+                ConsistencyFinding(
+                    id=f"cons_accepted_audit_{metadata.chapter_number:03d}",
+                    severity="critical",
+                    type="continuity_issue",
+                    description="Accepted chapter must not have high or critical audit issues.",
+                    source=chapter_dir / "metadata.json",
+                    quote=f"audit_path={metadata.audit_path or 'audit.json'}",
+                    suggested_fix="Resolve blocking audit issues and rerun accept-chapter after audit passes.",
+                )
+            )
+        elif audit_data.get("overall_status") != "passed":
+            findings.append(
+                ConsistencyFinding(
+                    id=f"cons_accepted_audit_{metadata.chapter_number:03d}",
+                    severity="medium",
+                    type="continuity_issue",
+                    description="Accepted chapter audit has non-blocking issues.",
+                    source=chapter_dir / "metadata.json",
+                    quote=f"overall_status={audit_data.get('overall_status')}",
+                    suggested_fix="Review low/medium audit issues when convenient, or rerun audit after revision.",
+                )
+            )
     apply_path = snapshot.root / metadata.state_update_apply_log_path if metadata.state_update_apply_log_path else chapter_dir / "state_update_apply_log.json"
     apply_log = _load_optional_model(apply_path, StateUpdateApplyLog)
     if not apply_log or apply_log.status != "applied":

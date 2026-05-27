@@ -358,8 +358,13 @@ def _normalize_canon_proposal_data(data: object) -> object:
 def _normalize_canon_item(collection_name: str, item: dict[str, object]) -> None:
     if collection_name in {"locations", "items"}:
         item.setdefault("type", "unspecified")
+    if collection_name == "locations":
+        _normalize_visibility_objects(item.get("rules"), default_visibility="reader_visible")
+    if collection_name == "items":
+        _normalize_visibility_objects(item.get("special_properties"), default_visibility="hidden")
     if collection_name == "world_rules":
         item.setdefault("visibility", "reader_visible")
+        _copy_first_present(item, "description", ("summary", "content", "rule", "notes"))
     if collection_name == "hidden_truths":
         _copy_first_present(item, "title", ("name", "summary", "label"))
         _copy_first_present(item, "description", ("content", "summary", "truth", "private_author_notes", "notes"))
@@ -371,6 +376,18 @@ def _normalize_canon_item(collection_name: str, item: dict[str, object]) -> None
         item.setdefault("introduced_in_chapter", 1)
         item.setdefault("status", "active")
         item.setdefault("importance", "medium")
+
+
+def _normalize_visibility_objects(value: object, *, default_visibility: str) -> None:
+    if not isinstance(value, list):
+        return
+    for index, entry in enumerate(value, start=1):
+        if not isinstance(entry, dict):
+            continue
+        _copy_first_present(entry, "description", ("summary", "content", "name", "notes"))
+        entry.setdefault("visibility", default_visibility)
+        if not entry.get("id") and "id" in entry:
+            entry["id"] = f"rule_{index}"
 
 
 def _copy_first_present(item: dict[str, object], target: str, aliases: tuple[str, ...]) -> None:
@@ -406,6 +423,7 @@ def validate_canon_proposal(proposal: CanonProposal) -> None:
         {item.id for item in proposal.characters}
         | {item.id for item in proposal.locations}
         | {item.id for item in proposal.items}
+        | {item.id for item in proposal.world_rules}
     )
     truth_ids = {item.id for item in proposal.hidden_truths}
     thread_ids = {item.id for item in proposal.foreshadowing_threads}

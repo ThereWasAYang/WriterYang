@@ -76,6 +76,7 @@ def test_canon_suggest_repairs_low_risk_shape_errors(tmp_path: Path) -> None:
     malformed["characters"][0]["aliases"] = "旧物修复师"
     malformed["locations"][0].pop("type")
     malformed["items"][0].pop("type")
+    malformed["items"][0]["special_properties"] = [{"name": "无法损坏", "description": "无论如何保持完好"}]
     malformed["world_rules"][0].pop("visibility")
     malformed["hidden_truths"][0]["summary"] = malformed["hidden_truths"][0].pop("title")
     malformed["foreshadowing_threads"][0].pop("status")
@@ -87,9 +88,20 @@ def test_canon_suggest_repairs_low_risk_shape_errors(tmp_path: Path) -> None:
     assert result.proposal.characters[0].aliases == ["旧物修复师"]
     assert result.proposal.locations[0].type == "unspecified"
     assert result.proposal.items[0].type == "unspecified"
+    assert result.proposal.items[0].special_properties[0].visibility == "hidden"
     assert result.proposal.world_rules[0].visibility == "reader_visible"
     assert result.proposal.hidden_truths[0].title == "旧车站是时间交叠点"
     assert result.proposal.foreshadowing_threads[0].status == "active"
+
+
+def test_canon_proposal_allows_foreshadowing_to_reference_world_rule() -> None:
+    data = json.loads(default_mock_canon_proposal_json())
+    rule_id = data["world_rules"][0]["id"]
+    data["foreshadowing_threads"][0]["related_entity_ids"] = [rule_id]
+
+    proposal = parse_canon_proposal(json.dumps(data, ensure_ascii=False))
+
+    validate_canon_proposal(proposal)
 
 
 def test_canon_apply_merges_proposal_into_empty_canon(tmp_path: Path) -> None:

@@ -192,6 +192,21 @@ def test_apply_state_update_fails_on_old_value_mismatch(tmp_path: Path) -> None:
     assert "old_value mismatch" in stderr
 
 
+def test_apply_state_update_ignores_old_value_when_entity_state_is_missing(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    proposal_path = root / "memory" / "chapters" / "001" / "state_update_proposal.json"
+    proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+    proposal["state_changes"][0]["old_value"] = ["model inferred prior state"]
+    proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(["apply-state-update", "1", "--path", str(root)])
+
+    assert code == 0
+    assert stderr == ""
+    assert "state_update_apply_log.json" in stdout
+
+
 def test_apply_state_update_fails_on_item_holder_location_conflict(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     state_path = root / "memory" / "state" / "current_state.json"

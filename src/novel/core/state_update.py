@@ -841,6 +841,11 @@ def _validate_state_change_old_values(
             target = location_states.get(change.entity_id)
         else:
             target = None
+        if target is None and change.entity_id != "story_position":
+            # Missing entity state means the project has not tracked this entity yet.
+            # Treat old_value as model-inferred story context, not an authoritative
+            # conflict against current_state.json.
+            continue
         actual = _current_state_value_for_change(target, change)
         if actual != change.old_value:
             raise StateUpdateError(

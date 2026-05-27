@@ -137,6 +137,8 @@ def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
     assert usage_payload["data"]["usage"]["total"]["call_count"] == 0  # type: ignore[index]
     assert state_status == 200
     assert "timeline_event_count" in state_payload["data"]["summary"]  # type: ignore[index]
+    assert "visual" in state_payload["data"]  # type: ignore[operator]
+    assert "timeline_events" in state_payload["data"]["visual"]  # type: ignore[index]
 
 
 def test_api_diff_endpoint_returns_unified_diff(tmp_path: Path) -> None:
@@ -156,6 +158,146 @@ def test_api_diff_endpoint_returns_unified_diff(tmp_path: Path) -> None:
     assert status == 200
     assert "--- memory/chapters/001/polished.md" in payload["data"]["diff"]  # type: ignore[index]
     assert "+新文本" in payload["data"]["diff"]  # type: ignore[index]
+
+
+def test_api_save_chapter_file_creates_version_and_revision_log(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    _write_chapter_file(root, "polished.md", "原始正文")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/save-chapter-file",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "chapter_number": 1,
+                "target": "polished",
+                "source_file": "polished.md",
+                "content": "---\nchapter_number: 1\ntitle: 雨夜旧车站\nstatus: polished_revision\n---\n\n新正文\n",
+            }
+        ),
+    )
+
+    assert status == 200
+    assert payload["data"]["relative_path"] == "memory/chapters/001/polished.v2.md"  # type: ignore[index]
+    assert (root / "memory" / "chapters" / "001" / "polished.v2.md").is_file()
+    log = json.loads((root / "memory" / "chapters" / "001" / "revision_log.json").read_text(encoding="utf-8"))
+    assert log["revisions"][0]["provider"] == "web_editor"
+
+
+def test_api_save_accepted_chapter_does_not_overwrite_base_file(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    polished_path = _write_chapter_file(root, "polished.md", "原始正文")
+    original = polished_path.read_text(encoding="utf-8")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/save-chapter-file",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "chapter_number": 1,
+                "target": "polished",
+                "source_file": "polished.md",
+                "content": original.replace("原始正文", "新版本正文"),
+            }
+        ),
+    )
+
+    assert status == 200
+    assert polished_path.read_text(encoding="utf-8") == original
+    assert payload["data"]["relative_path"] == "memory/chapters/001/polished.v2.md"  # type: ignore[index]
+
+
+def test_api_audit_annotations_locate_evidence_quote(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    _write_chapter_file(root, "polished.md", "林澈突然知道了隐藏真相。")
+    audit_path = root / "memory" / "chapters" / "001" / "audit.json"
+    audit_path.write_text(
+        json.dumps(
+            {
+                "chapter_number": 1,
+                "audited_file": "polished.md",
+                "overall_status": "needs_revision",
+                "summary": "发现问题。",
+                "issues": [
+                    {
+                        "id": "audit_issue_001",
+                        "severity": "high",
+                        "type": "premature_reveal",
+                        "description": "角色知道了不该知道的信息。",
+                        "evidence": [{"source": "polished.md", "quote": "突然知道了隐藏真相"}],
+                        "suggested_fix": "改成怀疑而非知道。",
+                    }
+                ],
+                "passed_checks": [],
+                "created_at": "2026-05-22T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status, payload = handle_api_request(
+        "GET",
+        "/api/audit-annotations",
+        f"path={root}&chapter=1&file=polished.md",
+        None,
+    )
+
+    assert status == 200
+    issue = payload["data"]["issues"][0]  # type: ignore[index]
+    assert issue["matches"][0]["matched"] is True
+    assert issue["matches"][0]["line"] >= 1
+
+
+def test_api_provider_config_save_updates_non_secret_fields(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "agents": {
+                    "writer": {
+                        "provider": "mock",
+                        "model": "web-writer-model",
+                        "temperature": 0.3,
+                        "thinking": {"type": "disabled"},
+                    }
+                },
+            }
+        ),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    agents = json.loads(json.dumps(payload["data"]["config"]["content"], ensure_ascii=False))  # type: ignore[index]
+    assert agents["agents"]["writer"]["model"] == "web-writer-model"
+    assert list((root / "config").glob("agents.yaml.bak_*"))
+
+
+def test_api_provider_config_rejects_raw_api_key_without_leaking(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    secret = "sk-test-secret-never-return"
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "agents": {"writer": {"api_key_env": secret}}}),
+    )
+
+    assert status == 400
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert secret not in serialized
 
 
 def test_api_session_start_endpoint_creates_outline(tmp_path: Path) -> None:
@@ -183,8 +325,13 @@ def test_frontend_basic_render() -> None:
     assert 'id="fileTree"' in html
     assert 'id="chapterList"' in html
     assert 'id="compareGrid"' in html
+    assert 'id="chapterEditor"' in html
+    assert 'id="chapterEditorText"' in html
+    assert 'id="auditLocate"' in html
+    assert 'id="auditIssueList"' in html
     assert 'id="runLogs"' in html
     assert 'id="providerConfig"' in html
+    assert 'id="providerFieldEditor"' in html
     assert 'id="stateTimeline"' in html
     assert 'id="diffViewer"' in html
     assert 'id="sessionStart"' in html
@@ -194,6 +341,8 @@ def test_frontend_basic_render() -> None:
     assert 'id="polishChapter"' in html
     assert 'id="auditChapter"' in html
     assert 'id="exportMarkdown"' in html
+    assert "/api/save-chapter-file" in html
+    assert "/api/audit-annotations" in html
     assert "fetch(" in html
 
 
@@ -273,3 +422,14 @@ def _workspace_ready_for_generation(tmp_path: Path) -> Path:
     proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
     assert apply_canon_proposal(root, proposal_path).validation_report.ok
     return root
+
+
+def _write_chapter_file(root: Path, file_name: str, body: str) -> Path:
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    path = chapter_dir / file_name
+    path.write_text(
+        "---\nchapter_number: 1\ntitle: 雨夜旧车站\nstatus: polished\n---\n\n" + body + "\n",
+        encoding="utf-8",
+    )
+    return path

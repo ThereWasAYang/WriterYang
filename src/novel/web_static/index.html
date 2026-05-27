@@ -54,6 +54,11 @@
     .error { color: #b42318; }
     .file-tree { max-height: 38vh; overflow: auto; border: 1px solid #e4e8ed; border-radius: 6px; padding: 8px; background: #fbfcfd; }
     .file-row { width: 100%; display: block; text-align: left; border: 0; background: transparent; padding: 4px 6px; font-size: 12px; }
+    .editor { min-height: 56vh; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.55; }
+    .issue-button { display: block; width: 100%; margin-bottom: 8px; text-align: left; border-color: #d7dde5; }
+    .badge { display: inline-block; border: 1px solid #d7dde5; border-radius: 999px; padding: 2px 7px; font-size: 12px; background: #fbfcfd; }
+    .timeline-lane { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; }
+    .timeline-card { min-width: 220px; border: 1px solid #e4e8ed; border-radius: 6px; padding: 8px; background: #fbfcfd; }
     .hidden { display: none; }
   </style>
 </head>
@@ -130,6 +135,8 @@
       <div class="panel">
         <div class="row">
           <button class="tab active" data-tab="chapterCompare">章节对照</button>
+          <button class="tab" data-tab="chapterEditor">章节编辑器</button>
+          <button class="tab" data-tab="auditLocate">Audit 定位</button>
           <button class="tab" data-tab="runLogs">运行日志</button>
           <button class="tab" data-tab="providerConfig">Provider 配置</button>
           <button class="tab" data-tab="stateTimeline">状态 / 时间线</button>
@@ -175,6 +182,49 @@
         </div>
       </div>
 
+      <div id="chapterEditor" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row">
+            <h2 style="margin: 0;">可保存章节编辑器</h2>
+            <select id="editorTarget">
+              <option value="draft">draft.md</option>
+              <option value="polished">polished.md</option>
+            </select>
+            <input id="editorSource" placeholder="draft.md 或 polished.v2.md">
+            <button id="loadEditorFile">加载</button>
+            <button id="saveEditorVersion" class="primary">保存新版本</button>
+          </div>
+          <div class="row" style="margin: 8px 0;">
+            <span id="editorDirty" class="badge">未加载</span>
+            <span id="editorSavedPath" class="badge">未保存</span>
+          </div>
+          <textarea id="chapterEditorText" class="editor" placeholder="加载 draft/polished 后编辑。保存时会写入 v2/v3... 版本文件，不覆盖原稿。"></textarea>
+        </div>
+      </div>
+
+      <div id="auditLocate" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row">
+            <h2 style="margin: 0;">Audit issue 正文定位</h2>
+            <select id="auditLocateFile">
+              <option value="polished.md">polished.md</option>
+              <option value="draft.md">draft.md</option>
+            </select>
+            <button id="loadAuditAnnotations">加载定位</button>
+          </div>
+          <div class="grid" style="margin-top: 10px;">
+            <div>
+              <h3>Issues</h3>
+              <div id="auditIssueList">未加载</div>
+            </div>
+            <div>
+              <h3>正文</h3>
+              <textarea id="auditTextViewer" class="editor" readonly></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="runLogs" class="tabPanel hidden">
         <div class="panel">
           <div class="row"><h2 style="margin: 0;">运行日志</h2><button id="loadRuns">刷新日志</button></div>
@@ -185,7 +235,19 @@
       <div id="providerConfig" class="tabPanel hidden">
         <div class="panel">
           <div class="row"><h2 style="margin: 0;">Provider 配置</h2><button id="loadProviderConfig">刷新配置</button></div>
-          <pre id="providerConfigPanel">未加载</pre>
+          <div class="grid" style="margin-top: 10px;">
+            <div>
+              <label for="providerAgentSelect">Agent</label>
+              <select id="providerAgentSelect"></select>
+              <label for="providerFieldEditor">非密钥配置 JSON</label>
+              <textarea id="providerFieldEditor" class="editor" style="min-height: 260px;"></textarea>
+              <button id="saveProviderConfig" class="primary" style="margin-top: 8px;">保存 Provider 配置</button>
+            </div>
+            <div>
+              <h3>脱敏配置</h3>
+              <pre id="providerConfigPanel">未加载</pre>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -201,6 +263,9 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const chapterFileTypes = ["plan", "draft", "polished", "audit"];
+    let editorLoadedContent = "";
+    let editorSourceFile = "";
+    let providerConfigCache = null;
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -395,6 +460,93 @@
       setMessage("章节对照已加载");
     }
 
+    async function loadEditorFile() {
+      try {
+        const target = $("editorTarget").value;
+        const source = $("editorSource").value.trim() || `${target}.md`;
+        const relPath = `memory/chapters/${String(chapterNumber()).padStart(3, "0")}/${source}`;
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        editorLoadedContent = data.content || "";
+        editorSourceFile = source;
+        $("chapterEditorText").value = editorLoadedContent;
+        $("editorSource").value = source;
+        $("editorDirty").textContent = "已加载";
+        $("editorSavedPath").textContent = relPath;
+        setMessage(`已加载 ${relPath}`);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function saveEditorVersion() {
+      try {
+        const target = $("editorTarget").value;
+        const data = await apiPost("/api/save-chapter-file", {
+          path: projectPath(),
+          chapter_number: chapterNumber(),
+          target,
+          source_file: editorSourceFile || `${target}.md`,
+          content: $("chapterEditorText").value,
+          instruction: "Web editor save",
+        });
+        editorLoadedContent = $("chapterEditorText").value;
+        $("editorDirty").textContent = "已保存";
+        $("editorSavedPath").textContent = data.relative_path || data.output_path || "";
+        $("diffLeft").value = `memory/chapters/${String(chapterNumber()).padStart(3, "0")}/${editorSourceFile || `${target}.md`}`;
+        $("diffRight").value = data.relative_path || "";
+        setMessage(`已保存 ${data.relative_path}`);
+        await refreshAll();
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadAuditAnnotations() {
+      try {
+        const auditedFile = $("auditLocateFile").value;
+        const [annotations, fileData] = await Promise.all([
+          apiGet("/api/audit-annotations", { path: projectPath(), chapter: chapterNumber(), file: auditedFile }),
+          apiGet("/api/read-file", {
+            path: projectPath(),
+            file: `memory/chapters/${String(chapterNumber()).padStart(3, "0")}/${auditedFile}`,
+          }),
+        ]);
+        $("auditTextViewer").value = fileData.content || "";
+        renderAuditIssues(annotations.issues || []);
+        setMessage("Audit issue 定位已加载");
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    function renderAuditIssues(issues) {
+      if (!issues.length) {
+        $("auditIssueList").textContent = "无 issue";
+        return;
+      }
+      $("auditIssueList").innerHTML = issues.map((issue, index) => {
+        const first = (issue.matches || [])[0] || {};
+        const loc = first.matched ? `line ${first.line}, col ${first.column}` : "无法定位";
+        return `<button class="issue-button" data-index="${index}"><b>${escapeHtml(issue.id)}</b> <span class="badge">${escapeHtml(issue.severity || "")}</span><br>${escapeHtml(issue.description || "")}<br><small>${escapeHtml(loc)}</small></button>`;
+      }).join("");
+      document.querySelectorAll(".issue-button").forEach((button) => {
+        button.addEventListener("click", () => {
+          const issue = issues[Number(button.dataset.index)];
+          const match = (issue.matches || []).find((item) => item.matched);
+          if (!match) {
+            setMessage("该 issue 的 evidence 无法定位到正文", true);
+            return;
+          }
+          const viewer = $("auditTextViewer");
+          viewer.focus();
+          viewer.setSelectionRange(match.start_offset, match.end_offset);
+          const lineHeight = 20;
+          viewer.scrollTop = Math.max(0, (match.line - 3) * lineHeight);
+          setMessage(`已定位 ${issue.id}`);
+        });
+      });
+    }
+
     async function loadRuns() {
       try {
         const data = await apiGet("/api/runs", { path: projectPath() });
@@ -420,7 +572,50 @@
     async function loadProviderConfig() {
       try {
         const data = await apiGet("/api/provider-config", { path: projectPath() });
+        providerConfigCache = data.agents?.content || null;
         $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
+        renderProviderEditor(providerConfigCache);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    function renderProviderEditor(config) {
+      const agents = config?.agents || {};
+      const names = Object.keys(agents);
+      $("providerAgentSelect").innerHTML = names.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join("");
+      if (names.length) {
+        $("providerAgentSelect").value = $("providerAgentSelect").value || names[0];
+        renderProviderAgentFields();
+      } else {
+        $("providerFieldEditor").value = "";
+      }
+    }
+
+    function renderProviderAgentFields() {
+      const name = $("providerAgentSelect").value;
+      const agent = providerConfigCache?.agents?.[name] || {};
+      const editable = {};
+      [
+        "provider", "model", "base_url_env", "api_key_env", "reasoning", "thinking",
+        "max_context_tokens", "max_tokens", "temperature", "timeout_seconds", "max_retries",
+      ].forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(agent, key)) editable[key] = agent[key];
+      });
+      $("providerFieldEditor").value = JSON.stringify(editable, null, 2);
+    }
+
+    async function saveProviderConfig() {
+      try {
+        const agentName = $("providerAgentSelect").value;
+        const patch = JSON.parse($("providerFieldEditor").value || "{}");
+        const data = await apiPost("/api/provider-config", {
+          path: projectPath(),
+          agents: { [agentName]: patch },
+        });
+        $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
+        setMessage("Provider 配置已保存并备份");
+        await loadProviderConfig();
       } catch (error) {
         setMessage(error.message, true);
       }
@@ -429,14 +624,33 @@
     async function loadStateTimeline() {
       try {
         const data = await apiGet("/api/state-timeline", { path: projectPath() });
-        const events = data.timeline?.events || [];
+        const visual = data.visual || {};
+        const events = visual.timeline_events || [];
         const eventRows = events.map((event) => `
-          <tr><td>${escapeHtml(event.id || "")}</td><td>${escapeHtml(event.chapter || "")}</td><td>${escapeHtml(event.summary || "")}</td><td>${escapeHtml(event.location_id || "")}</td></tr>
+          <tr><td>${escapeHtml(event.id || "")}</td><td>${escapeHtml(event.chapter || "")}</td><td>${escapeHtml(event.summary || "")}</td><td>${escapeHtml(event.location_name || event.location_id || "")}</td><td>${escapeHtml((event.participant_names || []).join(", "))}</td></tr>
         `).join("");
+        const itemRows = (visual.items || []).map((item) => `
+          <tr><td>${escapeHtml(item.name || item.id || "")}</td><td>${escapeHtml(item.holder_name || item.holder_id || "")}</td><td>${escapeHtml(item.location_name || item.location_id || "")}</td><td>${escapeHtml(item.condition || "")}</td></tr>
+        `).join("");
+        const characterRows = (visual.characters || []).map((character) => `
+          <tr><td>${escapeHtml(character.name || character.id || "")}</td><td>${escapeHtml(character.location_name || character.location_id || "")}</td><td>${escapeHtml(character.health || "")}</td><td>${escapeHtml((character.possessions || []).join(", "))}</td></tr>
+        `).join("");
+        const chapterCards = Object.entries(visual.timeline_by_chapter || {}).map(([chapter, chapterEvents]) => `
+          <div class="timeline-card"><b>第 ${escapeHtml(chapter)} 章</b>${chapterEvents.map((event) => `<div>${escapeHtml(event.id || "")}: ${escapeHtml(event.summary || "")}</div>`).join("")}</div>
+        `).join("");
+        const conflicts = (visual.conflicts || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
         $("stateTimelinePanel").innerHTML = `
           <pre>${escapeHtml(JSON.stringify(data.summary || {}, null, 2))}</pre>
+          <h3 style="margin-top: 16px;">Timeline by chapter</h3>
+          <div class="timeline-lane">${chapterCards || "<span>无</span>"}</div>
+          <h3 style="margin-top: 16px;">Characters</h3>
+          <table><thead><tr><th>角色</th><th>地点</th><th>状态</th><th>持有物</th></tr></thead><tbody>${characterRows || "<tr><td colspan='4'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Items</h3>
+          <table><thead><tr><th>物品</th><th>持有人</th><th>地点</th><th>状态</th></tr></thead><tbody>${itemRows || "<tr><td colspan='4'>无</td></tr>"}</tbody></table>
           <h3 style="margin-top: 16px;">Timeline</h3>
-          <table><thead><tr><th>id</th><th>chapter</th><th>summary</th><th>location</th></tr></thead><tbody>${eventRows || "<tr><td colspan='4'>无</td></tr>"}</tbody></table>
+          <table><thead><tr><th>id</th><th>chapter</th><th>summary</th><th>location</th><th>participants</th></tr></thead><tbody>${eventRows || "<tr><td colspan='5'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Conflicts</h3>
+          <ul>${conflicts || "<li>无</li>"}</ul>
         `;
       } catch (error) {
         setMessage(error.message, true);
@@ -464,6 +678,8 @@
       if (tabId === "runLogs") loadRuns();
       if (tabId === "providerConfig") loadProviderConfig();
       if (tabId === "stateTimeline") loadStateTimeline();
+      if (tabId === "chapterEditor" && !$("chapterEditorText").value) loadEditorFile();
+      if (tabId === "auditLocate") loadAuditAnnotations();
     }
 
     function escapeHtml(value) {
@@ -490,8 +706,16 @@
     $("sessionArchive").addEventListener("click", () => runSessionAction("/api/session/archive", sessionPayload(), "归档 Session"));
     $("viewFile").addEventListener("click", viewFile);
     $("loadCompare").addEventListener("click", loadCompare);
+    $("loadEditorFile").addEventListener("click", loadEditorFile);
+    $("saveEditorVersion").addEventListener("click", saveEditorVersion);
+    $("chapterEditorText").addEventListener("input", () => {
+      $("editorDirty").textContent = $("chapterEditorText").value === editorLoadedContent ? "未修改" : "有未保存修改";
+    });
+    $("loadAuditAnnotations").addEventListener("click", loadAuditAnnotations);
     $("loadRuns").addEventListener("click", loadRuns);
     $("loadProviderConfig").addEventListener("click", loadProviderConfig);
+    $("providerAgentSelect").addEventListener("change", renderProviderAgentFields);
+    $("saveProviderConfig").addEventListener("click", saveProviderConfig);
     $("loadStateTimeline").addEventListener("click", loadStateTimeline);
     $("loadDiff").addEventListener("click", loadDiff);
     document.querySelectorAll(".tab").forEach((button) => {

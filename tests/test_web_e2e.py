@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import socket
 import threading
 from http.server import ThreadingHTTPServer
@@ -18,6 +19,7 @@ pytestmark = pytest.mark.web_e2e
 def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> None:
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     root = _workspace_ready_for_generation(tmp_path)
+    _write_chapter_and_audit_fixture(root)
     try:
         port = _free_port()
     except PermissionError:
@@ -41,6 +43,13 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
                 "() => document.querySelector('#providerConfigPanel')?.textContent?.includes('api_key_env')"
             )
             assert "api_key_env" in page.locator("#providerConfigPanel").inner_text()
+            page.select_option("#providerAgentSelect", "writer")
+            page.fill(
+                "#providerFieldEditor",
+                '{"provider":"mock","model":"web-e2e-writer","thinking":{"type":"disabled"}}',
+            )
+            page.click("#saveProviderConfig")
+            page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('Provider 配置已保存')")
 
             page.click("button[data-tab='runLogs']")
             page.click("#planChapter")
@@ -54,6 +63,23 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
                 "() => !document.querySelector('#planViewer')?.textContent?.includes('未加载')"
             )
             assert "旧车站" in page.locator("#planViewer").inner_text()
+
+            page.click("button[data-tab='chapterEditor']")
+            page.fill("#editorSource", "polished.md")
+            page.click("#loadEditorFile")
+            page.wait_for_function("() => document.querySelector('#chapterEditorText')?.value?.includes('原始正文')")
+            page.fill("#chapterEditorText", page.locator("#chapterEditorText").input_value() + "\n新增一行。")
+            page.click("#saveEditorVersion")
+            page.wait_for_function("() => document.querySelector('#editorSavedPath')?.textContent?.includes('polished.v2.md')")
+
+            page.click("button[data-tab='auditLocate']")
+            page.click("#loadAuditAnnotations")
+            page.wait_for_function("() => document.querySelector('#auditIssueList')?.textContent?.includes('audit_issue_001')")
+            page.click(".issue-button")
+            page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('已定位')")
+
+            page.click("button[data-tab='stateTimeline']")
+            page.wait_for_function("() => document.querySelector('#stateTimelinePanel')?.textContent?.includes('Timeline by chapter')")
             browser.close()
     except Exception as exc:
         if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
@@ -75,6 +101,41 @@ def _workspace_ready_for_generation(tmp_path: Path) -> Path:
     proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
     assert apply_canon_proposal(root, proposal_path).validation_report.ok
     return root
+
+
+def _write_chapter_and_audit_fixture(root: Path) -> None:
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    (chapter_dir / "polished.md").write_text(
+        "---\nchapter_number: 1\ntitle: 雨夜旧车站\nstatus: polished\n---\n\n原始正文里有定位短语。\n",
+        encoding="utf-8",
+    )
+    (chapter_dir / "audit.json").write_text(
+        json.dumps(
+            {
+                "chapter_number": 1,
+                "audited_file": "polished.md",
+                "overall_status": "needs_revision",
+                "summary": "fixture issue",
+                "issues": [
+                    {
+                        "id": "audit_issue_001",
+                        "severity": "medium",
+                        "type": "continuity_issue",
+                        "description": "定位测试。",
+                        "evidence": [{"source": "polished.md", "quote": "定位短语"}],
+                        "suggested_fix": "修正相关正文。",
+                    }
+                ],
+                "passed_checks": [],
+                "created_at": "2026-05-22T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _free_port() -> int:

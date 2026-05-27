@@ -441,10 +441,12 @@ web:
 
 - 项目文件树：只显示工作区内安全文件，排除 `.env*`、search index、备份和缓存。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
-- Revision diff：只读展示两个工作区文件的 unified diff。
+- 章节编辑器：可编辑 `draft.md` / `polished.md`，保存时默认创建 `draft.v2.md` / `polished.v2.md` 等版本文件，并记录 `revision_log.json`，不原地覆盖旧稿。
+- Audit 定位：读取 `audit.json` 的 evidence quote，定位到正文中的行列位置；找不到时显示无法定位。
+- Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
-- Provider 配置：只读展示 `config/agents.yaml`、`config/embeddings.yaml`，只显示环境变量名和是否存在，不显示真实值。
-- 状态 / 时间线：以表格和摘要方式查看 `current_state.json`、`timeline.json`。
+- Provider 配置：展示并允许编辑非密钥字段，例如 provider、model、temperature、thinking、timeout；只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
+- 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 
 Web API 统一返回：
 

@@ -16,11 +16,12 @@ from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_p
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.exporting import MarkdownExportOptions, export_markdown, parse_chapter_selector
 from novel.core.inspection import format_canon, get_project_status
-from novel.core.io import load_json, load_json_model, load_yaml
+from novel.core.io import atomic_write_model_json, atomic_write_text, atomic_write_yaml, backup_if_exists, load_json, load_json_model, load_yaml
 from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
-from novel.core.schemas import ChapterPlan
+from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, RevisionLog, RevisionRecord
+from novel.core.security import validate_secret_config_file
 from novel.core.session import (
     SessionActionOptions,
     SessionInstructionOptions,
@@ -113,6 +114,8 @@ def handle_api_request(
             return _success(_provider_config_summary(_root_from_query(query)))
         if method == "GET" and path == "/api/state-timeline":
             return _success(_state_timeline_summary(_root_from_query(query)))
+        if method == "GET" and path == "/api/audit-annotations":
+            return _success(_audit_annotations(_root_from_query(query), query))
         if method == "GET" and path == "/api/session":
             root = _root_from_query(query)
             session = load_session(root, query.get("session_id") or "")
@@ -139,6 +142,10 @@ def handle_api_request(
             return _success(_locked_write(data, "web export markdown", _export_markdown))
         if method == "POST" and path == "/api/generate-chapter":
             return _success(_locked_write(data, "web generate-chapter", _generate_chapter))
+        if method == "POST" and path == "/api/save-chapter-file":
+            return _success(_locked_write(data, "web save chapter file", _save_chapter_file))
+        if method == "POST" and path == "/api/provider-config":
+            return _success(_locked_write(data, "web provider config", _save_provider_config))
         if method == "POST" and path == "/api/session/start":
             return _success(_locked_write(data, "web session start", _session_start))
         if method == "POST" and path == "/api/session/revise-outline":
@@ -340,6 +347,90 @@ def _generate_chapter(data: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _save_chapter_file(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    _require_workspace(root)
+    chapter_number = _chapter_number(data)
+    target = str(data.get("target") or "")
+    if target not in {"draft", "polished"}:
+        raise WebAPIError("invalid_request", "target must be draft or polished", status=400)
+    content = str(data.get("content") or "")
+    if not content.strip():
+        raise WebAPIError("invalid_request", "content must not be empty", status=400)
+    chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+    source_name = str(data.get("source_file") or f"{target}.md")
+    if not _is_allowed_chapter_version_name(source_name, target):
+        raise WebAPIError("forbidden_file", "source_file is not an editable chapter version", status=403)
+    source_path = chapter_dir / source_name
+    if not source_path.exists():
+        raise FileNotFoundError(f"{source_name} does not exist")
+    if _is_archived_chapter(root, chapter_number):
+        raise WebAPIError(
+            "archived_content_read_only",
+            "archived chapter content is read-only; create a new revision session instead",
+            status=409,
+        )
+
+    output_path = _next_version_path(chapter_dir, target)
+    atomic_write_text(output_path, content.rstrip() + "\n")
+    record = RevisionRecord(
+        id=_new_revision_id(),
+        chapter_number=chapter_number,
+        target=target,  # type: ignore[arg-type]
+        source_file=source_name,
+        output_file=output_path.name,
+        instruction=_optional_string(data.get("instruction")) or "Web editor save as version",
+        from_audit=False,
+        audit_file="audit.json" if (chapter_dir / "audit.json").exists() else None,
+        audit_issue_ids=[],
+        created_at=datetime.now(timezone.utc).replace(microsecond=0),
+        provider="web_editor",
+    )
+    log_path = chapter_dir / "revision_log.json"
+    _append_web_revision_log(log_path, chapter_number, record)
+    return {
+        "output_path": str(output_path),
+        "relative_path": _relative(root, output_path),
+        "revision_log_path": str(log_path),
+        "record": record.model_dump(mode="json"),
+    }
+
+
+def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    _require_workspace(root)
+    config_path = root / "config" / "agents.yaml"
+    raw_config = load_yaml(config_path)
+    if not isinstance(raw_config, dict):
+        raise WebAPIError("invalid_config", "config/agents.yaml must be a YAML mapping", status=400)
+    agents_update = data.get("agents")
+    if not isinstance(agents_update, dict):
+        raise WebAPIError("invalid_request", "agents must be a mapping", status=400)
+    updated = dict(raw_config)
+    agents = dict(updated.get("agents") or {})
+    for agent_name, patch in agents_update.items():
+        if not isinstance(agent_name, str) or not isinstance(patch, dict):
+            raise WebAPIError("invalid_request", "agent updates must be mappings", status=400)
+        if agent_name not in agents or not isinstance(agents[agent_name], dict):
+            raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
+        cleaned = _clean_agent_config_patch(patch)
+        agents[agent_name] = {**agents[agent_name], **cleaned}
+    updated["agents"] = agents
+    AgentsConfig.model_validate(updated)
+    backup_path = backup_if_exists(config_path, reason="web_provider_config")
+    atomic_write_yaml(config_path, updated)
+    findings = validate_secret_config_file(config_path)
+    if findings:
+        if backup_path:
+            atomic_write_text(config_path, backup_path.read_text(encoding="utf-8"))
+        raise WebAPIError("unsafe_config_secret", "provider config contains unsafe secret-like values", status=400)
+    return {
+        "path": str(config_path),
+        "backup_path": str(backup_path) if backup_path else None,
+        "config": _provider_config_summary(root)["agents"],
+    }
+
+
 def _session_start(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
     chapter_range = parse_range(str(data.get("chapters") or data.get("chapter") or "1"))
@@ -521,15 +612,68 @@ def _state_timeline_summary(root: Path) -> dict[str, object]:
     _require_workspace(root)
     state = _safe_json(root / "memory" / "state" / "current_state.json")
     timeline = _safe_json(root / "memory" / "state" / "timeline.json")
+    canon = {
+        "characters": _safe_json(root / "memory" / "canon" / "characters.json"),
+        "locations": _safe_json(root / "memory" / "canon" / "locations.json"),
+        "items": _safe_json(root / "memory" / "canon" / "items.json"),
+    }
+    visual = _state_timeline_visual_summary(state, timeline, canon)
     return {
         "state": state,
         "timeline": timeline,
+        "visual": visual,
         "summary": {
             "character_state_count": len(state.get("character_states", [])) if isinstance(state, dict) else 0,
             "item_state_count": len(state.get("item_states", [])) if isinstance(state, dict) else 0,
             "location_state_count": len(state.get("location_states", [])) if isinstance(state, dict) else 0,
             "timeline_event_count": len(timeline.get("events", [])) if isinstance(timeline, dict) else 0,
         },
+    }
+
+
+def _audit_annotations(root: Path, query: dict[str, str]) -> dict[str, object]:
+    _require_workspace(root)
+    chapter_number = int(query.get("chapter", "0"))
+    audited_file = query.get("file") or "polished.md"
+    if chapter_number < 1 or audited_file not in {"draft.md", "polished.md"}:
+        raise ValueError("invalid chapter or audited file")
+    chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+    audit_path = chapter_dir / "audit.json"
+    text_path = chapter_dir / audited_file
+    if not audit_path.exists():
+        raise FileNotFoundError("audit.json does not exist")
+    if not text_path.exists():
+        raise FileNotFoundError(f"{audited_file} does not exist")
+    report = load_json_model(audit_path, AuditReport)
+    content = text_path.read_text(encoding="utf-8")
+    issues = []
+    for issue in report.issues:
+        matches = []
+        for evidence in issue.evidence:
+            quote = evidence.quote.strip()
+            location = _locate_quote(content, quote)
+            matches.append(
+                {
+                    "source": evidence.source,
+                    "quote": quote,
+                    "matched": location is not None,
+                    **(location or {}),
+                }
+            )
+        issues.append(
+            {
+                "id": issue.id,
+                "severity": issue.severity,
+                "type": issue.type,
+                "description": issue.description,
+                "suggested_fix": issue.suggested_fix,
+                "matches": matches,
+            }
+        )
+    return {
+        "audit_path": _relative(root, audit_path),
+        "audited_file": audited_file,
+        "issues": issues,
     }
 
 
@@ -659,6 +803,124 @@ def _provider_call_summary(path: Path) -> list[dict[str, object]]:
     return calls
 
 
+def _state_timeline_visual_summary(state: object, timeline: object, canon: dict[str, object]) -> dict[str, object]:
+    character_names = _name_map(canon.get("characters"), "characters")
+    location_names = _name_map(canon.get("locations"), "locations")
+    item_names = _name_map(canon.get("items"), "items")
+    characters = []
+    items = []
+    locations = []
+    conflicts = []
+    if isinstance(state, dict):
+        for character in state.get("character_states", []):
+            if not isinstance(character, dict):
+                continue
+            entity_id = str(character.get("entity_id") or "")
+            characters.append(
+                {
+                    "id": entity_id,
+                    "name": character_names.get(entity_id, entity_id),
+                    "location_id": character.get("location_id"),
+                    "location_name": location_names.get(str(character.get("location_id") or ""), character.get("location_id")),
+                    "health": character.get("health"),
+                    "possessions": character.get("possessions") or [],
+                    "knowledge_count": len(character.get("knowledge", [])) if isinstance(character.get("knowledge"), list) else 0,
+                }
+            )
+        possession_owner: dict[str, str] = {}
+        for character in state.get("character_states", []):
+            if not isinstance(character, dict):
+                continue
+            for item_id in character.get("possessions", []) if isinstance(character.get("possessions"), list) else []:
+                if item_id in possession_owner and possession_owner[item_id] != character.get("entity_id"):
+                    conflicts.append(f"item {item_id} appears in possessions of multiple characters")
+                possession_owner[str(item_id)] = str(character.get("entity_id") or "")
+        for item in state.get("item_states", []):
+            if not isinstance(item, dict):
+                continue
+            entity_id = str(item.get("entity_id") or "")
+            holder_id = str(item.get("holder_id") or "")
+            location_id = str(item.get("location_id") or "")
+            if holder_id and location_id:
+                conflicts.append(f"item {entity_id} has both holder and location")
+            if holder_id and possession_owner.get(entity_id) and possession_owner[entity_id] != holder_id:
+                conflicts.append(f"item {entity_id} holder conflicts with character possessions")
+            items.append(
+                {
+                    "id": entity_id,
+                    "name": item_names.get(entity_id, entity_id),
+                    "holder_id": holder_id or None,
+                    "holder_name": character_names.get(holder_id, holder_id) if holder_id else None,
+                    "location_id": location_id or None,
+                    "location_name": location_names.get(location_id, location_id) if location_id else None,
+                    "condition": item.get("condition"),
+                }
+            )
+        for location in state.get("location_states", []):
+            if not isinstance(location, dict):
+                continue
+            entity_id = str(location.get("entity_id") or "")
+            locations.append(
+                {
+                    "id": entity_id,
+                    "name": location_names.get(entity_id, entity_id),
+                    "accessibility": location.get("accessibility"),
+                    "condition": location.get("condition"),
+                    "active_events": location.get("active_events") or [],
+                }
+            )
+    events = []
+    by_chapter: dict[str, list[dict[str, object]]] = {}
+    edges = []
+    if isinstance(timeline, dict):
+        for event in timeline.get("events", []):
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("id") or "")
+            entry = {
+                "id": event_id,
+                "chapter": event.get("chapter"),
+                "scene": event.get("scene"),
+                "summary": event.get("summary"),
+                "location_id": event.get("location_id"),
+                "location_name": location_names.get(str(event.get("location_id") or ""), event.get("location_id")),
+                "participant_ids": event.get("participant_ids") or [],
+                "participant_names": [
+                    character_names.get(str(item), str(item))
+                    for item in event.get("participant_ids", [])
+                    if isinstance(event.get("participant_ids"), list)
+                ],
+            }
+            events.append(entry)
+            by_chapter.setdefault(str(event.get("chapter") or "?"), []).append(entry)
+            for cause in event.get("causes", []) if isinstance(event.get("causes"), list) else []:
+                edges.append({"from": cause, "to": event_id, "type": "cause"})
+            for effect in event.get("effects", []) if isinstance(event.get("effects"), list) else []:
+                edges.append({"from": event_id, "to": effect, "type": "effect"})
+    return {
+        "characters": characters,
+        "items": items,
+        "locations": locations,
+        "timeline_by_chapter": by_chapter,
+        "timeline_events": events,
+        "timeline_edges": edges,
+        "conflicts": conflicts,
+    }
+
+
+def _name_map(data: object, key: str) -> dict[str, str]:
+    if not isinstance(data, dict):
+        return {}
+    values = data.get(key)
+    if not isinstance(values, list):
+        return {}
+    result: dict[str, str] = {}
+    for item in values:
+        if isinstance(item, dict) and item.get("id"):
+            result[str(item["id"])] = str(item.get("name") or item["id"])
+    return result
+
+
 def _model_io_summary(path: Path) -> list[dict[str, object]]:
     if not path.exists():
         return []
@@ -751,6 +1013,108 @@ def _safe_workspace_file(root: Path, rel_path: str) -> Path:
     if not _is_safe_file_rel_path(rel, path):
         raise PermissionError(f"file is not readable through the Web API: {rel_path}")
     return path
+
+
+def _locate_quote(content: str, quote: str) -> dict[str, int] | None:
+    if not quote:
+        return None
+    index = content.find(quote)
+    if index < 0:
+        compact_content = _compact_text(content)
+        compact_quote = _compact_text(quote)
+        if not compact_quote:
+            return None
+        compact_index = compact_content.find(compact_quote)
+        if compact_index < 0:
+            return None
+        return {"line": 1, "column": compact_index + 1, "start_offset": compact_index, "end_offset": compact_index + len(compact_quote)}
+    line = content.count("\n", 0, index) + 1
+    line_start = content.rfind("\n", 0, index) + 1
+    return {
+        "line": line,
+        "column": index - line_start + 1,
+        "start_offset": index,
+        "end_offset": index + len(quote),
+    }
+
+
+def _compact_text(value: str) -> str:
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", value).lower()
+
+
+def _is_allowed_chapter_version_name(file_name: str, target: str) -> bool:
+    return bool(re.fullmatch(rf"{re.escape(target)}(?:\.v[0-9]+)?\.md", file_name))
+
+
+def _next_version_path(chapter_dir: Path, target: str) -> Path:
+    existing = [1]
+    pattern = re.compile(rf"^{re.escape(target)}\.v([0-9]+)\.md$")
+    for path in chapter_dir.glob(f"{target}.v*.md"):
+        match = pattern.match(path.name)
+        if match:
+            existing.append(int(match.group(1)))
+    return chapter_dir / f"{target}.v{max(existing) + 1}.md"
+
+
+def _new_revision_id() -> str:
+    return "revision_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _append_web_revision_log(path: Path, chapter_number: int, record: RevisionRecord) -> None:
+    if path.exists():
+        log = load_json_model(path, RevisionLog)
+        if log.chapter_number != chapter_number:
+            raise WebAPIError("invalid_revision_log", "revision_log chapter_number does not match", status=400)
+    else:
+        log = RevisionLog(chapter_number=chapter_number, revisions=[])
+    updated = log.model_copy(update={"revisions": [*log.revisions, record]})
+    backup_if_exists(path, reason="web_revision_log")
+    atomic_write_model_json(path, updated)
+
+
+def _is_archived_chapter(root: Path, chapter_number: int) -> bool:
+    archive_dir = root / "memory" / "archive"
+    if not archive_dir.exists():
+        return False
+    chapter_fragment = f"chapters/{chapter_number:03d}/"
+    for manifest_path in archive_dir.glob("session_*/manifest.json"):
+        try:
+            data = load_json(manifest_path)
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        entries = data.get("entries")
+        if isinstance(entries, list) and any(chapter_fragment in str(item) for item in entries):
+            return True
+        if chapter_fragment in json.dumps(data, ensure_ascii=False):
+            return True
+    return False
+
+
+def _clean_agent_config_patch(patch: dict[object, object]) -> dict[str, object]:
+    allowed = {
+        "provider",
+        "model",
+        "base_url_env",
+        "api_key_env",
+        "reasoning",
+        "thinking",
+        "max_context_tokens",
+        "max_tokens",
+        "temperature",
+        "timeout_seconds",
+        "max_retries",
+    }
+    cleaned: dict[str, object] = {}
+    for key, value in patch.items():
+        key_text = str(key)
+        if key_text not in allowed:
+            raise WebAPIError("invalid_provider_config_field", f"field is not editable: {key_text}", status=400)
+        if key_text in {"api_key", "token", "secret"}:
+            raise WebAPIError("unsafe_config_secret", "raw secret fields are not allowed", status=400)
+        cleaned[key_text] = value
+    return cleaned
 
 
 def _is_safe_tree_path(rel_path: str, path: Path) -> bool:

@@ -560,6 +560,8 @@ def _normalize_audit_report_data(data: object) -> object:
     if not isinstance(data, dict):
         return data
     normalized = dict(data)
+    if "audited_file" in normalized:
+        normalized["audited_file"] = _normalize_audited_file(str(normalized.get("audited_file") or ""))
     audited_file = str(normalized.get("audited_file") or "audited_file")
     issues = normalized.get("issues")
     if isinstance(issues, list):
@@ -579,6 +581,21 @@ def _normalize_audit_report_data(data: object) -> object:
             normalized_issues.append(item)
         normalized["issues"] = normalized_issues
     return normalized
+
+
+def _normalize_audited_file(value: str) -> str:
+    text = value.strip()
+    if text in {"draft.md", "polished.md"}:
+        return text
+    lowered = text.lower().replace("\\", "/")
+    basename = lowered.rsplit("/", 1)[-1]
+    if basename in {"draft.md", "polished.md"}:
+        return basename
+    if "draft" in lowered or "初稿" in lowered:
+        return "draft.md"
+    if "polished" in lowered or "polish" in lowered or "润色" in lowered or "正文" in lowered:
+        return "polished.md"
+    return text
 
 
 def _normalize_issue_id(value: str, index: int) -> str:

@@ -387,10 +387,15 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
     for event in events:
         key = _event_key(event)
         if previous_key and key < previous_key:
+            severity: Severity = (
+                "medium"
+                if snapshot.chapter_number is None or event.chapter == snapshot.chapter_number
+                else "low"
+            )
             findings.append(
                 ConsistencyFinding(
                     id=f"cons_timeline_order_{event.id}",
-                    severity="medium",
+                    severity=severity,
                     type="timeline_conflict",
                     description="Timeline events are not ordered by chapter and scene.",
                     source=source,

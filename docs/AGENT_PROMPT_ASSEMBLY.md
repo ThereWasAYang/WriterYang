@@ -327,7 +327,7 @@ Prompt 组装：
 1. `start_session()` 创建 session，并调用 Plot Agent 为章节范围生成 outline proposal。
 2. `revise_outline()` 把用户意见合并进 intent，重新生成 outline proposal。
 3. `approve_outline()` 复制 proposal 为 approved outline。
-4. `run_session()` 调用 Writer、Polish、Audit；medium/high/critical issue 触发自动修复循环。
+4. `run_session()` 调用 Writer、Polish、Audit；medium/high/critical issue 触发自动修复循环。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
 5. `revise_content()` 处理作者反馈或 low audit issue。
 6. `accept_session()` 应用 state update 并标记 accepted。
 7. `archive_session()` 复制本次创作文件并写 sha256 manifest。

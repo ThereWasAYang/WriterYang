@@ -72,6 +72,11 @@
         <button id="openProject" class="primary">打开</button>
         <button id="refreshProject">刷新</button>
       </div>
+      <label for="projectTitle">新项目标题</label>
+      <input id="projectTitle" placeholder="用于初始化新小说项目">
+      <label for="projectGenre">类型标签</label>
+      <input id="projectGenre" placeholder="武侠, 悬疑">
+      <button id="initProject" style="width: 100%; margin-top: 8px;">初始化项目</button>
 
       <label for="chapterNumber">章节号</label>
       <input id="chapterNumber" type="number" min="1" value="1">
@@ -88,6 +93,10 @@
         <input id="useSearchContext" type="checkbox" style="width: auto;">
         <span>使用搜索上下文</span>
       </label>
+      <label class="row" style="justify-content: flex-start; gap: 8px;">
+        <input id="forceWrites" type="checkbox" style="width: auto;">
+        <span>允许覆盖已有产物</span>
+      </label>
 
       <div class="actions">
         <button id="planChapter">生成计划</button>
@@ -95,6 +104,13 @@
         <button id="polishChapter">润色</button>
         <button id="auditChapter">审核</button>
       </div>
+      <div class="actions">
+        <button id="inspireProject">生成灵感</button>
+        <button id="canonSuggest">Canon 建议</button>
+      </div>
+      <label for="canonProposalPath">Canon proposal</label>
+      <input id="canonProposalPath" placeholder="runs/canon_proposal_....json">
+      <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
       <button id="exportMarkdown" style="width: 100%; margin-top: 8px;">导出 Markdown</button>
 
       <h2>本次创作 Session</h2>
@@ -109,6 +125,7 @@
         <button id="sessionArchive">归档</button>
       </div>
       <button id="sessionAccept" style="width: 100%; margin-top: 8px;">认可本次创作</button>
+      <div id="sessionPanel" class="metric" style="margin-top: 10px;">未加载 Session</div>
       <div id="message" class="message"></div>
 
       <h2>项目文件树</h2>
@@ -303,7 +320,7 @@
       return data.data || {};
     }
 
-    async function refreshAll() {
+    async function refreshAll(options = {}) {
       try {
         const path = projectPath();
         const [status, canon, chapters, files] = await Promise.all([
@@ -316,9 +333,10 @@
         $("canonPanel").textContent = canon.summary || "无";
         renderChapters(chapters.chapters || []);
         renderFileTree(files.files || []);
-        setMessage("项目已刷新");
+        if (!options.silent) setMessage("项目已刷新");
       } catch (error) {
-        setMessage(error.message, true);
+        if (!options.silent) setMessage(error.message, true);
+        if (options.silent) throw error;
       }
     }
 
@@ -388,45 +406,98 @@
     }
 
     async function runAction(endpoint, label) {
-      try {
+      return withBusy(label, async () => {
         const payload = {
           path: projectPath(),
           chapter_number: chapterNumber(),
           instruction: $("instruction").value.trim(),
           provider: $("provider").value,
-          force: false,
+          force: $("forceWrites").checked,
           use_search_context: $("useSearchContext").checked,
         };
         const data = await apiPost(endpoint, payload);
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
-        setMessage(`${label}完成`);
-        await refreshAll();
-      } catch (error) {
-        setMessage(error.message, true);
-      }
+        await refreshAll({ silent: true });
+        setMessage(actionMessage(label, data));
+      });
     }
 
     async function runSessionAction(endpoint, payload, label) {
-      try {
+      return withBusy(label, async () => {
         const data = await apiPost(endpoint, payload);
         const session = data.session || {};
         if (session.session_id) $("sessionId").value = session.session_id;
+        renderSessionSummary(data);
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
-        setMessage(`${label}完成`);
-        await refreshAll();
-      } catch (error) {
-        setMessage(error.message, true);
-      }
+        await refreshAll({ silent: true });
+        renderSessionSummary(data);
+        setMessage(actionMessage(label, data));
+      });
     }
 
-    function sessionPayload() {
-      return {
+    function sessionPayload(options = {}) {
+      const payload = {
         path: projectPath(),
-        session_id: $("sessionId").value.trim(),
         intent: $("instruction").value.trim(),
         chapters: $("sessionChapters").value.trim(),
         provider: $("provider").value,
+        force: $("forceWrites").checked,
       };
+      if (options.includeSessionId !== false) payload.session_id = $("sessionId").value.trim();
+      return payload;
+    }
+
+    async function initProject() {
+      return withBusy("初始化项目", async () => {
+        const data = await apiPost("/api/init-project", {
+          path: projectPath(),
+          title: $("projectTitle").value.trim() || "未命名小说",
+          genre: $("projectGenre").value.trim(),
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("初始化项目", data));
+      });
+    }
+
+    async function inspireProject() {
+      return withBusy("生成灵感", async () => {
+        const data = await apiPost("/api/inspire", {
+          path: projectPath(),
+          text: $("instruction").value.trim(),
+          provider: $("provider").value,
+          force: $("forceWrites").checked,
+          write_json: true,
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("生成灵感", data));
+      });
+    }
+
+    async function canonSuggest() {
+      return withBusy("Canon 建议", async () => {
+        const data = await apiPost("/api/canon/suggest", {
+          path: projectPath(),
+          provider: $("provider").value,
+        });
+        if (data.relative_path) $("canonProposalPath").value = data.relative_path;
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("Canon 建议", data));
+      });
+    }
+
+    async function canonApply() {
+      return withBusy("应用 Canon proposal", async () => {
+        const data = await apiPost("/api/canon/apply", {
+          path: projectPath(),
+          proposal_file: $("canonProposalPath").value.trim(),
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("应用 Canon proposal", data));
+      });
     }
 
     async function viewFile() {
@@ -494,8 +565,8 @@
         $("editorSavedPath").textContent = data.relative_path || data.output_path || "";
         $("diffLeft").value = `memory/chapters/${String(chapterNumber()).padStart(3, "0")}/${editorSourceFile || `${target}.md`}`;
         $("diffRight").value = data.relative_path || "";
+        await refreshAll({ silent: true });
         setMessage(`已保存 ${data.relative_path}`);
-        await refreshAll();
       } catch (error) {
         setMessage(error.message, true);
       }
@@ -614,8 +685,8 @@
           agents: { [agentName]: patch },
         });
         $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
-        setMessage("Provider 配置已保存并备份");
         await loadProviderConfig();
+        setMessage("Provider 配置已保存并备份");
       } catch (error) {
         setMessage(error.message, true);
       }
@@ -692,14 +763,65 @@
       return escapeHtml(value).replace(/`/g, "&#96;");
     }
 
+    async function withBusy(label, fn) {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      buttons.forEach((button) => { button.disabled = true; });
+      setMessage(`${label}执行中，真实 API 可能需要较长时间...`);
+      try {
+        return await fn();
+      } catch (error) {
+        setMessage(error.message, true);
+      } finally {
+        buttons.forEach((button) => { button.disabled = false; });
+      }
+    }
+
+    function actionMessage(label, data) {
+      const parts = [`${label}完成`];
+      if (data.message) parts.push(data.message);
+      if (data.session) {
+        parts.push(`session=${data.session.session_id}`);
+        parts.push(`status=${data.session.status}/${data.session.content_status}`);
+      }
+      if (data.overall_status) parts.push(`audit=${data.overall_status}`);
+      if (Array.isArray(data.warnings) && data.warnings.length) {
+        parts.push(`warnings=${data.warnings.length}`);
+      }
+      return parts.join("；");
+    }
+
+    function renderSessionSummary(data) {
+      const session = data.session || {};
+      if (!session.session_id) {
+        $("sessionPanel").textContent = "未加载 Session";
+        return;
+      }
+      $("sessionPanel").innerHTML = `
+        <span>Session</span>
+        <b>${escapeHtml(session.session_id)}</b>
+        <div>status: ${escapeHtml(session.status || "")}</div>
+        <div>outline: ${escapeHtml(session.outline_status || "")}</div>
+        <div>content: ${escapeHtml(session.content_status || "")}</div>
+        <div>chapters: ${escapeHtml((session.chapter_range || []).join(", "))}</div>
+        <div>${escapeHtml(data.message || "")}</div>
+      `;
+    }
+
     $("openProject").addEventListener("click", refreshAll);
     $("refreshProject").addEventListener("click", refreshAll);
+    $("initProject").addEventListener("click", initProject);
     $("planChapter").addEventListener("click", () => runAction("/api/plan-chapter", "生成计划"));
     $("writeChapter").addEventListener("click", () => runAction("/api/write-chapter", "写章节"));
     $("polishChapter").addEventListener("click", () => runAction("/api/polish-chapter", "润色"));
     $("auditChapter").addEventListener("click", () => runAction("/api/audit-chapter", "审核"));
+    $("inspireProject").addEventListener("click", inspireProject);
+    $("canonSuggest").addEventListener("click", canonSuggest);
+    $("canonApply").addEventListener("click", canonApply);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));
-    $("sessionStart").addEventListener("click", () => runSessionAction("/api/session/start", sessionPayload(), "创建 Session 大纲"));
+    $("sessionStart").addEventListener("click", () => {
+      $("sessionId").value = "";
+      runSessionAction("/api/session/start", sessionPayload({ includeSessionId: false }), "创建 Session 大纲");
+    });
     $("sessionApprove").addEventListener("click", () => runSessionAction("/api/session/approve-outline", sessionPayload(), "批准 Session 大纲"));
     $("sessionRun").addEventListener("click", () => runSessionAction("/api/session/run", sessionPayload(), "Session 写作"));
     $("sessionAccept").addEventListener("click", () => runSessionAction("/api/session/accept", sessionPayload(), "认可 Session"));

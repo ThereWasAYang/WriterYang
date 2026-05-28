@@ -241,6 +241,7 @@ def _generate_chapter_plan_with_repair(
     )
     try:
         plan = parse_chapter_plan(content)
+        plan = _normalize_plan_reference_buckets(plan, canon, state, timeline)
         _validate_plan_for_write(plan, chapter_number, canon, state, timeline)
         return plan
     except PlanningError as first_error:
@@ -274,6 +275,7 @@ def _generate_chapter_plan_with_repair(
         )
         try:
             plan = parse_chapter_plan(repair_content)
+            plan = _normalize_plan_reference_buckets(plan, canon, state, timeline)
             _validate_plan_for_write(plan, chapter_number, canon, state, timeline)
             return plan
         except PlanningError as second_error:
@@ -296,6 +298,51 @@ def _validate_plan_for_write(
         raise PlanningError("provider returned ChapterPlan with missing references: " + "; ".join(errors))
 
 
+def _normalize_plan_reference_buckets(
+    plan: ChapterPlan,
+    canon: CanonFiles,
+    state: EntityState,
+    timeline: TimelineFile,
+) -> ChapterPlan:
+    canon_ids, state_ids, timeline_ids = _allowed_reference_id_sets(canon, state, timeline)
+    canon_context: list[str] = []
+    state_context: list[str] = []
+    timeline_context: list[str] = []
+    unknown_context: list[tuple[str, str]] = []
+
+    for bucket, values in (
+        ("canon", plan.required_context.canon_entity_ids),
+        ("state", plan.required_context.state_entity_ids),
+        ("timeline", plan.required_context.timeline_event_ids),
+    ):
+        for value in values:
+            if value in timeline_ids:
+                timeline_context.append(value)
+            elif value in canon_ids:
+                canon_context.append(value)
+            elif value in state_ids:
+                state_context.append(value)
+            else:
+                unknown_context.append((bucket, value))
+
+    for bucket, value in unknown_context:
+        if bucket == "canon":
+            canon_context.append(value)
+        elif bucket == "state":
+            state_context.append(value)
+        else:
+            timeline_context.append(value)
+
+    required_context = plan.required_context.model_copy(
+        update={
+            "canon_entity_ids": _unique_preserve_order(canon_context),
+            "state_entity_ids": _unique_preserve_order(state_context),
+            "timeline_event_ids": _unique_preserve_order(timeline_context),
+        }
+    )
+    return plan.model_copy(update={"required_context": required_context})
+
+
 def _plan_reference_errors(
     plan: ChapterPlan,
     canon: CanonFiles,
@@ -304,17 +351,7 @@ def _plan_reference_errors(
 ) -> list[str]:
     character_ids = {item.id for item in canon.characters.characters}
     location_ids = {item.id for item in canon.locations.locations}
-    item_ids = {item.id for item in canon.items.items}
-    world_ids = {item.id for item in canon.world.world_rules}
-    canon_ids = character_ids | location_ids | item_ids | world_ids
-    state_ids = (
-        {item.entity_id for item in state.character_states}
-        | {item.entity_id for item in state.item_states}
-        | {item.entity_id for item in state.location_states}
-        | {"story_position"}
-        | canon_ids
-    )
-    timeline_ids = {event.id for event in timeline.events}
+    canon_ids, state_ids, timeline_ids = _allowed_reference_id_sets(canon, state, timeline)
 
     errors: list[str] = []
     for scene in plan.scenes:
@@ -337,6 +374,39 @@ def _plan_reference_errors(
     return errors
 
 
+def _allowed_reference_id_sets(
+    canon: CanonFiles,
+    state: EntityState,
+    timeline: TimelineFile,
+) -> tuple[set[str], set[str], set[str]]:
+    character_ids = {item.id for item in canon.characters.characters}
+    location_ids = {item.id for item in canon.locations.locations}
+    item_ids = {item.id for item in canon.items.items}
+    world_ids = {item.id for item in canon.world.world_rules}
+    hidden_truth_ids = {item.id for item in canon.hidden_truths.hidden_truths}
+    foreshadowing_ids = {item.id for item in canon.foreshadowing.foreshadowing_threads}
+    canon_ids = character_ids | location_ids | item_ids | world_ids | hidden_truth_ids | foreshadowing_ids
+    state_ids = (
+        {item.entity_id for item in state.character_states}
+        | {item.entity_id for item in state.item_states}
+        | {item.entity_id for item in state.location_states}
+        | {"story_position"}
+        | canon_ids
+    )
+    timeline_ids = {event.id for event in timeline.events}
+    return canon_ids, state_ids, timeline_ids
+
+
+def _unique_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value not in seen:
+            result.append(value)
+            seen.add(value)
+    return result
+
+
 def _allowed_id_summary(canon: CanonFiles, state: EntityState, timeline: TimelineFile) -> str:
     return (
         "允许引用的 ID：\n"
@@ -344,6 +414,8 @@ def _allowed_id_summary(canon: CanonFiles, state: EntityState, timeline: Timelin
         f"- locations: {', '.join(item.id for item in canon.locations.locations) or 'none'}\n"
         f"- items: {', '.join(item.id for item in canon.items.items) or 'none'}\n"
         f"- world_rules: {', '.join(item.id for item in canon.world.world_rules) or 'none'}\n"
+        f"- hidden_truths: {', '.join(item.id for item in canon.hidden_truths.hidden_truths) or 'none'}\n"
+        f"- foreshadowing: {', '.join(item.id for item in canon.foreshadowing.foreshadowing_threads) or 'none'}\n"
         "- state entities: "
         + (
             ", ".join(

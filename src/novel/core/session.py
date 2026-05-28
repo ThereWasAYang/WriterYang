@@ -5,12 +5,14 @@ from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
 import shutil
+import yaml
 
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
+from novel.core.polishing import read_markdown_with_front_matter
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
 from novel.core.schemas import (
     AuditReport,
@@ -164,7 +166,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     root = options.root.resolve()
     session = load_session(root, options.session_id)
     _ensure_session_mutable(root, session)
-    if session.status not in {"outline_approved", "generating"} or session.outline_status != "approved":
+    if session.status not in {"outline_approved", "generating", "needs_revision"} or session.outline_status != "approved":
         raise CreationSessionError("approve the outline before running content generation")
     if session.scope_type == "segments":
         return _run_segment_session(root, session, options)
@@ -184,16 +186,28 @@ def run_session(options: SessionRunOptions) -> SessionResult:
         round_number = 0
         while _has_hard_issues(audit_report) and round_number < max_rounds:
             round_number += 1
-            revision_path = _auto_repair_chapter(
-                root,
-                chapter_number,
-                session,
-                audit_report,
-                options.provider_name,
-                round_number,
-            )
-            revisions.append(_rel(root, revision_path))
-            _generate_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+            if _should_replan_chapter(audit_report, round_number):
+                _auto_replan_chapter(
+                    root,
+                    chapter_number,
+                    session,
+                    audit_report,
+                    options.provider_name,
+                    round_number,
+                )
+                _generate_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+            else:
+                revision_path = _auto_repair_chapter(
+                    root,
+                    chapter_number,
+                    session,
+                    audit_report,
+                    options.provider_name,
+                    round_number,
+                )
+                revisions.append(_rel(root, revision_path))
+                _promote_revision_to_polished(root, chapter_number, revision_path)
+                _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
             audit_report = _load_audit(root, chapter_number)
         audit_path = _chapter_dir(root, chapter_number) / "audit.json"
         audits.append(_rel(root, audit_path))
@@ -201,7 +215,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
         if _has_hard_issues(audit_report):
             session = session.model_copy(
                 update={
-                    "status": "generating",
+                    "status": "needs_revision",
                     "content_status": "needs_revision",
                     "final_output_paths": final_outputs,
                     "audit_history": [*session.audit_history, *audits],
@@ -439,6 +453,26 @@ def _generate_chapter_content(
     )
 
 
+def _audit_chapter_content(
+    root: Path,
+    chapter_number: int,
+    session: CreationSession,
+    provider_name: str,
+    *,
+    force: bool,
+) -> None:
+    audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
+    audit_chapter(
+        ChapterAuditOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=_session_instruction(session),
+            force=force,
+        ),
+        audit_provider,
+    )
+
+
 def _auto_repair_chapter(
     root: Path,
     chapter_number: int,
@@ -469,6 +503,86 @@ def _auto_repair_chapter(
         provider_name=provider_name,
     )
     return result.output_path
+
+
+def _auto_replan_chapter(
+    root: Path,
+    chapter_number: int,
+    session: CreationSession,
+    audit_report: AuditReport,
+    provider_name: str,
+    round_number: int,
+) -> None:
+    issue_summary = _blocking_issue_summary(audit_report)
+    provider = load_planning_provider(root, provider_name, chapter_number=chapter_number)
+    plan_chapter(
+        ChapterPlanningOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=(
+                f"{_session_instruction(session)}\n\n"
+                f"自动修复第 {round_number} 轮：上一轮 audit 显示问题来自章节计划或信息暴露边界。"
+                "请重写本章 ChapterPlan，降低伏笔直白程度，避免角色知道尚未获得的信息，"
+                f"并解决这些问题：{issue_summary}"
+            ),
+            force=True,
+        ),
+        provider,
+    )
+
+
+def _promote_revision_to_polished(root: Path, chapter_number: int, revision_path: Path) -> Path:
+    chapter_dir = _chapter_dir(root, chapter_number)
+    polished_path = chapter_dir / "polished.md"
+    document = read_markdown_with_front_matter(revision_path)
+    metadata = dict(document.metadata)
+    revision_id = metadata.get("revision_id")
+    source_file = metadata.get("based_on")
+    metadata["status"] = "polished"
+    metadata["created_by"] = "revision_agent"
+    metadata["based_on"] = revision_path.name
+    if revision_id:
+        metadata["revision_id"] = revision_id
+    if source_file:
+        metadata["revision_source_file"] = source_file
+    metadata["promoted_at"] = _utc_now()
+    metadata_text = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
+    backup_if_exists(polished_path, reason="auto_repair")
+    atomic_write_text(polished_path, f"---\n{metadata_text}\n---\n\n{document.body.strip()}\n")
+    return polished_path
+
+
+def _should_replan_chapter(report: AuditReport, round_number: int) -> bool:
+    if round_number <= 1:
+        return False
+    plan_issue_types = {
+        "plot_logic_issue",
+        "continuity_issue",
+        "knowledge_conflict",
+        "premature_reveal",
+        "foreshadowing_overexposure",
+    }
+    for issue in report.issues:
+        if issue.severity not in {"medium", "high", "critical"}:
+            continue
+        evidence_text = " ".join(f"{item.source} {item.quote}" for item in issue.evidence).lower()
+        issue_text = f"{issue.type} {issue.description} {issue.suggested_fix} {evidence_text}".lower()
+        if "plan.json" in issue_text or "chapterplan" in issue_text or "大纲" in issue_text:
+            return True
+        if issue.type in plan_issue_types and any(
+            marker in issue_text
+            for marker in ("知道", "姓名", "隐藏", "真相", "伏笔", "揭示", "reveal", "foreshadow")
+        ):
+            return True
+    return False
+
+
+def _blocking_issue_summary(report: AuditReport) -> str:
+    return "; ".join(
+        f"{issue.severity}/{issue.type}: {issue.description} suggested_fix={issue.suggested_fix}"
+        for issue in report.issues
+        if issue.severity in {"medium", "high", "critical"}
+    )
 
 
 def _propose_state(root: Path, chapter_number: int, session: CreationSession, provider_name: str, *, force: bool) -> None:

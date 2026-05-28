@@ -13,8 +13,10 @@ from pydantic import BaseModel, Field
 import yaml
 
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
+from novel.core.canon import apply_canon_proposal, load_canon_provider, suggest_canon, CanonSuggestOptions
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.exporting import MarkdownExportOptions, export_markdown, parse_chapter_selector
+from novel.core.inspiration import InspirationOptions, load_inspiration_provider, run_inspiration_agent
 from novel.core.inspection import format_canon, get_project_status
 from novel.core.io import atomic_write_model_json, atomic_write_text, atomic_write_yaml, backup_if_exists, load_json, load_json_model, load_yaml
 from novel.core.locking import ProjectLock, ProjectLockError
@@ -39,6 +41,7 @@ from novel.core.session import (
 )
 from novel.core.usage import summarize_provider_usage
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
+from novel.core.workspace import InitOptions, init_workspace
 
 
 APIResponse = tuple[int, dict[str, object]]
@@ -146,6 +149,14 @@ def handle_api_request(
             return _success(_locked_write(data, "web save chapter file", _save_chapter_file))
         if method == "POST" and path == "/api/provider-config":
             return _success(_locked_write(data, "web provider config", _save_provider_config))
+        if method == "POST" and path == "/api/init-project":
+            return _success(_locked_write(data, "web init project", _init_project))
+        if method == "POST" and path == "/api/inspire":
+            return _success(_locked_write(data, "web inspire", _inspire))
+        if method == "POST" and path == "/api/canon/suggest":
+            return _success(_locked_write(data, "web canon suggest", _canon_suggest))
+        if method == "POST" and path == "/api/canon/apply":
+            return _success(_locked_write(data, "web canon apply", _canon_apply))
         if method == "POST" and path == "/api/session/start":
             return _success(_locked_write(data, "web session start", _session_start))
         if method == "POST" and path == "/api/session/revise-outline":
@@ -428,6 +439,76 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         "path": str(config_path),
         "backup_path": str(backup_path) if backup_path else None,
         "config": _provider_config_summary(root)["agents"],
+    }
+
+
+def _init_project(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    title = _optional_string(data.get("title")) or root.name or "未命名小说"
+    genre_value = data.get("genre")
+    genre = _split_csv(str(genre_value)) if genre_value else None
+    result = init_workspace(
+        InitOptions(
+            title=title,
+            root=root,
+            language=_optional_string(data.get("language")) or "zh-CN",
+            genre=genre,
+        )
+    )
+    return {
+        "root": str(result.root),
+        "created_files": [str(path) for path in result.created_files],
+        "created_dirs": [str(path) for path in result.created_dirs],
+    }
+
+
+def _inspire(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    provider = load_inspiration_provider(root, str(data.get("provider") or "mock"))
+    source_text = _optional_string(data.get("text")) or _optional_string(data.get("instruction"))
+    if not source_text:
+        raise WebAPIError("invalid_request", "inspiration text must not be empty", status=400)
+    result = run_inspiration_agent(
+        InspirationOptions(
+            root=root,
+            source_text=source_text,
+            source_type="web_text",
+            write_json=bool(data.get("write_json")),
+            overwrite=bool(data.get("force")),
+        ),
+        provider,
+    )
+    return {
+        "markdown_path": str(result.markdown_path),
+        "json_path": str(result.json_path) if result.json_path else None,
+    }
+
+
+def _canon_suggest(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    provider = load_canon_provider(root, str(data.get("provider") or "mock"))
+    output = _optional_string(data.get("output"))
+    output_path = _safe_workspace_file(root, output) if output else _default_canon_proposal_path(root)
+    result = suggest_canon(CanonSuggestOptions(root=root, output_path=output_path), provider)
+    return {
+        "output_path": str(result.output_path) if result.output_path else None,
+        "relative_path": _relative(root, result.output_path) if result.output_path else None,
+        "proposal": result.proposal.model_dump(mode="json"),
+    }
+
+
+def _canon_apply(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    proposal_file = _optional_string(data.get("proposal_file")) or _optional_string(data.get("proposal_path"))
+    if not proposal_file:
+        raise WebAPIError("invalid_request", "proposal_file is required", status=400)
+    proposal_path = _safe_workspace_file(root, proposal_file)
+    result = apply_canon_proposal(root, proposal_path)
+    return {
+        "proposal_path": str(proposal_path),
+        "validation_ok": result.validation_report.ok,
+        "errors": [message.message for message in result.validation_report.errors],
+        "warnings": [message.message for message in result.validation_report.warnings],
     }
 
 
@@ -1186,6 +1267,15 @@ def _optional_int(value: object) -> int | None:
     if value in (None, ""):
         return None
     return int(value)
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _default_canon_proposal_path(root: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return root / "runs" / f"canon_proposal_{stamp}.json"
 
 
 def _request_id() -> str:

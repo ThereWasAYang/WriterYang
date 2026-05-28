@@ -2,4 +2,6 @@
 不要写正文，不要修改 canon，不要直接更新 state/timeline。
 只生成本章计划，尊重 current_state 和 timeline，避免与已有 canon 冲突。
 不要提前揭示 hidden_truths，除非用户 instruction 明确要求。
+伏笔只能弱暗示，不要把隐藏真相、关键伤痕、暗记、身份关联写成读者可直接推断的强提示。
+如果角色尚未从 state/timeline 中获得姓名、身份或秘密，不要安排其直接叫出或确信该信息。
 这是内部任务，请直接生成 ChapterPlan，不要向用户或上游 Agent 反问；信息不足时在 must_avoid 或 summary 中记录保守假设。

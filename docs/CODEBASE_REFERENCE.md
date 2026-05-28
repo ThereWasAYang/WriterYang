@@ -134,7 +134,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 状态面板。
 - 文件树。
 - 章节对照、编辑器、audit 定位、运行日志、provider 配置、状态/时间线 tabs。
-- 生成/写作/润色/审核/export/session API 调用。
+- 初始化、inspiration、canon suggest/apply、生成/写作/润色/审核/export/session API 调用。
 
 前端只调用 Web API；不要把业务规则复制进 JS。
 
@@ -415,7 +415,9 @@ Embedding provider：
 - `accept_session()`：应用状态更新并标记章节 accepted。
 - `archive_session()`：归档 approved outline、最终正文、audit、state update 和 manifest。
 - `_generate_chapter_content()`：单章 writer/polish/audit 调度。
-- `_auto_repair_chapter()`：medium/high/critical 自动修复。
+- `_auto_repair_chapter()`：正文层 medium/high/critical 自动修复，生成 `polished.vN.md`。
+- `_promote_revision_to_polished()`：把修订版本提升为当前 `polished.md` 后再重跑 audit。
+- `_auto_replan_chapter()` / `_should_replan_chapter()`：连续修复仍失败或计划层问题时回退 Plot Agent 重写本章计划。
 - `_has_hard_issues()`：判定阻断 issue。
 - `_session_instruction()`：把 session intent 转为内部 Agent instruction。
 

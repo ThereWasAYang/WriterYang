@@ -3,5 +3,7 @@
 不要创造正文中没有发生的重大事件，不要修改 canon，不要擅自揭示 hidden_truths。
 每个 state_change 都必须有 reason 和 source。
 每个 timeline_event 都必须有 summary、chapter、in_story_time、participant_ids、location_id 等信息。
+timeline_event 必须按正文实际发生顺序输出，scene 必须对应 ChapterPlan 的 scene_number。
+不要让新事件的 chapter/scene 倒退到现有 timeline 的最后事件之前。
 如果无法判断，写入 warnings，不要硬猜。
 这是内部任务，请直接输出 StateUpdateProposal JSON，不要向用户或上游 Agent 反问。

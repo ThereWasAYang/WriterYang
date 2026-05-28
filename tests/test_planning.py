@@ -225,6 +225,38 @@ def test_plan_chapter_repairs_missing_references_once(tmp_path: Path) -> None:
     assert len(provider.requests) == 2
 
 
+def test_plan_chapter_normalizes_required_context_reference_buckets(tmp_path: Path) -> None:
+    root = _workspace_with_canon(tmp_path)
+    (root / "memory" / "state" / "timeline.json").write_text(
+        json.dumps(
+            {
+                "events": [
+                    {
+                        "id": "event_existing",
+                        "chapter": 1,
+                        "in_story_time": "第一章",
+                        "summary": "已有事件。",
+                        "reader_visible": True,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload = json.loads(default_mock_chapter_plan_json(1))
+    payload["required_context"]["canon_entity_ids"].extend(["thread_station_broadcast", "event_existing"])
+    provider = MockProvider(fake_response=json.dumps(payload, ensure_ascii=False))
+
+    result = plan_chapter(ChapterPlanningOptions(root=root, chapter_number=1), provider)
+
+    assert "thread_station_broadcast" in result.plan.required_context.canon_entity_ids
+    assert "event_existing" in result.plan.required_context.timeline_event_ids
+    assert "event_existing" not in result.plan.required_context.canon_entity_ids
+
+
 def _workspace_with_canon(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

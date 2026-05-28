@@ -352,6 +352,7 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
     truth_ids = _ids(loaded.hidden_truths.hidden_truths if loaded.hidden_truths else [])
     thread_ids = _ids(loaded.foreshadowing.foreshadowing_threads if loaded.foreshadowing else [])
     entity_ids = character_ids | location_ids | item_ids | world_ids
+    canon_context_ids = entity_ids | truth_ids | thread_ids
     timeline_ids = _ids(loaded.timeline.events if loaded.timeline else [])
 
     if loaded.characters:
@@ -470,7 +471,8 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
                 if _looks_like_id(effect_id) and effect_id not in timeline_ids:
                     report.warning(path, f"event {event.id} effects references missing event: {effect_id}")
 
-    _validate_chapter_plan_references(report, root, entity_ids, character_ids, location_ids, timeline_ids)
+    if loaded.timeline is not None:
+        _validate_chapter_plan_references(report, root, canon_context_ids, character_ids, location_ids, timeline_ids)
 
 
 def _validate_hidden_truth_not_reader_visible(

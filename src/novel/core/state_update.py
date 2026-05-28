@@ -372,6 +372,7 @@ def validate_state_update_proposal(
         conflicts = sorted(existing_event_ids & {event.id for event in proposal.timeline_events})
         if conflicts:
             raise StateUpdateError(f"timeline event id conflict: {', '.join(conflicts)}")
+    _validate_proposed_timeline_monotonic(root, proposal)
 
     canon_report = validate_canon(root)
     for message in canon_report.errors:
@@ -379,6 +380,28 @@ def validate_state_update_proposal(
     for message in canon_report.warnings:
         warnings.append(f"canon warning: {message.message}")
     return warnings
+
+
+def _validate_proposed_timeline_monotonic(root: Path, proposal: StateUpdateProposal) -> None:
+    if not proposal.timeline_events:
+        return
+    timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    existing_max = max((_timeline_event_key(event) for event in timeline.events), default=None)
+    previous = existing_max
+    for event in proposal.timeline_events:
+        key = _timeline_event_key(event)
+        if previous is not None and key < previous:
+            raise StateUpdateError(
+                "timeline event order conflict: "
+                f"{event.id} chapter={event.chapter}, scene={event.scene} would be ordered before "
+                f"existing or previous event key chapter={previous[0]}, scene={previous[1]}. "
+                "Regenerate the state update proposal with monotonically increasing chapter/scene values."
+            )
+        previous = key
+
+
+def _timeline_event_key(event) -> tuple[int, int]:
+    return (int(event.chapter), int(event.scene or 0))
 
 
 def _validate_proposed_item_holder_location_conflicts(
@@ -538,6 +561,11 @@ def build_state_update_user_prompt(
         "- location 可用 field: accessibility, condition, active_events, last_updated_chapter。\n"
         "- story_position 可用 field: latest_chapter, in_story_time, summary。\n"
         "- 不要把 field 写成 location 或 holder；应写成 location_id 或 holder_id。\n\n"
+        "时间线顺序约束：\n"
+        "- timeline_events 必须按正文实际发生顺序输出。\n"
+        "- timeline_event.scene 必须对应 ChapterPlan 中实际发生的 scene_number。\n"
+        "- 不要把章节后段事件写成更早的 scene；如果无法判断 scene，宁可省略 scene 或写入 warnings。\n"
+        "- 新 timeline event 的 chapter/scene 不能倒退到现有 timeline 的最后事件之前。\n\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
         f"AuditReport：\n{context.audit.model_dump_json(indent=2)}\n\n"
         f"Polished metadata：\n{json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"

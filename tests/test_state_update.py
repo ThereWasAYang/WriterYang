@@ -316,6 +316,39 @@ def test_validate_state_update_rejects_item_holder_location_conflict(tmp_path: P
         raise AssertionError("expected holder/location conflict failure")
 
 
+def test_validate_state_update_rejects_timeline_order_regression(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    (root / "memory" / "state" / "timeline.json").write_text(
+        json.dumps(
+            {
+                "events": [
+                    {
+                        "id": "event_existing_scene_2",
+                        "chapter": 1,
+                        "scene": 2,
+                        "in_story_time": "第一章第二场",
+                        "summary": "已有较晚事件。",
+                        "reader_visible": True,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
+    proposal.timeline_events[0].scene = 1
+
+    try:
+        validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
+    except Exception as exc:
+        assert "timeline event order conflict" in str(exc)
+    else:
+        raise AssertionError("expected timeline order regression failure")
+
+
 def test_accept_chapter_passed_audit_applies_update_and_marks_accepted(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])

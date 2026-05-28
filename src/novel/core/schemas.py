@@ -17,6 +17,7 @@ CreationSessionStatus = Literal[
     "outline_proposed",
     "outline_approved",
     "generating",
+    "needs_revision",
     "needs_user_review",
     "accepted",
     "archived",
@@ -454,7 +455,7 @@ class CreationSession(SchemaVersionedModel):
             raise ValueError("chapter_range must be sorted and unique")
         if self.scope_type == "segments" and not self.segment_range:
             raise ValueError("segment sessions require segment_range")
-        if self.status in {"outline_approved", "generating", "needs_user_review", "accepted", "archived"}:
+        if self.status in {"outline_approved", "generating", "needs_revision", "needs_user_review", "accepted", "archived"}:
             if self.outline_status != "approved":
                 raise ValueError("approved-or-later sessions require outline_status=approved")
         if self.status == "archived" and self.content_status != "archived":

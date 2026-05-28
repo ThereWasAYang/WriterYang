@@ -317,6 +317,58 @@ def test_api_session_start_endpoint_creates_outline(tmp_path: Path) -> None:
     assert (root / "memory" / "sessions" / session["session_id"] / "outline_proposal.md").is_file()
 
 
+def test_api_init_project_endpoint_creates_workspace(tmp_path: Path) -> None:
+    root = tmp_path / "web-created"
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/init-project",
+        "",
+        json.dumps({"path": str(root), "title": "新武侠", "genre": "武侠, 悬疑"}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert (root / "project.yaml").is_file()
+    assert (root / "config" / "agents.yaml").is_file()
+
+
+def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="Web Canon", root=root))
+    inspiration_path = root / "memory" / "inspiration.md"
+    inspiration_path.unlink()
+
+    inspire_status, inspire_payload = handle_api_request(
+        "POST",
+        "/api/inspire",
+        "",
+        json.dumps({"path": str(root), "text": "写一个江湖雨夜故事。", "provider": "mock", "write_json": True}),
+    )
+    suggest_status, suggest_payload = handle_api_request(
+        "POST",
+        "/api/canon/suggest",
+        "",
+        json.dumps({"path": str(root), "provider": "mock"}),
+    )
+    proposal_path = suggest_payload["data"]["relative_path"]  # type: ignore[index]
+    apply_status, apply_payload = handle_api_request(
+        "POST",
+        "/api/canon/apply",
+        "",
+        json.dumps({"path": str(root), "proposal_file": proposal_path}),
+    )
+
+    assert inspire_status == 200
+    assert inspire_payload["ok"] is True
+    assert (root / "memory" / "inspiration.json").is_file()
+    assert suggest_status == 200
+    assert suggest_payload["ok"] is True
+    assert str(proposal_path).startswith("runs/canon_proposal_")
+    assert apply_status == 200
+    assert apply_payload["data"]["validation_ok"] is True  # type: ignore[index]
+
+
 def test_frontend_basic_render() -> None:
     html = index_html()
 
@@ -336,6 +388,12 @@ def test_frontend_basic_render() -> None:
     assert 'id="diffViewer"' in html
     assert 'id="sessionStart"' in html
     assert 'id="sessionRun"' in html
+    assert 'id="sessionPanel"' in html
+    assert 'id="initProject"' in html
+    assert 'id="inspireProject"' in html
+    assert 'id="canonSuggest"' in html
+    assert 'id="canonApply"' in html
+    assert 'id="forceWrites"' in html
     assert 'id="planChapter"' in html
     assert 'id="writeChapter"' in html
     assert 'id="polishChapter"' in html
@@ -343,6 +401,11 @@ def test_frontend_basic_render() -> None:
     assert 'id="exportMarkdown"' in html
     assert "/api/save-chapter-file" in html
     assert "/api/audit-annotations" in html
+    assert "/api/init-project" in html
+    assert "/api/inspire" in html
+    assert "/api/canon/suggest" in html
+    assert "refreshAll({ silent: true })" in html
+    assert "includeSessionId: false" in html
     assert "fetch(" in html
 
 

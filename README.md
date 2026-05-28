@@ -99,7 +99,8 @@ novel export markdown --path ./my-novel --toc --force
 - `canon suggest` 后先看 proposal，再 `apply`；不要把隐藏真相写进读者可见摘要。
 - `session start` 后先看 `memory/sessions/{session_id}/outline_proposal.md`，不满意就 `session revise-outline`。
 - `session approve-outline` 后，后续写作必须遵守 approved outline。
-- `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复，超过轮数才停给用户。
+- `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复。正文层问题会生成版本稿并提升为当前 `polished.md` 后重审；连续失败或判断为计划层问题时会回退 Plot Agent 重写本章计划。
+- 自动修复超过轮数后，session 会停在 `status=needs_revision`、`content_status=needs_revision`，用户可查看 audit 和 revision log 后决定修改大纲或重新运行。
 - low 级别 audit issue 不会被静默自动修改，会展示给作者；作者可选择直接接受，或运行 `session revise-content <session_id> --from-audit` 生成修订版本。
 - 用户看到最终内容后用 `session revise-content` 提意见；系统生成新版本，不覆盖归档内容。
 - `session accept` 后才应用状态更新并标记章节 accepted；`session archive` 会复制本次创作文件并记录 sha256。
@@ -444,10 +445,12 @@ web:
 
 如果没有配置，默认使用 `8765`。命令行 `--port` 会覆盖项目配置。端口被占用时，命令会给出清晰错误提示并退出，例如建议改用 `novel web --port 8766`。
 
-打开 `http://127.0.0.1:8765`。Web UI 可以输入项目路径，查看状态和 canon，列出章节，触发计划、写作、润色、审核、Markdown 导出，并查看生成文件。Web API 调用同一套 core service，不返回真实 API Key。
+打开 `http://127.0.0.1:8765`。Web UI 可以输入项目路径，查看状态和 canon，列出章节，触发计划、写作、润色、审核、Markdown 导出，并查看生成文件。Web API 调用同一套 core service，不返回真实 API Key。长任务执行时按钮会临时禁用并显示执行中状态；完成后会保留真实返回消息和 Session 状态，不会被自动刷新覆盖。
 
 当前 Web 工作台还支持：
 
+- 初始化项目：在本地路径创建最小小说工作区。
+- Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。
 - 项目文件树：只显示工作区内安全文件，排除 `.env*`、search index、备份和缓存。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
 - 章节编辑器：可编辑 `draft.md` / `polished.md`，保存时默认创建 `draft.v2.md` / `polished.v2.md` 等版本文件，并记录 `revision_log.json`，不原地覆盖旧稿。
@@ -456,6 +459,7 @@ web:
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
 - Provider 配置：展示并允许编辑非密钥字段，例如 provider、model、temperature、thinking、timeout；只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
+- Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
 
 Web API 统一返回：
 

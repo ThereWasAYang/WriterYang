@@ -5,7 +5,7 @@ from pathlib import Path
 
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.schemas import Character, ProjectConfig
-from novel.core.validation import validate_project
+from novel.core.validation import validate_canon, validate_project
 from novel.core.workspace import InitOptions, init_workspace
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
@@ -91,6 +91,40 @@ def test_validate_ignores_provider_usage_summary(tmp_path: Path) -> None:
 
     assert report.ok
     assert not any("provider_usage" in str(message.path) for message in report.errors)
+
+
+def test_validate_canon_does_not_warn_about_chapter_timeline_context(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "memory" / "inspiration.md").write_text("# Inspiration\n\n有灵感。\n", encoding="utf-8")
+    proposal_path = tmp_path / "canon_proposal.json"
+    proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
+    assert apply_canon_proposal(root, proposal_path).validation_report.ok
+    _write_json(
+        root / "memory" / "state" / "timeline.json",
+        {
+            "events": [
+                {
+                    "id": "event_existing",
+                    "chapter": 1,
+                    "in_story_time": "第一章",
+                    "summary": "已有事件。",
+                    "reader_visible": True,
+                }
+            ]
+        },
+    )
+    payload = json.loads(default_mock_chapter_plan_json(1))
+    payload["required_context"]["timeline_event_ids"] = ["event_existing"]
+    plan_chapter(
+        ChapterPlanningOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=json.dumps(payload, ensure_ascii=False)),
+    )
+
+    report = validate_canon(root)
+
+    assert report.ok
+    assert not any("required_context" in message.message for message in report.warnings)
 
 
 def test_validate_reports_unsupported_file_schema_version(tmp_path: Path) -> None:

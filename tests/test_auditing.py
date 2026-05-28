@@ -346,6 +346,22 @@ def test_parse_audit_report_normalizes_issue_id_and_string_evidence() -> None:
     assert report.issues[0].evidence[0].quote == "角色突然知道了隐藏信息。"
 
 
+def test_parse_audit_report_normalizes_audited_file_aliases() -> None:
+    payload = {
+        "chapter_number": 2,
+        "audited_file": "chapter_02_polished.md",
+        "overall_status": "passed",
+        "summary": "别名文件名应归一化。",
+        "issues": [],
+        "passed_checks": [],
+        "created_at": "2026-05-22T00:00:00Z",
+    }
+
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+
+    assert report.audited_file == "polished.md"
+
+
 def test_low_only_audit_issues_are_passed_and_displayed(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     payload = {

@@ -98,7 +98,9 @@ runs/agent_output_violations/{request_id}.json
 4. 判断 issue 来源：
    - deterministic precheck：通常是文件、引用、状态闭环问题，先修数据或 service。
    - model audit：通常是语义/风格/动机问题，可能要调 prompt 或走 revision。
-5. 对 accepted/export 相关问题，确认 state update apply log 和 metadata 是否一致。
+5. 如果 session 自动修复后仍失败，检查 `revision_log.json` 中的 `polished.vN.md` 是否已提升为当前 `polished.md`，以及是否因为计划层问题触发了重新 planning。
+6. 全局 timeline ordering 旧 warning 不应阻断某一章正文修复；真正会阻断的是当前章新增事件倒退或引用冲突。
+7. 对 accepted/export 相关问题，确认 state update apply log 和 metadata 是否一致。
 
 相关代码：
 

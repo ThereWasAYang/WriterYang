@@ -108,6 +108,20 @@ exports/
 - `writeryang-web-ui-qa`：Web UI 变更后的浏览器验证流程。
 - `writeryang-release`：发版前检查和发布流程。
 
+Agent 级技能也放在 `skills/`，每个 Agent 单独保存、按需加载：
+
+- `writeryang-agent-orchestrator`：用户协商、session 状态机和 handoff 边界。
+- `writeryang-agent-inspiration`：灵感输入、弱方向输出和 inspiration artifact 边界。
+- `writeryang-agent-canon`：canon proposal、stable ID、hidden truth 和 apply 边界。
+- `writeryang-agent-plot`：ChapterPlan 输入、输出、引用校验和 plan artifact 边界。
+- `writeryang-agent-writer`：draft 输入、Markdown/front matter 输出和内部任务输出契约。
+- `writeryang-agent-polish`：polished 输出、edit mode 和事实保持边界。
+- `writeryang-agent-audit`：AuditReport、deterministic checks 和 severity policy。
+- `writeryang-agent-state-update`：state proposal、timeline update 和 acceptance gate。
+- `writeryang-agent-revision`：版本化修订、revision log 和 session 修订语义。
+
+不要把多个 Agent 的详细规则混到一个 skill 中；定位到具体 Agent 后再加载对应 skill。创意类能力不能 skill 化或脚本化：不要把剧情设计、正文表达、人物塑造写成固定模板。Agent skill 只记录安全边界、产物契约、排查顺序和测试入口。
+
 确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑：
 
 - `check_local.py`：本地复现 CI 质量门禁。

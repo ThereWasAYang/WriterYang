@@ -578,6 +578,17 @@ Provider 用量统计：
 - `writeryang-real-api-smoke/SKILL.md`：真实 provider smoke 的安全边界和验收标准。
 - `writeryang-web-ui-qa/SKILL.md`：Web UI 改动后的浏览器 QA 流程。
 - `writeryang-release/SKILL.md`：发版前检查。
+- `writeryang-agent-orchestrator/SKILL.md`：Orchestrator / Session 的用户协商、handoff 和状态机边界。
+- `writeryang-agent-inspiration/SKILL.md`：Inspiration Agent 的输入、弱方向产物和 inspire 排查入口。
+- `writeryang-agent-canon/SKILL.md`：Canon Agent 的 proposal、apply、stable ID 和 hidden truth 边界。
+- `writeryang-agent-plot/SKILL.md`：Plot Agent 的 ChapterPlan 输入输出、引用校验和 context report 边界。
+- `writeryang-agent-writer/SKILL.md`：Writer Agent 的 draft 产物、front matter 和输出守卫边界。
+- `writeryang-agent-polish/SKILL.md`：Polish Agent 的 edit mode、事实保持和 polished 产物边界。
+- `writeryang-agent-audit/SKILL.md`：Audit Agent 的 AuditReport、deterministic checks 和 severity policy。
+- `writeryang-agent-state-update/SKILL.md`：State Update Agent 的 proposal、apply log、state/timeline 冲突边界。
+- `writeryang-agent-revision/SKILL.md`：Revision Agent 的版本文件、revision log 和 session 修订边界。
+
+Agent skill 只作为开发者和外部 Agent 的边界说明，不参与小说生成 prompt。创意生成仍由 `src/novel/prompts/` 和 core service 动态组装，不能把剧情、文风或人物塑造固化成脚本。
 
 ### `scripts/`
 

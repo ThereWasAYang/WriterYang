@@ -26,6 +26,20 @@ SKILLS = (
     "skills/writeryang-release/SKILL.md",
 )
 
+AGENT_SKILLS = (
+    "skills/writeryang-agent-orchestrator/SKILL.md",
+    "skills/writeryang-agent-inspiration/SKILL.md",
+    "skills/writeryang-agent-canon/SKILL.md",
+    "skills/writeryang-agent-plot/SKILL.md",
+    "skills/writeryang-agent-writer/SKILL.md",
+    "skills/writeryang-agent-polish/SKILL.md",
+    "skills/writeryang-agent-audit/SKILL.md",
+    "skills/writeryang-agent-state-update/SKILL.md",
+    "skills/writeryang-agent-revision/SKILL.md",
+)
+
+ALL_SKILLS = (*SKILLS, *AGENT_SKILLS)
+
 
 def test_workflow_scripts_have_help() -> None:
     for rel_path in SCRIPTS:
@@ -120,7 +134,7 @@ def test_project_health_json_reports_workspace(tmp_path: Path) -> None:
 
 
 def test_skills_have_frontmatter_and_reference_tools() -> None:
-    for rel_path in SKILLS:
+    for rel_path in ALL_SKILLS:
         text = Path(rel_path).read_text(encoding="utf-8")
         assert text.startswith("---\n")
         assert "\nname:" in text
@@ -129,6 +143,66 @@ def test_skills_have_frontmatter_and_reference_tools() -> None:
     assert "scripts/check_local.py" in combined
     assert "scripts/debug_bundle.py" in combined
     assert "scripts/provider_ping.py" in combined
+
+
+def test_agent_skills_are_isolated_by_agent() -> None:
+    agent_names = {Path(path).parent.name.removeprefix("writeryang-agent-") for path in AGENT_SKILLS}
+
+    for rel_path in AGENT_SKILLS:
+        path = Path(rel_path)
+        agent = path.parent.name.removeprefix("writeryang-agent-")
+        text = path.read_text(encoding="utf-8")
+        lower_text = text.lower()
+
+        assert f"name: writeryang-agent-{agent}" in text
+        assert "Use this skill only for" in text
+        assert text.count("# WriterYang") == 1
+
+        for other in agent_names - {agent}:
+            other_title = other.replace("-", " ").title()
+            assert f"# writeryang {other_title} agent".lower() not in lower_text
+            assert f"use this skill only for the {other_title}".lower() not in lower_text
+
+
+def test_creative_agent_skills_do_not_prescribe_creative_templates() -> None:
+    creative_skill_paths = (
+        "skills/writeryang-agent-inspiration/SKILL.md",
+        "skills/writeryang-agent-plot/SKILL.md",
+        "skills/writeryang-agent-writer/SKILL.md",
+    )
+    banned_phrases = (
+        "必须按三幕式",
+        "固定剧情模板",
+        "三幕式模板",
+        "角色弧光公式",
+        "如何写出好看正文",
+        "如何设计精彩剧情",
+        "创造人物弧光",
+    )
+
+    for rel_path in creative_skill_paths:
+        text = Path(rel_path).read_text(encoding="utf-8")
+        for phrase in banned_phrases:
+            assert phrase not in text
+
+
+def test_tool_scripts_do_not_directly_call_creative_services() -> None:
+    forbidden_calls = (
+        "run_inspiration_agent(",
+        "suggest_canon(",
+        "apply_canon_proposal(",
+        "plan_chapter(",
+        "write_chapter_draft(",
+        "polish_chapter(",
+        "audit_chapter(",
+        "propose_state_update(",
+        "revise_chapter(",
+    )
+
+    for rel_path in SCRIPTS:
+        text = Path(rel_path).read_text(encoding="utf-8")
+        for call in forbidden_calls:
+            assert call not in text, f"{rel_path} should not call {call} directly"
 
 
 def _workspace(tmp_path: Path) -> Path:

@@ -1049,10 +1049,17 @@ def _state_timeline_visual_summary(state: object, timeline: object, canon: dict[
             if not isinstance(event, dict):
                 continue
             event_id = str(event.get("id") or "")
+            narrative = event.get("narrative_position") if isinstance(event.get("narrative_position"), dict) else {}
+            story = event.get("story_position") if isinstance(event.get("story_position"), dict) else {}
             entry = {
                 "id": event_id,
-                "chapter": event.get("chapter"),
-                "scene": event.get("scene"),
+                "chapter": narrative.get("chapter", event.get("chapter")),
+                "scene": narrative.get("scene", event.get("scene")),
+                "sequence": narrative.get("sequence"),
+                "story_time": story.get("time_label", event.get("in_story_time")),
+                "story_order": story.get("order"),
+                "story_thread_id": story.get("thread_id"),
+                "event_role": event.get("event_role"),
                 "summary": event.get("summary"),
                 "location_id": event.get("location_id"),
                 "location_name": location_names.get(str(event.get("location_id") or ""), event.get("location_id")),
@@ -1064,7 +1071,7 @@ def _state_timeline_visual_summary(state: object, timeline: object, canon: dict[
                 ],
             }
             events.append(entry)
-            by_chapter.setdefault(str(event.get("chapter") or "?"), []).append(entry)
+            by_chapter.setdefault(str(entry.get("chapter") or "?"), []).append(entry)
             for cause in event.get("causes", []) if isinstance(event.get("causes"), list) else []:
                 edges.append({"from": cause, "to": event_id, "type": "cause"})
             for effect in event.get("effects", []) if isinstance(event.get("effects"), list) else []:

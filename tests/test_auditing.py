@@ -233,19 +233,25 @@ def test_audit_precheck_flags_timeline_reversed_cause(tmp_path: Path) -> None:
         {
             "events": [
                 {
-                    "id": "event_late",
-                    "chapter": 2,
-                    "in_story_time": "第二章",
-                    "summary": "未来原因。",
+                    "id": "event_effect",
+                    "chapter": 1,
+                    "scene": 1,
+                    "in_story_time": "第1天",
+                    "narrative_position": {"chapter": 1, "scene": 1},
+                    "story_position": {"time_label": "第1天", "order": 1, "thread_id": "main"},
+                    "summary": "结果先被呈现。",
                     "reader_visible": True,
                 },
                 {
-                    "id": "event_early",
+                    "id": "event_cause",
                     "chapter": 1,
-                    "in_story_time": "第一章",
-                    "summary": "提前发生的结果。",
+                    "scene": 2,
+                    "in_story_time": "第1天稍早",
+                    "narrative_position": {"chapter": 1, "scene": 2},
+                    "story_position": {"time_label": "第1天稍晚", "order": 2, "thread_id": "main"},
+                    "summary": "被错误记录为发生在结果之后的原因。",
                     "reader_visible": True,
-                    "causes": ["event_late"],
+                    "effects": ["event_effect"],
                 },
             ]
         },
@@ -258,6 +264,42 @@ def test_audit_precheck_flags_timeline_reversed_cause(tmp_path: Path) -> None:
 
     assert result.report.overall_status == "needs_revision"
     assert any(issue.type == "timeline_conflict" for issue in result.report.issues)
+
+
+def test_audit_precheck_allows_flashback_without_story_order(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    _write_json(
+        root / "memory" / "state" / "timeline.json",
+        {
+            "events": [
+                {
+                    "id": "event_current",
+                    "chapter": 1,
+                    "scene": 1,
+                    "in_story_time": "第1天",
+                    "summary": "当前事件。",
+                    "reader_visible": True,
+                },
+                {
+                    "id": "event_memory",
+                    "chapter": 1,
+                    "scene": 2,
+                    "in_story_time": "十年前",
+                    "summary": "角色回忆旧事。",
+                    "reader_visible": True,
+                    "event_role": "flashback",
+                    "causes": ["event_current"],
+                },
+            ]
+        },
+    )
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+
+    assert not any(issue.id.startswith("cons_timeline_reversed") for issue in result.report.issues)
 
 
 def test_audit_prompt_includes_deterministic_summary(tmp_path: Path) -> None:

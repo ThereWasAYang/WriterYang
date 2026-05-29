@@ -312,6 +312,8 @@ novel revise-chapter 1 --path ./rain-station --provider mock --target draft --in
 
 状态更新默认先生成 proposal，不直接修改 `current_state.json` 或 `timeline.json`：
 
+`timeline.json` 使用双轨时间线：`narrative_position` 记录事件在正文中的呈现章节/场景，`story_position` 记录故事世界内的真实时间。倒序、插叙、回忆和多线叙事应保持 narrative 顺序递增；只有明确填写了同一故事线的 `story_position.order` 时，工具才会把 causes/effects 的先后关系作为硬冲突检查。
+
 ```bash
 novel propose-state-update 1 --path ./rain-station --provider mock
 novel apply-state-update 1 --path ./rain-station
@@ -365,7 +367,7 @@ novel search "旧物修复师" --path ./rain-station --use-vector --embedding-pr
 Embedding 配置位于 `config/embeddings.yaml`，格式示例：
 
 ```yaml
-schema_version: 1
+schema_version: 2
 active_provider: "local"
 providers:
   local:

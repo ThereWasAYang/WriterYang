@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "world_rules": [
     {
       "id": "world_rule_wuxia_limits",
@@ -10,7 +10,11 @@
         "高手仍会受伤、疲惫和被环境限制。",
         "主角前期不能越级碾压掌门级人物。"
       ],
-      "known_by_character_ids": ["char_yan_qingci", "char_luo_mingshuang", "char_shen_wenzhou"]
+      "known_by_character_ids": [
+        "char_yan_qingci",
+        "char_luo_mingshuang",
+        "char_shen_wenzhou"
+      ]
     },
     {
       "id": "world_rule_sect_reputation",
@@ -21,7 +25,10 @@
         "声誉不能直接替代证据。",
         "长辈可能为了门派体面压下真相。"
       ],
-      "known_by_character_ids": ["char_luo_mingshuang", "char_shen_wenzhou"]
+      "known_by_character_ids": [
+        "char_luo_mingshuang",
+        "char_shen_wenzhou"
+      ]
     }
   ]
 }

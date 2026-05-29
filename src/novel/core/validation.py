@@ -442,11 +442,11 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
 
     if loaded.timeline:
         path = root / "memory" / "state" / "timeline.json"
-        previous: tuple[int, int] | None = None
+        previous: tuple[int, int, int] | None = None
         for event in loaded.timeline.events:
-            current = (event.chapter, event.scene or 0)
+            current = _event_narrative_key(event)
             if previous and current < previous:
-                report.warning(path, "timeline events should be ordered by chapter and scene")
+                report.warning(path, "timeline events should be ordered by narrative_position chapter, scene, sequence")
                 break
             previous = current
             if event.location_id and event.location_id not in location_ids:
@@ -648,7 +648,7 @@ def _validate_state_references(
             for event in timeline.events:
                 for participant_id in event.participant_ids:
                     death_chapter = death_chapters.get(participant_id)
-                    if death_chapter is not None and event.chapter > death_chapter:
+                    if death_chapter is not None and event.narrative_position.chapter > death_chapter:
                         report.warning(
                             timeline_path,
                             f"character {participant_id} appears in event {event.id} after death state "
@@ -974,8 +974,13 @@ def _validate_chapter_plan_references(
                     report.warning(
                         plan_path,
                         f"scene {scene.scene_number} participant_ids references missing character: "
-                        f"{participant_id}",
-                    )
+                    f"{participant_id}",
+                )
+
+
+def _event_narrative_key(event) -> tuple[int, int, int]:
+    narrative = event.narrative_position
+    return (narrative.chapter, narrative.scene or 0, narrative.sequence or 0)
 
 
 def _state_change_id_exists(root: Path, change_id: str) -> bool:

@@ -9,7 +9,7 @@ import yaml
 from novel.core.io import atomic_write_json, atomic_write_yaml, backup_if_exists
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 class MigrationError(RuntimeError):
@@ -39,15 +39,15 @@ def migrate_project(root: Path, *, dry_run: bool = False) -> MigrationResult:
         )
 
     updated_files: list[Path] = []
-    _add_schema_version_to_yaml(project_path, project_data, updated_files, dry_run=dry_run)
+    _migrate_yaml(project_path, project_data, updated_files, dry_run=dry_run)
     for yaml_path in _schema_versioned_yaml_paths(root):
         if yaml_path.exists():
             data = _load_yaml_mapping(yaml_path)
-            _add_schema_version_to_yaml(yaml_path, data, updated_files, dry_run=dry_run)
+            _migrate_yaml(yaml_path, data, updated_files, dry_run=dry_run)
     for json_path in _schema_versioned_json_paths(root):
         if json_path.exists():
             data = _load_json_mapping(json_path)
-            _add_schema_version_to_json(json_path, data, updated_files, dry_run=dry_run)
+            _migrate_json(json_path, data, updated_files, dry_run=dry_run)
 
     if not updated_files:
         return MigrationResult(
@@ -104,40 +104,68 @@ def _schema_versioned_json_paths(root: Path) -> tuple[Path, ...]:
     return (*static_paths, *dynamic_paths)
 
 
-def _add_schema_version_to_yaml(
+def _migrate_yaml(
     path: Path,
     data: dict[str, object],
     updated_files: list[Path],
     *,
     dry_run: bool,
 ) -> None:
-    raw_version = data.get("schema_version")
-    if raw_version is not None:
-        _reject_newer_version(path, raw_version)
+    before = dict(data)
+    _set_schema_version(path, data)
+    if data == before:
         return
-    data["schema_version"] = CURRENT_SCHEMA_VERSION
     if not dry_run:
         backup_if_exists(path, reason="migration")
         atomic_write_yaml(path, data)
     updated_files.append(path)
 
 
-def _add_schema_version_to_json(
+def _migrate_json(
     path: Path,
     data: dict[str, object],
     updated_files: list[Path],
     *,
     dry_run: bool,
 ) -> None:
-    raw_version = data.get("schema_version")
-    if raw_version is not None:
-        _reject_newer_version(path, raw_version)
+    before = json.dumps(data, ensure_ascii=False, sort_keys=True)
+    _set_schema_version(path, data)
+    if path.name == "timeline.json" or path.name == "state_update_proposal.json":
+        _migrate_timeline_events(data.get("events"))
+        _migrate_timeline_events(data.get("timeline_events"))
+    after = json.dumps(data, ensure_ascii=False, sort_keys=True)
+    if after == before:
         return
-    data = {"schema_version": CURRENT_SCHEMA_VERSION, **data}
     if not dry_run:
         backup_if_exists(path, reason="migration")
         atomic_write_json(path, data)
     updated_files.append(path)
+
+
+def _set_schema_version(path: Path, data: dict[str, object]) -> None:
+    raw_version = data.get("schema_version")
+    if raw_version is not None:
+        _reject_newer_version(path, raw_version)
+    data["schema_version"] = CURRENT_SCHEMA_VERSION
+
+
+def _migrate_timeline_events(events: object) -> None:
+    if not isinstance(events, list):
+        return
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        narrative = event.get("narrative_position")
+        if not isinstance(narrative, dict):
+            event["narrative_position"] = {
+                "chapter": event.get("chapter"),
+                "scene": event.get("scene"),
+            }
+        story = event.get("story_position")
+        if not isinstance(story, dict):
+            event["story_position"] = {
+                "time_label": event.get("in_story_time"),
+            }
 
 
 def _reject_newer_version(path: Path, raw_version: object) -> None:

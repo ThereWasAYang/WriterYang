@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "items": [
     {
       "id": "item_half_sword_manual",
@@ -14,7 +14,10 @@
           "visibility": "partially_revealed"
         }
       ],
-      "tags": ["clue", "manual"]
+      "tags": [
+        "clue",
+        "manual"
+      ]
     },
     {
       "id": "item_bamboo_token",
@@ -24,7 +27,9 @@
       "private_author_notes": "燕青辞的令牌背面有一道旧划痕，可作为时间线线索。",
       "origin": "云台山剑宗",
       "special_properties": [],
-      "tags": ["token"]
+      "tags": [
+        "token"
+      ]
     }
   ]
 }

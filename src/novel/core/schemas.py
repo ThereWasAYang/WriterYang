@@ -11,6 +11,8 @@ EntityId = str
 Visibility = Literal["reader_visible", "hidden", "partially_revealed"]
 Importance = Literal["low", "medium", "high", "critical"]
 GenericStatus = Literal["active", "inactive", "resolved", "unresolved", "deprecated"]
+TimelineEventRole = Literal["current_action", "flashback", "memory", "revelation", "summary", "backstory"]
+TimelineCertainty = Literal["certain", "inferred", "uncertain"]
 CreationScopeType = Literal["chapters", "segments"]
 CreationSessionStatus = Literal[
     "drafting_intent",
@@ -31,7 +33,7 @@ class FlexibleModel(BaseModel):
 
 
 class SchemaVersionedModel(FlexibleModel):
-    schema_version: int = Field(default=1, ge=1)
+    schema_version: int = Field(default=2, ge=1)
 
 
 class TargetLength(FlexibleModel):
@@ -348,6 +350,19 @@ class EntityState(SchemaVersionedModel):
     location_states: list[LocationState]
 
 
+class TimelineNarrativePosition(FlexibleModel):
+    chapter: int = Field(ge=1)
+    scene: int | None = Field(default=None, ge=1)
+    sequence: int | None = Field(default=None, ge=1)
+
+
+class TimelineStoryPosition(FlexibleModel):
+    time_label: str = Field(min_length=1)
+    order: float | None = None
+    thread_id: EntityId | None = None
+    certainty: TimelineCertainty | None = None
+
+
 class TimelineEvent(FlexibleModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     chapter: int = Field(ge=1)
@@ -355,12 +370,48 @@ class TimelineEvent(FlexibleModel):
     summary: str = Field(min_length=1)
     reader_visible: bool
     scene: int | None = Field(default=None, ge=1)
+    narrative_position: TimelineNarrativePosition
+    story_position: TimelineStoryPosition
+    event_role: TimelineEventRole | None = None
     location_id: EntityId | None = None
     participant_ids: list[EntityId] = Field(default_factory=list)
     causes: list[str] = Field(default_factory=list)
     effects: list[str] = Field(default_factory=list)
     state_change_ids: list[EntityId] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_dual_timeline_positions(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        item = dict(data)
+        narrative = item.get("narrative_position")
+        if isinstance(narrative, dict):
+            item.setdefault("chapter", narrative.get("chapter"))
+            if narrative.get("scene") is not None:
+                item.setdefault("scene", narrative.get("scene"))
+        else:
+            item["narrative_position"] = {
+                "chapter": item.get("chapter"),
+                "scene": item.get("scene"),
+            }
+        story = item.get("story_position")
+        if isinstance(story, dict):
+            item.setdefault("in_story_time", story.get("time_label"))
+        else:
+            item["story_position"] = {"time_label": item.get("in_story_time")}
+        return item
+
+    @model_validator(mode="after")
+    def legacy_fields_match_dual_positions(self) -> TimelineEvent:
+        if self.chapter != self.narrative_position.chapter:
+            raise ValueError("chapter must match narrative_position.chapter")
+        if self.scene != self.narrative_position.scene:
+            raise ValueError("scene must match narrative_position.scene")
+        if self.in_story_time != self.story_position.time_label:
+            raise ValueError("in_story_time must match story_position.time_label")
+        return self
 
 
 class TimelineFile(SchemaVersionedModel):

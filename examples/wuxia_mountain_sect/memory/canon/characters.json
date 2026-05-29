@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "characters": [
     {
       "id": "char_yan_qingci",
@@ -7,13 +7,19 @@
       "role": "protagonist",
       "reader_visible_summary": "云台山剑宗外门弟子，剑法基础扎实，性格沉静，擅长从细节里找破绽。",
       "private_author_notes": "他父亲当年与旧掌门继位案有关，但前期本人并不知道。",
-      "aliases": ["青辞"],
+      "aliases": [
+        "青辞"
+      ],
       "appearance": {
         "age": "十八岁",
         "clothing": "灰蓝外门弟子服，袖口常磨出线头"
       },
       "personality": {
-        "traits": ["克制", "耐心", "不轻信"],
+        "traits": [
+          "克制",
+          "耐心",
+          "不轻信"
+        ],
         "flaw": "习惯独自承担怀疑，不善求助"
       },
       "relationships": [
@@ -32,7 +38,10 @@
         }
       ],
       "secrets": [],
-      "tags": ["protagonist", "outer_disciple"]
+      "tags": [
+        "protagonist",
+        "outer_disciple"
+      ]
     },
     {
       "id": "char_luo_mingshuang",
@@ -40,7 +49,9 @@
       "role": "deuteragonist",
       "reader_visible_summary": "掌门亲传弟子，剑法清正，重视门规，也愿意听证据。",
       "private_author_notes": "她对掌门有敬意，但并非无条件维护。",
-      "aliases": ["洛师姐"],
+      "aliases": [
+        "洛师姐"
+      ],
       "relationships": [
         {
           "target_id": "char_yan_qingci",
@@ -63,7 +74,9 @@
         }
       ],
       "secrets": [],
-      "tags": ["inner_disciple"]
+      "tags": [
+        "inner_disciple"
+      ]
     },
     {
       "id": "char_shen_wenzhou",
@@ -71,7 +84,10 @@
       "role": "mysterious_returnee",
       "reader_visible_summary": "十年前被逐出云台山的大师兄，试剑前夜忽然回山。",
       "private_author_notes": "他掌握旧掌门继位案的一部分证据，但回山也有私怨。",
-      "aliases": ["沈师兄", "弃徒沈问舟"],
+      "aliases": [
+        "沈师兄",
+        "弃徒沈问舟"
+      ],
       "relationships": [
         {
           "target_id": "char_luo_mingshuang",
@@ -95,7 +111,10 @@
           "planned_reveal": "中段揭示。"
         }
       ],
-      "tags": ["returnee", "suspect"]
+      "tags": [
+        "returnee",
+        "suspect"
+      ]
     }
   ]
 }

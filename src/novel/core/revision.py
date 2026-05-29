@@ -15,6 +15,7 @@ from novel.core.agent_output import (
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -391,7 +392,7 @@ def _write_revision_loop_log(
     run_id = "revision_loop_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     path = chapter_dir / f"{run_id}.json"
     payload = {
-        "schema_version": 1,
+        "schema_version": CURRENT_SCHEMA_VERSION,
         "run_id": run_id,
         "task": "revision_loop",
         "chapter_number": chapter_number,

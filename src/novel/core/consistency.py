@@ -383,13 +383,13 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
     findings: list[ConsistencyFinding] = []
     events = snapshot.timeline.events
     event_by_id = {event.id: event for event in events}
-    previous_key: tuple[int, int] | None = None
+    previous_key: tuple[int, int, int] | None = None
     for event in events:
-        key = _event_key(event)
+        key = _event_narrative_key(event)
         if previous_key and key < previous_key:
             severity: Severity = (
                 "medium"
-                if snapshot.chapter_number is None or event.chapter == snapshot.chapter_number
+                if snapshot.chapter_number is None or event.narrative_position.chapter == snapshot.chapter_number
                 else "low"
             )
             findings.append(
@@ -397,10 +397,13 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
                     id=f"cons_timeline_order_{event.id}",
                     severity=severity,
                     type="timeline_conflict",
-                    description="Timeline events are not ordered by chapter and scene.",
+                    description="Timeline events are not ordered by narrative_position chapter, scene, and sequence.",
                     source=source,
-                    quote=f"{event.id}: chapter={event.chapter}, scene={event.scene}",
-                    suggested_fix="Sort timeline events by chapter and scene, or correct the event chapter/scene.",
+                    quote=(
+                        f"{event.id}: chapter={event.narrative_position.chapter}, "
+                        f"scene={event.narrative_position.scene}, sequence={event.narrative_position.sequence}"
+                    ),
+                    suggested_fix="Sort timeline events by narrative_position or correct the event narrative position.",
                 )
             )
             break
@@ -412,7 +415,7 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
             cause = event_by_id.get(cause_id)
             if not cause:
                 findings.append(_timeline_missing_reference(source, event, cause_id, "cause"))
-            elif _event_key(cause) > _event_key(event):
+            elif _story_order_reversed(cause, event):
                 findings.append(_timeline_reversed_reference(source, event, cause, "cause"))
         for effect_id in event.effects:
             if not _looks_like_id(effect_id):
@@ -420,11 +423,12 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
             effect = event_by_id.get(effect_id)
             if not effect:
                 findings.append(_timeline_missing_reference(source, event, effect_id, "effect"))
-            elif _event_key(effect) < _event_key(event):
+            elif _story_order_reversed(event, effect):
                 findings.append(_timeline_reversed_reference(source, event, effect, "effect"))
-        if snapshot.chapter_number and event.chapter == snapshot.chapter_number and snapshot.plan:
+        if snapshot.chapter_number and event.narrative_position.chapter == snapshot.chapter_number and snapshot.plan:
             scene_count = len(snapshot.plan.scenes)
-            if event.scene and event.scene > scene_count:
+            scene = event.narrative_position.scene
+            if scene and scene > scene_count:
                 findings.append(
                     ConsistencyFinding(
                         id=f"cons_timeline_scene_{event.id}",
@@ -432,8 +436,8 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
                         type="timeline_conflict",
                         description=f"Timeline event {event.id} scene is outside ChapterPlan scene range.",
                         source=source,
-                        quote=f"scene={event.scene}; plan_scene_count={scene_count}",
-                        suggested_fix="Correct event.scene or update the chapter plan scene list.",
+                        quote=f"narrative_position.scene={scene}; plan_scene_count={scene_count}",
+                        suggested_fix="Correct event.narrative_position.scene or update the chapter plan scene list.",
                     )
                 )
     return findings
@@ -738,18 +742,29 @@ def _timeline_reversed_reference(
         id=f"cons_timeline_reversed_{event.id}_{ref_type}_{referenced.id}",
         severity="high",
         type="timeline_conflict",
-        description=f"Timeline event {event.id} has a reversed {ref_type} relationship with {referenced.id}.",
+        description=f"Timeline event {event.id} has a reversed story-world {ref_type} relationship with {referenced.id}.",
         source=source,
         quote=(
-            f"{event.id}=chapter {event.chapter}/scene {event.scene}; "
-            f"{referenced.id}=chapter {referenced.chapter}/scene {referenced.scene}"
+            f"{event.id}=thread {event.story_position.thread_id}/order {event.story_position.order}; "
+            f"{referenced.id}=thread {referenced.story_position.thread_id}/order {referenced.story_position.order}"
         ),
-        suggested_fix="Correct causes/effects so causes happen before effects.",
+        suggested_fix="Correct story_position.order or causes/effects so story-world causes happen before effects.",
     )
 
 
-def _event_key(event: TimelineEvent) -> tuple[int, int]:
-    return (event.chapter, event.scene or 0)
+def _event_narrative_key(event: TimelineEvent) -> tuple[int, int, int]:
+    narrative = event.narrative_position
+    return (narrative.chapter, narrative.scene or 0, narrative.sequence or 0)
+
+
+def _story_order_reversed(before: TimelineEvent, after: TimelineEvent) -> bool:
+    before_order = before.story_position.order
+    after_order = after.story_position.order
+    if before_order is None or after_order is None:
+        return False
+    if before.story_position.thread_id != after.story_position.thread_id:
+        return False
+    return before_order > after_order
 
 
 def _chapter_dir(snapshot: ConsistencySnapshot) -> Path:

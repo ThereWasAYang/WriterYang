@@ -213,7 +213,7 @@ Prompt 组装：
 Prompt 组装：
 
 - `build_audit_user_prompt()` 写入审核文件、严格模式、审核重点、deterministic summary、章节正文、plan、style、canon、state、timeline。
-- system prompt 要求只输出 `AuditReport` JSON，并检查 canon/state/timeline/hidden truth/plan/style。
+- system prompt 要求只输出 `AuditReport` JSON，并检查 canon/state/timeline/hidden truth/plan/style；timeline 审核必须区分 `narrative_position` 和 `story_position`，不能把倒序、插叙或回忆本身当作硬冲突。
 
 输出处理：
 
@@ -246,7 +246,7 @@ Prompt 组装：
 
 Prompt 组装：
 
-- `build_state_update_user_prompt()` 要求根据正文实际发生事件提取状态变化。
+- `build_state_update_user_prompt()` 要求根据正文实际发生事件提取状态变化，并同时输出 timeline event 的正文呈现顺序 `narrative_position` 与故事世界顺序 `story_position`。
 - 明确不要创造正文中没有发生的重大事件、不要修改 canon、无法判断写入 warnings。
 
 输出处理：

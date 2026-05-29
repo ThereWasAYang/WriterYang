@@ -1,4 +1,4 @@
-schema_version: 1 # Agent 配置 schema 版本。
+schema_version: 2 # Agent 配置 schema 版本。
 agents: # 每个 agent 可以使用独立模型配置。
   orchestrator: # 编排 agent：根据用户请求选择工作流。
     provider: "mock" # provider 类型；示例默认 mock，离线可运行。

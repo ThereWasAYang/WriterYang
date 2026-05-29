@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "locations": [
     {
       "id": "loc_yuntai_sect",
@@ -7,7 +7,11 @@
       "type": "mountain_sect",
       "reader_visible_summary": "坐落在云台山腰的名门剑宗，以试剑大会选拔内门弟子。",
       "private_author_notes": "门派声誉与旧掌门继位案紧密相关。",
-      "connected_location_ids": ["loc_ancestor_hall", "loc_sword_washing_platform", "loc_tea_shed"],
+      "connected_location_ids": [
+        "loc_ancestor_hall",
+        "loc_sword_washing_platform",
+        "loc_tea_shed"
+      ],
       "rules": [
         {
           "id": "rule_sect_trial",
@@ -15,7 +19,10 @@
           "visibility": "reader_visible"
         }
       ],
-      "tags": ["sect", "main_stage"]
+      "tags": [
+        "sect",
+        "main_stage"
+      ]
     },
     {
       "id": "loc_ancestor_hall",
@@ -24,7 +31,9 @@
       "reader_visible_summary": "供奉历代掌门牌位的清冷殿阁，平日只有内门弟子可入。",
       "private_author_notes": "暗格里藏有半截旧剑谱和旧案线索。",
       "parent_location_id": "loc_yuntai_sect",
-      "connected_location_ids": ["loc_yuntai_sect"],
+      "connected_location_ids": [
+        "loc_yuntai_sect"
+      ],
       "rules": [
         {
           "id": "rule_hall_restricted",
@@ -32,7 +41,10 @@
           "visibility": "reader_visible"
         }
       ],
-      "tags": ["restricted", "secret"]
+      "tags": [
+        "restricted",
+        "secret"
+      ]
     },
     {
       "id": "loc_sword_washing_platform",
@@ -41,9 +53,13 @@
       "reader_visible_summary": "山泉穿台而过，试剑大会的正式比武地点。",
       "private_author_notes": "台下石缝可藏小物。",
       "parent_location_id": "loc_yuntai_sect",
-      "connected_location_ids": ["loc_yuntai_sect"],
+      "connected_location_ids": [
+        "loc_yuntai_sect"
+      ],
       "rules": [],
-      "tags": ["duel"]
+      "tags": [
+        "duel"
+      ]
     },
     {
       "id": "loc_tea_shed",
@@ -51,9 +67,14 @@
       "type": "public_stop",
       "reader_visible_summary": "江湖客上山前歇脚之处，消息流动很快。",
       "private_author_notes": "沈问舟回山前曾在此停留。",
-      "connected_location_ids": ["loc_yuntai_sect"],
+      "connected_location_ids": [
+        "loc_yuntai_sect"
+      ],
       "rules": [],
-      "tags": ["public", "rumor"]
+      "tags": [
+        "public",
+        "rumor"
+      ]
     }
   ]
 }

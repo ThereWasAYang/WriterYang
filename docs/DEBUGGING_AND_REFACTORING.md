@@ -126,7 +126,7 @@ runs/agent_output_violations/{request_id}.json
 2. 查看 `state_update_apply_log.json` 是否已 applied。
 3. 查看 `memory/state/current_state.json` 和 `timeline.json` 的备份。
 4. 确认 state_changes 引用的 entity_id 存在于 canon 或 state。
-5. 确认 timeline event id 不重复，causes/effects 不倒置。
+5. 确认 timeline event id 不重复；先检查 `narrative_position` 是否按正文呈现顺序递增，再检查同一 `story_position.thread_id` 且双方都有 `story_position.order` 的 causes/effects 是否倒置。
 6. 如果 apply 写入失败，确认 rollback 是否恢复原 state/timeline。
 
 相关代码：

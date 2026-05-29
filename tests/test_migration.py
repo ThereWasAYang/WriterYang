@@ -55,6 +55,43 @@ def test_migrate_adds_schema_version_to_json_and_agents_yaml(tmp_path: Path) -> 
     assert json.loads(state_path.read_text(encoding="utf-8"))["schema_version"] == CURRENT_SCHEMA_VERSION
 
 
+def test_migrate_timeline_events_to_dual_positions(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    timeline_path = root / "memory" / "state" / "timeline.json"
+    timeline_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "events": [
+                    {
+                        "id": "event_flashback",
+                        "chapter": 3,
+                        "scene": 2,
+                        "in_story_time": "十年前",
+                        "summary": "主角想起旧事。",
+                        "reader_visible": True,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = migrate_project(root)
+
+    migrated = json.loads(timeline_path.read_text(encoding="utf-8"))
+    event = migrated["events"][0]
+    assert result.changed is True
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert event["narrative_position"] == {"chapter": 3, "scene": 2}
+    assert event["story_position"] == {"time_label": "十年前"}
+    assert "order" not in event["story_position"]
+
+
 def test_migrate_dry_run_does_not_write(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

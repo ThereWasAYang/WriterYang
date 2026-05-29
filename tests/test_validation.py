@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from novel.core.io import load_json_model, load_yaml_model
-from novel.core.schemas import Character, ProjectConfig
+from novel.core.schemas import Character, ProjectConfig, TimelineEvent
 from novel.core.validation import validate_canon, validate_project
 from novel.core.workspace import InitOptions, init_workspace
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
@@ -60,6 +60,26 @@ def test_load_json_and_yaml_models(tmp_path: Path) -> None:
 
     assert project.project_id == "novel_test"
     assert character.id == "char_lin_che"
+
+
+def test_timeline_event_rejects_legacy_and_dual_position_mismatch() -> None:
+    payload = {
+        "id": "event_mismatch",
+        "chapter": 2,
+        "scene": 1,
+        "in_story_time": "第2章",
+        "narrative_position": {"chapter": 1, "scene": 1},
+        "story_position": {"time_label": "第2章"},
+        "summary": "字段不一致。",
+        "reader_visible": True,
+    }
+
+    try:
+        TimelineEvent.model_validate(payload)
+    except Exception as exc:
+        assert "chapter must match narrative_position.chapter" in str(exc)
+    else:
+        raise AssertionError("expected timeline compatibility failure")
 
 
 def test_validate_fresh_workspace_passes(tmp_path: Path) -> None:

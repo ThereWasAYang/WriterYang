@@ -349,10 +349,48 @@ def test_validate_state_update_rejects_timeline_order_regression(tmp_path: Path)
         raise AssertionError("expected timeline order regression failure")
 
 
+def test_validate_state_update_allows_earlier_story_order_when_narrative_advances(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    (root / "memory" / "state" / "timeline.json").write_text(
+        json.dumps(
+            {
+                "events": [
+                    {
+                        "id": "event_current",
+                        "chapter": 1,
+                        "scene": 1,
+                        "in_story_time": "第1天",
+                        "narrative_position": {"chapter": 1, "scene": 1},
+                        "story_position": {"time_label": "第1天", "order": 10, "thread_id": "main"},
+                        "summary": "当前事件。",
+                        "reader_visible": True,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
+    event = proposal.timeline_events[0]
+    event.scene = 2
+    event.narrative_position.scene = 2
+    event.story_position.order = 1
+    event.story_position.thread_id = "main"
+    event.event_role = "flashback"
+
+    warnings = validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
+
+    assert isinstance(warnings, list)
+
+
 def test_validate_state_update_rejects_timeline_scene_outside_plan(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
     proposal.timeline_events[0].scene = 3
+    proposal.timeline_events[0].narrative_position.scene = 3
 
     try:
         validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
@@ -377,6 +415,19 @@ def test_state_update_repairs_timeline_scene_outside_plan(tmp_path: Path) -> Non
 
     assert result.proposal.timeline_events[0].scene == 1
     assert len(provider.requests) == 2
+
+
+def test_validate_state_update_rejects_timeline_compatibility_mismatch(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
+    proposal.timeline_events[0].scene = 2
+
+    try:
+        validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
+    except Exception as exc:
+        assert "scene must match narrative_position.scene" in str(exc)
+    else:
+        raise AssertionError("expected timeline compatibility failure")
 
 
 def test_accept_chapter_passed_audit_applies_update_and_marks_accepted(tmp_path: Path) -> None:

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "story_position": {
     "latest_chapter": 0,
     "in_story_time": "试剑大会前一日傍晚",
@@ -11,9 +11,17 @@
       "location_id": "loc_yuntai_sect",
       "health": "正常",
       "mental_state": "谨慎而期待",
-      "knowledge": ["试剑大会即将开始", "祖师祠外门弟子不得擅入"],
-      "goals": ["通过试剑大会进入内门", "弄清山中近期异常传闻"],
-      "possessions": ["item_bamboo_token"],
+      "knowledge": [
+        "试剑大会即将开始",
+        "祖师祠外门弟子不得擅入"
+      ],
+      "goals": [
+        "通过试剑大会进入内门",
+        "弄清山中近期异常传闻"
+      ],
+      "possessions": [
+        "item_bamboo_token"
+      ],
       "last_updated_chapter": 0
     },
     {
@@ -21,8 +29,13 @@
       "location_id": "loc_yuntai_sect",
       "health": "正常",
       "mental_state": "克制警觉",
-      "knowledge": ["沈问舟曾被逐出师门", "掌门要求试剑大会期间加强巡查"],
-      "goals": ["维持试剑大会秩序"],
+      "knowledge": [
+        "沈问舟曾被逐出师门",
+        "掌门要求试剑大会期间加强巡查"
+      ],
+      "goals": [
+        "维持试剑大会秩序"
+      ],
       "possessions": [],
       "last_updated_chapter": 0
     },
@@ -31,8 +44,12 @@
       "location_id": "loc_tea_shed",
       "health": "旧伤未愈",
       "mental_state": "冷静且压着怒意",
-      "knowledge": ["祖师祠可能藏有旧案证据"],
-      "goals": ["回到云台山寻找证据"],
+      "knowledge": [
+        "祖师祠可能藏有旧案证据"
+      ],
+      "goals": [
+        "回到云台山寻找证据"
+      ],
       "possessions": [],
       "last_updated_chapter": 0
     }
@@ -51,7 +68,9 @@
       "holder_id": "char_yan_qingci",
       "location_id": null,
       "condition": "完好，背面有旧划痕",
-      "known_properties": ["外门身份令牌"],
+      "known_properties": [
+        "外门身份令牌"
+      ],
       "last_updated_chapter": 0
     }
   ],

@@ -376,7 +376,7 @@ Embedding provider：
 - `check_project_consistency()`：项目级闭环检查。
 - `_check_character_knowledge()`：角色已知/未知信息链。
 - `_check_item_flow()`：物品 holder/location 和 possession 双向一致。
-- `_check_timeline_order()`：timeline 顺序和 causes/effects。
+- `_check_timeline_order()`：timeline narrative order、story-world causes/effects 和 scene 边界。
 - `_check_hidden_truth_body_exposure()` / `_check_reader_visible_hidden_truth_leaks()`：hidden truth 暴露边界。
 - `_check_chapter_loop()` / `_check_accepted_chapter_loop()`：plan/draft/polished/audit/state/metadata 闭环。
 

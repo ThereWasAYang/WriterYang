@@ -82,13 +82,15 @@ Timeline 记录已经发生的事件。事件应尽量包含：
 
 - `id`：稳定事件 ID。
 - `summary`：事件摘要。
-- `chapter`：发生章节。
-- `in_story_time`：故事内时间。
+- `chapter`：兼容字段，必须等于 `narrative_position.chapter`。
+- `in_story_time`：兼容字段，必须等于 `story_position.time_label`。
+- `narrative_position`：正文呈现顺序，包含 chapter / scene / sequence。
+- `story_position`：故事世界顺序，包含 time_label / order / thread_id / certainty；非线性叙事无法确认真实顺序时可以不填 order。
 - `participant_ids`：参与人物 ID。
 - `location_id`：地点 ID。
 - `state_change_ids`：相关状态变化 ID。
 
-如果新增 timeline event，确认 ID 不重复，并且人物/地点引用存在。
+如果新增 timeline event，确认 ID 不重复、人物/地点引用存在，并区分正文呈现顺序与故事世界顺序。倒序、插叙、回忆应把 `narrative_position` 写成正文出现位置，不要为了故事内时间倒退章节或场景。
 
 ## `memory/chapters/{chapter}/`
 

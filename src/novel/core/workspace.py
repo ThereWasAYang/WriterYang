@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 
 from novel.core.io import atomic_write_text
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 
 
 DEFAULT_WORKSPACE_DIR = "novel-project"
@@ -148,7 +149,7 @@ def _utc_now() -> str:
 
 
 def _json(data: dict[str, object]) -> str:
-    data = {"schema_version": 1, **data}
+    data = {"schema_version": CURRENT_SCHEMA_VERSION, **data}
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
 
@@ -167,7 +168,7 @@ def _project_yaml(
     updated_at: str,
 ) -> str:
     return (
-        'schema_version: 1\n'
+        f"schema_version: {CURRENT_SCHEMA_VERSION}\n"
         f'project_id: "{project_id}"\n'
         f'title: "{title}"\n'
         f'language: "{language}"\n'
@@ -198,7 +199,7 @@ def _agents_yaml() -> str:
         "audit": ("AUDIT_BASE_URL", "AUDIT_API_KEY", "model-name", "low", 64000, 8192, 0.2, 60, 1),
         "state_update": ("STATE_UPDATE_BASE_URL", "STATE_UPDATE_API_KEY", "model-name", "low", 64000, 8192, 0.2, 60, 1),
     }
-    lines = ["schema_version: 1\n", "agents:\n"]
+    lines = [f"schema_version: {CURRENT_SCHEMA_VERSION}\n", "agents:\n"]
     for name, (base_url_env, api_key_env, model, reasoning, max_context_tokens, max_tokens, temperature, timeout, retries) in agents.items():
         lines.extend(
             [
@@ -222,7 +223,7 @@ def _agents_yaml() -> str:
 
 def _embeddings_yaml() -> str:
     return (
-        "schema_version: 1\n"
+        f"schema_version: {CURRENT_SCHEMA_VERSION}\n"
         'active_provider: "local"\n'
         "providers:\n"
         "  local:\n"

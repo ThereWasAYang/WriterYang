@@ -351,6 +351,7 @@ def validate_state_update_proposal(
         _validate_state_change_field(change, character_ids, location_ids, item_ids)
 
     for event in proposal.timeline_events:
+        _validate_timeline_event_compatibility(event)
         if event.location_id and event.location_id not in location_ids:
             raise StateUpdateError(f"timeline event {event.id} references missing location: {event.location_id}")
         for participant_id in event.participant_ids:
@@ -383,6 +384,15 @@ def validate_state_update_proposal(
     return warnings
 
 
+def _validate_timeline_event_compatibility(event) -> None:
+    if event.chapter != event.narrative_position.chapter:
+        raise StateUpdateError(f"timeline event {event.id} chapter must match narrative_position.chapter")
+    if event.scene != event.narrative_position.scene:
+        raise StateUpdateError(f"timeline event {event.id} scene must match narrative_position.scene")
+    if event.in_story_time != event.story_position.time_label:
+        raise StateUpdateError(f"timeline event {event.id} in_story_time must match story_position.time_label")
+
+
 def _validate_proposed_timeline_scene_bounds(root: Path, proposal: StateUpdateProposal) -> None:
     plan_path = root / "memory" / "chapters" / f"{proposal.chapter_number:03d}" / "plan.json"
     if not plan_path.exists():
@@ -390,9 +400,10 @@ def _validate_proposed_timeline_scene_bounds(root: Path, proposal: StateUpdatePr
     plan = load_json_model(plan_path, ChapterPlan)
     scene_count = len(plan.scenes)
     for event in proposal.timeline_events:
-        if event.scene and event.scene > scene_count:
+        scene = event.narrative_position.scene
+        if scene and scene > scene_count:
             raise StateUpdateError(
-                f"timeline event {event.id} scene {event.scene} exceeds ChapterPlan scene count {scene_count}"
+                f"timeline event {event.id} narrative_position.scene {scene} exceeds ChapterPlan scene count {scene_count}"
             )
 
 
@@ -407,15 +418,18 @@ def _validate_proposed_timeline_monotonic(root: Path, proposal: StateUpdatePropo
         if previous is not None and key < previous:
             raise StateUpdateError(
                 "timeline event order conflict: "
-                f"{event.id} chapter={event.chapter}, scene={event.scene} would be ordered before "
-                f"existing or previous event key chapter={previous[0]}, scene={previous[1]}. "
-                "Regenerate the state update proposal with monotonically increasing chapter/scene values."
+                f"{event.id} chapter={event.narrative_position.chapter}, "
+                f"scene={event.narrative_position.scene}, sequence={event.narrative_position.sequence} "
+                "would be ordered before "
+                f"existing or previous event key chapter={previous[0]}, scene={previous[1]}, sequence={previous[2]}. "
+                "Regenerate the state update proposal with monotonically increasing narrative_position values."
             )
         previous = key
 
 
-def _timeline_event_key(event) -> tuple[int, int]:
-    return (int(event.chapter), int(event.scene or 0))
+def _timeline_event_key(event) -> tuple[int, int, int]:
+    narrative = event.narrative_position
+    return (int(narrative.chapter), int(narrative.scene or 0), int(narrative.sequence or 0))
 
 
 def _validate_proposed_item_holder_location_conflicts(
@@ -565,8 +579,11 @@ def build_state_update_user_prompt(
         '  "created_at": "2026-05-23T00:00:00Z"\n'
         "}\n\n"
         "StateChange 字段：id, chapter, entity_id, field, old_value, new_value, reason, source。\n"
-        "TimelineEvent 字段：id, chapter, scene, in_story_time, location_id, participant_ids, "
-        "summary, reader_visible, causes, effects, state_change_ids, tags。\n\n"
+        "TimelineEvent 字段：id, chapter, scene, in_story_time, narrative_position, story_position, "
+        "event_role, location_id, participant_ids, summary, reader_visible, causes, effects, state_change_ids, tags。\n"
+        "- narrative_position 包含 chapter, scene, sequence，表示正文呈现顺序。\n"
+        "- story_position 包含 time_label, order, thread_id, certainty，表示故事世界时间；无法判断真实顺序时 order 留空。\n"
+        "- event_role 可用 current_action/flashback/memory/revelation/summary/backstory。\n\n"
         "字段约束：\n"
         "- StateChange.id 和 TimelineEvent.id 必须使用小写字母、数字和下划线。\n"
         "- entity_id 必须引用已有 character/location/item，或使用 story_position。\n"
@@ -576,11 +593,12 @@ def build_state_update_user_prompt(
         "- story_position 可用 field: latest_chapter, in_story_time, summary。\n"
         "- 不要把 field 写成 location 或 holder；应写成 location_id 或 holder_id。\n\n"
         "时间线顺序约束：\n"
-        "- timeline_events 必须按正文实际发生顺序输出。\n"
-        "- timeline_event.scene 必须对应 ChapterPlan 中实际发生的 scene_number。\n"
-        "- timeline_event.scene 不得超过 ChapterPlan.scenes 的最大 scene_number。\n"
-        "- 不要把章节后段事件写成更早的 scene；如果无法判断 scene，宁可省略 scene 或写入 warnings。\n"
-        "- 新 timeline event 的 chapter/scene 不能倒退到现有 timeline 的最后事件之前。\n\n"
+        "- timeline_events 必须按正文呈现顺序输出，即 narrative_position 单调递增。\n"
+        "- timeline_event.scene 必须与 narrative_position.scene 一致，并对应 ChapterPlan 中实际发生的 scene_number。\n"
+        "- narrative_position.scene 不得超过 ChapterPlan.scenes 的最大 scene_number。\n"
+        "- 插叙、回忆、揭示旧事时，narrative_position 仍写正文出现位置，story_position 写故事世界时间。\n"
+        "- 不要为了倒序/插叙把 narrative_position 倒退；如果无法判断 scene，宁可省略 scene 或写入 warnings。\n"
+        "- 新 timeline event 的 narrative_position 不能倒退到现有 timeline 的最后事件之前。\n\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
         f"AuditReport：\n{context.audit.model_dump_json(indent=2)}\n\n"
         f"Polished metadata：\n{json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
@@ -717,6 +735,17 @@ def _normalize_state_update_data(data: object) -> object:
             item = dict(event)
             if "location" in item and "location_id" not in item:
                 item["location_id"] = item.pop("location")
+            narrative = item.get("narrative_position")
+            if not isinstance(narrative, dict):
+                item["narrative_position"] = {
+                    "chapter": item.get("chapter"),
+                    "scene": item.get("scene"),
+                }
+            story = item.get("story_position")
+            if not isinstance(story, dict):
+                item["story_position"] = {
+                    "time_label": item.get("in_story_time"),
+                }
             normalized_events.append(item)
         normalized["timeline_events"] = normalized_events
     return normalized
@@ -799,6 +828,18 @@ def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
                     "chapter": chapter_number,
                     "scene": 1,
                     "in_story_time": "第1天，雨夜",
+                    "narrative_position": {
+                        "chapter": chapter_number,
+                        "scene": 1,
+                        "sequence": 1,
+                    },
+                    "story_position": {
+                        "time_label": "第1天，雨夜",
+                        "order": float(chapter_number),
+                        "thread_id": "main",
+                        "certainty": "certain",
+                    },
+                    "event_role": "current_action",
                     "location_id": "loc_old_station",
                     "participant_ids": ["char_lin_che"],
                     "summary": "林澈在旧车站听见异常广播，并发现破损车票。",

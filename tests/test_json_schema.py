@@ -42,6 +42,11 @@ def test_schema_payloads_cover_project_json_files() -> None:
     assert payloads["chapter_plan"]["title"] == "ChapterPlan"
     assert "schema_version" in payloads["characters"]["properties"]
     assert "schema_version" in payloads["audit_report"]["properties"]
+    timeline_defs = payloads["timeline"]["$defs"]
+    event_props = timeline_defs["TimelineEvent"]["properties"]
+    assert "narrative_position" in event_props
+    assert "story_position" in event_props
+    assert "event_role" in event_props
 
 
 def test_export_json_schemas_writes_files(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-schema_version: 1 # 项目文件 schema 版本，用于未来迁移。
+schema_version: 2 # 项目文件 schema 版本，用于未来迁移。
 project_id: "novel_wuxia_mountain_sect" # 项目稳定 ID，只使用小写字母、数字和下划线。
 title: "云台试剑" # 小说标题。
 language: "zh-CN" # 作品主要语言。

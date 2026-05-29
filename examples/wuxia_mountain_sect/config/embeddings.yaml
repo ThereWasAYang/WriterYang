@@ -1,4 +1,4 @@
-schema_version: 1 # Embedding 配置 schema 版本。
+schema_version: 2 # Embedding 配置 schema 版本。
 active_provider: "local" # 当前启用的 embedding provider；local 可离线运行。
 providers: # 可选 embedding provider 列表。
   local: # 本地 hash embedding，用于无 API Key 搜索演示。

@@ -7,6 +7,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 
 
@@ -40,7 +41,7 @@ class WorkspaceInitTest(unittest.TestCase):
             for path, key in expected_json_files.items():
                 with self.subTest(path=path):
                     data = json.loads(path.read_text(encoding="utf-8"))
-                    self.assertEqual(data["schema_version"], 1)
+                    self.assertEqual(data["schema_version"], CURRENT_SCHEMA_VERSION)
                     self.assertEqual(data[key], [])
 
             state = json.loads(
@@ -48,7 +49,7 @@ class WorkspaceInitTest(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(state["schema_version"], 1)
+            self.assertEqual(state["schema_version"], CURRENT_SCHEMA_VERSION)
             self.assertEqual(
                 state["story_position"],
                 {

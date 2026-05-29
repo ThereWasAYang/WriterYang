@@ -14,6 +14,7 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.io import atomic_write_text, backup_file, load_json_model, load_yaml_model
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
@@ -605,7 +606,7 @@ def _restore_backups(backups: dict[Path, Path]) -> None:
 
 def _to_json(data: object) -> str:
     if isinstance(data, dict) and "schema_version" not in data:
-        data = {"schema_version": 1, **data}
+        data = {"schema_version": CURRENT_SCHEMA_VERSION, **data}
 
     def default(value: object) -> object:
         if hasattr(value, "model_dump"):

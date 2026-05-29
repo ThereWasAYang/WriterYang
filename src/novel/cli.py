@@ -62,6 +62,8 @@ from novel.core.revision import (
     revise_chapter,
     revise_chapter_loop,
 )
+from novel.core.management import load_management_events
+from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair
 from novel.core.search import SearchError, rebuild_search_index, search_project
 from novel.core.session import (
     CreationSessionError,
@@ -70,16 +72,20 @@ from novel.core.session import (
     SessionResult,
     SessionRunOptions,
     SessionStartOptions,
+    SessionRewriteControlOptions,
     accept_session,
     approve_outline,
     archive_session,
     load_rewrite_events,
     parse_range,
+    retry_rewrite,
+    revise_audit,
     revise_content,
     revise_outline,
     run_session,
     show_session,
     start_session,
+    undo_rewrite,
 )
 from novel.core.state_update import (
     AcceptChapterOptions,
@@ -116,6 +122,7 @@ from novel.core.migration import MigrationError, migrate_project
 from novel.core.orchestrator import (
     OrchestratorError,
     OrchestratorOptions,
+    classify_request,
     format_orchestrator_plan,
     handoff_rules_text,
     orchestrate,
@@ -143,6 +150,7 @@ ERROR_CODES = {
     "inspiration_error": "Inspiration generation failed.",
     "migration_error": "Schema migration failed.",
     "orchestrator_error": "Orchestrator request failed.",
+    "memory_repair_error": "Memory repair proposal or apply failed.",
     "planning_error": "Chapter planning failed.",
     "polishing_error": "Chapter polishing failed.",
     "project_read_error": "Project data could not be read.",
@@ -234,6 +242,37 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 from_audit=args.from_audit,
             )
         )
+    if command == "revise-audit":
+        return revise_audit(
+            SessionRewriteControlOptions(
+                root=root,
+                session_id=args.session_id,
+                event_id=args.event_id,
+                instruction=args.instruction,
+                provider_name=args.provider,
+                force=args.force,
+            )
+        )
+    if command == "retry-rewrite":
+        return retry_rewrite(
+            SessionRewriteControlOptions(
+                root=root,
+                session_id=args.session_id,
+                event_id=args.event_id,
+                instruction=args.instruction,
+                provider_name=args.provider,
+                force=args.force,
+            )
+        )
+    if command == "undo-rewrite":
+        return undo_rewrite(
+            SessionRewriteControlOptions(
+                root=root,
+                session_id=args.session_id,
+                event_id=args.event_id,
+                provider_name=args.provider,
+            )
+        )
     if command == "accept":
         return accept_session(
             SessionActionOptions(root=root, session_id=args.session_id, provider_name=args.provider, force=args.force)
@@ -270,6 +309,7 @@ def _session_payload(command: str, result: SessionResult, root: Path) -> dict[st
         "session_path": str(result.session_path),
         "message": result.message,
         "rewrite_events": _session_rewrite_payload(root, result.session),
+        "management_events": _management_event_payload(root),
     }
 
 
@@ -324,6 +364,12 @@ def _session_rewrite_payload(root: Path, session: CreationSession) -> list[dict[
             "rejected_text_snapshot_path": event.rejected_text_snapshot_path,
             "before_output_path": event.before_output_path,
             "after_output_path": event.after_output_path,
+            "can_undo": event.can_undo,
+            "undo_status": event.undo_status,
+            "restored_from_snapshot_path": event.restored_from_snapshot_path,
+            "audit_revision_history": [
+                revision.model_dump(mode="json") for revision in event.audit_revision_history
+            ],
             "created_at": event.created_at.isoformat(),
             "updated_at": event.updated_at.isoformat() if event.updated_at else None,
             "blocking_issues": [issue.model_dump(mode="json") for issue in event.blocking_issues],
@@ -345,10 +391,29 @@ def _session_rewrite_lines(root: Path, session: CreationSession) -> list[str]:
         )
         if event.rejected_text_snapshot_path:
             lines.append(f"  rejected_text: {event.rejected_text_snapshot_path}")
+        if event.undo_status != "not_requested":
+            lines.append(f"  undo_status: {event.undo_status}")
+        if event.audit_revision_history:
+            lines.append(f"  audit_revisions: {len(event.audit_revision_history)}")
         for issue in event.blocking_issues:
             lines.append(f"  reason [{issue.severity}/{issue.type}] {issue.id}: {issue.description}")
             if issue.suggested_fix:
                 lines.append(f"  suggested_fix: {issue.suggested_fix}")
+    return lines
+
+
+def _management_event_payload(root: Path) -> list[dict[str, object]]:
+    return [event.model_dump(mode="json") for event in load_management_events(root, limit=5)]
+
+
+def _management_event_lines(root: Path) -> list[str]:
+    events = load_management_events(root, limit=5)
+    if not events:
+        return []
+    lines = ["Recent background management events:"]
+    for event in events:
+        targets = ", ".join(event.target_files) if event.target_files else "none"
+        lines.append(f"- [{event.status}/{event.event_type}] {event.message} targets={targets}")
     return lines
 
 
@@ -364,6 +429,16 @@ def _extract_chapter_from_text(text: str) -> int | None:
     if match:
         return int(match.group(1))
     return None
+
+
+def _extract_repair_id(text: str) -> str | None:
+    match = re.search(r"\brepair_[0-9]{8}_[0-9]{6}_[0-9]{6}\b", text)
+    return match.group(0) if match else None
+
+
+def _contains_apply_intent(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in lowered for token in ("apply", "应用", "确认", "执行", "采纳"))
 
 
 def _print_dry_run_provider(
@@ -982,6 +1057,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provider to use for content revision.",
     )
     session_revise_content.add_argument("--force", action="store_true", help="Overwrite selected revision artifacts.")
+
+    session_revise_audit = session_subparsers.add_parser("revise-audit", help="Correct Audit understanding and rerun audit for a rewrite event")
+    session_revise_audit.add_argument("session_id", help="Session id")
+    session_revise_audit.add_argument("event_id", help="Rewrite event id")
+    session_revise_audit.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_revise_audit.add_argument("--instruction", required=True, help="Correction instruction for Audit Agent.")
+    session_revise_audit.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for audit revision.",
+    )
+    session_revise_audit.add_argument("--force", action="store_true", help="Overwrite audit artifacts if needed.")
+
+    session_retry_rewrite = session_subparsers.add_parser("retry-rewrite", help="Retry a rewrite event from the latest audit")
+    session_retry_rewrite.add_argument("session_id", help="Session id")
+    session_retry_rewrite.add_argument("event_id", help="Rewrite event id")
+    session_retry_rewrite.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_retry_rewrite.add_argument("--instruction", default=None, help="Optional extra rewrite instruction.")
+    session_retry_rewrite.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for rewrite retry.",
+    )
+    session_retry_rewrite.add_argument("--force", action="store_true", help="Overwrite generated artifacts if needed.")
+
+    session_undo_rewrite = session_subparsers.add_parser("undo-rewrite", help="Restore rejected text snapshot for a rewrite event")
+    session_undo_rewrite.add_argument("session_id", help="Session id")
+    session_undo_rewrite.add_argument("event_id", help="Rewrite event id")
+    session_undo_rewrite.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_undo_rewrite.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for post-restore audit.",
+    )
 
     session_accept = session_subparsers.add_parser("accept", help="Accept generated session content")
     session_accept.add_argument("session_id", help="Session id")
@@ -1873,6 +1985,51 @@ def main(argv: list[str] | None = None) -> int:
                         print(format_orchestrator_plan(result.plan))
                         print(result.message)
                     return 0
+                task = classify_request(args.request)
+                if task == "memory_repair":
+                    repair_id = _extract_repair_id(args.request)
+                    if repair_id and _contains_apply_intent(args.request):
+                        apply_result = apply_memory_repair(
+                            Path(args.path),
+                            Path("memory") / "repairs" / repair_id / "proposal.json",
+                        )
+                        payload = {
+                            "command": "ask",
+                            "task": "memory_repair_apply",
+                            "repair_id": apply_result.proposal.repair_id,
+                            "apply_log_path": str(apply_result.apply_log_path),
+                            "status": apply_result.apply_log.status,
+                            "management_events": _management_event_payload(Path(args.path)),
+                        }
+                        return _success(
+                            args,
+                            payload,
+                            [
+                                f"Applied memory repair: {apply_result.proposal.repair_id}",
+                                f"Apply log: {apply_result.apply_log_path}",
+                                *_management_event_lines(Path(args.path)),
+                            ],
+                        )
+                    repair_result = suggest_memory_repair(Path(args.path), args.request)
+                    payload = {
+                        "command": "ask",
+                        "task": "memory_repair",
+                        "repair_id": repair_result.proposal.repair_id,
+                        "proposal_path": str(repair_result.proposal_path),
+                        "markdown_path": str(repair_result.markdown_path),
+                        "target_files": repair_result.proposal.target_files,
+                        "operation_count": len(repair_result.proposal.operations),
+                        "management_events": _management_event_payload(Path(args.path)),
+                    }
+                    return _success(
+                        args,
+                        payload,
+                        [
+                            f"Memory repair proposal: {repair_result.proposal_path}",
+                            f"Targets: {', '.join(repair_result.proposal.target_files)}",
+                            *_management_event_lines(Path(args.path)),
+                        ],
+                    )
                 chapter = _extract_chapter_from_text(args.request) or 1
                 session_result = start_session(
                     SessionStartOptions(
@@ -1885,6 +2042,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
         except ProjectLockError as exc:
             return _failure(args, str(exc), error_type="project_locked")
+        except MemoryRepairError as exc:
+            return _failure(args, str(exc), error_type="memory_repair_error")
         except (OrchestratorError, CreationSessionError) as exc:
             return _failure(args, str(exc), error_type="orchestrator_error")
         payload = {
@@ -1923,6 +2082,7 @@ def main(argv: list[str] | None = None) -> int:
             f"Status: {result.session.status}",
             f"Session file: {result.session_path}",
             *_session_rewrite_lines(root, result.session),
+            *_management_event_lines(root),
             *_session_low_issue_lines(root, result.session.audit_history),
         ]
         return _success(args, payload, lines)

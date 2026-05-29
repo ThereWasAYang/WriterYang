@@ -100,16 +100,20 @@ runs/agent_output_violations/{request_id}.json
    - model audit：通常是语义/风格/动机问题，可能要调 prompt 或走 revision。
 5. 如果 session 自动修复后仍失败，先看 `memory/sessions/{session_id}/rewrite_events.json`：确认第几轮被打回、触发的 blocking issue、系统执行了修正文还是重写大纲，以及 `rejections/` 中的被打回原文快照。
 6. 再检查 `revision_log.json` 中的 `polished.vN.md` 是否已提升为当前 `polished.md`，重审后的 `audit.json` 是否仍有 medium/high/critical，以及是否因为计划层问题触发了重新 planning。
-7. 如果 Web UI 停在 `needs_revision`，优先看“自动打回重写记录”和被打回原文；如果打回理由合理，再走“按 Audit 修订内容”。修订后应看到新的版本稿、更新后的 `polished.md`、新的 audit 和新的 `state_update_proposal.json`。
-8. 如果普通作者不确定下一步操作，先让他点击 Web UI 的“项目检查”，再看“下一步提示”；这两个入口都只读，不会修改项目文件。
-9. 全局 timeline ordering 旧 warning 不应阻断某一章正文修复；真正会阻断的是当前章新增事件倒退、scene 超出 ChapterPlan 范围或引用冲突。
-10. 对 accepted/export 相关问题，确认 state update apply log 和 metadata 是否一致。
+7. 如果用户认为 Audit 理解错了，先走 `session revise-audit <session_id> <event_id> --instruction ...` 或 Web UI 的“纠正 Audit 理解并重新审核”，不要手改 `audit.json`。复审后再 `session retry-rewrite`，或用 `session undo-rewrite` 恢复 rejected snapshot。
+8. 如果 Web UI 停在 `needs_revision`，优先看“自动打回重写记录”和被打回原文；如果打回理由合理，再走“按 Audit 修订内容”。修订后应看到新的版本稿、更新后的 `polished.md`、新的 audit 和新的 `state_update_proposal.json`。
+9. 如果问题根源是 timeline/state/canon 写错，让 orchestrator 项目管家生成 memory repair proposal；确认 `memory/repairs/{repair_id}/proposal.md` 和 diff 后再 apply。apply 失败时看 `apply_log.json` 和 `management_events.jsonl`。
+10. 如果普通作者不确定下一步操作，先让他点击 Web UI 的“项目检查”，再看“下一步提示”和“后台管理动态”；这些入口不会泄漏 API Key。
+11. 全局 timeline ordering 旧 warning 不应阻断某一章正文修复；真正会阻断的是当前章新增事件倒退、scene 超出 ChapterPlan 范围或引用冲突。
+12. 对 accepted/export 相关问题，确认 state update apply log 和 metadata 是否一致。
 
 相关代码：
 
 - `core/auditing.py`
 - `core/consistency.py`
 - `core/session.py`
+- `core/memory_repair.py`
+- `core/management.py`
 - `core/state_update.py`
 - `core/validation.py`
 

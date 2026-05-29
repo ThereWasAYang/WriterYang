@@ -141,7 +141,11 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 
 `session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，也必须执行同一套“版本稿 -> 提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
 
-Web UI 面向普通作者时，Session 面板必须保留完整协商链路：创建大纲、修改大纲、批准大纲、开始写作、自动打回重写记录、按 Audit/用户意见修订、认可和归档。只读项目检查走 `/api/validate`，复用 `validate_project()`，不应在前端实现校验规则。
+Audit 打回后的人工控制有三个入口：`session revise-audit` 用用户纠正意见重新审核被打回原文；`session retry-rewrite` 基于最新 audit 再次发起打回；`session undo-rewrite` 恢复 rewrite event 的 rejected snapshot 并重跑 audit。三者都只能作用于未归档 session，且必须更新 `rewrite_events.json`、`audit_history` 和 session 状态。
+
+orchestrator 同时承担项目管家职责。自然语言 memory 修复请求必须先生成 `MemoryRepairProposal`，保存到 `memory/repairs/{repair_id}/proposal.json`，由用户确认后再 apply。apply 必须限制白名单文件、使用 JSON Pointer 操作、备份目标文件、atomic write、validate，失败时写 `apply_log.json` 并尽量回滚。
+
+Web UI 面向普通作者时，Session 面板必须保留完整协商链路：创建大纲、修改大纲、批准大纲、开始写作、自动打回重写记录、Audit 复审/重试打回/撤回、按 Audit/用户意见修订、认可和归档。只读项目检查走 `/api/validate`，复用 `validate_project()`，不应在前端实现校验规则。后台状态、时间线和记忆管理变更必须写 `memory/management_events.jsonl`，Web UI 和 CLI 都要显示最近事件摘要。
 
 底层命令仍可用于调试：
 
@@ -156,6 +160,10 @@ novel validate --path <project>
 novel doctor --project <project>
 novel usage --path <project>
 novel session start "写第1章" --path <project> --chapters 1
+novel session revise-audit <session_id> <event_id> --path <project> --instruction "这段是回忆"
+novel session retry-rewrite <session_id> <event_id> --path <project>
+novel session undo-rewrite <session_id> <event_id> --path <project>
+novel ask "第2章 event_x 其实是回忆，不是当前行动" --path <project>
 novel plan-chapter 1 --path <project>
 novel write-chapter 1 --path <project>
 novel polish-chapter 1 --path <project>

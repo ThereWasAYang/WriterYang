@@ -306,6 +306,8 @@ Prompt 组装：
 - `HANDOFF_RULES` 限制允许的 agent handoff。
 - dry-run 只输出计划，不写文件。
 - 非 dry-run 调用对应底层 service。
+- 当请求被识别为 `memory_repair` 时，orchestrator 作为项目管家调用 `core/memory_repair.py`：只生成 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后再 apply。
+- memory repair 不是创意生成。它只读取项目文件、生成白名单 JSON Pointer operations、写 proposal/apply log，并通过 `management_events.jsonl` 通知用户后台记忆刷新。
 
 注意：
 
@@ -315,7 +317,7 @@ Prompt 组装：
 ## 11. Creation Session
 
 - Service：`core/session.py`
-- 入口函数：`start_session()`、`revise_outline()`、`approve_outline()`、`run_session()`、`revise_content()`、`accept_session()`、`archive_session()`。
+- 入口函数：`start_session()`、`revise_outline()`、`approve_outline()`、`run_session()`、`revise_content()`、`revise_audit()`、`retry_rewrite()`、`undo_rewrite()`、`accept_session()`、`archive_session()`。
 - 文件：
   - `memory/sessions/{session_id}/session.json`
   - `outline_proposal.json/md`
@@ -330,9 +332,11 @@ Prompt 组装：
 2. `revise_outline()` 把用户意见合并进 intent，重新生成 outline proposal。
 3. `approve_outline()` 复制 proposal 为 approved outline。
 4. `run_session()` 调用 Writer、Polish、Audit；medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
-5. `revise_content()` 处理作者反馈或 audit issue，生成版本稿、提升当前稿、重跑 audit；audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
-6. `accept_session()` 应用 state update 并标记 accepted。
-7. `archive_session()` 复制本次创作文件并写 sha256 manifest。
+5. `revise_audit()` 用用户纠正意见重新审核被打回原文，写入 `audit_revision_history`。
+6. `retry_rewrite()` 基于最新 audit 再次执行正文修订或重写计划；`undo_rewrite()` 恢复被打回快照并重审。
+7. `revise_content()` 处理作者反馈或 audit issue，生成版本稿、提升当前稿、重跑 audit；audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
+8. `accept_session()` 应用 state update 并标记 accepted。
+9. `archive_session()` 复制本次创作文件并写 sha256 manifest。
 
 Session 层是用户协作入口。它可以要求用户批准大纲和最终内容；底层内部 Agent 不能直接问用户。
 

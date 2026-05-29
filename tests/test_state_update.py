@@ -77,6 +77,8 @@ def test_propose_state_update_does_not_modify_state_or_timeline(tmp_path: Path) 
         json.loads((root / "memory" / "chapters" / "001" / "state_update_proposal.json").read_text(encoding="utf-8"))
     )
     assert proposal.timeline_events[0].id == "event_001_001"
+    events_text = (root / "memory" / "management_events.jsonl").read_text(encoding="utf-8")
+    assert "state_update_proposed" in events_text
 
 
 def test_apply_state_update_applies_legal_proposal_and_creates_backups(tmp_path: Path) -> None:
@@ -104,6 +106,9 @@ def test_apply_state_update_applies_legal_proposal_and_creates_backups(tmp_path:
     assert state.story_position.latest_chapter == 1
     assert state.item_states[0].holder_id == "char_lin_che"
     assert timeline.events[0].id == "event_001_001"
+    events_text = (root / "memory" / "management_events.jsonl").read_text(encoding="utf-8")
+    assert "state_update_applied" in events_text
+    assert "timeline_updated" in events_text
 
 
 def test_apply_state_update_normalizes_saved_proposal_list_strings(tmp_path: Path) -> None:

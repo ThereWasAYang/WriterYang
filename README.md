@@ -123,10 +123,12 @@ novel export markdown --path ./my-novel --toc --force
 - `session approve-outline` 后，后续写作必须遵守 approved outline。
 - `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复。每次自动打回都会记录到 `memory/sessions/{session_id}/rewrite_events.json`，并把被打回的 `polished.md` 快照保存到 `memory/sessions/{session_id}/rejections/`，方便作者确认打回原因是否合理。
 - 自动修复超过轮数后，session 会停在 `status=needs_revision`、`content_status=needs_revision`，用户可查看 audit、rewrite events 和 revision log；在 Web UI 中应优先查看“自动打回重写记录”，再使用“按 Audit 修订内容”，不要通过新建 session 覆盖已有产物来绕过问题。
+- 如果你认为 Audit 对时间线、状态或正文语义理解错了，不要直接删改 `audit.json`。使用 `novel session revise-audit <session_id> <event_id> --instruction "..."` 或 Web UI 的“纠正 Audit 理解并重新审核”，让 Audit Agent 带着你的纠正意见复审；复审后再用 `session retry-rewrite` 或 Web UI 的“根据新审核重新打回”触发重写。必要时可用 `session undo-rewrite` 或 Web UI 的“撤回本次打回”恢复被打回原文快照。
 - low 级别 audit issue 不会被静默自动修改，会展示给作者；作者可选择直接接受，或运行 `session revise-content <session_id> --from-audit` 生成修订版本。
 - 用户看到最终内容后用 `session revise-content` 提意见；系统生成新版本，提升为当前 `polished.md`，重跑 audit，并重新生成 state proposal，不覆盖归档内容。
 - `session accept` 后才应用状态更新并标记章节 accepted；`session archive` 会复制本次创作文件并记录 sha256。
 - `state/timeline` 默认通过 proposal 更新；不建议直接改正式 state/timeline，除非你清楚引用关系。
+- 发现 timeline/state/canon 等项目记忆写错时，推荐把问题交给 orchestrator 项目管家：`novel ask "第2章 event_x 其实是回忆，不是当前行动"`。它会生成 `memory/repairs/{repair_id}/proposal.json` 和 `proposal.md`，用户确认后再 `novel ask "确认应用 repair_..."`；所有后台状态/时间线/记忆刷新会写入 `memory/management_events.jsonl` 并在 CLI/Web UI 中展示。
 - 归档后的内容默认不可变；如需修改，应创建新的 revision session。
 - 底层 `plan-chapter/write-chapter/polish-chapter/audit-chapter` 仍保留给调试和高级用户，但日常创作推荐用 `novel ask` / `novel session`。
 - 真实 API 的结构化输出可能第一次不符合 schema；Canon、ChapterPlan、Audit、StateUpdate 会自动做一次 repair retry。仍失败时，先看错误摘要和 `runs/` 日志。
@@ -488,6 +490,8 @@ web:
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
 - 自动打回重写记录：当 Audit 把正文打回重写时，显示第几章第几轮、打回原因、系统动作和“查看被打回原文”按钮；如果你认为打回不合理，应检查对应 `audit.json`、`memory/state/timeline.json`、`current_state.json` 和 canon 文件。
+- 项目管家：用自然语言说明 timeline/state/canon 的错误，生成可审查 repair proposal；确认应用前不会改正式 memory 文件。后台管理动态会显示状态更新、时间线更新、记忆修复 proposal/apply 等事件。
+- Audit 复审控制：选择 rewrite event 后，可以纠正 Audit 理解并重新审核、根据新审核重新打回，或撤回本次打回并恢复原文快照。
 - 下一步提示：根据项目状态、session 状态和项目检查结果提示下一步操作，降低误点旧 session 或跳过审核的风险。
 - Session 大纲修订：大纲不满意时，在聊天 / 指令框输入修改意见并点击“修改大纲”；满意后再批准大纲。
 - Session 修订：当内容停在 `needs_revision` 时，可点击“按 Audit 修订内容”直接根据当前 `audit.json` 修订；也可以在聊天/指令框输入意见后点击“按用户意见修订内容”。修订后系统会重审并刷新 state proposal。

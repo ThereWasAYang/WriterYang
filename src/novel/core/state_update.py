@@ -18,6 +18,7 @@ from novel.core.agent_output import (
 )
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.management import record_management_event
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -130,6 +131,15 @@ def propose_state_update(
     if options.force:
         backup_if_exists(proposal_path, reason="force")
     atomic_write_model_json(proposal_path, proposal)
+    record_management_event(
+        root,
+        "state_update_proposed",
+        f"已生成第 {options.chapter_number} 章状态/时间线更新 proposal。",
+        source=f"chapter_{options.chapter_number:03d}",
+        target_files=[str(proposal_path.relative_to(root))],
+        status="info",
+        details={"warning_count": len(warnings)},
+    )
     return StateUpdateProposeResult(
         proposal_path=proposal_path,
         proposal=proposal,
@@ -191,10 +201,38 @@ def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResu
             }
         )
         atomic_write_model_json(apply_log_path, apply_log)
+        record_management_event(
+            root,
+            "state_update_applied",
+            f"第 {options.chapter_number} 章状态更新失败并已回滚。",
+            source=f"chapter_{options.chapter_number:03d}",
+            target_files=[str(state_path.relative_to(root)), str(timeline_path.relative_to(root))],
+            status="error",
+            details={"apply_log_path": str(apply_log_path.relative_to(root)), "error": str(exc)},
+        )
         raise StateUpdateError(
             f"state update write failed and was rolled back; see {apply_log_path}"
         ) from exc
     atomic_write_model_json(apply_log_path, apply_log)
+    target_files = [str(state_path.relative_to(root)), str(timeline_path.relative_to(root))]
+    record_management_event(
+        root,
+        "state_update_applied",
+        f"已应用第 {options.chapter_number} 章状态更新。",
+        source=f"chapter_{options.chapter_number:03d}",
+        target_files=target_files,
+        status="success",
+        details={"apply_log_path": str(apply_log_path.relative_to(root))},
+    )
+    record_management_event(
+        root,
+        "timeline_updated",
+        f"已追加第 {options.chapter_number} 章时间线事件。",
+        source=f"chapter_{options.chapter_number:03d}",
+        target_files=[str(timeline_path.relative_to(root))],
+        status="success",
+        details={"event_count": len(proposal.timeline_events)},
+    )
     return StateUpdateApplyResult(
         state_path=state_path,
         timeline_path=timeline_path,

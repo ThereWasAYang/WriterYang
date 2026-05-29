@@ -8,7 +8,7 @@ from pathlib import Path
 from novel.cli import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import atomic_write_model_json
-from novel.core.schemas import AuditReport, CreationSession, SessionRewriteEvent, SessionRewriteEvents
+from novel.core.schemas import AuditReport, CreationSession, SessionRewriteEvent, SessionRewriteEvents, TimelineFile
 from novel.core.session import SessionResult
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import handle_api_request
@@ -417,6 +417,62 @@ def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
     assert apply_payload["data"]["validation_ok"] is True  # type: ignore[index]
 
 
+def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    timeline_path = root / "memory" / "state" / "timeline.json"
+    timeline_path.write_text(
+        json.dumps(
+            {
+                "events": [
+                    {
+                        "id": "event_wrong_current",
+                        "chapter": 2,
+                        "scene": 1,
+                        "in_story_time": "多年前",
+                        "event_role": "current_action",
+                        "summary": "实际是回忆。",
+                        "reader_visible": True,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    suggest_status, suggest_payload = handle_api_request(
+        "POST",
+        "/api/orchestrator/memory-repair/suggest",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "request": "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
+            }
+        ),
+    )
+    proposal_path = suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
+    apply_status, apply_payload = handle_api_request(
+        "POST",
+        "/api/orchestrator/memory-repair/apply",
+        "",
+        json.dumps({"path": str(root), "proposal_path": proposal_path}),
+    )
+    events_status, events_payload = handle_api_request("GET", "/api/management-events", f"path={root}", None)
+
+    assert suggest_status == 200
+    assert apply_status == 200
+    assert apply_payload["data"]["apply_log"]["status"] == "applied"  # type: ignore[index]
+    timeline = TimelineFile.model_validate(json.loads(timeline_path.read_text(encoding="utf-8")))
+    assert timeline.events[0].event_role == "flashback"
+    assert events_status == 200
+    serialized_events = json.dumps(events_payload, ensure_ascii=False)
+    assert "memory_repair_proposed" in serialized_events
+    assert "memory_repair_applied" in serialized_events
+
+
 def test_frontend_basic_render() -> None:
     html = index_html()
 
@@ -448,6 +504,10 @@ def test_frontend_basic_render() -> None:
     assert 'id="inspireProject"' in html
     assert 'id="canonSuggest"' in html
     assert 'id="canonApply"' in html
+    assert 'id="memoryRepairSuggest"' in html
+    assert 'id="memoryRepairApply"' in html
+    assert 'id="memoryRepairProposalPath"' in html
+    assert 'id="managementEventsPanel"' in html
     assert 'id="forceWrites"' in html
     assert 'id="planChapter"' in html
     assert 'id="writeChapter"' in html
@@ -462,7 +522,15 @@ def test_frontend_basic_render() -> None:
     assert "/api/validate" in html
     assert "/api/session/revise-outline" in html
     assert "/api/session/revise-content" in html
+    assert "/api/session/revise-audit" in html
+    assert "/api/session/retry-rewrite" in html
+    assert "/api/session/undo-rewrite" in html
     assert "/api/session/rewrite-events" in html
+    assert "/api/orchestrator/memory-repair/suggest" in html
+    assert "/api/orchestrator/memory-repair/apply" in html
+    assert "/api/management-events" in html
+    assert "纠正 Audit 理解并重新审核" in html
+    assert "撤回本次打回" in html
     assert "查看被打回原文" in html
     assert "from_audit" in html
     assert "renderNextStep" in html
@@ -618,6 +686,8 @@ def test_api_session_rewrite_events_returns_summary_and_snapshot_path(tmp_path: 
     assert payload["ok"] is True
     events = payload["data"]["rewrite_events"]  # type: ignore[index]
     assert events[0]["action"] == "revision_rewrite"
+    assert events[0]["can_undo"] is True
+    assert events[0]["undo_status"] == "not_requested"
     assert events[0]["status"] == "unresolved"
     assert events[0]["blocking_issues"][0]["description"] == "物品位置冲突。"
 
@@ -629,6 +699,57 @@ def test_api_session_rewrite_events_returns_summary_and_snapshot_path(tmp_path: 
     )
     assert read_status == 200
     assert read_payload["data"]["content"] == "被打回原文"  # type: ignore[index]
+
+
+def test_api_session_rewrite_control_endpoints_pass_event_id(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    session_id = "session_20260529_010101_000003"
+    event_id = "rewrite_ch001_round1_revision_rewrite_20260529_010101_000003"
+    session_dir = root / "memory" / "sessions" / session_id
+    session_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    session = CreationSession(
+        session_id=session_id,
+        scope_type="chapters",
+        chapter_range=[1],
+        user_intent="写第1章",
+        status="needs_revision",
+        outline_status="approved",
+        content_status="needs_revision",
+        approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
+        created_at=now,
+        updated_at=now,
+    )
+    atomic_write_model_json(session_dir / "session.json", session)
+    captured: dict[str, object] = {}
+
+    def fake_control(options) -> SessionResult:
+        captured["session_id"] = options.session_id
+        captured["event_id"] = options.event_id
+        captured["instruction"] = options.instruction
+        return SessionResult(session=session, session_path=session_dir / "session.json", message="controlled")
+
+    monkeypatch.setattr("novel.web_api.revise_audit", fake_control)
+    status, payload = handle_api_request(
+        "POST",
+        "/api/session/revise-audit",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "session_id": session_id,
+                "event_id": event_id,
+                "instruction": "Audit 误解了回忆段落",
+                "provider": "mock",
+            }
+        ),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert captured["session_id"] == session_id
+    assert captured["event_id"] == event_id
+    assert captured["instruction"] == "Audit 误解了回忆段落"
 
 
 def test_web_port_can_be_read_from_project_config(tmp_path: Path) -> None:

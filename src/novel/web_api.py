@@ -20,6 +20,8 @@ from novel.core.inspiration import InspirationOptions, load_inspiration_provider
 from novel.core.inspection import format_canon, get_project_status
 from novel.core.io import atomic_write_model_json, atomic_write_text, atomic_write_yaml, backup_if_exists, load_json, load_json_model, load_yaml
 from novel.core.locking import ProjectLock, ProjectLockError
+from novel.core.management import load_management_events
+from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, CreationSession, RevisionLog, RevisionRecord
@@ -29,16 +31,20 @@ from novel.core.session import (
     SessionInstructionOptions,
     SessionRunOptions,
     SessionStartOptions,
+    SessionRewriteControlOptions,
     accept_session,
     approve_outline,
     archive_session,
     load_session,
     load_rewrite_events,
     parse_range,
+    retry_rewrite,
+    revise_audit,
     revise_content,
     revise_outline,
     run_session,
     start_session,
+    undo_rewrite,
 )
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
@@ -121,6 +127,8 @@ def handle_api_request(
             return _success(_provider_config_summary(_root_from_query(query)))
         if method == "GET" and path == "/api/state-timeline":
             return _success(_state_timeline_summary(_root_from_query(query)))
+        if method == "GET" and path == "/api/management-events":
+            return _success(_management_events(_root_from_query(query), _optional_int(query.get("limit")) or 20))
         if method == "GET" and path == "/api/audit-annotations":
             return _success(_audit_annotations(_root_from_query(query), query))
         if method == "GET" and path == "/api/session":
@@ -131,6 +139,7 @@ def handle_api_request(
                     "session": session.model_dump(mode="json"),
                     "audit_summary": _session_audit_summary(root, session),
                     "rewrite_events": _session_rewrite_event_summary(root, session),
+                    "management_events": _management_event_summary(root),
                 }
             )
         if method == "GET" and path == "/api/session/rewrite-events":
@@ -176,6 +185,10 @@ def handle_api_request(
             return _success(_locked_write(data, "web canon suggest", _canon_suggest))
         if method == "POST" and path == "/api/canon/apply":
             return _success(_locked_write(data, "web canon apply", _canon_apply))
+        if method == "POST" and path == "/api/orchestrator/memory-repair/suggest":
+            return _success(_locked_write(data, "web memory repair suggest", _memory_repair_suggest))
+        if method == "POST" and path == "/api/orchestrator/memory-repair/apply":
+            return _success(_locked_write(data, "web memory repair apply", _memory_repair_apply))
         if method == "POST" and path == "/api/session/start":
             return _success(_locked_write(data, "web session start", _session_start))
         if method == "POST" and path == "/api/session/revise-outline":
@@ -186,6 +199,12 @@ def handle_api_request(
             return _success(_locked_write(data, "web session run", _session_run))
         if method == "POST" and path == "/api/session/revise-content":
             return _success(_locked_write(data, "web session revise-content", _session_revise_content))
+        if method == "POST" and path == "/api/session/revise-audit":
+            return _success(_locked_write(data, "web session revise-audit", _session_revise_audit))
+        if method == "POST" and path == "/api/session/retry-rewrite":
+            return _success(_locked_write(data, "web session retry-rewrite", _session_retry_rewrite))
+        if method == "POST" and path == "/api/session/undo-rewrite":
+            return _success(_locked_write(data, "web session undo-rewrite", _session_undo_rewrite))
         if method == "POST" and path == "/api/session/accept":
             return _success(_locked_write(data, "web session accept", _session_accept))
         if method == "POST" and path == "/api/session/archive":
@@ -200,6 +219,8 @@ def handle_api_request(
         return _failure(403, "forbidden_file", str(exc), request_id=request_id)
     except json.JSONDecodeError:
         return _failure(400, "invalid_json", "request body must be valid JSON", request_id=request_id)
+    except MemoryRepairError as exc:
+        return _failure(400, "memory_repair_error", str(exc), request_id=request_id)
     except ValueError as exc:
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
     except Exception as exc:
@@ -531,6 +552,38 @@ def _canon_apply(data: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _memory_repair_suggest(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    request = _optional_string(data.get("request")) or _optional_string(data.get("instruction"))
+    if not request:
+        raise WebAPIError("invalid_request", "request is required", status=400)
+    result = suggest_memory_repair(root, request)
+    return {
+        "proposal": result.proposal.model_dump(mode="json"),
+        "proposal_path": str(result.proposal_path),
+        "proposal_relative_path": _relative(root, result.proposal_path),
+        "markdown_path": str(result.markdown_path),
+        "markdown_relative_path": _relative(root, result.markdown_path),
+        "management_events": _management_event_summary(root),
+    }
+
+
+def _memory_repair_apply(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    proposal_path_text = _optional_string(data.get("proposal_path")) or _optional_string(data.get("proposal_file"))
+    if not proposal_path_text:
+        raise WebAPIError("invalid_request", "proposal_path is required", status=400)
+    proposal_path = _safe_workspace_file(root, proposal_path_text)
+    result = apply_memory_repair(root, proposal_path)
+    return {
+        "proposal": result.proposal.model_dump(mode="json"),
+        "apply_log": result.apply_log.model_dump(mode="json"),
+        "apply_log_path": str(result.apply_log_path),
+        "apply_log_relative_path": _relative(root, result.apply_log_path),
+        "management_events": _management_event_summary(root),
+    }
+
+
 def _session_start(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
     chapter_range = parse_range(str(data.get("chapters") or data.get("chapter") or "1"))
@@ -599,6 +652,46 @@ def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
     return _session_result_payload(result)
 
 
+def _session_revise_audit(data: dict[str, object]) -> dict[str, object]:
+    result = revise_audit(
+        SessionRewriteControlOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            event_id=str(data.get("event_id") or ""),
+            instruction=str(data.get("instruction") or ""),
+            provider_name=str(data.get("provider") or "mock"),
+            force=bool(data.get("force")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_retry_rewrite(data: dict[str, object]) -> dict[str, object]:
+    result = retry_rewrite(
+        SessionRewriteControlOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            event_id=str(data.get("event_id") or ""),
+            instruction=_optional_string(data.get("instruction")),
+            provider_name=str(data.get("provider") or "mock"),
+            force=bool(data.get("force")),
+        )
+    )
+    return _session_result_payload(result)
+
+
+def _session_undo_rewrite(data: dict[str, object]) -> dict[str, object]:
+    result = undo_rewrite(
+        SessionRewriteControlOptions(
+            root=_root_from_body(data),
+            session_id=str(data.get("session_id") or ""),
+            event_id=str(data.get("event_id") or ""),
+            provider_name=str(data.get("provider") or "mock"),
+        )
+    )
+    return _session_result_payload(result)
+
+
 def _session_accept(data: dict[str, object]) -> dict[str, object]:
     result = accept_session(
         SessionActionOptions(
@@ -651,6 +744,7 @@ def _session_result_payload(result) -> dict[str, object]:
         "message": result.message,
         "audit_summary": _session_audit_summary(root, result.session),
         "rewrite_events": _session_rewrite_event_summary(root, result.session),
+        "management_events": _management_event_summary(root),
     }
 
 
@@ -731,6 +825,12 @@ def _session_rewrite_event_summary(root: Path, session: CreationSession) -> list
             "rejected_text_snapshot_path": event.rejected_text_snapshot_path,
             "before_output_path": event.before_output_path,
             "after_output_path": event.after_output_path,
+            "can_undo": event.can_undo,
+            "undo_status": event.undo_status,
+            "restored_from_snapshot_path": event.restored_from_snapshot_path,
+            "audit_revision_history": [
+                revision.model_dump(mode="json") for revision in event.audit_revision_history
+            ],
             "created_at": event.created_at.isoformat(),
             "updated_at": event.updated_at.isoformat() if event.updated_at else None,
             "blocking_issues": [
@@ -747,6 +847,15 @@ def _session_rewrite_event_summary(root: Path, session: CreationSession) -> list
         }
         for event in events
     ]
+
+
+def _management_events(root: Path, limit: int = 20) -> dict[str, object]:
+    _require_workspace(root)
+    return {"events": _management_event_summary(root, limit=limit)}
+
+
+def _management_event_summary(root: Path, limit: int = 10) -> list[dict[str, object]]:
+    return [event.model_dump(mode="json") for event in load_management_events(root, limit=limit)]
 
 
 def _list_projects(root: Path) -> list[dict[str, str]]:

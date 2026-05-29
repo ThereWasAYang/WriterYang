@@ -10,6 +10,7 @@ import yaml
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model
+from novel.core.management import record_management_event
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.polishing import read_markdown_with_front_matter
@@ -23,6 +24,7 @@ from novel.core.schemas import (
     CreationScopeType,
     CreationSession,
     SessionRewriteAction,
+    SessionAuditRevision,
     SessionRewriteEvent,
     SessionRewriteEvents,
     SessionRewriteIssue,
@@ -77,6 +79,16 @@ class SessionInstructionOptions:
 class SessionActionOptions:
     root: Path
     session_id: str
+    provider_name: ProviderName = "config"
+    force: bool = False
+
+
+@dataclass(frozen=True)
+class SessionRewriteControlOptions:
+    root: Path
+    session_id: str
+    event_id: str
+    instruction: str | None = None
     provider_name: ProviderName = "config"
     force: bool = False
 
@@ -380,6 +392,17 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
             ),
             provider,
         )
+        record_management_event(
+            root,
+            "chapter_accepted",
+            f"Session {session.session_id} 已认可第 {chapter_number} 章，并确认状态/时间线更新。",
+            source=session.session_id,
+            target_files=[
+                f"memory/chapters/{chapter_number:03d}/metadata.json",
+                f"memory/chapters/{chapter_number:03d}/state_update_apply_log.json",
+            ],
+            status="success",
+        )
     session = session.model_copy(
         update={"status": "accepted", "content_status": "accepted", "updated_at": _utc_now()}
     )
@@ -431,6 +454,161 @@ def archive_session(options: SessionActionOptions) -> SessionResult:
     return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session archived.")
 
 
+def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
+    root, session, event = _load_rewrite_control_context(options)
+    if not options.instruction or not options.instruction.strip():
+        raise CreationSessionError("audit revision requires --instruction")
+    snapshot_path = _event_snapshot_path(root, event)
+    chapter_number = event.chapter_number
+    polished_path = _chapter_dir(root, chapter_number) / "polished.md"
+    backup_if_exists(polished_path, reason="audit_revision")
+    atomic_write_text(polished_path, snapshot_path.read_text(encoding="utf-8"))
+    audit_path = _chapter_dir(root, chapter_number) / "audit.json"
+    previous_audit_path = event.trigger_audit_path
+    instruction = (
+        f"用户纠正了上一轮 Audit 的理解：{options.instruction.strip()}\n"
+        "请基于当前 polished.md 重新审核；当前 polished.md 是被打回的原文快照。"
+    )
+    _audit_chapter_content_with_instruction(
+        root,
+        chapter_number,
+        session,
+        options.provider_name,
+        instruction=instruction,
+        force=True,
+    )
+    revision = SessionAuditRevision(
+        instruction=options.instruction.strip(),
+        previous_audit_path=previous_audit_path,
+        new_audit_path=_rel(root, audit_path),
+        created_at=_utc_now(),
+    )
+    updated_event = event.model_copy(
+        update={
+            "audit_revision_history": [*event.audit_revision_history, revision],
+            "trigger_audit_path": _rel(root, audit_path),
+            "status": "unresolved" if _has_hard_issues(_load_audit(root, chapter_number)) else "completed",
+            "updated_at": _utc_now(),
+        }
+    )
+    _replace_rewrite_event(root, session.session_id, updated_event)
+    audit_report = _load_audit(root, chapter_number)
+    status_update = _session_status_after_manual_rewrite(
+        root,
+        session,
+        chapter_number,
+        audit_report,
+        options.provider_name,
+        force=True,
+        final_output_path=polished_path,
+    )
+    session = session.model_copy(
+        update={
+            **status_update,
+            "audit_history": [*session.audit_history, _rel(root, audit_path)],
+            "updated_at": _utc_now(),
+        }
+    )
+    _write_session(root, session)
+    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Audit revised.")
+
+
+def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
+    root, session, event = _load_rewrite_control_context(options)
+    snapshot_path = _event_snapshot_path(root, event)
+    chapter_number = event.chapter_number
+    polished_path = _chapter_dir(root, chapter_number) / "polished.md"
+    backup_if_exists(polished_path, reason="undo_rewrite")
+    atomic_write_text(polished_path, snapshot_path.read_text(encoding="utf-8"))
+    _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+    audit_path = _chapter_dir(root, chapter_number) / "audit.json"
+    updated_event = event.model_copy(
+        update={
+            "undo_status": "restored",
+            "restored_from_snapshot_path": event.rejected_text_snapshot_path,
+            "status": "unresolved" if _has_hard_issues(_load_audit(root, chapter_number)) else "completed",
+            "trigger_audit_path": _rel(root, audit_path),
+            "updated_at": _utc_now(),
+        }
+    )
+    _replace_rewrite_event(root, session.session_id, updated_event)
+    audit_report = _load_audit(root, chapter_number)
+    status_update = _session_status_after_manual_rewrite(
+        root,
+        session,
+        chapter_number,
+        audit_report,
+        options.provider_name,
+        force=True,
+        final_output_path=polished_path,
+    )
+    session = session.model_copy(
+        update={
+            **status_update,
+            "audit_history": [*session.audit_history, _rel(root, audit_path)],
+            "updated_at": _utc_now(),
+        }
+    )
+    _write_session(root, session)
+    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Rewrite restored from rejected text snapshot.")
+
+
+def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
+    root, session, event = _load_rewrite_control_context(options)
+    chapter_number = event.chapter_number
+    audit_report = _load_audit(root, chapter_number)
+    if not _has_hard_issues(audit_report):
+        raise CreationSessionError("latest audit has no medium/high/critical issue to retry rewrite")
+    new_revisions: list[str] = []
+    if event.action == "plot_replan":
+        _retire_state_update_proposal(root, chapter_number)
+        _auto_replan_chapter(root, chapter_number, session, audit_report, options.provider_name, event.round_number + 1)
+        _generate_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+        after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
+    else:
+        revision_path = _auto_repair_chapter_with_instruction(
+            root,
+            chapter_number,
+            session,
+            audit_report,
+            options.provider_name,
+            event.round_number + 1,
+            options.instruction,
+        )
+        new_revisions.append(_rel(root, revision_path))
+        after_output_path = _promote_revision_to_polished(root, chapter_number, revision_path)
+        _retire_state_update_proposal(root, chapter_number)
+        _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+    audit_report = _load_audit(root, chapter_number)
+    updated_event = event.model_copy(
+        update={
+            "status": "unresolved" if _has_hard_issues(audit_report) else "completed",
+            "after_output_path": _rel(root, after_output_path),
+            "updated_at": _utc_now(),
+        }
+    )
+    _replace_rewrite_event(root, session.session_id, updated_event)
+    status_update = _session_status_after_manual_rewrite(
+        root,
+        session,
+        chapter_number,
+        audit_report,
+        options.provider_name,
+        force=True,
+        final_output_path=after_output_path,
+    )
+    session = session.model_copy(
+        update={
+            **status_update,
+            "audit_history": [*session.audit_history, _rel(root, _chapter_dir(root, chapter_number) / "audit.json")],
+            "revision_history": [*session.revision_history, *new_revisions],
+            "updated_at": _utc_now(),
+        }
+    )
+    _write_session(root, session)
+    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Rewrite retried from latest audit.")
+
+
 def load_session(root: Path, session_id: str) -> CreationSession:
     return load_json_model(_session_path(root.resolve(), session_id), CreationSession)
 
@@ -440,6 +618,51 @@ def load_rewrite_events(root: Path, session_id: str) -> list[SessionRewriteEvent
     if not path.exists():
         return []
     return load_json_model(path, SessionRewriteEvents).events
+
+
+def _load_rewrite_control_context(
+    options: SessionRewriteControlOptions,
+) -> tuple[Path, CreationSession, SessionRewriteEvent]:
+    root = options.root.resolve()
+    session = load_session(root, options.session_id)
+    _ensure_session_mutable(root, session)
+    event = _find_rewrite_event(root, session.session_id, options.event_id)
+    return root, session, event
+
+
+def _session_status_after_manual_rewrite(
+    root: Path,
+    session: CreationSession,
+    chapter_number: int,
+    audit_report: AuditReport,
+    provider_name: str,
+    *,
+    force: bool,
+    final_output_path: Path,
+) -> dict[str, object]:
+    if _has_hard_issues(audit_report):
+        return {
+            "status": "needs_revision",
+            "content_status": "needs_revision",
+            "final_output_paths": _with_replaced_output(session.final_output_paths, root, final_output_path),
+        }
+    _retire_state_update_proposal(root, chapter_number)
+    _propose_state(root, chapter_number, session, provider_name, force=force)
+    return {
+        "status": "needs_user_review",
+        "content_status": "needs_user_review",
+        "final_output_paths": _with_replaced_output(session.final_output_paths, root, final_output_path),
+    }
+
+
+def _with_replaced_output(existing: list[str], root: Path, output_path: Path) -> list[str]:
+    rel_path = _rel(root, output_path)
+    chapter_prefix = "/".join(Path(rel_path).parts[:3])
+    retained = [
+        path for path in existing
+        if "/".join(Path(path).parts[:3]) != chapter_prefix and path != rel_path
+    ]
+    return [*retained, rel_path]
 
 
 def _write_outline_proposal(
@@ -561,6 +784,27 @@ def _audit_chapter_content(
     )
 
 
+def _audit_chapter_content_with_instruction(
+    root: Path,
+    chapter_number: int,
+    session: CreationSession,
+    provider_name: str,
+    *,
+    instruction: str,
+    force: bool,
+) -> None:
+    audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
+    audit_chapter(
+        ChapterAuditOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=f"{_session_instruction(session)}\n\n{instruction}",
+            force=force,
+        ),
+        audit_provider,
+    )
+
+
 def _auto_repair_chapter(
     root: Path,
     chapter_number: int,
@@ -582,6 +826,40 @@ def _auto_repair_chapter(
             instruction=(
                 f"自动修复第 {round_number} 轮。必须解决以下 audit medium/high/critical issues，"
                 f"不得改变已批准大纲的核心剧情：{issue_summary}"
+            ),
+            from_audit=True,
+            target="polished",
+            force=True,
+        ),
+        provider,
+        provider_name=provider_name,
+    )
+    return result.output_path
+
+
+def _auto_repair_chapter_with_instruction(
+    root: Path,
+    chapter_number: int,
+    session: CreationSession,
+    audit_report: AuditReport,
+    provider_name: str,
+    round_number: int,
+    instruction: str | None,
+) -> Path:
+    issue_summary = "; ".join(
+        f"{issue.severity}/{issue.type}: {issue.description}"
+        for issue in audit_report.issues
+        if issue.severity in {"medium", "high", "critical"}
+    )
+    extra = f"\n用户补充提示：{instruction.strip()}" if instruction and instruction.strip() else ""
+    provider = load_revision_provider(root, provider_name, target="polished")
+    result = revise_chapter(
+        ChapterRevisionOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=(
+                f"根据最新 audit 重新打回重写第 {round_number} 轮。必须解决以下 issues，"
+                f"不得改变已批准大纲的核心剧情：{issue_summary}{extra}"
             ),
             from_audit=True,
             target="polished",
@@ -785,6 +1063,30 @@ def _update_rewrite_event(
 
 def _write_rewrite_events(root: Path, session_id: str, events: list[SessionRewriteEvent]) -> None:
     atomic_write_model_json(_rewrite_events_path(root, session_id), SessionRewriteEvents(events=events))
+
+
+def _find_rewrite_event(root: Path, session_id: str, event_id: str) -> SessionRewriteEvent:
+    for event in load_rewrite_events(root, session_id):
+        if event.event_id == event_id:
+            return event
+    raise CreationSessionError(f"rewrite event not found: {event_id}")
+
+
+def _replace_rewrite_event(root: Path, session_id: str, updated_event: SessionRewriteEvent) -> None:
+    events = [
+        updated_event if event.event_id == updated_event.event_id else event
+        for event in load_rewrite_events(root, session_id)
+    ]
+    _write_rewrite_events(root, session_id, events)
+
+
+def _event_snapshot_path(root: Path, event: SessionRewriteEvent) -> Path:
+    if not event.rejected_text_snapshot_path:
+        raise CreationSessionError(f"rewrite event has no rejected text snapshot: {event.event_id}")
+    path = root / event.rejected_text_snapshot_path
+    if not path.exists():
+        raise CreationSessionError(f"rejected text snapshot is missing: {event.rejected_text_snapshot_path}")
+    return path
 
 
 def _rewrite_issues(audit_report: AuditReport) -> list[SessionRewriteIssue]:

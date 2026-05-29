@@ -7,9 +7,15 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.io import load_json_model
-from novel.core.schemas import AuditReport, CreationArchiveManifest, CreationSession
-from novel.core.session import SessionInstructionOptions, SessionRunOptions, _has_hard_issues, load_rewrite_events
+from novel.core.io import atomic_write_model_json, load_json_model
+from novel.core.schemas import AuditReport, CreationArchiveManifest, CreationSession, SessionRewriteEvent, SessionRewriteEvents
+from novel.core.session import (
+    SessionInstructionOptions,
+    SessionRewriteControlOptions,
+    SessionRunOptions,
+    _has_hard_issues,
+    load_rewrite_events,
+)
 from novel.core import session as session_module
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -457,6 +463,84 @@ def test_session_revise_content_keeps_needs_revision_when_reaudit_blocks(tmp_pat
     assert result.session.content_status == "needs_revision"
     assert result.session.final_output_paths[-1].endswith("polished.md")
     assert result.session.revision_history[-1].endswith("polished.v2.md")
+
+
+def test_session_undo_rewrite_restores_snapshot_and_reaudits(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    (chapter_dir / "polished.md").write_text(
+        "---\nchapter_number: 1\ntitle: 测试\nstatus: polished\n---\n\n重写后的正文\n",
+        encoding="utf-8",
+    )
+    session_dir = root / "memory" / "sessions" / session.session_id
+    snapshot = session_dir / "rejections" / "chapter_001_round_1_before.md"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text(
+        "---\nchapter_number: 1\ntitle: 测试\nstatus: polished\n---\n\n被打回的原文\n",
+        encoding="utf-8",
+    )
+    now = session.created_at
+    event_id = "rewrite_ch001_round1_revision_rewrite_20260530_010101_000001"
+    atomic_write_model_json(
+        session_dir / "rewrite_events.json",
+        SessionRewriteEvents(
+            events=[
+                SessionRewriteEvent(
+                    event_id=event_id,
+                    session_id=session.session_id,
+                    chapter_number=1,
+                    round_number=1,
+                    action="revision_rewrite",
+                    status="unresolved",
+                    trigger_audit_path="memory/chapters/001/audit.json",
+                    rejected_text_snapshot_path=f"memory/sessions/{session.session_id}/rejections/chapter_001_round_1_before.md",
+                    before_output_path="memory/chapters/001/polished.md",
+                    blocking_issues=[
+                        {
+                            "id": "audit_001_medium",
+                            "severity": "medium",
+                            "type": "state_conflict",
+                            "description": "错误打回。",
+                            "evidence": [{"source": "polished.md", "quote": "原文"}],
+                            "suggested_fix": "撤回。",
+                        }
+                    ],
+                    created_at=now,
+                )
+            ]
+        ),
+    )
+    passed = AuditReport.model_validate(
+        {
+            "chapter_number": 1,
+            "audited_file": "polished.md",
+            "overall_status": "passed",
+            "summary": "复审通过。",
+            "issues": [],
+            "created_at": "2026-05-22T00:00:00Z",
+        }
+    )
+    monkeypatch.setattr(session_module, "_audit_chapter_content", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session_module, "_load_audit", lambda *args: passed)
+    monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
+
+    result = session_module.undo_rewrite(
+        SessionRewriteControlOptions(
+            root=root,
+            session_id=session.session_id,
+            event_id=event_id,
+            provider_name="mock",
+        )
+    )
+
+    assert "被打回的原文" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
+    events = load_rewrite_events(root, session.session_id)
+    assert events[0].undo_status == "restored"
+    assert events[0].status == "completed"
+    assert result.session.status == "needs_user_review"
 
 
 def test_archived_session_is_immutable(tmp_path: Path) -> None:

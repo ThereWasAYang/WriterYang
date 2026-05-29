@@ -24,6 +24,9 @@
 - CI 扩展为 pytest、build、secret scan、ruff lint、mypy type check 和 CLI 入口检查。
 - 新增 GitHub Release workflow，tag `v*` 时构建 sdist/wheel 并上传到 GitHub Release。
 - 新增贡献指南、issue template 和 PR template。
+- Orchestrator 增加项目管家能力，可生成和应用 `MemoryRepairProposal`，用于修正 timeline/state/canon 等项目记忆错误。
+- 新增 `memory/management_events.jsonl`，状态更新、时间线更新、记忆修复和章节认可等后台管理动作会显式记录并展示。
+- Session 自动打回支持 Audit 复审、基于新审核重试打回、撤回打回并恢复被打回原文快照。
 
 ## 0.1.0
 

@@ -12,6 +12,7 @@ from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, 
 from novel.core.exporting import MarkdownExportOptions, export_markdown
 from novel.core.inspiration import InspirationOptions, load_inspiration_provider, run_inspiration_agent
 from novel.core.io import atomic_write_model_json
+from novel.core.memory_repair import suggest_memory_repair
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
@@ -33,6 +34,7 @@ OrchestratorTask = Literal[
     "revision",
     "state_update",
     "export_markdown",
+    "memory_repair",
 ]
 
 
@@ -46,6 +48,7 @@ ALLOWED_HANDOFFS: dict[str, tuple[str, ...]] = {
         "audit",
         "state_update",
         "export",
+        "memory",
     ),
     "inspiration": ("canon", "plot"),
     "canon": ("plot",),
@@ -68,6 +71,7 @@ TASK_TO_AGENT: dict[OrchestratorTask, str] = {
     "revision": "revision",
     "state_update": "state_update",
     "export_markdown": "export",
+    "memory_repair": "memory",
 }
 
 
@@ -195,8 +199,26 @@ def plan_orchestration(request: str) -> OrchestratorPlan:
 
 def classify_request(request: str) -> OrchestratorTask:
     text = request.lower()
+    if re.search(r"\brepair_[0-9]{8}_[0-9]{6}_[0-9]{6}\b", text):
+        return "memory_repair"
     if _contains_any(text, ("导出", "export", "markdown")):
         return "export_markdown"
+    if _contains_any(
+        text,
+        (
+            "修复记忆",
+            "纠正记忆",
+            "项目管家",
+            "timeline",
+            "时间线错",
+            "状态错",
+            "记忆错",
+            "其实是回忆",
+            "不是当前行动",
+            "事件其实",
+        ),
+    ):
+        return "memory_repair"
     if _contains_any(text, ("状态更新", "state update", "更新状态", "时间线更新")):
         return "state_update"
     if _contains_any(text, ("修订", "修改", "revision", "revise")):
@@ -371,6 +393,9 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             MarkdownExportOptions(root=root, include_unaccepted=True, force=options.force)
         )
         return [_rel(root, result.output_path), _rel(root, result.manifest_path)]
+    if plan.task == "memory_repair":
+        result = suggest_memory_repair(root, plan.instruction)
+        return [_rel(root, result.proposal_path), _rel(root, result.markdown_path)]
     raise OrchestratorError(f"unsupported orchestrator task: {plan.task}")
 
 

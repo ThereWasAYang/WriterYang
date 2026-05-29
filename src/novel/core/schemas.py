@@ -16,6 +16,18 @@ TimelineCertainty = Literal["certain", "inferred", "uncertain"]
 CreationScopeType = Literal["chapters", "segments"]
 SessionRewriteAction = Literal["revision_rewrite", "plot_replan"]
 SessionRewriteStatus = Literal["started", "completed", "unresolved", "failed"]
+SessionRewriteUndoStatus = Literal["not_requested", "restored", "failed"]
+MemoryRepairOperationType = Literal["add", "replace", "remove"]
+MemoryRepairRiskLevel = Literal["low", "medium", "high"]
+ManagementEventType = Literal[
+    "chapter_accepted",
+    "state_update_proposed",
+    "state_update_applied",
+    "timeline_updated",
+    "memory_repair_proposed",
+    "memory_repair_applied",
+    "memory_repair_failed",
+]
 CreationSessionStatus = Literal[
     "drafting_intent",
     "outline_proposed",
@@ -750,6 +762,13 @@ class SessionRewriteIssue(FlexibleModel):
     suggested_fix: str | None = None
 
 
+class SessionAuditRevision(FlexibleModel):
+    instruction: str = Field(min_length=1)
+    previous_audit_path: str = Field(min_length=1)
+    new_audit_path: str = Field(min_length=1)
+    created_at: datetime
+
+
 class SessionRewriteEvent(SchemaVersionedModel):
     event_id: str = Field(min_length=1, pattern=r"^rewrite_[a-z0-9_]+$")
     session_id: str = Field(min_length=1, pattern=r"^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
@@ -762,12 +781,56 @@ class SessionRewriteEvent(SchemaVersionedModel):
     rejected_text_snapshot_path: str | None = None
     before_output_path: str | None = None
     after_output_path: str | None = None
+    can_undo: bool = True
+    undo_status: SessionRewriteUndoStatus = "not_requested"
+    audit_revision_history: list[SessionAuditRevision] = Field(default_factory=list)
+    restored_from_snapshot_path: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
 
 class SessionRewriteEvents(SchemaVersionedModel):
     events: list[SessionRewriteEvent] = Field(default_factory=list)
+
+
+class MemoryRepairOperation(FlexibleModel):
+    op: MemoryRepairOperationType
+    file: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    value: object | None = None
+    reason: str = Field(min_length=1)
+
+
+class MemoryRepairProposal(SchemaVersionedModel):
+    repair_id: str = Field(min_length=1, pattern=r"^repair_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
+    created_by: Literal["orchestrator"] = "orchestrator"
+    user_request: str = Field(min_length=1)
+    target_files: list[str] = Field(default_factory=list)
+    operations: list[MemoryRepairOperation] = Field(default_factory=list)
+    risk_level: MemoryRepairRiskLevel = "medium"
+    validation_before: dict[str, object] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class MemoryRepairApplyLog(SchemaVersionedModel):
+    repair_id: str = Field(min_length=1)
+    applied_at: datetime
+    status: Literal["applied", "failed", "rolled_back"]
+    target_files: list[str] = Field(default_factory=list)
+    backups: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class ManagementEvent(SchemaVersionedModel):
+    event_id: str = Field(min_length=1, pattern=r"^mgmt_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
+    event_type: ManagementEventType
+    message: str = Field(min_length=1)
+    source: str | None = None
+    target_files: list[str] = Field(default_factory=list)
+    status: Literal["info", "success", "warning", "error"] = "info"
+    details: dict[str, object] = Field(default_factory=dict)
+    created_at: datetime
 
 
 def _require_unique_values(values: list[str], label: str) -> None:

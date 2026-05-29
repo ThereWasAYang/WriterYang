@@ -114,6 +114,13 @@
       <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
       <button id="exportMarkdown" style="width: 100%; margin-top: 8px;">导出 Markdown</button>
 
+      <h2>项目管家</h2>
+      <button id="memoryRepairSuggest" style="width: 100%; margin-top: 8px;">生成记忆修复建议</button>
+      <label for="memoryRepairProposalPath">Repair proposal</label>
+      <input id="memoryRepairProposalPath" placeholder="memory/repairs/repair_.../proposal.json">
+      <button id="memoryRepairApply" style="width: 100%; margin-top: 8px;">确认应用修复建议</button>
+      <div id="managementEventsPanel" class="metric" style="margin-top: 10px;">后台管理动态：暂无</div>
+
       <h2>本次创作 Session</h2>
       <label for="sessionChapters">章节范围</label>
       <input id="sessionChapters" placeholder="1 或 1-2" value="1">
@@ -128,8 +135,15 @@
       </div>
       <button id="sessionAccept" style="width: 100%; margin-top: 8px;">认可本次创作</button>
       <div class="actions" style="margin-top: 8px;">
-        <button id="sessionReviseAudit">按 Audit 修订内容</button>
+        <button id="sessionReviseAuditContent">按 Audit 修订内容</button>
         <button id="sessionReviseInstruction">按用户意见修订内容</button>
+      </div>
+      <label for="rewriteEventId">Rewrite Event ID</label>
+      <input id="rewriteEventId" placeholder="rewrite_...">
+      <div class="actions" style="margin-top: 8px;">
+        <button id="sessionReviseAudit">纠正 Audit 理解并重新审核</button>
+        <button id="sessionRetryRewrite">根据新审核重新打回</button>
+        <button id="sessionUndoRewrite">撤回本次打回</button>
       </div>
       <div id="sessionPanel" class="metric" style="margin-top: 10px;">未加载 Session</div>
       <div id="nextStepPanel" class="metric" style="margin-top: 10px;">下一步：打开或初始化一个小说项目。</div>
@@ -332,16 +346,18 @@
     async function refreshAll(options = {}) {
       try {
         const path = projectPath();
-        const [status, canon, chapters, files] = await Promise.all([
+        const [status, canon, chapters, files, management] = await Promise.all([
           apiGet("/api/project/status", { path }),
           apiGet("/api/canon", { path }),
           apiGet("/api/chapters", { path }),
           apiGet("/api/file-tree", { path }),
+          apiGet("/api/management-events", { path, limit: 10 }),
         ]);
         renderStatus(status.status);
         $("canonPanel").textContent = canon.summary || "无";
         renderChapters(chapters.chapters || []);
         renderFileTree(files.files || []);
+        renderManagementEvents(management.events || []);
         renderNextStep({ status: status.status, chapters: chapters.chapters || [] });
         if (!options.silent) setMessage("项目已刷新");
       } catch (error) {
@@ -364,6 +380,25 @@
       $("statusPanel").innerHTML = rows.map(([label, value]) =>
         `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value ?? "")}</b></div>`
       ).join("");
+    }
+
+    function renderManagementEvents(events) {
+      const panel = $("managementEventsPanel");
+      if (!panel) return;
+      if (!events.length) {
+        panel.innerHTML = "后台管理动态：暂无";
+        return;
+      }
+      panel.innerHTML = `
+        <b>后台管理动态</b>
+        ${events.map((event) => `
+          <div style="margin-top: 6px;">
+            [${escapeHtml(event.status || "")}/${escapeHtml(event.event_type || "")}]
+            ${escapeHtml(event.message || "")}
+            ${(event.target_files || []).length ? `<div>files: ${escapeHtml((event.target_files || []).join(", "))}</div>` : ""}
+          </div>
+        `).join("")}
+      `;
     }
 
     function renderChapters(chapters) {
@@ -467,6 +502,12 @@
       return payload;
     }
 
+    function rewriteControlPayload(options = {}) {
+      const payload = sessionPayload(options);
+      payload.event_id = $("rewriteEventId").value.trim();
+      return payload;
+    }
+
     async function initProject() {
       return withBusy("初始化项目", async () => {
         const data = await apiPost("/api/init-project", {
@@ -517,6 +558,33 @@
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
         setMessage(actionMessage("应用 Canon proposal", data));
+      });
+    }
+
+    async function memoryRepairSuggest() {
+      return withBusy("项目管家生成修复建议", async () => {
+        const data = await apiPost("/api/orchestrator/memory-repair/suggest", {
+          path: projectPath(),
+          request: $("instruction").value.trim(),
+        });
+        if (data.proposal_relative_path) $("memoryRepairProposalPath").value = data.proposal_relative_path;
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderManagementEvents(data.management_events || []);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("项目管家修复建议", data));
+      });
+    }
+
+    async function memoryRepairApply() {
+      return withBusy("项目管家应用修复建议", async () => {
+        const data = await apiPost("/api/orchestrator/memory-repair/apply", {
+          path: projectPath(),
+          proposal_path: $("memoryRepairProposalPath").value.trim(),
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderManagementEvents(data.management_events || []);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("项目管家应用修复建议", data));
       });
     }
 
@@ -819,6 +887,10 @@
       if (Array.isArray(data.rewrite_events) && data.rewrite_events.length) {
         parts.push(`auto rewrites=${data.rewrite_events.length}`);
       }
+      if (Array.isArray(data.management_events) && data.management_events.length) {
+        parts.push(`management events=${data.management_events.length}`);
+      }
+      if (data.proposal?.repair_id) parts.push(`repair=${data.proposal.repair_id}`);
       if (data.overall_status) parts.push(`audit=${data.overall_status}`);
       if (Array.isArray(data.warnings) && data.warnings.length) {
         parts.push(`warnings=${data.warnings.length}`);
@@ -844,6 +916,7 @@
         ${renderSessionAuditSummary(data.audit_summary || [])}
       `;
       renderRewriteEvents(data.rewrite_events || []);
+      renderManagementEvents(data.management_events || []);
     }
 
     function startRewriteEventPolling() {
@@ -947,16 +1020,29 @@
           const snapshotButton = event.rejected_text_snapshot_path
             ? `<button class="view-rejected-text" data-path="${escapeAttr(event.rejected_text_snapshot_path)}">查看被打回原文</button>`
             : "";
+          const selectButton = `<button class="select-rewrite-event" data-event-id="${escapeAttr(event.event_id)}">选择该打回记录</button>`;
+          const auditRevisions = (event.audit_revision_history || []).length
+            ? `<div>audit 复审次数：${escapeHtml((event.audit_revision_history || []).length)}</div>`
+            : "";
           return `
             <div style="margin-top: 8px;">
               <div>第 ${escapeHtml(event.chapter_number)} 章第 ${escapeHtml(event.round_number)} 轮被 Audit 打回：${escapeHtml(actionText)}，status=${escapeHtml(event.status || "")}</div>
+              <div>event: ${escapeHtml(event.event_id || "")}</div>
+              <div>undo: ${escapeHtml(event.undo_status || "not_requested")}</div>
               <div>audit: ${escapeHtml(event.trigger_audit_path || "")}</div>
-              ${snapshotButton}
+              ${selectButton} ${snapshotButton}
+              ${auditRevisions}
               <div>${issueRows}</div>
             </div>
           `;
         }).join("")}
       `;
+      document.querySelectorAll(".select-rewrite-event").forEach((button) => {
+        button.addEventListener("click", () => {
+          $("rewriteEventId").value = button.dataset.eventId || "";
+          setMessage(`已选择打回记录：${button.dataset.eventId || ""}`);
+        });
+      });
       document.querySelectorAll(".view-rejected-text").forEach((button) => {
         button.addEventListener("click", () => loadRejectedText(button.dataset.path));
       });
@@ -984,6 +1070,8 @@
     $("inspireProject").addEventListener("click", inspireProject);
     $("canonSuggest").addEventListener("click", canonSuggest);
     $("canonApply").addEventListener("click", canonApply);
+    $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
+    $("memoryRepairApply").addEventListener("click", memoryRepairApply);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));
     $("sessionStart").addEventListener("click", () => {
       $("sessionId").value = "";
@@ -994,8 +1082,11 @@
     $("sessionRun").addEventListener("click", () => runSessionAction("/api/session/run", sessionPayload(), "Session 写作"));
     $("sessionAccept").addEventListener("click", () => runSessionAction("/api/session/accept", sessionPayload(), "认可 Session"));
     $("sessionArchive").addEventListener("click", () => runSessionAction("/api/session/archive", sessionPayload(), "归档 Session"));
-    $("sessionReviseAudit").addEventListener("click", () => runSessionAction("/api/session/revise-content", sessionPayload({ fromAudit: true }), "按 Audit 修订内容"));
+    $("sessionReviseAuditContent").addEventListener("click", () => runSessionAction("/api/session/revise-content", sessionPayload({ fromAudit: true }), "按 Audit 修订内容"));
     $("sessionReviseInstruction").addEventListener("click", () => runSessionAction("/api/session/revise-content", sessionPayload(), "按用户意见修订内容"));
+    $("sessionReviseAudit").addEventListener("click", () => runSessionAction("/api/session/revise-audit", rewriteControlPayload(), "纠正 Audit 理解并重新审核"));
+    $("sessionRetryRewrite").addEventListener("click", () => runSessionAction("/api/session/retry-rewrite", rewriteControlPayload(), "根据新审核重新打回"));
+    $("sessionUndoRewrite").addEventListener("click", () => runSessionAction("/api/session/undo-rewrite", rewriteControlPayload(), "撤回本次打回"));
     $("viewFile").addEventListener("click", viewFile);
     $("loadCompare").addEventListener("click", loadCompare);
     $("loadEditorFile").addEventListener("click", loadEditorFile);

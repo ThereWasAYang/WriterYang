@@ -28,6 +28,8 @@ from novel.core.schemas import (
     InspirationBrief,
     ItemsFile,
     LocationsFile,
+    MemoryRepairApplyLog,
+    MemoryRepairProposal,
     ProjectConfig,
     AgentRunLog,
     ExportManifest,
@@ -159,6 +161,7 @@ def _validate_loaded_project(
         _validate_chapter_outputs(report, root, loaded)
         _validate_run_and_export_outputs(report, root)
         _validate_session_outputs(report, root)
+        _validate_memory_repair_outputs(report, root)
         _validate_consistency_findings(report, root)
 
 
@@ -801,6 +804,15 @@ def _validate_session_outputs(report: ValidationReport, root: Path) -> None:
     if archive_dir.exists():
         for manifest_path in sorted(archive_dir.glob("session_*/manifest.json")):
             _validate_optional_chapter_json(report, manifest_path, CreationArchiveManifest)
+
+
+def _validate_memory_repair_outputs(report: ValidationReport, root: Path) -> None:
+    repairs_dir = root / "memory" / "repairs"
+    if not repairs_dir.exists():
+        return
+    for repair_dir in sorted(path for path in repairs_dir.glob("repair_*") if path.is_dir()):
+        _validate_optional_chapter_json(report, repair_dir / "proposal.json", MemoryRepairProposal)
+        _validate_optional_chapter_json(report, repair_dir / "apply_log.json", MemoryRepairApplyLog)
 
 
 def _validate_consistency_findings(report: ValidationReport, root: Path) -> None:

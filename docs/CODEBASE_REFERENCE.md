@@ -47,6 +47,8 @@
 - `src/novel/core/io.py`
 - `src/novel/core/json_schema.py`
 - `src/novel/core/locking.py`
+- `src/novel/core/management.py`
+- `src/novel/core/memory_repair.py`
 - `src/novel/core/migration.py`
 - `src/novel/core/orchestrator.py`
 - `src/novel/core/planning.py`
@@ -121,6 +123,9 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_save_provider_config()`：保存非密钥 provider 配置，写前校验和备份。
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
 - `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
+- `_memory_repair_suggest()` / `_memory_repair_apply()`：项目管家 proposal 和 apply API，调用 `core/memory_repair.py`，不在 Web 层直接 patch 文件。
+- `_session_revise_audit()` / `_session_retry_rewrite()` / `_session_undo_rewrite()`：Audit 复审、基于新审核重试打回、撤回打回并恢复快照。
+- `_management_events()` / `_management_event_summary()`：读取 `memory/management_events.jsonl`，供 Web 显示后台状态/时间线/记忆刷新。
 - `_file_tree()`：列出 workspace 白名单文件，排除 `.env*`、缓存、索引、备份。
 - `_read_workspace_file()` / `_read_chapter_file()`：安全读取文件。
 - `_runs_summary()` / `_provider_call_summary()` / `_model_io_summary()`：运行和模型日志摘要。
@@ -141,6 +146,8 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 初始化、inspiration、canon suggest/apply、生成/写作/润色/审核/export/session API 调用。
 - 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入文件查看区和下一步提示。
 - Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、按 Audit/用户意见修订、认可和归档。
+- 项目管家面板支持生成 memory repair proposal、确认 apply，并显示后台管理动态。
+- 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
 - `renderNextStep()`：根据项目状态、validation 结果和 session 状态显示下一步操作建议。
 
 前端只调用 Web API；不要把业务规则复制进 JS。
@@ -419,6 +426,9 @@ Embedding provider：
 - `approve_outline()`：冻结 approved outline。
 - `run_session()`：生成正文、润色、审核、自动修复、state proposal。
 - `revise_content()`：按用户意见或 audit issue 生成修订版本，提升为当前 `polished.md`，重跑 audit，并在通过后重建 state proposal。
+- `revise_audit()`：读取 rewrite event 的 rejected snapshot，把用户纠正意见传给 Audit Agent，重写 `audit.json` 并记录 `audit_revision_history`。
+- `retry_rewrite()`：基于最新 audit issue 再次执行 revision rewrite 或 plot replan，提升当前稿并重跑 audit。
+- `undo_rewrite()`：恢复 rewrite event 的 rejected snapshot，备份当前稿，重跑 audit，并更新 undo 状态。
 - `accept_session()`：应用状态更新并标记章节 accepted。
 - `archive_session()`：归档 approved outline、最终正文、audit、state update 和 manifest。
 - `load_rewrite_events()`：读取 `memory/sessions/{session_id}/rewrite_events.json`。
@@ -429,6 +439,28 @@ Embedding provider：
 - `_start_rewrite_event()` / `_update_rewrite_event()`：自动打回前保存原文快照、记录打回原因，并在复审后更新 completed/unresolved/failed 状态。
 - `_has_hard_issues()`：判定阻断 issue。
 - `_session_instruction()`：把 session intent 转为内部 Agent instruction。
+
+### `core/management.py`
+
+后台管理事件日志：
+
+- `record_management_event()`：向 `memory/management_events.jsonl` 追加脱敏事件。状态更新 proposal/apply、timeline update、memory repair 和 chapter accepted 都应调用它。
+- `load_management_events()`：读取最近事件，供 CLI/Web UI 显示。
+- `management_events_path()`：返回事件日志路径。
+
+### `core/memory_repair.py`
+
+orchestrator 项目管家修复 proposal：
+
+- `MemoryRepairError`：proposal/apply 失败。
+- `MemoryRepairSuggestResult` / `MemoryRepairApplyResult`：service 返回结构。
+- `suggest_memory_repair()`：根据用户自然语言和当前项目文件生成 `MemoryRepairProposal`、Markdown 摘要和 diff 预览；默认不修改正式 memory。
+- `apply_memory_repair()`：校验 proposal，限制白名单文件，按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
+- `render_memory_repair_markdown()`：把 proposal 渲染为用户可读说明。
+- `_infer_target_files()` / `_infer_operations()`：MVP 级安全推断。当前只做低风险 timeline event role 修复；复杂修复应让用户编辑 proposal。
+- `_apply_operations_to_data()` / `_apply_operation()` / `_resolve_pointer_parent()`：JSON Pointer patch 执行器。
+- `_validate_file_model()`：用对应 schema 校验修改后的白名单文件。
+- `_restore_backups()`：apply 失败后恢复已备份文件。
 
 ### `core/workflow.py`
 

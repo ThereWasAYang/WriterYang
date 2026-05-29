@@ -52,6 +52,11 @@ novel accept-chapter 1 --project ./rain-station --json --quiet
 novel export markdown --project ./rain-station --include-unaccepted --json --quiet
 novel export docx --project ./rain-station --include-unaccepted --json --quiet
 novel ask "请为第1章生成章节计划" --project ./rain-station --provider mock --json --quiet
+novel ask "第2章 event_x 其实是回忆，不是当前行动" --project ./rain-station --json --quiet
+novel ask "确认应用 repair_20260530_010101_000001" --project ./rain-station --json --quiet
+novel session revise-audit <session_id> <event_id> --project ./rain-station --provider mock --instruction "这是回忆段落" --json --quiet
+novel session retry-rewrite <session_id> <event_id> --project ./rain-station --provider mock --json --quiet
+novel session undo-rewrite <session_id> <event_id> --project ./rain-station --provider mock --json --quiet
 ```
 
 ## JSON 输出格式
@@ -100,6 +105,7 @@ novel ask "请为第1章生成章节计划" --project ./rain-station --provider 
 - `export_error`
 - `inspiration_error`
 - `migration_error`
+- `memory_repair_error`
 - `orchestrator_error`
 - `planning_error`
 - `polishing_error`

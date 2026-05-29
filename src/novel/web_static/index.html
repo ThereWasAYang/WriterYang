@@ -125,6 +125,10 @@
         <button id="sessionArchive">归档</button>
       </div>
       <button id="sessionAccept" style="width: 100%; margin-top: 8px;">认可本次创作</button>
+      <div class="actions" style="margin-top: 8px;">
+        <button id="sessionReviseAudit">按 Audit 修订内容</button>
+        <button id="sessionReviseInstruction">按用户意见修订内容</button>
+      </div>
       <div id="sessionPanel" class="metric" style="margin-top: 10px;">未加载 Session</div>
       <div id="message" class="message"></div>
 
@@ -439,11 +443,13 @@
       const payload = {
         path: projectPath(),
         intent: $("instruction").value.trim(),
+        instruction: $("instruction").value.trim(),
         chapters: $("sessionChapters").value.trim(),
         provider: $("provider").value,
         force: $("forceWrites").checked,
       };
       if (options.includeSessionId !== false) payload.session_id = $("sessionId").value.trim();
+      if (options.fromAudit) payload.from_audit = true;
       return payload;
     }
 
@@ -783,6 +789,10 @@
         parts.push(`session=${data.session.session_id}`);
         parts.push(`status=${data.session.status}/${data.session.content_status}`);
       }
+      if (Array.isArray(data.audit_summary)) {
+        const blocking = data.audit_summary.reduce((count, item) => count + (item.blocking_issue_count || 0), 0);
+        if (blocking) parts.push(`blocking issues=${blocking}`);
+      }
       if (data.overall_status) parts.push(`audit=${data.overall_status}`);
       if (Array.isArray(data.warnings) && data.warnings.length) {
         parts.push(`warnings=${data.warnings.length}`);
@@ -804,7 +814,34 @@
         <div>content: ${escapeHtml(session.content_status || "")}</div>
         <div>chapters: ${escapeHtml((session.chapter_range || []).join(", "))}</div>
         <div>${escapeHtml(data.message || "")}</div>
+        ${renderSessionAuditSummary(data.audit_summary || [])}
       `;
+    }
+
+    function renderSessionAuditSummary(auditSummary) {
+      if (!auditSummary.length) return "<div style=\"margin-top: 8px;\">audit: 未生成</div>";
+      return auditSummary.map((item) => {
+        const issues = item.issues || [];
+        const issueRows = issues.length
+          ? issues.map((issue) => `
+              <div style="margin-top: 4px;">
+                <b>${escapeHtml(issue.id || "")}</b>
+                [${escapeHtml(issue.severity || "")}/${escapeHtml(issue.type || "")}]
+                ${escapeHtml(issue.description || "")}
+                ${issue.suggested_fix ? `<div>fix: ${escapeHtml(issue.suggested_fix)}</div>` : ""}
+              </div>
+            `).join("")
+          : "<div>无 issue</div>";
+        return `
+          <div style="margin-top: 8px;">
+            <b>第 ${escapeHtml(item.chapter_number)} 章 audit</b>:
+            ${escapeHtml(item.overall_status || (item.exists ? "读取失败" : "未生成"))}
+            ，blocking=${escapeHtml(item.blocking_issue_count || 0)}
+            ${item.error ? `<div class="message error">${escapeHtml(item.error)}</div>` : ""}
+            <div>${issueRows}</div>
+          </div>
+        `;
+      }).join("");
     }
 
     $("openProject").addEventListener("click", refreshAll);
@@ -826,6 +863,8 @@
     $("sessionRun").addEventListener("click", () => runSessionAction("/api/session/run", sessionPayload(), "Session 写作"));
     $("sessionAccept").addEventListener("click", () => runSessionAction("/api/session/accept", sessionPayload(), "认可 Session"));
     $("sessionArchive").addEventListener("click", () => runSessionAction("/api/session/archive", sessionPayload(), "归档 Session"));
+    $("sessionReviseAudit").addEventListener("click", () => runSessionAction("/api/session/revise-content", sessionPayload({ fromAudit: true }), "按 Audit 修订内容"));
+    $("sessionReviseInstruction").addEventListener("click", () => runSessionAction("/api/session/revise-content", sessionPayload(), "按用户意见修订内容"));
     $("viewFile").addEventListener("click", viewFile);
     $("loadCompare").addEventListener("click", loadCompare);
     $("loadEditorFile").addEventListener("click", loadEditorFile);

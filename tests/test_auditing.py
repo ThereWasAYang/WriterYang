@@ -5,11 +5,8 @@ from io import StringIO
 import json
 from pathlib import Path
 
-import pytest
-
 from novel.cli import _audit_issue_lines, main
 from novel.core.auditing import (
-    AuditError,
     ChapterAuditOptions,
     audit_chapter,
     default_mock_audit_report_json,
@@ -362,6 +359,58 @@ def test_parse_audit_report_normalizes_audited_file_aliases() -> None:
     assert report.audited_file == "polished.md"
 
 
+def test_parse_audit_report_downgrades_subjective_medium_to_low() -> None:
+    payload = {
+        "chapter_number": 2,
+        "audited_file": "polished.md",
+        "overall_status": "needs_revision",
+        "summary": "模型把低确定性建议标成 medium。",
+        "issues": [
+            {
+                "id": "audit_subjective_medium",
+                "severity": "medium",
+                "type": "knowledge_conflict",
+                "description": "角色认出对方的依据不足，可能造成知识冲突。",
+                "evidence": [{"source": "polished.md", "quote": "她觉得这个背影有些熟"}],
+                "suggested_fix": "补一句依据，或改成不确定判断。",
+            }
+        ],
+        "passed_checks": [],
+        "created_at": "2026-05-22T00:00:00Z",
+    }
+
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+
+    assert report.overall_status == "passed"
+    assert report.issues[0].severity == "low"
+
+
+def test_parse_audit_report_keeps_hard_medium_issue_blocking() -> None:
+    payload = {
+        "chapter_number": 2,
+        "audited_file": "polished.md",
+        "overall_status": "needs_revision",
+        "summary": "具体状态冲突。",
+        "issues": [
+            {
+                "id": "audit_hard_medium",
+                "severity": "medium",
+                "type": "state_conflict",
+                "description": "current_state 中 item_a 的 location_id 在 loc_a，正文写到 loc_b。",
+                "evidence": [{"source": "polished.md", "quote": "物品在 loc_b 出现"}],
+                "suggested_fix": "修正文或先用 state_update 移动物品。",
+            }
+        ],
+        "passed_checks": [],
+        "created_at": "2026-05-22T00:00:00Z",
+    }
+
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+
+    assert report.overall_status == "needs_revision"
+    assert report.issues[0].severity == "medium"
+
+
 def test_low_only_audit_issues_are_passed_and_displayed(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     payload = {
@@ -408,9 +457,8 @@ def test_audit_chapter_repairs_invalid_provider_report_once(tmp_path: Path) -> N
                     "id": "ISS-2-1",
                     "severity": "high",
                     "type": "continuity_issue",
-                    "description": "passed 状态不能包含 high issue。",
+                    "description": "缺少 suggested_fix。",
                     "evidence": "example",
-                    "suggested_fix": "改为 needs_revision。",
                 }
             ],
             "passed_checks": [],
@@ -470,8 +518,8 @@ def test_audit_chapter_plan_chapter_mismatch_becomes_critical_issue(tmp_path: Pa
     assert any(issue.severity == "critical" for issue in report.issues)
 
 
-def test_passed_audit_report_cannot_have_medium_high_or_critical_issues() -> None:
-    bad_report = json.dumps(
+def test_parse_audit_report_normalizes_passed_with_high_to_needs_revision() -> None:
+    report_json = json.dumps(
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
@@ -493,8 +541,10 @@ def test_passed_audit_report_cannot_have_medium_high_or_critical_issues() -> Non
         ensure_ascii=False,
     )
 
-    with pytest.raises(AuditError):
-        parse_audit_report(bad_report)
+    report = parse_audit_report(report_json)
+
+    assert report.overall_status == "needs_revision"
+    assert report.issues[0].severity == "high"
 
 
 def _workspace_with_polished(tmp_path: Path) -> Path:

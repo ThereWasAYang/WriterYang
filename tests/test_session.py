@@ -9,7 +9,7 @@ from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import load_json_model
 from novel.core.schemas import AuditReport, CreationArchiveManifest, CreationSession
-from novel.core.session import SessionRunOptions, _has_hard_issues
+from novel.core.session import SessionInstructionOptions, SessionRunOptions, _has_hard_issues
 from novel.core import session as session_module
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -263,11 +263,65 @@ def test_session_revise_content_can_use_low_audit_issues_when_user_chooses(tmp_p
 
     assert code == 0
     assert stderr == ""
-    assert "Content revised for user review" in stdout
+    assert "Content revised, audited, and ready for user review" in stdout
     assert (root / "memory" / "chapters" / "001" / "revision_log.json").is_file()
     revised = _latest_session(root)
-    assert revised.final_output_paths
-    assert revised.final_output_paths[-1].endswith(".md")
+    assert revised.status == "needs_user_review"
+    assert revised.content_status == "needs_user_review"
+    assert revised.final_output_paths[-1].endswith("polished.md")
+    assert revised.revision_history[-1].endswith("polished.v2.md")
+    assert (root / "memory" / "chapters" / "001" / "polished.md").is_file()
+    assert (root / "memory" / "chapters" / "001" / "state_update_proposal.json").is_file()
+
+
+def test_session_revise_content_keeps_needs_revision_when_reaudit_blocks(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
+    hard = AuditReport.model_validate(
+        {
+            "chapter_number": 1,
+            "audited_file": "polished.md",
+            "overall_status": "needs_revision",
+            "summary": "仍有阻断问题。",
+            "issues": [
+                {
+                    "id": "audit_001_medium",
+                    "severity": "medium",
+                    "type": "state_conflict",
+                    "description": "物品位置仍与 current_state 冲突。",
+                    "evidence": [{"source": "polished.md", "quote": "物品在错误地点"}],
+                    "suggested_fix": "修正文或状态变化。",
+                }
+            ],
+            "created_at": "2026-05-22T00:00:00Z",
+        }
+    )
+
+    monkeypatch.setattr(session_module, "_audit_chapter_content", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session_module, "_load_audit", lambda *args: hard)
+
+    def fail_propose(*args: object, **kwargs: object) -> None:
+        raise AssertionError("state proposal must not be regenerated while audit blocks")
+
+    monkeypatch.setattr(session_module, "_propose_state", fail_propose)
+
+    result = session_module.revise_content(
+        SessionInstructionOptions(
+            root=root,
+            session_id=session.session_id,
+            instruction=None,
+            provider_name="mock",
+            from_audit=True,
+        )
+    )
+
+    assert result.session.status == "needs_revision"
+    assert result.session.content_status == "needs_revision"
+    assert result.session.final_output_paths[-1].endswith("polished.md")
+    assert result.session.revision_history[-1].endswith("polished.v2.md")
 
 
 def test_archived_session_is_immutable(tmp_path: Path) -> None:

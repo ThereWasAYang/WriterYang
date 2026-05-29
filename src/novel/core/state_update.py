@@ -364,6 +364,7 @@ def validate_state_update_proposal(
                 f"timeline event {event.id} references missing state changes: {', '.join(missing_change_ids)}"
             )
 
+    _validate_proposed_timeline_scene_bounds(root, proposal)
     _validate_proposed_item_holder_location_conflicts(root, proposal, item_ids)
 
     if check_existing_timeline_ids:
@@ -380,6 +381,19 @@ def validate_state_update_proposal(
     for message in canon_report.warnings:
         warnings.append(f"canon warning: {message.message}")
     return warnings
+
+
+def _validate_proposed_timeline_scene_bounds(root: Path, proposal: StateUpdateProposal) -> None:
+    plan_path = root / "memory" / "chapters" / f"{proposal.chapter_number:03d}" / "plan.json"
+    if not plan_path.exists():
+        return
+    plan = load_json_model(plan_path, ChapterPlan)
+    scene_count = len(plan.scenes)
+    for event in proposal.timeline_events:
+        if event.scene and event.scene > scene_count:
+            raise StateUpdateError(
+                f"timeline event {event.id} scene {event.scene} exceeds ChapterPlan scene count {scene_count}"
+            )
 
 
 def _validate_proposed_timeline_monotonic(root: Path, proposal: StateUpdateProposal) -> None:
@@ -564,6 +578,7 @@ def build_state_update_user_prompt(
         "时间线顺序约束：\n"
         "- timeline_events 必须按正文实际发生顺序输出。\n"
         "- timeline_event.scene 必须对应 ChapterPlan 中实际发生的 scene_number。\n"
+        "- timeline_event.scene 不得超过 ChapterPlan.scenes 的最大 scene_number。\n"
         "- 不要把章节后段事件写成更早的 scene；如果无法判断 scene，宁可省略 scene 或写入 warnings。\n"
         "- 新 timeline event 的 chapter/scene 不能倒退到现有 timeline 的最后事件之前。\n\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"

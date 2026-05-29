@@ -181,6 +181,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     audits: list[str] = []
     revisions: list[str] = []
     for chapter_number in session.chapter_range:
+        _retire_state_update_proposal(root, chapter_number)
         _generate_chapter_content(root, chapter_number, session, options.provider_name, force=options.force)
         audit_report = _load_audit(root, chapter_number)
         round_number = 0
@@ -207,6 +208,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 )
                 revisions.append(_rel(root, revision_path))
                 _promote_revision_to_polished(root, chapter_number, revision_path)
+                _retire_state_update_proposal(root, chapter_number)
                 _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
             audit_report = _load_audit(root, chapter_number)
         audit_path = _chapter_dir(root, chapter_number) / "audit.json"
@@ -254,6 +256,9 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
     if not options.from_audit and not (options.instruction and options.instruction.strip()):
         raise CreationSessionError("content revision requires --instruction or --from-audit")
     revisions: list[str] = []
+    audits: list[str] = []
+    final_outputs: list[str] = []
+    hard_issue_chapters: list[int] = []
     for chapter_number in session.chapter_range:
         provider = load_revision_provider(root, options.provider_name, target="polished")
         result = revise_chapter(
@@ -269,16 +274,53 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
             provider_name=options.provider_name,
         )
         revisions.append(_rel(root, result.output_path))
+        promoted_path = _promote_revision_to_polished(root, chapter_number, result.output_path)
+        final_outputs.append(_rel(root, promoted_path))
+        _retire_state_update_proposal(root, chapter_number)
+        _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+        audit_path = _chapter_dir(root, chapter_number) / "audit.json"
+        audits.append(_rel(root, audit_path))
+        if _has_hard_issues(_load_audit(root, chapter_number)):
+            hard_issue_chapters.append(chapter_number)
+
+    if hard_issue_chapters:
+        session = session.model_copy(
+            update={
+                "status": "needs_revision",
+                "content_status": "needs_revision",
+                "revision_history": [*session.revision_history, *revisions],
+                "audit_history": [*session.audit_history, *audits],
+                "final_output_paths": final_outputs,
+                "updated_at": _utc_now(),
+            }
+        )
+        _write_session(root, session)
+        chapters = ", ".join(str(number) for number in hard_issue_chapters)
+        return SessionResult(
+            session=session,
+            session_path=_session_path(root, session.session_id),
+            message=f"Content revised, but chapter(s) {chapters} still need revision after audit.",
+        )
+
+    for chapter_number in session.chapter_range:
+        _propose_state(root, chapter_number, session, options.provider_name, force=True)
+
     session = session.model_copy(
         update={
+            "status": "needs_user_review",
             "content_status": "needs_user_review",
             "revision_history": [*session.revision_history, *revisions],
-            "final_output_paths": revisions,
+            "audit_history": [*session.audit_history, *audits],
+            "final_output_paths": final_outputs,
             "updated_at": _utc_now(),
         }
     )
     _write_session(root, session)
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Content revised for user review.")
+    return SessionResult(
+        session=session,
+        session_path=_session_path(root, session.session_id),
+        message="Content revised, audited, and ready for user review.",
+    )
 
 
 def accept_session(options: SessionActionOptions) -> SessionResult:
@@ -550,6 +592,14 @@ def _promote_revision_to_polished(root: Path, chapter_number: int, revision_path
     backup_if_exists(polished_path, reason="auto_repair")
     atomic_write_text(polished_path, f"---\n{metadata_text}\n---\n\n{document.body.strip()}\n")
     return polished_path
+
+
+def _retire_state_update_proposal(root: Path, chapter_number: int) -> None:
+    proposal_path = _chapter_dir(root, chapter_number) / "state_update_proposal.json"
+    if not proposal_path.exists():
+        return
+    backup_if_exists(proposal_path, reason="content_revision")
+    proposal_path.unlink()
 
 
 def _should_replan_chapter(report: AuditReport, round_number: int) -> bool:

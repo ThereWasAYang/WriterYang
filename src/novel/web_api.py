@@ -22,7 +22,7 @@ from novel.core.io import atomic_write_model_json, atomic_write_text, atomic_wri
 from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
-from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, RevisionLog, RevisionRecord
+from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, CreationSession, RevisionLog, RevisionRecord
 from novel.core.security import validate_secret_config_file
 from novel.core.session import (
     SessionActionOptions,
@@ -574,6 +574,7 @@ def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
             instruction=str(data.get("instruction") or ""),
             provider_name=str(data.get("provider") or "mock"),
             force=bool(data.get("force")),
+            from_audit=bool(data.get("from_audit")),
         )
     )
     return _session_result_payload(result)
@@ -603,11 +604,77 @@ def _session_archive(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_result_payload(result) -> dict[str, object]:
+    root = _session_root_from_result_path(result.session_path)
     return {
         "session": result.session.model_dump(mode="json"),
         "session_path": str(result.session_path),
         "message": result.message,
+        "audit_summary": _session_audit_summary(root, result.session),
     }
+
+
+def _session_root_from_result_path(session_path: Path) -> Path:
+    for parent in session_path.parents:
+        if (parent / "project.yaml").exists():
+            return parent
+    return session_path.parents[3]
+
+
+def _session_audit_summary(root: Path, session: CreationSession) -> list[dict[str, object]]:
+    summaries: list[dict[str, object]] = []
+    for chapter_number in session.chapter_range:
+        audit_path = root / "memory" / "chapters" / f"{chapter_number:03d}" / "audit.json"
+        if not audit_path.exists():
+            summaries.append(
+                {
+                    "chapter_number": chapter_number,
+                    "exists": False,
+                    "overall_status": None,
+                    "blocking_issue_count": 0,
+                    "issues": [],
+                    "path": _relative(root, audit_path),
+                }
+            )
+            continue
+        try:
+            report = load_json_model(audit_path, AuditReport)
+        except Exception as exc:
+            summaries.append(
+                {
+                    "chapter_number": chapter_number,
+                    "exists": True,
+                    "overall_status": None,
+                    "blocking_issue_count": 0,
+                    "issues": [],
+                    "error": str(exc),
+                    "path": _relative(root, audit_path),
+                }
+            )
+            continue
+        issues = [
+            {
+                "id": issue.id,
+                "severity": issue.severity,
+                "type": issue.type,
+                "description": issue.description,
+                "suggested_fix": issue.suggested_fix,
+            }
+            for issue in report.issues
+        ]
+        summaries.append(
+            {
+                "chapter_number": chapter_number,
+                "exists": True,
+                "overall_status": report.overall_status,
+                "blocking_issue_count": sum(
+                    1 for issue in report.issues if issue.severity in {"medium", "high", "critical"}
+                ),
+                "summary": report.summary,
+                "issues": issues,
+                "path": _relative(root, audit_path),
+            }
+        )
+    return summaries
 
 
 def _list_projects(root: Path) -> list[dict[str, str]]:

@@ -411,7 +411,7 @@ Embedding provider：
 - `revise_outline()`：按用户意见重新生成 outline proposal。
 - `approve_outline()`：冻结 approved outline。
 - `run_session()`：生成正文、润色、审核、自动修复、state proposal。
-- `revise_content()`：按用户意见或 low audit issue 生成修订版本。
+- `revise_content()`：按用户意见或 audit issue 生成修订版本，提升为当前 `polished.md`，重跑 audit，并在通过后重建 state proposal。
 - `accept_session()`：应用状态更新并标记章节 accepted。
 - `archive_session()`：归档 approved outline、最终正文、audit、state update 和 manifest。
 - `_generate_chapter_content()`：单章 writer/polish/audit 调度。

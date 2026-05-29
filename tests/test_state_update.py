@@ -349,6 +349,36 @@ def test_validate_state_update_rejects_timeline_order_regression(tmp_path: Path)
         raise AssertionError("expected timeline order regression failure")
 
 
+def test_validate_state_update_rejects_timeline_scene_outside_plan(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
+    proposal.timeline_events[0].scene = 3
+
+    try:
+        validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
+    except Exception as exc:
+        assert "exceeds ChapterPlan scene count" in str(exc)
+    else:
+        raise AssertionError("expected scene bounds failure")
+
+
+def test_state_update_repairs_timeline_scene_outside_plan(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    bad_data = json.loads(default_mock_state_update_proposal_json(1))
+    bad_data["timeline_events"][0]["scene"] = 3
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(bad_data, ensure_ascii=False),
+            default_mock_state_update_proposal_json(1),
+        ]
+    )
+
+    result = propose_state_update(StateUpdateProposeOptions(root=root, chapter_number=1), provider)
+
+    assert result.proposal.timeline_events[0].scene == 1
+    assert len(provider.requests) == 2
+
+
 def test_accept_chapter_passed_audit_applies_update_and_marks_accepted(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])

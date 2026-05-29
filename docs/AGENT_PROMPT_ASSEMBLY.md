@@ -279,13 +279,13 @@ Prompt 组装：
 
 Prompt 组装：
 
-- `build_revision_user_prompt()` 写入源正文、用户修改要求、audit issues、style、canon、state、timeline。
-- 如果 `--from-audit`，要求重点修复 audit issues。
+- `build_revision_user_prompt()` 写入源正文、用户修改要求、blocking audit issue 摘要、完整 audit report、style、canon、state、timeline。
+- 如果 `--from-audit`，要求逐条修复 medium/high/critical issues，优先应用 suggested_fix，并避免原 evidence quote 以同一问题形式保留。
 
 输出处理：
 
 - Markdown contract：`revised chapter Markdown body`。
-- 默认保存为新版本，不覆盖原稿。
+- 默认保存为新版本，不覆盖原稿；Session 流程会把通过修订产生的 `polished.vN.md` 提升为当前 `polished.md` 后重审。
 - `_append_revision_log()` 记录版本来源、instruction、audit issue ids、provider。
 
 ## 10. Orchestrator
@@ -328,7 +328,7 @@ Prompt 组装：
 2. `revise_outline()` 把用户意见合并进 intent，重新生成 outline proposal。
 3. `approve_outline()` 复制 proposal 为 approved outline。
 4. `run_session()` 调用 Writer、Polish、Audit；medium/high/critical issue 触发自动修复循环。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
-5. `revise_content()` 处理作者反馈或 low audit issue。
+5. `revise_content()` 处理作者反馈或 audit issue，生成版本稿、提升当前稿、重跑 audit；audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
 6. `accept_session()` 应用 state update 并标记 accepted。
 7. `archive_session()` 复制本次创作文件并写 sha256 manifest。
 

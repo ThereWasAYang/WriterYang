@@ -580,6 +580,7 @@ def _normalize_audit_report_data(data: object) -> object:
                 item["evidence"] = [evidence]
             normalized_issues.append(item)
         normalized["issues"] = normalized_issues
+        _normalize_provider_issue_severities(normalized)
     return normalized
 
 
@@ -601,6 +602,84 @@ def _normalize_audited_file(value: str) -> str:
 def _normalize_issue_id(value: str, index: int) -> str:
     normalized = re.sub(r"[^a-z0-9_]+", "_", value.lower()).strip("_")
     return normalized or f"issue_{index}"
+
+
+def _normalize_provider_issue_severities(report_data: dict[str, object]) -> None:
+    issues = report_data.get("issues")
+    if not isinstance(issues, list):
+        return
+    for issue in issues:
+        if isinstance(issue, dict) and issue.get("severity") == "medium":
+            if _is_subjective_nonblocking_issue(issue):
+                issue["severity"] = "low"
+    severities = [issue.get("severity") for issue in issues if isinstance(issue, dict)]
+    if "critical" in severities:
+        report_data["overall_status"] = "blocked"
+    elif "high" in severities or "medium" in severities:
+        report_data["overall_status"] = "needs_revision"
+    else:
+        report_data["overall_status"] = "passed"
+
+
+def _is_subjective_nonblocking_issue(issue: dict[str, object]) -> bool:
+    text = _issue_text(issue)
+    uncertain_markers = (
+        "可能",
+        "风险",
+        "依据不足",
+        "缺乏明确",
+        "不够明确",
+        "不够清楚",
+        "略",
+        "有待",
+        "过强",
+        "过早推断",
+        "读者质疑",
+    )
+    if not any(marker in text for marker in uncertain_markers):
+        return False
+    hard_markers = (
+        "holder_id",
+        "location_id",
+        "chapter_number",
+        "current_state",
+        "timeline",
+        "plan.json",
+        "scene=",
+        "超出",
+        "不存在",
+        "缺失",
+        "不匹配",
+        "同时有",
+        "多持有人",
+        "知道了不该知道",
+        "尚未获得的信息",
+        "直接写出",
+        "直接说出",
+        "直接揭示",
+        "明确揭示",
+        "已死亡",
+    )
+    return not any(marker in text for marker in hard_markers)
+
+
+def _issue_text(issue: dict[str, object]) -> str:
+    parts = [
+        str(issue.get("type") or ""),
+        str(issue.get("description") or ""),
+        str(issue.get("suggested_fix") or ""),
+    ]
+    evidence = issue.get("evidence")
+    if isinstance(evidence, list):
+        for item in evidence:
+            if isinstance(item, dict):
+                parts.append(str(item.get("source") or ""))
+                parts.append(str(item.get("quote") or ""))
+            else:
+                parts.append(str(item))
+    elif evidence is not None:
+        parts.append(str(evidence))
+    return " ".join(parts).lower()
 
 
 def _repair_prompt(

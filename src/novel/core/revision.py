@@ -273,8 +273,10 @@ def build_revision_system_prompt() -> str:
 
 def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisionOptions) -> str:
     audit_text = "无"
+    blocking_issue_text = "无"
     if context.audit:
         audit_text = context.audit.model_dump_json(indent=2)
+        blocking_issue_text = _blocking_audit_issue_text(context.audit)
     mode = "基于 audit issues 修复" if options.from_audit else "基于用户 instruction 修订"
     return (
         f"项目：{context.project.title}\n"
@@ -285,6 +287,8 @@ def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisio
         f"用户修订要求：{options.instruction or '无'}\n\n"
         "请只输出修订后的正文 Markdown，不要包含 YAML front matter。"
         "保留章节核心剧情与结尾钩子，除非用户明确要求改变。\n\n"
+        f"Blocking audit issues（必须逐条解决 medium/high/critical，优先应用 suggested_fix）：\n"
+        f"{blocking_issue_text}\n\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
         f"Source metadata：\n{json.dumps(context.source_document.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
         f"Source body：\n{context.source_document.body}\n\n"
@@ -294,6 +298,20 @@ def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisio
         f"Current state：\n{context.state.model_dump_json(indent=2)}\n\n"
         f"Timeline：\n{context.timeline.model_dump_json(indent=2)}\n"
     )
+
+
+def _blocking_audit_issue_text(audit: AuditReport) -> str:
+    lines = []
+    for issue in audit.issues:
+        if issue.severity not in {"medium", "high", "critical"}:
+            continue
+        evidence = "; ".join(f"{item.source}: {item.quote}" for item in issue.evidence) or "无"
+        lines.append(
+            f"- {issue.id} [{issue.severity}/{issue.type}] {issue.description}\n"
+            f"  evidence: {evidence}\n"
+            f"  suggested_fix: {issue.suggested_fix or '无'}"
+        )
+    return "\n".join(lines) if lines else "无"
 
 
 def render_revised_markdown(
@@ -325,9 +343,9 @@ def render_revised_markdown(
 def default_mock_revised_body(target: RevisionTarget = "polished") -> str:
     label = "润色稿" if target == "polished" else "初稿"
     return (
-        f"雨声比先前更低，像一层细密的幕布压在旧车站上。这个修订后的{label}保留了原本的事件，"
+        f"雨夜旧车站里的雨声比先前更低，像一层细密的幕布压在站台上。这个修订后的{label}保留了原本的事件，"
         "却让林澈的迟疑更清楚地浮出水面。\n\n"
-        "他重新望向站台尽头，广播里的杂音已经消失，只剩檐下不断坠落的水珠。那张湿透的车票仍在"
+        "他重新望向站台尽头，广播里的杂音已经消失，只剩檐下不断坠落的水珠。那张湿透的破损车票仍在"
         "笔记本里发凉，像一个尚未被说出口的问题。\n\n"
         "林澈没有得到答案。他只是意识到，自己已经无法把这座车站当成一处废墟。"
     )

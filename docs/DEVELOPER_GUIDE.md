@@ -104,7 +104,7 @@ exports/
 inspire -> canon suggest/apply -> session start -> approve-outline -> session run -> user review -> session accept/archive -> export
 ```
 
-`session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。
+`session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，也必须执行同一套“版本稿 -> 提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
 
 底层命令仍可用于调试：
 

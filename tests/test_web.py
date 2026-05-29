@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import errno
+from datetime import datetime, timezone
 from pathlib import Path
 
 from novel.cli import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.io import atomic_write_model_json
+from novel.core.schemas import AuditReport, CreationSession
+from novel.core.session import SessionResult
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import handle_api_request
 from novel.web_server import WebServerError, index_html, run_web_server
@@ -389,6 +393,8 @@ def test_frontend_basic_render() -> None:
     assert 'id="sessionStart"' in html
     assert 'id="sessionRun"' in html
     assert 'id="sessionPanel"' in html
+    assert 'id="sessionReviseAudit"' in html
+    assert 'id="sessionReviseInstruction"' in html
     assert 'id="initProject"' in html
     assert 'id="inspireProject"' in html
     assert 'id="canonSuggest"' in html
@@ -404,9 +410,93 @@ def test_frontend_basic_render() -> None:
     assert "/api/init-project" in html
     assert "/api/inspire" in html
     assert "/api/canon/suggest" in html
+    assert "/api/session/revise-content" in html
+    assert "from_audit" in html
     assert "refreshAll({ silent: true })" in html
     assert "includeSessionId: false" in html
     assert "fetch(" in html
+
+
+def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    session_id = "session_20260529_010101_000001"
+    session_dir = root / "memory" / "sessions" / session_id
+    session_dir.mkdir(parents=True)
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_model_json(
+        chapter_dir / "audit.json",
+        AuditReport.model_validate(
+            {
+                "chapter_number": 1,
+                "audited_file": "polished.md",
+                "overall_status": "needs_revision",
+                "summary": "仍有阻断问题。",
+                "issues": [
+                    {
+                        "id": "audit_001_medium",
+                        "severity": "medium",
+                        "type": "state_conflict",
+                        "description": "物品位置冲突。",
+                        "evidence": [{"source": "polished.md", "quote": "错误位置"}],
+                        "suggested_fix": "修正文。",
+                    }
+                ],
+                "created_at": "2026-05-22T00:00:00Z",
+            }
+        ),
+    )
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    session = CreationSession(
+        session_id=session_id,
+        scope_type="chapters",
+        chapter_range=[1],
+        user_intent="写第1章",
+        status="needs_revision",
+        outline_status="approved",
+        content_status="needs_revision",
+        approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
+        created_at=now,
+        updated_at=now,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_revise_content(options) -> SessionResult:
+        captured["from_audit"] = options.from_audit
+        captured["instruction"] = options.instruction
+        return SessionResult(
+            session=session,
+            session_path=session_dir / "session.json",
+            message="fake revised",
+        )
+
+    monkeypatch.setattr("novel.web_api.revise_content", fake_revise_content)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/session/revise-content",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "session_id": session_id,
+                "instruction": "按审核修",
+                "provider": "mock",
+                "from_audit": True,
+            }
+        ),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert captured["from_audit"] is True
+    assert captured["instruction"] == "按审核修"
+    audit_summary = payload["data"]["audit_summary"]  # type: ignore[index]
+    assert audit_summary[0]["overall_status"] == "needs_revision"
+    assert audit_summary[0]["blocking_issue_count"] == 1
 
 
 def test_web_port_can_be_read_from_project_config(tmp_path: Path) -> None:

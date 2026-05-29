@@ -321,6 +321,50 @@ def test_api_session_start_endpoint_creates_outline(tmp_path: Path) -> None:
     assert (root / "memory" / "sessions" / session["session_id"] / "outline_proposal.md").is_file()
 
 
+def test_api_validate_endpoint_returns_project_report(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request("GET", "/api/validate", f"path={root}", None)
+
+    assert status == 200
+    assert payload["ok"] is True
+    data = payload["data"]
+    assert data["valid"] is True  # type: ignore[index]
+    assert data["error_count"] == 0  # type: ignore[index]
+    assert isinstance(data["warnings"], list)  # type: ignore[index]
+
+
+def test_api_session_revise_outline_keeps_session_id(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    start_status, start_payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "写第1章", "chapters": "1", "provider": "mock"}),
+    )
+    session_id = start_payload["data"]["session"]["session_id"]  # type: ignore[index]
+
+    revise_status, revise_payload = handle_api_request(
+        "POST",
+        "/api/session/revise-outline",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "session_id": session_id,
+                "instruction": "把开场改得更克制",
+                "provider": "mock",
+                "force": True,
+            }
+        ),
+    )
+
+    assert start_status == 200
+    assert revise_status == 200
+    assert revise_payload["data"]["session"]["session_id"] == session_id  # type: ignore[index]
+    assert (root / "memory" / "sessions" / session_id / "outline_proposal.md").is_file()
+
+
 def test_api_init_project_endpoint_creates_workspace(tmp_path: Path) -> None:
     root = tmp_path / "web-created"
 
@@ -395,6 +439,9 @@ def test_frontend_basic_render() -> None:
     assert 'id="sessionPanel"' in html
     assert 'id="sessionReviseAudit"' in html
     assert 'id="sessionReviseInstruction"' in html
+    assert 'id="sessionReviseOutline"' in html
+    assert 'id="validateProject"' in html
+    assert 'id="nextStepPanel"' in html
     assert 'id="initProject"' in html
     assert 'id="inspireProject"' in html
     assert 'id="canonSuggest"' in html
@@ -410,8 +457,11 @@ def test_frontend_basic_render() -> None:
     assert "/api/init-project" in html
     assert "/api/inspire" in html
     assert "/api/canon/suggest" in html
+    assert "/api/validate" in html
+    assert "/api/session/revise-outline" in html
     assert "/api/session/revise-content" in html
     assert "from_audit" in html
+    assert "renderNextStep" in html
     assert "refreshAll({ silent: true })" in html
     assert "includeSessionId: false" in html
     assert "fetch(" in html

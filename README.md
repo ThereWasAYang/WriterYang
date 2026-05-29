@@ -2,10 +2,11 @@
 
 WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。它不是单纯的聊天写作器，而是把灵感、设定、人物、地点、物品、时间线、章节计划、正文、润色稿、审核报告和导出结果保存为可编辑的 Markdown / JSON / YAML 文件。
 
-当前版本重点是本地 CLI 和最小 Web UI。所有测试都使用 `MockProvider`，不依赖真实 API Key。
+当前版本重点是本地 CLI 和可用的本地 Web UI。新用户推荐优先走 Web UI 的 Session 流程；CLI 保留给高级使用、调试、自动化和外部工具集成。所有测试都使用 `MockProvider`，不依赖真实 API Key。
 
 ## 新手入口
 
+- [Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)：面向不懂代码和命令行的作者，优先使用浏览器完成创作全流程。
 - [新手快速开始](docs/QUICKSTART.md)：用 `mock` provider 跑通 10 分钟流程，不需要 API Key。
 - [作者如何手动编辑 memory 文件](docs/MEMORY_EDITING.md)：说明 inspiration、style、canon、state、timeline、章节文件的人工编辑边界。
 - [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 agent 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。
@@ -447,9 +448,12 @@ web:
 
 打开 `http://127.0.0.1:8765`。Web UI 可以输入项目路径，查看状态和 canon，列出章节，触发计划、写作、润色、审核、Markdown 导出，并查看生成文件。Web API 调用同一套 core service，不返回真实 API Key。长任务执行时按钮会临时禁用并显示执行中状态；完成后会保留真实返回消息和 Session 状态，不会被自动刷新覆盖。
 
+面向非技术作者的浏览器操作流程见：[Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)。日常创作推荐使用 Web UI 的 Session 面板：创建大纲 -> 修改/批准大纲 -> 开始写作 -> 按 Audit 或用户意见修订 -> 认可 -> 归档 -> 导出。
+
 当前 Web 工作台还支持：
 
 - 初始化项目：在本地路径创建最小小说工作区。
+- 项目检查：在 Web UI 中运行 validate，查看 errors / warnings 摘要，不必切换到命令行。
 - Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。
 - 项目文件树：只显示工作区内安全文件，排除 `.env*`、search index、备份和缓存。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
@@ -460,6 +464,8 @@ web:
 - Provider 配置：展示并允许编辑非密钥字段，例如 provider、model、temperature、thinking、timeout；只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
+- 下一步提示：根据项目状态、session 状态和项目检查结果提示下一步操作，降低误点旧 session 或跳过审核的风险。
+- Session 大纲修订：大纲不满意时，在聊天 / 指令框输入修改意见并点击“修改大纲”；满意后再批准大纲。
 - Session 修订：当内容停在 `needs_revision` 时，可点击“按 Audit 修订内容”直接根据当前 `audit.json` 修订；也可以在聊天/指令框输入意见后点击“按用户意见修订内容”。修订后系统会重审并刷新 state proposal。
 
 Web API 统一返回：

@@ -40,6 +40,7 @@ from novel.core.session import (
     start_session,
 )
 from novel.core.usage import summarize_provider_usage
+from novel.core.validation import ValidationMessage, validate_project
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -99,6 +100,8 @@ def handle_api_request(
             payload = asdict(status)
             payload["latest_run_log"] = str(status.latest_run_log) if status.latest_run_log else None
             return _success({"status": payload})
+        if method == "GET" and path == "/api/validate":
+            return _success(_validate_project(_root_from_query(query)))
         if method == "GET" and path == "/api/canon":
             return _success({"summary": format_canon(_root_from_query(query))})
         if method == "GET" and path == "/api/chapters":
@@ -601,6 +604,27 @@ def _session_archive(data: dict[str, object]) -> dict[str, object]:
         )
     )
     return _session_result_payload(result)
+
+
+def _validate_project(root: Path) -> dict[str, object]:
+    _require_workspace(root)
+    report = validate_project(root)
+    return {
+        "valid": report.ok,
+        "error_count": len(report.errors),
+        "warning_count": len(report.warnings),
+        "errors": [_validation_message_payload(root, message) for message in report.errors],
+        "warnings": [_validation_message_payload(root, message) for message in report.warnings],
+        "messages": [_validation_message_payload(root, message) for message in report.messages],
+    }
+
+
+def _validation_message_payload(root: Path, message: ValidationMessage) -> dict[str, object]:
+    return {
+        "level": message.level,
+        "path": _relative(root, message.path),
+        "message": message.message,
+    }
 
 
 def _session_result_payload(result) -> dict[str, object]:

@@ -100,8 +100,9 @@ runs/agent_output_violations/{request_id}.json
    - model audit：通常是语义/风格/动机问题，可能要调 prompt 或走 revision。
 5. 如果 session 自动修复后仍失败，检查 `revision_log.json` 中的 `polished.vN.md` 是否已提升为当前 `polished.md`，重审后的 `audit.json` 是否仍有 medium/high/critical，以及是否因为计划层问题触发了重新 planning。
 6. 如果 Web UI 停在 `needs_revision`，优先走“按 Audit 修订内容”；修订后应看到新的版本稿、更新后的 `polished.md`、新的 audit 和新的 `state_update_proposal.json`。
-7. 全局 timeline ordering 旧 warning 不应阻断某一章正文修复；真正会阻断的是当前章新增事件倒退、scene 超出 ChapterPlan 范围或引用冲突。
-7. 对 accepted/export 相关问题，确认 state update apply log 和 metadata 是否一致。
+7. 如果普通作者不确定下一步操作，先让他点击 Web UI 的“项目检查”，再看“下一步提示”；这两个入口都只读，不会修改项目文件。
+8. 全局 timeline ordering 旧 warning 不应阻断某一章正文修复；真正会阻断的是当前章新增事件倒退、scene 超出 ChapterPlan 范围或引用冲突。
+9. 对 accepted/export 相关问题，确认 state update apply log 和 metadata 是否一致。
 
 相关代码：
 

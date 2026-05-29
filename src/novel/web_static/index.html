@@ -72,6 +72,7 @@
         <button id="openProject" class="primary">打开</button>
         <button id="refreshProject">刷新</button>
       </div>
+      <button id="validateProject" style="width: 100%; margin-top: 8px;">项目检查</button>
       <label for="projectTitle">新项目标题</label>
       <input id="projectTitle" placeholder="用于初始化新小说项目">
       <label for="projectGenre">类型标签</label>
@@ -120,6 +121,7 @@
       <input id="sessionId" placeholder="session_...">
       <div class="actions">
         <button id="sessionStart">创建大纲</button>
+        <button id="sessionReviseOutline">修改大纲</button>
         <button id="sessionApprove">批准大纲</button>
         <button id="sessionRun">开始写作</button>
         <button id="sessionArchive">归档</button>
@@ -130,6 +132,7 @@
         <button id="sessionReviseInstruction">按用户意见修订内容</button>
       </div>
       <div id="sessionPanel" class="metric" style="margin-top: 10px;">未加载 Session</div>
+      <div id="nextStepPanel" class="metric" style="margin-top: 10px;">下一步：打开或初始化一个小说项目。</div>
       <div id="message" class="message"></div>
 
       <h2>项目文件树</h2>
@@ -337,6 +340,7 @@
         $("canonPanel").textContent = canon.summary || "无";
         renderChapters(chapters.chapters || []);
         renderFileTree(files.files || []);
+        renderNextStep({ status: status.status, chapters: chapters.chapters || [] });
         if (!options.silent) setMessage("项目已刷新");
       } catch (error) {
         if (!options.silent) setMessage(error.message, true);
@@ -435,6 +439,7 @@
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
         renderSessionSummary(data);
+        renderNextStep(data);
         setMessage(actionMessage(label, data));
       });
     }
@@ -503,6 +508,15 @@
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
         setMessage(actionMessage("应用 Canon proposal", data));
+      });
+    }
+
+    async function validateProject() {
+      return withBusy("项目检查", async () => {
+        const data = await apiGet("/api/validate", { path: projectPath() });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderNextStep({ validation: data });
+        setMessage(`项目检查完成：${data.error_count || 0} 个错误，${data.warning_count || 0} 个警告`);
       });
     }
 
@@ -818,6 +832,45 @@
       `;
     }
 
+    function renderNextStep(data = {}) {
+      const session = data.session || {};
+      const validation = data.validation || null;
+      const status = data.status || {};
+      let text = "下一步：打开或初始化一个小说项目。";
+      if (validation) {
+        if ((validation.error_count || 0) > 0) {
+          text = `下一步：项目检查发现 ${validation.error_count} 个错误，请先查看右侧详情并修复。`;
+        } else if ((validation.warning_count || 0) > 0) {
+          text = `下一步：项目检查通过，但有 ${validation.warning_count} 个警告。长篇创作前建议查看并处理。`;
+        } else {
+          text = "下一步：项目检查通过。可以继续创建 Session、写作或导出。";
+        }
+      } else if (session.session_id) {
+        if (session.status === "outline_proposed" || session.outline_status === "proposed") {
+          text = "下一步：查看大纲。不满意就在聊天 / 指令框写修改意见并点击“修改大纲”；满意后点击“批准大纲”。";
+        } else if (session.status === "outline_approved" || session.outline_status === "approved" && session.content_status === "not_started") {
+          text = "下一步：点击“开始写作”，系统会自动完成写作、润色、审核和状态更新 proposal。";
+        } else if (session.content_status === "needs_revision" || session.status === "needs_revision") {
+          text = "下一步：查看 Audit 摘要。硬伤优先点击“按 Audit 修订内容”；主观意见写入聊天 / 指令框后点击“按用户意见修订内容”。";
+        } else if (session.content_status === "needs_user_review" || session.status === "needs_user_review") {
+          text = "下一步：查看 polished/audit。满意后点击“认可本次创作”，再点击“归档”。";
+        } else if (session.status === "accepted") {
+          text = "下一步：点击“归档”冻结本次创作；之后可以导出 Markdown。";
+        } else if (session.status === "archived") {
+          text = "下一步：本次创作已归档。可以继续新建 Session 或导出 Markdown。";
+        }
+      } else if (status.title) {
+        if (!status.inspiration_exists) {
+          text = "下一步：在聊天 / 指令框输入故事灵感，点击“生成灵感”。";
+        } else if ((status.character_count || 0) === 0 && (status.location_count || 0) === 0) {
+          text = "下一步：点击“Canon 建议”，确认 proposal 后点击“应用 Canon proposal”。";
+        } else {
+          text = "下一步：填写章节范围和创作意图，点击“创建大纲”开始一次 Session。";
+        }
+      }
+      $("nextStepPanel").textContent = text;
+    }
+
     function renderSessionAuditSummary(auditSummary) {
       if (!auditSummary.length) return "<div style=\"margin-top: 8px;\">audit: 未生成</div>";
       return auditSummary.map((item) => {
@@ -846,6 +899,7 @@
 
     $("openProject").addEventListener("click", refreshAll);
     $("refreshProject").addEventListener("click", refreshAll);
+    $("validateProject").addEventListener("click", validateProject);
     $("initProject").addEventListener("click", initProject);
     $("planChapter").addEventListener("click", () => runAction("/api/plan-chapter", "生成计划"));
     $("writeChapter").addEventListener("click", () => runAction("/api/write-chapter", "写章节"));
@@ -859,6 +913,7 @@
       $("sessionId").value = "";
       runSessionAction("/api/session/start", sessionPayload({ includeSessionId: false }), "创建 Session 大纲");
     });
+    $("sessionReviseOutline").addEventListener("click", () => runSessionAction("/api/session/revise-outline", sessionPayload(), "修改 Session 大纲"));
     $("sessionApprove").addEventListener("click", () => runSessionAction("/api/session/approve-outline", sessionPayload(), "批准 Session 大纲"));
     $("sessionRun").addEventListener("click", () => runSessionAction("/api/session/run", sessionPayload(), "Session 写作"));
     $("sessionAccept").addEventListener("click", () => runSessionAction("/api/session/accept", sessionPayload(), "认可 Session"));

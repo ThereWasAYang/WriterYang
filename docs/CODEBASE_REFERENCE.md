@@ -112,6 +112,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `handle_api_request()`：路由分发入口。
 - `_success()` / `_failure()`：统一响应结构。
 - `_locked_write()`：Web 写操作项目锁。
+- `_validate_project()` / `_validation_message_payload()`：只读项目检查 API，复用 `validate_project()`，返回 errors/warnings 摘要供 Web UI 显示。
 - `_plan_chapter()`、`_write_chapter()`、`_polish_chapter()`、`_audit_chapter()`、`_generate_chapter()`：调用对应 core service。
 - `_export_markdown()`：调用 Markdown export。
 - `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
@@ -135,6 +136,9 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 文件树。
 - 章节对照、编辑器、audit 定位、运行日志、provider 配置、状态/时间线 tabs。
 - 初始化、inspiration、canon suggest/apply、生成/写作/润色/审核/export/session API 调用。
+- 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入文件查看区和下一步提示。
+- Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、按 Audit/用户意见修订、认可和归档。
+- `renderNextStep()`：根据项目状态、validation 结果和 session 状态显示下一步操作建议。
 
 前端只调用 Web API；不要把业务规则复制进 JS。
 

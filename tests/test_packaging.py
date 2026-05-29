@@ -109,6 +109,7 @@ def test_readme_core_commands_match_cli() -> None:
 
 def test_user_docs_exist_and_mention_core_workflow() -> None:
     docs = {
+        "docs/WEB_UI_USER_GUIDE.md": ("Web UI", "Session", "修改大纲", "按 Audit 修订内容", "项目检查", "导出 Markdown"),
         "docs/QUICKSTART.md": ("novel inspire", "novel canon apply", "novel export markdown"),
         "docs/MEMORY_EDITING.md": ("hidden_truths.json", "reader_visible_summary", "novel validate"),
         "docs/MODEL_CONFIG_BEST_PRACTICES.md": ("provider", "thinking", "temperature"),
@@ -117,6 +118,13 @@ def test_user_docs_exist_and_mention_core_workflow() -> None:
         text = Path(rel_path).read_text(encoding="utf-8")
         for phrase in expected:
             assert phrase in text
+
+
+def test_readme_links_web_ui_user_guide() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "docs/WEB_UI_USER_GUIDE.md" in readme
+    assert "Web UI 的 Session 流程" in readme
 
 
 def test_github_workflows_cover_quality_build_and_release() -> None:

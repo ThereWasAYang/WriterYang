@@ -33,6 +33,7 @@ from novel.core.session import (
     approve_outline,
     archive_session,
     load_session,
+    load_rewrite_events,
     parse_range,
     revise_content,
     revise_outline,
@@ -125,7 +126,22 @@ def handle_api_request(
         if method == "GET" and path == "/api/session":
             root = _root_from_query(query)
             session = load_session(root, query.get("session_id") or "")
-            return _success({"session": session.model_dump(mode="json")})
+            return _success(
+                {
+                    "session": session.model_dump(mode="json"),
+                    "audit_summary": _session_audit_summary(root, session),
+                    "rewrite_events": _session_rewrite_event_summary(root, session),
+                }
+            )
+        if method == "GET" and path == "/api/session/rewrite-events":
+            root = _root_from_query(query)
+            session = load_session(root, query.get("session_id") or "")
+            return _success(
+                {
+                    "session_id": session.session_id,
+                    "rewrite_events": _session_rewrite_event_summary(root, session),
+                }
+            )
         if method == "GET" and path == "/api/diff":
             return _success(
                 _workspace_diff(
@@ -634,6 +650,7 @@ def _session_result_payload(result) -> dict[str, object]:
         "session_path": str(result.session_path),
         "message": result.message,
         "audit_summary": _session_audit_summary(root, result.session),
+        "rewrite_events": _session_rewrite_event_summary(root, result.session),
     }
 
 
@@ -699,6 +716,37 @@ def _session_audit_summary(root: Path, session: CreationSession) -> list[dict[st
             }
         )
     return summaries
+
+
+def _session_rewrite_event_summary(root: Path, session: CreationSession) -> list[dict[str, object]]:
+    events = load_rewrite_events(root, session.session_id)
+    return [
+        {
+            "event_id": event.event_id,
+            "chapter_number": event.chapter_number,
+            "round_number": event.round_number,
+            "action": event.action,
+            "status": event.status,
+            "trigger_audit_path": event.trigger_audit_path,
+            "rejected_text_snapshot_path": event.rejected_text_snapshot_path,
+            "before_output_path": event.before_output_path,
+            "after_output_path": event.after_output_path,
+            "created_at": event.created_at.isoformat(),
+            "updated_at": event.updated_at.isoformat() if event.updated_at else None,
+            "blocking_issues": [
+                {
+                    "id": issue.id,
+                    "severity": issue.severity,
+                    "type": issue.type,
+                    "description": issue.description,
+                    "evidence": [evidence.model_dump(mode="json") for evidence in issue.evidence],
+                    "suggested_fix": issue.suggested_fix,
+                }
+                for issue in event.blocking_issues
+            ],
+        }
+        for event in events
+    ]
 
 
 def _list_projects(root: Path) -> list[dict[str, str]]:

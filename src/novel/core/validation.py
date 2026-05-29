@@ -20,6 +20,7 @@ from novel.core.schemas import (
     CreationArchiveManifest,
     CreationOutline,
     CreationSession,
+    SessionRewriteEvents,
     EmbeddingsConfig,
     EntityState,
     ForeshadowingFile,
@@ -795,6 +796,7 @@ def _validate_session_outputs(report: ValidationReport, root: Path) -> None:
             _validate_optional_chapter_json(report, session_dir / "session.json", CreationSession)
             _validate_optional_chapter_json(report, session_dir / "outline_proposal.json", CreationOutline)
             _validate_optional_chapter_json(report, session_dir / "approved_outline.json", CreationOutline)
+            _validate_optional_chapter_json(report, session_dir / "rewrite_events.json", SessionRewriteEvents)
     archive_dir = root / "memory" / "archive"
     if archive_dir.exists():
         for manifest_path in sorted(archive_dir.glob("session_*/manifest.json")):

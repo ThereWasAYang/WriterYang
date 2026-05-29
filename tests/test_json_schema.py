@@ -32,6 +32,7 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "revision_log",
         "creation_session",
         "creation_outline",
+        "session_rewrite_events",
         "creation_archive",
         "run_log",
         "export_manifest",

@@ -121,8 +121,8 @@ novel export markdown --path ./my-novel --toc --force
 - `canon suggest` 后先看 proposal，再 `apply`；不要把隐藏真相写进读者可见摘要。
 - `session start` 后先看 `memory/sessions/{session_id}/outline_proposal.md`，不满意就 `session revise-outline`。
 - `session approve-outline` 后，后续写作必须遵守 approved outline。
-- `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复。正文层问题会生成版本稿并提升为当前 `polished.md` 后重审；连续失败或判断为计划层问题时会回退 Plot Agent 重写本章计划。
-- 自动修复超过轮数后，session 会停在 `status=needs_revision`、`content_status=needs_revision`，用户可查看 audit 和 revision log；在 Web UI 中应优先使用“按 Audit 修订内容”，不要通过新建 session 覆盖已有产物来绕过问题。
+- `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复。每次自动打回都会记录到 `memory/sessions/{session_id}/rewrite_events.json`，并把被打回的 `polished.md` 快照保存到 `memory/sessions/{session_id}/rejections/`，方便作者确认打回原因是否合理。
+- 自动修复超过轮数后，session 会停在 `status=needs_revision`、`content_status=needs_revision`，用户可查看 audit、rewrite events 和 revision log；在 Web UI 中应优先查看“自动打回重写记录”，再使用“按 Audit 修订内容”，不要通过新建 session 覆盖已有产物来绕过问题。
 - low 级别 audit issue 不会被静默自动修改，会展示给作者；作者可选择直接接受，或运行 `session revise-content <session_id> --from-audit` 生成修订版本。
 - 用户看到最终内容后用 `session revise-content` 提意见；系统生成新版本，提升为当前 `polished.md`，重跑 audit，并重新生成 state proposal，不覆盖归档内容。
 - `session accept` 后才应用状态更新并标记章节 accepted；`session archive` 会复制本次创作文件并记录 sha256。
@@ -487,6 +487,7 @@ web:
 - Provider 配置：展示并允许编辑非密钥字段，例如 provider、model、temperature、thinking、timeout；只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
+- 自动打回重写记录：当 Audit 把正文打回重写时，显示第几章第几轮、打回原因、系统动作和“查看被打回原文”按钮；如果你认为打回不合理，应检查对应 `audit.json`、`memory/state/timeline.json`、`current_state.json` 和 canon 文件。
 - 下一步提示：根据项目状态、session 状态和项目检查结果提示下一步操作，降低误点旧 session 或跳过审核的风险。
 - Session 大纲修订：大纲不满意时，在聊天 / 指令框输入修改意见并点击“修改大纲”；满意后再批准大纲。
 - Session 修订：当内容停在 `needs_revision` 时，可点击“按 Audit 修订内容”直接根据当前 `audit.json` 修订；也可以在聊天/指令框输入意见后点击“按用户意见修订内容”。修订后系统会重审并刷新 state proposal。

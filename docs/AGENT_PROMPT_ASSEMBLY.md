@@ -320,6 +320,8 @@ Prompt 组装：
   - `memory/sessions/{session_id}/session.json`
   - `outline_proposal.json/md`
   - `approved_outline.json/md`
+  - `rewrite_events.json`
+  - `rejections/chapter_{NNN}_round_{R}_before.md`
   - `memory/archive/{session_id}/manifest.json`
 
 流程：
@@ -327,7 +329,7 @@ Prompt 组装：
 1. `start_session()` 创建 session，并调用 Plot Agent 为章节范围生成 outline proposal。
 2. `revise_outline()` 把用户意见合并进 intent，重新生成 outline proposal。
 3. `approve_outline()` 复制 proposal 为 approved outline。
-4. `run_session()` 调用 Writer、Polish、Audit；medium/high/critical issue 触发自动修复循环。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
+4. `run_session()` 调用 Writer、Polish、Audit；medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
 5. `revise_content()` 处理作者反馈或 audit issue，生成版本稿、提升当前稿、重跑 audit；audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
 6. `accept_session()` 应用 state update 并标记 accepted。
 7. `archive_session()` 复制本次创作文件并写 sha256 manifest。

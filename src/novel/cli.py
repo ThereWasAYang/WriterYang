@@ -73,6 +73,7 @@ from novel.core.session import (
     accept_session,
     approve_outline,
     archive_session,
+    load_rewrite_events,
     parse_range,
     revise_content,
     revise_outline,
@@ -121,7 +122,7 @@ from novel.core.orchestrator import (
 )
 from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
 from novel.core.security import scan_security
-from novel.core.schemas import AuditReport, ProjectConfig
+from novel.core.schemas import AuditReport, CreationSession, ProjectConfig
 from novel.core.usage import UsageError, summarize_provider_usage
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
@@ -254,7 +255,7 @@ def _resolve_session_chapters(args: argparse.Namespace) -> tuple[int, ...]:
     raise CreationSessionError("provide --chapters or --chapter")
 
 
-def _session_payload(command: str, result: SessionResult) -> dict[str, object]:
+def _session_payload(command: str, result: SessionResult, root: Path) -> dict[str, object]:
     return {
         "command": f"session {command}",
         "session_id": result.session.session_id,
@@ -268,6 +269,7 @@ def _session_payload(command: str, result: SessionResult) -> dict[str, object]:
         "archive_paths": result.session.archive_paths,
         "session_path": str(result.session_path),
         "message": result.message,
+        "rewrite_events": _session_rewrite_payload(root, result.session),
     }
 
 
@@ -308,6 +310,46 @@ def _session_low_issue_lines(root: Path, audit_history: list[str]) -> list[str]:
         *low_issues,
         "Choose: accept as-is, or run session revise-content <session_id> --from-audit to create a revised version.",
     ]
+
+
+def _session_rewrite_payload(root: Path, session: CreationSession) -> list[dict[str, object]]:
+    return [
+        {
+            "event_id": event.event_id,
+            "chapter_number": event.chapter_number,
+            "round_number": event.round_number,
+            "action": event.action,
+            "status": event.status,
+            "trigger_audit_path": event.trigger_audit_path,
+            "rejected_text_snapshot_path": event.rejected_text_snapshot_path,
+            "before_output_path": event.before_output_path,
+            "after_output_path": event.after_output_path,
+            "created_at": event.created_at.isoformat(),
+            "updated_at": event.updated_at.isoformat() if event.updated_at else None,
+            "blocking_issues": [issue.model_dump(mode="json") for issue in event.blocking_issues],
+        }
+        for event in load_rewrite_events(root, session.session_id)
+    ]
+
+
+def _session_rewrite_lines(root: Path, session: CreationSession) -> list[str]:
+    events = load_rewrite_events(root, session.session_id)
+    if not events:
+        return []
+    lines = ["Automatic audit rewrite events:"]
+    for event in events:
+        action_label = "修正文" if event.action == "revision_rewrite" else "重写大纲"
+        lines.append(
+            f"- Chapter {event.chapter_number}, round {event.round_number}: "
+            f"{action_label}, status={event.status}"
+        )
+        if event.rejected_text_snapshot_path:
+            lines.append(f"  rejected_text: {event.rejected_text_snapshot_path}")
+        for issue in event.blocking_issues:
+            lines.append(f"  reason [{issue.severity}/{issue.type}] {issue.id}: {issue.description}")
+            if issue.suggested_fix:
+                lines.append(f"  suggested_fix: {issue.suggested_fix}")
+    return lines
 
 
 def _severity_rank(severity: str) -> int:
@@ -1874,12 +1916,13 @@ def main(argv: list[str] | None = None) -> int:
             return _failure(args, str(exc), error_type="project_locked")
         except CreationSessionError as exc:
             return _failure(args, str(exc), error_type="session_error")
-        payload = _session_payload(args.session_command, result)
+        payload = _session_payload(args.session_command, result, root)
         lines = [
             f"Session: {result.session.session_id}",
             result.message,
             f"Status: {result.session.status}",
             f"Session file: {result.session_path}",
+            *_session_rewrite_lines(root, result.session),
             *_session_low_issue_lines(root, result.session.audit_history),
         ]
         return _success(args, payload, lines)

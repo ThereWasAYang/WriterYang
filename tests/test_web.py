@@ -8,7 +8,7 @@ from pathlib import Path
 from novel.cli import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import atomic_write_model_json
-from novel.core.schemas import AuditReport, CreationSession
+from novel.core.schemas import AuditReport, CreationSession, SessionRewriteEvent, SessionRewriteEvents
 from novel.core.session import SessionResult
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import handle_api_request
@@ -437,6 +437,8 @@ def test_frontend_basic_render() -> None:
     assert 'id="sessionStart"' in html
     assert 'id="sessionRun"' in html
     assert 'id="sessionPanel"' in html
+    assert 'id="rewriteEventsPanel"' in html
+    assert 'id="rejectedTextViewer"' in html
     assert 'id="sessionReviseAudit"' in html
     assert 'id="sessionReviseInstruction"' in html
     assert 'id="sessionReviseOutline"' in html
@@ -460,6 +462,8 @@ def test_frontend_basic_render() -> None:
     assert "/api/validate" in html
     assert "/api/session/revise-outline" in html
     assert "/api/session/revise-content" in html
+    assert "/api/session/rewrite-events" in html
+    assert "查看被打回原文" in html
     assert "from_audit" in html
     assert "renderNextStep" in html
     assert "refreshAll({ silent: true })" in html
@@ -547,6 +551,84 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
     audit_summary = payload["data"]["audit_summary"]  # type: ignore[index]
     assert audit_summary[0]["overall_status"] == "needs_revision"
     assert audit_summary[0]["blocking_issue_count"] == 1
+
+
+def test_api_session_rewrite_events_returns_summary_and_snapshot_path(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    session_id = "session_20260529_010101_000002"
+    session_dir = root / "memory" / "sessions" / session_id
+    session_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    session = CreationSession(
+        session_id=session_id,
+        scope_type="chapters",
+        chapter_range=[1],
+        user_intent="写第1章",
+        status="needs_revision",
+        outline_status="approved",
+        content_status="needs_revision",
+        approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
+        created_at=now,
+        updated_at=now,
+    )
+    snapshot = session_dir / "rejections" / "chapter_001_round_1_before.md"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text("被打回原文", encoding="utf-8")
+    atomic_write_model_json(session_dir / "session.json", session)
+    atomic_write_model_json(
+        session_dir / "rewrite_events.json",
+        SessionRewriteEvents(
+            events=[
+                SessionRewriteEvent(
+                    event_id="rewrite_ch001_round1_revision_rewrite_20260529_010101_000002",
+                    session_id=session_id,
+                    chapter_number=1,
+                    round_number=1,
+                    action="revision_rewrite",
+                    status="unresolved",
+                    trigger_audit_path="memory/chapters/001/audit.json",
+                    rejected_text_snapshot_path=f"memory/sessions/{session_id}/rejections/chapter_001_round_1_before.md",
+                    before_output_path="memory/chapters/001/polished.md",
+                    after_output_path="memory/chapters/001/polished.md",
+                    blocking_issues=[
+                        {
+                            "id": "audit_001_medium",
+                            "severity": "medium",
+                            "type": "state_conflict",
+                            "description": "物品位置冲突。",
+                            "evidence": [{"source": "polished.md", "quote": "错误位置"}],
+                            "suggested_fix": "修正文。",
+                        }
+                    ],
+                    created_at=now,
+                    updated_at=now,
+                )
+            ]
+        ),
+    )
+
+    status, payload = handle_api_request(
+        "GET",
+        "/api/session/rewrite-events",
+        f"path={root}&session_id={session_id}",
+        None,
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    events = payload["data"]["rewrite_events"]  # type: ignore[index]
+    assert events[0]["action"] == "revision_rewrite"
+    assert events[0]["status"] == "unresolved"
+    assert events[0]["blocking_issues"][0]["description"] == "物品位置冲突。"
+
+    read_status, read_payload = handle_api_request(
+        "GET",
+        "/api/read-file",
+        f"path={root}&file=memory/sessions/{session_id}/rejections/chapter_001_round_1_before.md",
+        None,
+    )
+    assert read_status == 200
+    assert read_payload["data"]["content"] == "被打回原文"  # type: ignore[index]
 
 
 def test_web_port_can_be_read_from_project_config(tmp_path: Path) -> None:

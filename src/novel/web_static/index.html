@@ -133,6 +133,8 @@
       </div>
       <div id="sessionPanel" class="metric" style="margin-top: 10px;">未加载 Session</div>
       <div id="nextStepPanel" class="metric" style="margin-top: 10px;">下一步：打开或初始化一个小说项目。</div>
+      <div id="rewriteEventsPanel" class="metric" style="margin-top: 10px;">自动打回重写记录：暂无</div>
+      <textarea id="rejectedTextViewer" class="editor" readonly placeholder="点击“查看被打回原文”后显示快照"></textarea>
       <div id="message" class="message"></div>
 
       <h2>项目文件树</h2>
@@ -432,15 +434,22 @@
 
     async function runSessionAction(endpoint, payload, label) {
       return withBusy(label, async () => {
-        const data = await apiPost(endpoint, payload);
-        const session = data.session || {};
-        if (session.session_id) $("sessionId").value = session.session_id;
-        renderSessionSummary(data);
-        $("fileViewer").textContent = JSON.stringify(data, null, 2);
-        await refreshAll({ silent: true });
-        renderSessionSummary(data);
-        renderNextStep(data);
-        setMessage(actionMessage(label, data));
+        const shouldPollRewriteEvents = endpoint === "/api/session/run";
+        let rewritePoller = null;
+        if (shouldPollRewriteEvents) rewritePoller = startRewriteEventPolling();
+        try {
+          const data = await apiPost(endpoint, payload);
+          const session = data.session || {};
+          if (session.session_id) $("sessionId").value = session.session_id;
+          renderSessionSummary(data);
+          $("fileViewer").textContent = JSON.stringify(data, null, 2);
+          await refreshAll({ silent: true });
+          renderSessionSummary(data);
+          renderNextStep(data);
+          setMessage(actionMessage(label, data));
+        } finally {
+          if (rewritePoller) window.clearInterval(rewritePoller);
+        }
       });
     }
 
@@ -807,6 +816,9 @@
         const blocking = data.audit_summary.reduce((count, item) => count + (item.blocking_issue_count || 0), 0);
         if (blocking) parts.push(`blocking issues=${blocking}`);
       }
+      if (Array.isArray(data.rewrite_events) && data.rewrite_events.length) {
+        parts.push(`auto rewrites=${data.rewrite_events.length}`);
+      }
       if (data.overall_status) parts.push(`audit=${data.overall_status}`);
       if (Array.isArray(data.warnings) && data.warnings.length) {
         parts.push(`warnings=${data.warnings.length}`);
@@ -818,6 +830,7 @@
       const session = data.session || {};
       if (!session.session_id) {
         $("sessionPanel").textContent = "未加载 Session";
+        renderRewriteEvents([]);
         return;
       }
       $("sessionPanel").innerHTML = `
@@ -830,6 +843,22 @@
         <div>${escapeHtml(data.message || "")}</div>
         ${renderSessionAuditSummary(data.audit_summary || [])}
       `;
+      renderRewriteEvents(data.rewrite_events || []);
+    }
+
+    function startRewriteEventPolling() {
+      const sessionId = $("sessionId").value.trim();
+      if (!sessionId) return null;
+      const poll = async () => {
+        try {
+          const data = await apiGet("/api/session/rewrite-events", { path: projectPath(), session_id: sessionId });
+          renderRewriteEvents(data.rewrite_events || []);
+        } catch (error) {
+          // Keep long-running session actions quiet; the final request will surface blocking errors.
+        }
+      };
+      poll();
+      return window.setInterval(poll, 3000);
     }
 
     function renderNextStep(data = {}) {
@@ -895,6 +924,53 @@
           </div>
         `;
       }).join("");
+    }
+
+    function renderRewriteEvents(events) {
+      const panel = $("rewriteEventsPanel");
+      if (!events.length) {
+        panel.innerHTML = "自动打回重写记录：暂无";
+        return;
+      }
+      panel.innerHTML = `
+        <b>自动打回重写记录</b>
+        ${events.map((event) => {
+          const actionText = event.action === "plot_replan" ? "重写大纲" : "修正文";
+          const issueRows = (event.blocking_issues || []).map((issue) => `
+            <div style="margin-top: 4px;">
+              <b>${escapeHtml(issue.id || "")}</b>
+              [${escapeHtml(issue.severity || "")}/${escapeHtml(issue.type || "")}]
+              ${escapeHtml(issue.description || "")}
+              ${issue.suggested_fix ? `<div>fix: ${escapeHtml(issue.suggested_fix)}</div>` : ""}
+            </div>
+          `).join("") || "<div>无阻断 issue</div>";
+          const snapshotButton = event.rejected_text_snapshot_path
+            ? `<button class="view-rejected-text" data-path="${escapeAttr(event.rejected_text_snapshot_path)}">查看被打回原文</button>`
+            : "";
+          return `
+            <div style="margin-top: 8px;">
+              <div>第 ${escapeHtml(event.chapter_number)} 章第 ${escapeHtml(event.round_number)} 轮被 Audit 打回：${escapeHtml(actionText)}，status=${escapeHtml(event.status || "")}</div>
+              <div>audit: ${escapeHtml(event.trigger_audit_path || "")}</div>
+              ${snapshotButton}
+              <div>${issueRows}</div>
+            </div>
+          `;
+        }).join("")}
+      `;
+      document.querySelectorAll(".view-rejected-text").forEach((button) => {
+        button.addEventListener("click", () => loadRejectedText(button.dataset.path));
+      });
+    }
+
+    async function loadRejectedText(relPath) {
+      if (!relPath) return;
+      try {
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        $("rejectedTextViewer").value = data.content || "";
+        setMessage(`已读取被打回原文：${data.path}`);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
     }
 
     $("openProject").addEventListener("click", refreshAll);

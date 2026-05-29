@@ -22,6 +22,11 @@ from novel.core.schemas import (
     CreationOutlineChapter,
     CreationScopeType,
     CreationSession,
+    SessionRewriteAction,
+    SessionRewriteEvent,
+    SessionRewriteEvents,
+    SessionRewriteIssue,
+    SessionRewriteStatus,
 )
 from novel.core.state_update import (
     AcceptChapterOptions,
@@ -187,30 +192,64 @@ def run_session(options: SessionRunOptions) -> SessionResult:
         round_number = 0
         while _has_hard_issues(audit_report) and round_number < max_rounds:
             round_number += 1
+            after_output_path: Path | None = None
             if _should_replan_chapter(audit_report, round_number):
-                _auto_replan_chapter(
+                rewrite_event = _start_rewrite_event(
                     root,
-                    chapter_number,
                     session,
-                    audit_report,
-                    options.provider_name,
+                    chapter_number,
                     round_number,
+                    "plot_replan",
+                    audit_report,
                 )
-                _generate_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+                try:
+                    _auto_replan_chapter(
+                        root,
+                        chapter_number,
+                        session,
+                        audit_report,
+                        options.provider_name,
+                        round_number,
+                    )
+                    _generate_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+                    after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
+                except Exception:
+                    _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
+                    raise
             else:
-                revision_path = _auto_repair_chapter(
+                rewrite_event = _start_rewrite_event(
                     root,
-                    chapter_number,
                     session,
-                    audit_report,
-                    options.provider_name,
+                    chapter_number,
                     round_number,
+                    "revision_rewrite",
+                    audit_report,
                 )
-                revisions.append(_rel(root, revision_path))
-                _promote_revision_to_polished(root, chapter_number, revision_path)
-                _retire_state_update_proposal(root, chapter_number)
-                _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+                try:
+                    revision_path = _auto_repair_chapter(
+                        root,
+                        chapter_number,
+                        session,
+                        audit_report,
+                        options.provider_name,
+                        round_number,
+                    )
+                    revisions.append(_rel(root, revision_path))
+                    after_output_path = _promote_revision_to_polished(root, chapter_number, revision_path)
+                    _retire_state_update_proposal(root, chapter_number)
+                    _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+                except Exception:
+                    _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
+                    raise
             audit_report = _load_audit(root, chapter_number)
+            rewrite_status: SessionRewriteStatus = "unresolved" if _has_hard_issues(audit_report) else "completed"
+            _update_rewrite_event(
+                root,
+                session.session_id,
+                rewrite_event.event_id,
+                status=rewrite_status,
+                after_output_path=after_output_path,
+            )
         audit_path = _chapter_dir(root, chapter_number) / "audit.json"
         audits.append(_rel(root, audit_path))
         final_outputs.append(_rel(root, _chapter_dir(root, chapter_number) / "polished.md"))
@@ -394,6 +433,13 @@ def archive_session(options: SessionActionOptions) -> SessionResult:
 
 def load_session(root: Path, session_id: str) -> CreationSession:
     return load_json_model(_session_path(root.resolve(), session_id), CreationSession)
+
+
+def load_rewrite_events(root: Path, session_id: str) -> list[SessionRewriteEvent]:
+    path = _rewrite_events_path(root.resolve(), session_id)
+    if not path.exists():
+        return []
+    return load_json_model(path, SessionRewriteEvents).events
 
 
 def _write_outline_proposal(
@@ -653,7 +699,11 @@ def _archive_sources(root: Path, session: CreationSession) -> list[Path]:
         _session_path(root, session.session_id),
         _session_dir(root, session.session_id) / "approved_outline.json",
         _session_dir(root, session.session_id) / "approved_outline.md",
+        _rewrite_events_path(root, session.session_id),
     ]
+    rejection_dir = _session_dir(root, session.session_id) / "rejections"
+    if rejection_dir.exists():
+        paths.extend(sorted(rejection_dir.glob("*.md")))
     for chapter_number in session.chapter_range:
         chapter_dir = _chapter_dir(root, chapter_number)
         paths.extend(
@@ -673,6 +723,76 @@ def _archive_sources(root: Path, session: CreationSession) -> list[Path]:
 
 def _write_session(root: Path, session: CreationSession) -> None:
     atomic_write_model_json(_session_path(root, session.session_id), session)
+
+
+def _start_rewrite_event(
+    root: Path,
+    session: CreationSession,
+    chapter_number: int,
+    round_number: int,
+    action: SessionRewriteAction,
+    audit_report: AuditReport,
+) -> SessionRewriteEvent:
+    chapter_dir = _chapter_dir(root, chapter_number)
+    before_output = chapter_dir / "polished.md"
+    snapshot_path: Path | None = None
+    if before_output.exists():
+        snapshot_path = (
+            _session_dir(root, session.session_id)
+            / "rejections"
+            / f"chapter_{chapter_number:03d}_round_{round_number}_before.md"
+        )
+        atomic_write_text(snapshot_path, before_output.read_text(encoding="utf-8"))
+    event = SessionRewriteEvent(
+        event_id=_new_rewrite_event_id(chapter_number, round_number, action),
+        session_id=session.session_id,
+        chapter_number=chapter_number,
+        round_number=round_number,
+        action=action,
+        status="started",
+        trigger_audit_path=_rel(root, chapter_dir / "audit.json"),
+        blocking_issues=_rewrite_issues(audit_report),
+        rejected_text_snapshot_path=_rel(root, snapshot_path) if snapshot_path else None,
+        before_output_path=_rel(root, before_output) if before_output.exists() else None,
+        created_at=_utc_now(),
+        updated_at=_utc_now(),
+    )
+    events = [*load_rewrite_events(root, session.session_id), event]
+    _write_rewrite_events(root, session.session_id, events)
+    return event
+
+
+def _update_rewrite_event(
+    root: Path,
+    session_id: str,
+    event_id: str,
+    *,
+    status: SessionRewriteStatus,
+    after_output_path: Path | None = None,
+) -> None:
+    events = load_rewrite_events(root, session_id)
+    updated_events: list[SessionRewriteEvent] = []
+    for event in events:
+        if event.event_id != event_id:
+            updated_events.append(event)
+            continue
+        updates: dict[str, object] = {"status": status, "updated_at": _utc_now()}
+        if after_output_path:
+            updates["after_output_path"] = _rel(root, after_output_path)
+        updated_events.append(event.model_copy(update=updates))
+    _write_rewrite_events(root, session_id, updated_events)
+
+
+def _write_rewrite_events(root: Path, session_id: str, events: list[SessionRewriteEvent]) -> None:
+    atomic_write_model_json(_rewrite_events_path(root, session_id), SessionRewriteEvents(events=events))
+
+
+def _rewrite_issues(audit_report: AuditReport) -> list[SessionRewriteIssue]:
+    return [
+        SessionRewriteIssue.model_validate(issue.model_dump(mode="json"))
+        for issue in audit_report.issues
+        if issue.severity in {"medium", "high", "critical"}
+    ]
 
 
 def _render_outline_markdown(outline: CreationOutline) -> str:
@@ -744,6 +864,10 @@ def _session_path(root: Path, session_id: str) -> Path:
     return _session_dir(root, session_id) / "session.json"
 
 
+def _rewrite_events_path(root: Path, session_id: str) -> Path:
+    return _session_dir(root, session_id) / "rewrite_events.json"
+
+
 def _chapter_dir(root: Path, chapter_number: int) -> Path:
     return root / "memory" / "chapters" / f"{chapter_number:03d}"
 
@@ -762,6 +886,11 @@ def _sha256(path: Path) -> str:
 
 def _new_session_id() -> str:
     return "session_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _new_rewrite_event_id(chapter_number: int, round_number: int, action: SessionRewriteAction) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return f"rewrite_ch{chapter_number:03d}_round{round_number}_{action}_{stamp}"
 
 
 def _utc_now() -> datetime:

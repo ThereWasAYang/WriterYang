@@ -120,6 +120,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
 - `_save_provider_config()`：保存非密钥 provider 配置，写前校验和备份。
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
+- `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
 - `_file_tree()`：列出 workspace 白名单文件，排除 `.env*`、缓存、索引、备份。
 - `_read_workspace_file()` / `_read_chapter_file()`：安全读取文件。
 - `_runs_summary()` / `_provider_call_summary()` / `_model_io_summary()`：运行和模型日志摘要。
@@ -420,10 +421,12 @@ Embedding provider：
 - `revise_content()`：按用户意见或 audit issue 生成修订版本，提升为当前 `polished.md`，重跑 audit，并在通过后重建 state proposal。
 - `accept_session()`：应用状态更新并标记章节 accepted。
 - `archive_session()`：归档 approved outline、最终正文、audit、state update 和 manifest。
+- `load_rewrite_events()`：读取 `memory/sessions/{session_id}/rewrite_events.json`。
 - `_generate_chapter_content()`：单章 writer/polish/audit 调度。
 - `_auto_repair_chapter()`：正文层 medium/high/critical 自动修复，生成 `polished.vN.md`。
 - `_promote_revision_to_polished()`：把修订版本提升为当前 `polished.md` 后再重跑 audit。
 - `_auto_replan_chapter()` / `_should_replan_chapter()`：连续修复仍失败或计划层问题时回退 Plot Agent 重写本章计划。
+- `_start_rewrite_event()` / `_update_rewrite_event()`：自动打回前保存原文快照、记录打回原因，并在复审后更新 completed/unresolved/failed 状态。
 - `_has_hard_issues()`：判定阻断 issue。
 - `_session_instruction()`：把 session intent 转为内部 Agent instruction。
 

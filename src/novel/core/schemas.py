@@ -14,6 +14,8 @@ GenericStatus = Literal["active", "inactive", "resolved", "unresolved", "depreca
 TimelineEventRole = Literal["current_action", "flashback", "memory", "revelation", "summary", "backstory"]
 TimelineCertainty = Literal["certain", "inferred", "uncertain"]
 CreationScopeType = Literal["chapters", "segments"]
+SessionRewriteAction = Literal["revision_rewrite", "plot_replan"]
+SessionRewriteStatus = Literal["started", "completed", "unresolved", "failed"]
 CreationSessionStatus = Literal[
     "drafting_intent",
     "outline_proposed",
@@ -737,6 +739,35 @@ class AuditReport(SchemaVersionedModel):
             if issue.type != "informational" and not issue.suggested_fix:
                 raise ValueError(f"audit issue {issue.id} must include suggested_fix")
         return self
+
+
+class SessionRewriteIssue(FlexibleModel):
+    id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
+    severity: Importance
+    type: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    evidence: list[AuditEvidence] = Field(default_factory=list)
+    suggested_fix: str | None = None
+
+
+class SessionRewriteEvent(SchemaVersionedModel):
+    event_id: str = Field(min_length=1, pattern=r"^rewrite_[a-z0-9_]+$")
+    session_id: str = Field(min_length=1, pattern=r"^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
+    chapter_number: int = Field(ge=1)
+    round_number: int = Field(ge=1)
+    action: SessionRewriteAction
+    status: SessionRewriteStatus
+    trigger_audit_path: str = Field(min_length=1)
+    blocking_issues: list[SessionRewriteIssue] = Field(default_factory=list)
+    rejected_text_snapshot_path: str | None = None
+    before_output_path: str | None = None
+    after_output_path: str | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class SessionRewriteEvents(SchemaVersionedModel):
+    events: list[SessionRewriteEvent] = Field(default_factory=list)
 
 
 def _require_unique_values(values: list[str], label: str) -> None:

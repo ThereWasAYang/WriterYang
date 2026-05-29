@@ -127,6 +127,19 @@ def test_readme_links_web_ui_user_guide() -> None:
     assert "Web UI 的 Session 流程" in readme
 
 
+def test_readme_mentions_workflow_skills_and_scripts() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    for phrase in (
+        "skills/",
+        "scripts/check_local.py",
+        "scripts/smoke_session.py",
+        "scripts/debug_bundle.py",
+        "scripts/provider_ping.py",
+    ):
+        assert phrase in readme
+
+
 def test_github_workflows_cover_quality_build_and_release() -> None:
     tests_workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
     release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")

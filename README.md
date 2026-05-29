@@ -17,6 +17,8 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 - [代码库参考手册](docs/CODEBASE_REFERENCE.md)：逐模块说明入口文件、core service、schema、prompt、tests 和主要函数职责。
 - [Agent Prompt 组装说明](docs/AGENT_PROMPT_ASSEMBLY.md)：说明每个 Agent 的 system/user prompt 如何由项目文件和上下文组装。
 - [调试与重构手册](docs/DEBUGGING_AND_REFACTORING.md)：常见故障路径、日志位置、provider 调试和重构 checklist。
+- `skills/`：给人类开发者和外部大模型 Agent 使用的仓库级工作流技能，例如维护、调试、真实 API smoke、Web UI QA 和发布。
+- `scripts/`：确定性工具脚本，组合现有 CLI/API，避免手工串流程和漏检查。
 
 ## 安装
 
@@ -47,6 +49,25 @@ conda run -n py312 python -m build
 ```
 
 构建产物会生成到 `dist/`。
+
+本地复现 CI 的推荐入口：
+
+```bash
+python scripts/check_local.py --skip-build
+python scripts/check_local.py
+```
+
+工作流和排障脚本：
+
+```bash
+python scripts/smoke_session.py --provider mock --json
+python scripts/project_health.py --project ./rain-station
+python scripts/debug_bundle.py --project ./rain-station --output /tmp/writeryang-debug --zip --json
+python scripts/provider_ping.py --project ./rain-station --provider config --json
+python scripts/webui_smoke.py --dry-run --json
+```
+
+这些脚本只组合现有 CLI/core，不复制章节生成、审核或状态更新业务逻辑。真实 API ping 或 smoke 需要显式传入 `--allow-network` 或选择真实 provider；输出会脱敏，不打印 API Key。
 
 ## 创建小说项目
 

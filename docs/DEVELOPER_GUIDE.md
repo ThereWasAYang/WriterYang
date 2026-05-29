@@ -28,6 +28,8 @@ schemas/                # 由 Pydantic 导出的 JSON Schema
 examples/               # 可验证示例项目
 tests/                  # 单元、集成、Web、真实 API 标记测试
 docs/                   # 用户、集成、开发文档
+skills/                 # 给人类开发者和外部 Agent 使用的工作流技能
+scripts/                # 本地质量门禁、smoke、排障、provider ping 等工具脚本
 ```
 
 核心原则：
@@ -96,7 +98,26 @@ exports/
 - Agent 产物：plan/draft/polished/audit/state proposal/revision log/context report。
 - 调试与统计：`runs/` 下的 run log、provider log、完整模型 I/O、输出守卫日志。
 
-## 4. 推荐工作流和底层命令
+## 4. Workflow Skills 和工具脚本
+
+仓库级技能放在 `skills/`，用于让人类开发者或外部大模型 Agent 按固定流程工作：
+
+- `writeryang-maintainer`：代码修改、测试、文档同步和 GitHub 同步规则。
+- `writeryang-workflow-debug`：session / audit / state / provider 失败的证据收集顺序。
+- `writeryang-real-api-smoke`：真实 provider smoke 的安全流程。
+- `writeryang-web-ui-qa`：Web UI 变更后的浏览器验证流程。
+- `writeryang-release`：发版前检查和发布流程。
+
+确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑：
+
+- `check_local.py`：本地复现 CI 质量门禁。
+- `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke。
+- `debug_bundle.py`：生成脱敏排障包。
+- `provider_ping.py`：检查 agent/embedding provider 配置和可选真实调用。
+- `webui_smoke.py`：用 Playwright 跑最小 Web UI 流程。
+- `project_health.py`：聚合 validate/status/usage/audit/session/export 状态。
+
+## 5. 推荐工作流和底层命令
 
 作者入口推荐使用 session/orchestrator：
 
@@ -137,7 +158,7 @@ novel export markdown --path <project>
 - 项目读写/展示：改 `inspection.py`、`validation.py`、`web_api.py` 或 CLI 输出。
 - 基础设施：改 provider、schema、search、io、locking、security。
 
-## 5. 如何新增 CLI 命令
+## 6. 如何新增 CLI 命令
 
 推荐流程：
 
@@ -155,7 +176,7 @@ CLI 输出约定：
 - 机器输出必须是合法 JSON，不混入说明文字。
 - 错误 JSON 必须包含稳定 `error.code`。
 
-## 6. 如何新增 Web API
+## 7. 如何新增 Web API
 
 Web API 在 `src/novel/web_api.py`。新增接口时：
 
@@ -169,7 +190,7 @@ Web API 在 `src/novel/web_api.py`。新增接口时：
 
 如果 API 保存文件，必须复用 core 的文件安全语义：默认不覆盖、版本化保存、必要备份、项目锁。
 
-## 7. 如何新增 Core Service
+## 8. 如何新增 Core Service
 
 一个 core service 的常见形态：
 
@@ -203,7 +224,7 @@ def run_xxx(options: XxxOptions, provider: ModelProvider | None = None) -> XxxRe
 - 输入和输出 schema 必须写入 `schemas.py` 并补测试。
 - Provider 调用必须可注入，测试使用 `MockProvider`。
 
-## 8. 如何新增 Agent
+## 9. 如何新增 Agent
 
 新增 Agent 时至少要改：
 
@@ -220,7 +241,7 @@ def run_xxx(options: XxxOptions, provider: ModelProvider | None = None) -> XxxRe
 
 允许向用户提问的只有用户交互层，例如 orchestrator/session 协商阶段。内部 Agent 被调度后应执行任务，不应反问上游。
 
-## 9. Provider 和模型调用
+## 10. Provider 和模型调用
 
 模型抽象在 `core/providers.py`：
 
@@ -242,7 +263,7 @@ Agent provider 创建走 `core/provider_config.py::create_agent_provider()`。�
 
 这些日志包含创作内容和隐藏设定，只用于本地 debug，不应提交。
 
-## 10. Prompt 组装规则
+## 11. Prompt 组装规则
 
 Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_user_prompt()` 组装，通常包括：
 
@@ -256,7 +277,7 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 
 详见 `docs/AGENT_PROMPT_ASSEMBLY.md`。
 
-## 11. 如何定位 BUG
+## 12. 如何定位 BUG
 
 推荐顺序：
 
@@ -279,7 +300,7 @@ conda run -n py312 ruff check .
 conda run -n py312 mypy src
 ```
 
-## 12. 重构准则
+## 13. 重构准则
 
 重构前先确认：
 
@@ -297,7 +318,7 @@ conda run -n py312 mypy src
 - 不要让内部 Agent 输出问题落盘成正式 artifact。
 - 不要原地修改 archived session 内容。
 
-## 13. 文档维护
+## 14. 文档维护
 
 修改代码时同步检查：
 

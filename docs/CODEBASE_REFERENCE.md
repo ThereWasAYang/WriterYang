@@ -15,6 +15,8 @@
 | `schemas/*.schema.json` | 从 Pydantic models 导出的 JSON Schema。 | schema 变化后重新导出。 |
 | `examples/rain_station/` | 雨夜旧车站示例项目。 | README smoke、真实 provider 配置模板。 |
 | `examples/wuxia_mountain_sect/` | 武侠长篇示例项目。 | 中文用户配置参考、validate 示例。 |
+| `skills/` | 仓库级工作流技能。 | 给人类开发者和外部大模型 Agent 提供固定维护、排障、真实 API smoke、Web QA、发布流程。 |
+| `scripts/` | 确定性工具脚本。 | 本地质量门禁、Session smoke、provider ping、debug bundle、Web UI smoke、项目健康报告。 |
 
 ## 2. 包入口
 
@@ -567,7 +569,28 @@ Provider 用量统计：
 - `tests/conftest.py`：pytest 标记和公共配置。
 - `tests/provider_fixtures.py`：mock provider fixture。
 
-## 13. 配置和示例
+## 13. Skills 和 Scripts
+
+### `skills/`
+
+- `writeryang-maintainer/SKILL.md`：代码修改、测试、文档、GitHub 同步规则。
+- `writeryang-workflow-debug/SKILL.md`：session/audit/state/provider 失败排查顺序。
+- `writeryang-real-api-smoke/SKILL.md`：真实 provider smoke 的安全边界和验收标准。
+- `writeryang-web-ui-qa/SKILL.md`：Web UI 改动后的浏览器 QA 流程。
+- `writeryang-release/SKILL.md`：发版前检查。
+
+### `scripts/`
+
+- `check_local.py`：本地质量门禁，组合 pytest、ruff、mypy、secret scan、build、twine。
+- `smoke_session.py`：创建临时项目并用 CLI 跑完整 Session smoke。
+- `debug_bundle.py`：收集脱敏排障包。
+- `provider_ping.py`：检查 agent/embedding provider 配置，显式允许后可做真实最小调用。
+- `webui_smoke.py`：启动本地 Web UI 并用 Playwright 跑最小浏览器流程。
+- `project_health.py`：聚合 validate/status/usage/chapter/session/export 健康摘要。
+
+这些脚本只组合现有 CLI/core，不复制业务决策。
+
+## 14. 配置和示例
 
 ### `config/agents.yaml`
 
@@ -599,7 +622,7 @@ embedding provider 配置。支持 local hash、DashScope text-embedding-v4、Zh
 
 武侠长篇示例。配置项带中文注释，适合新用户复制参考。
 
-## 14. 修改点速查
+## 15. 修改点速查
 
 | 目标 | 优先修改 |
 | --- | --- |

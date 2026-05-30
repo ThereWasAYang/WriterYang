@@ -18,6 +18,8 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 
 安装完成后，脚本会自动寻找可用 Web UI 端口，打印完整地址并弹出浏览器。默认从 `8765` 开始；如果端口被占用，会自动尝试下一个端口。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
 
+脚本还会生成 `WriterYang_WebUI.command` 启动器。之后不懂命令行的用户可以直接双击这个文件启动 Web UI；启动器会固定使用安装脚本创建的新环境。Web server 停止后，交互式终端会进入一个已经激活新环境的子 shell，后续 `novel ...` 命令默认走这个新环境；输入 `exit` 可以回到原终端。
+
 也可以直接运行 Python 入口：
 
 ```bash
@@ -27,16 +29,20 @@ python scripts/install_writeryang.py --dry-run
 python scripts/install_writeryang.py --web-port 9000
 python scripts/install_writeryang.py --no-open-web
 python scripts/install_writeryang.py --no-web
+python scripts/install_writeryang.py --no-activate-shell
+python scripts/install_writeryang.py --launcher-path ./WriterYang_WebUI.command
 ```
 
-脚本默认安装运行依赖；开发者需要测试、lint、mypy、build 等工具时使用 `--dev`。如果不希望安装后启动 Web UI，使用 `--no-web`；如果只是不想自动弹出浏览器，使用 `--no-open-web`。
+脚本默认安装运行依赖；开发者需要测试、lint、mypy、build 等工具时使用 `--dev`。如果不希望安装后启动 Web UI，使用 `--no-web`；如果只是不想自动弹出浏览器，使用 `--no-open-web`。如果不想在安装后进入新环境子 shell，使用 `--no-activate-shell`。
 
-安装完成后，按脚本输出激活新环境，再运行：
+如果你使用的是脚本进入的新环境子 shell，可以直接运行：
 
 ```bash
 novel --version
 novel doctor
 ```
+
+如果你关闭了子 shell，也可以手动激活新环境，或使用 `conda run -n <环境名> novel ...`。
 
 ### 手动安装
 

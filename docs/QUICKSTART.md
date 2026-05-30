@@ -10,7 +10,9 @@
 ./install.sh
 ```
 
-脚本安装完成后会自动寻找可用端口，打印 Web UI 地址并弹出浏览器。默认从 `8765` 开始；端口被占用会自动换下一个。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。想指定起始端口可用：
+脚本安装完成后会自动寻找可用端口，打印 Web UI 地址并弹出浏览器。默认从 `8765` 开始；端口被占用会自动换下一个。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
+
+安装器还会生成 `WriterYang_WebUI.command`。以后可以直接双击这个文件打开 Web UI，它会固定使用本次安装创建的新环境。Web server 停止后，终端会进入一个已激活新环境的子 shell；后续 `novel ...` 命令默认使用这个新环境，输入 `exit` 回到原终端。想指定起始端口可用：
 
 ```bash
 ./install.sh --web-port 9000
@@ -22,18 +24,26 @@
 ./install.sh --no-web
 ```
 
+如果不想安装器进入新环境子 shell：
+
+```bash
+./install.sh --no-activate-shell
+```
+
 如果你是开发者，需要测试、lint、mypy、build 等工具：
 
 ```bash
 python scripts/install_writeryang.py --dev
 ```
 
-安装完成后，按脚本输出激活新环境，并检查：
+如果你仍在安装器进入的新环境子 shell 中，可以直接检查：
 
 ```bash
 novel --version
 novel doctor
 ```
+
+如果已经退出子 shell，则先按脚本输出的 `conda activate ...` 激活环境，或使用 `conda run -n <环境名> novel ...`。
 
 也可以手动创建一个新的 Python 3.12 环境：
 

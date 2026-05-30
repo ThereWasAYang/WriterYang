@@ -66,6 +66,21 @@ def test_api_error_response_has_stable_shape_and_redacts_keys(monkeypatch) -> No
     assert "super-secret-value" not in json.dumps(payload, ensure_ascii=False)
 
 
+def test_api_runtime_endpoint_reports_environment_without_secrets(monkeypatch) -> None:
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "WriterYang_260531")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret-never-return")
+
+    status, payload = handle_api_request("GET", "/api/runtime", "", None)
+
+    assert status == 200
+    assert payload["ok"] is True
+    runtime = payload["data"]["runtime"]  # type: ignore[index]
+    assert runtime["environment"] == "WriterYang_260531"
+    assert runtime["managed_install"] is True
+    assert runtime["version"]
+    assert "sk-test-secret-never-return" not in json.dumps(payload, ensure_ascii=False)
+
+
 def test_api_file_tree_excludes_env_and_search_index(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     (root / ".env.real").write_text("SHOULD_NOT_APPEAR=1\n", encoding="utf-8")
@@ -664,6 +679,7 @@ def test_frontend_basic_render() -> None:
     html = index_html()
 
     assert 'id="projectPath"' in html
+    assert 'id="runtimePanel"' in html
     assert 'id="instruction"' in html
     assert 'id="fileTree"' in html
     assert 'id="chapterList"' in html
@@ -725,6 +741,7 @@ def test_frontend_basic_render() -> None:
     assert "/api/inspire" in html
     assert "/api/canon/suggest" in html
     assert "/api/validate" in html
+    assert "/api/runtime" in html
     assert "/api/session/revise-outline" in html
     assert "/api/session/revise-content" in html
     assert "/api/session/revise-audit" in html
@@ -747,6 +764,7 @@ def test_frontend_basic_render() -> None:
     assert "use_vector_context" in html
     assert "当前无法使用基于 embedding 的语义检索" in html
     assert "fetch(" in html
+    assert "loadRuntime" in html
 
 
 def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(

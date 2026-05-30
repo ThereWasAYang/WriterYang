@@ -7,11 +7,13 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel, Field
 import yaml
 
+from novel import __version__
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import apply_canon_proposal, load_canon_provider, suggest_canon, CanonSuggestOptions
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
@@ -108,6 +110,8 @@ def handle_api_request(
     request_id = _request_id()
     query = {key: values[-1] for key, values in parse_qs(query_string).items()}
     try:
+        if method == "GET" and path == "/api/runtime":
+            return _success({"runtime": _runtime_summary()})
         if method == "GET" and path == "/api/projects":
             return _success({"projects": _list_projects(Path(query.get("root", ".")))})
         if method == "GET" and path == "/api/project/status":
@@ -1744,6 +1748,24 @@ def _default_canon_proposal_path(root: Path) -> Path:
 
 def _request_id() -> str:
     return "web_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _runtime_summary() -> dict[str, object]:
+    conda_env = os.environ.get("CONDA_DEFAULT_ENV")
+    virtual_env = os.environ.get("VIRTUAL_ENV")
+    prefix_name = Path(sys.prefix).name
+    environment = conda_env or (Path(virtual_env).name if virtual_env else prefix_name)
+    managed = bool(re.fullmatch(r"WriterYang_\d{6}(?:\d{2})?", environment or ""))
+    source = "conda" if conda_env else ("venv" if virtual_env else "python")
+    return {
+        "python": sys.executable,
+        "python_prefix": sys.prefix,
+        "environment": environment,
+        "environment_source": source,
+        "version": __version__,
+        "managed_install": managed,
+        "warning": "" if managed else "当前 Web UI 可能不是从 WriterYang 专用环境启动的，建议使用安装脚本生成的 WriterYang_WebUI.command 启动。",
+    }
 
 
 def _relative(root: Path, path: Path) -> str:

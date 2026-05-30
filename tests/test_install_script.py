@@ -64,6 +64,16 @@ def test_conda_plan_is_preferred_when_conda_exists(monkeypatch, tmp_path: Path) 
         "--port",
         "8765",
     ]
+    assert plan.launcher_path == tmp_path / "WriterYang_WebUI.command"
+    assert plan.launcher_command == plan.web_command
+    assert plan.activate_shell is not None
+    assert plan.activate_shell.command[:5] == [
+        "/opt/conda/bin/conda",
+        "run",
+        "--no-capture-output",
+        "-n",
+        "WriterYang_260531",
+    ]
 
 
 def test_conda_plan_uses_suffix_when_env_exists(monkeypatch, tmp_path: Path) -> None:
@@ -115,6 +125,11 @@ def test_venv_plan_when_conda_missing(monkeypatch, tmp_path: Path) -> None:
         "--port",
         "8765",
     ]
+    assert plan.launcher_command == plan.web_command
+    assert plan.activate_shell is not None
+    assert plan.activate_shell.command[-1] == "-i"
+    assert plan.activate_shell.env is not None
+    assert plan.activate_shell.env["VIRTUAL_ENV"] == str((tmp_path / ".venv" / "WriterYang_260531").resolve())
 
 
 def test_dev_plan_installs_dev_extra(monkeypatch, tmp_path: Path) -> None:
@@ -171,10 +186,11 @@ def test_web_port_can_start_from_custom_port(monkeypatch, tmp_path: Path) -> Non
     assert plan.web_command[-1] == "9001"
 
 
-def test_no_web_omits_web_launch(monkeypatch, tmp_path: Path) -> None:
+def test_no_web_keeps_launcher_and_activate_shell(monkeypatch, tmp_path: Path) -> None:
     installer = _load_installer()
     monkeypatch.setattr(installer, "find_conda", lambda env: "/opt/conda/bin/conda")
     monkeypatch.setattr(installer, "existing_conda_env_names", lambda conda: set())
+    monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
 
     plan = installer.build_install_plan(
         repo_root=tmp_path,
@@ -185,8 +201,42 @@ def test_no_web_omits_web_launch(monkeypatch, tmp_path: Path) -> None:
         start_web=False,
     )
 
-    assert plan.web_url is None
+    assert plan.web_url == "http://127.0.0.1:8765"
     assert plan.web_command is None
+    assert plan.launcher_command is not None
+    assert plan.activate_shell is not None
+
+
+def test_no_activate_shell_disables_shell_launch(monkeypatch, tmp_path: Path) -> None:
+    installer = _load_installer()
+    monkeypatch.setattr(installer, "find_conda", lambda env: "/opt/conda/bin/conda")
+    monkeypatch.setattr(installer, "existing_conda_env_names", lambda conda: set())
+    monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
+
+    plan = installer.build_install_plan(
+        repo_root=tmp_path,
+        dev=False,
+        venv_root=tmp_path / ".venv",
+        env={},
+        now=datetime(2026, 5, 31),
+        activate_shell=False,
+    )
+
+    assert plan.activate_shell is None
+
+
+def test_write_web_launcher_creates_executable_command_file(tmp_path: Path) -> None:
+    installer = _load_installer()
+    launcher = tmp_path / "WriterYang_WebUI.command"
+    command = ["/opt/conda/bin/conda", "run", "-n", "WriterYang_260531", "novel", "web", "--port", "8765"]
+
+    installer._write_web_launcher(launcher, command, cwd=tmp_path, url="http://127.0.0.1:8765")
+
+    content = launcher.read_text(encoding="utf-8")
+    assert "WriterYang_260531" in content
+    assert "novel web" in content
+    assert "http://127.0.0.1:8765" in content
+    assert launcher.stat().st_mode & 0o111
 
 
 def test_dry_run_does_not_execute_create_or_install(monkeypatch, capsys) -> None:
@@ -210,7 +260,7 @@ def test_dry_run_does_not_execute_create_or_install(monkeypatch, capsys) -> None
     assert "[dry-run]" in capsys.readouterr().out
 
 
-def test_no_open_web_starts_server_without_browser(monkeypatch) -> None:
+def test_no_open_web_starts_server_without_browser(monkeypatch, tmp_path: Path) -> None:
     installer = _load_installer()
     monkeypatch.setattr(installer, "find_conda", lambda env: "/opt/conda/bin/conda")
     monkeypatch.setattr(installer, "existing_conda_env_names", lambda conda: set())
@@ -224,14 +274,14 @@ def test_no_open_web_starts_server_without_browser(monkeypatch) -> None:
 
     monkeypatch.setattr(installer, "_run", fake_run)
 
-    code = installer.main(["--no-open-web"])
+    code = installer.main(["--no-open-web", "--launcher-path", str(tmp_path / "WriterYang_WebUI.command")])
 
     assert code == 0
     assert opened == []
     assert calls[-1][-4:] == ["--host", "127.0.0.1", "--port", "8765"]
 
 
-def test_default_install_opens_browser_before_starting_server(monkeypatch) -> None:
+def test_default_install_opens_browser_before_starting_server(monkeypatch, tmp_path: Path) -> None:
     installer = _load_installer()
     monkeypatch.setattr(installer, "find_conda", lambda env: "/opt/conda/bin/conda")
     monkeypatch.setattr(installer, "existing_conda_env_names", lambda conda: set())
@@ -245,8 +295,28 @@ def test_default_install_opens_browser_before_starting_server(monkeypatch) -> No
 
     monkeypatch.setattr(installer, "_run", fake_run)
 
-    code = installer.main([])
+    code = installer.main(["--launcher-path", str(tmp_path / "WriterYang_WebUI.command")])
 
     assert code == 0
     assert opened == ["http://127.0.0.1:8765"]
     assert calls[-1][-4:] == ["--host", "127.0.0.1", "--port", "8765"]
+
+
+def test_interactive_no_web_enters_new_environment_shell(monkeypatch, tmp_path: Path) -> None:
+    installer = _load_installer()
+    monkeypatch.setattr(installer, "find_conda", lambda env: "/opt/conda/bin/conda")
+    monkeypatch.setattr(installer, "existing_conda_env_names", lambda conda: set())
+    monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
+    monkeypatch.setattr(installer, "is_interactive_terminal", lambda env: True)
+    calls: list[list[str]] = []
+
+    def fake_run(command, *, cwd, env=None):
+        calls.append(command)
+
+    monkeypatch.setattr(installer, "_run", fake_run)
+
+    code = installer.main(["--no-web", "--launcher-path", str(tmp_path / "WriterYang_WebUI.command")])
+
+    assert code == 0
+    assert calls[-1][:4] == ["/opt/conda/bin/conda", "run", "--no-capture-output", "-n"]
+    assert calls[-1][4].startswith("WriterYang_")

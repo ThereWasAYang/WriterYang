@@ -69,6 +69,7 @@
   <main>
     <aside>
       <h1>WriterYang</h1>
+      <div id="runtimePanel" class="metric status-warn" style="margin-bottom: 12px;">运行环境：检测中</div>
       <label for="projectPath">项目路径</label>
       <input id="projectPath" placeholder="/path/to/novel-workspace">
       <div class="row" style="margin-top: 8px;">
@@ -374,6 +375,26 @@
 
     function showSetupGuide(show = true) {
       $("setupGuidePanel").classList.toggle("hidden", !show);
+    }
+
+    async function loadRuntime() {
+      try {
+        const data = await apiGet("/api/runtime", {});
+        renderRuntime(data.runtime || {});
+      } catch (error) {
+        $("runtimePanel").innerHTML = `<b>运行环境</b><div class="status-bad">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    function renderRuntime(runtime) {
+      const ok = Boolean(runtime.managed_install);
+      $("runtimePanel").className = `metric ${ok ? "status-ok" : "status-warn"}`;
+      $("runtimePanel").innerHTML = `
+        <b>运行环境：${escapeHtml(runtime.environment || "未知")}</b>
+        <div>版本：${escapeHtml(runtime.version || "")}</div>
+        <div>Python：${escapeHtml(runtime.python || "")}</div>
+        ${runtime.warning ? `<div class="status-bad">${escapeHtml(runtime.warning)}</div>` : "<div>已使用 WriterYang 专用环境。</div>"}
+      `;
     }
 
     async function apiGet(path, params) {
@@ -1301,6 +1322,7 @@
     });
     $("projectPath").value = localStorage.getItem("writeryang.projectPath") || "";
     $("projectPath").addEventListener("change", () => localStorage.setItem("writeryang.projectPath", $("projectPath").value));
+    loadRuntime();
   </script>
 </body>
 </html>

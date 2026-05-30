@@ -664,6 +664,78 @@ def test_openai_compatible_provider_uses_json_object_for_structured_outputs(
     assert captured["body"]["response_format"] == {"type": "json_object"}  # type: ignore[index]
 
 
+def test_json_object_provider_adds_json_prompt_hint_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        json_response_format="json_object",
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    provider.generate(ModelRequest(system_prompt="只输出对象。", user_prompt="生成结果。", json_schema_name="AuditReport"))
+
+    messages = captured["body"]["messages"]  # type: ignore[index]
+    assert "JSON" in messages[0]["content"]  # type: ignore[index]
+
+
+def test_json_object_provider_does_not_duplicate_existing_json_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        json_response_format="json_object",
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    provider.generate(
+        ModelRequest(
+            system_prompt="只输出 JSON。",
+            user_prompt="生成结果。",
+            json_schema_name="AuditReport",
+        )
+    )
+
+    messages = captured["body"]["messages"]  # type: ignore[index]
+    assert messages[0]["content"] == "只输出 JSON。"  # type: ignore[index]
+
+
 def test_provider_errors_do_not_leak_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     secret = "secret-test-key"
     provider = OpenAICompatibleProvider(

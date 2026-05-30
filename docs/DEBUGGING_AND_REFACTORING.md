@@ -158,7 +158,8 @@ runs/agent_output_violations/{request_id}.json
    - `deepseek`: `https://api.deepseek.com`
    - `zai`: `https://open.bigmodel.cn/api/paas/v4`
    - `openai`: `https://api.openai.com/v1`
-5. 看 `runs/provider_calls.jsonl` 的 `error_type`、`http_status`。
+5. 如果 DeepSeek / OpenAI-compatible 在结构化调用时报 `Prompt must contain the word 'json'`，先确认当前代码的 provider payload 是否经过 `_ensure_json_mode_messages()`；所有 `response_format: json_object` 调用都应自动补充 JSON 提示。
+6. 看 `runs/provider_calls.jsonl` 的 `error_type`、`http_status`。
 
 相关代码：
 

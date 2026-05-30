@@ -81,8 +81,30 @@ def test_inspiration_agent_writes_markdown_and_json_with_mock_provider(tmp_path:
     assert data["themes"] == ["记忆", "失踪"]
     assert data["mood"] == ["潮湿", "孤独"]
     assert "旧物修复师" in data["weak_outline"]
-    assert provider.requests[0].json_schema_name == "InspirationBrief"
+    assert provider.requests[0].json_schema_name is None
     assert "弱总纲" in provider.requests[0].system_prompt
+
+
+def test_inspiration_agent_accepts_json_wrapper_from_provider(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    wrapped = json.dumps({"outline": FAKE_MARKDOWN}, ensure_ascii=False)
+    provider = MockProvider(fake_response=wrapped)
+
+    result = run_inspiration_agent(
+        InspirationOptions(
+            root=root,
+            source_text="雨夜旧车站里传来已经停播多年的广播声",
+            write_json=True,
+            overwrite=True,
+        ),
+        provider,
+    )
+
+    assert "## Weak Outline" in result.markdown_path.read_text(encoding="utf-8")
+    assert result.json_path is not None
+    data = json.loads(result.json_path.read_text(encoding="utf-8"))
+    assert data["themes"] == ["记忆", "失踪"]
 
 
 def test_inspiration_agent_refuses_to_overwrite_existing_markdown(tmp_path: Path) -> None:

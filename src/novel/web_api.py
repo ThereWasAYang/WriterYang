@@ -49,7 +49,7 @@ from novel.core.session import (
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
-from novel.core.workspace import InitOptions, init_workspace
+from novel.core.workspace import InitOptions, init_workspace, is_default_inspiration_placeholder
 
 
 APIResponse = tuple[int, dict[str, object]]
@@ -508,13 +508,15 @@ def _inspire(data: dict[str, object]) -> dict[str, object]:
     source_text = _optional_string(data.get("text")) or _optional_string(data.get("instruction"))
     if not source_text:
         raise WebAPIError("invalid_request", "inspiration text must not be empty", status=400)
+    inspiration_path = root / "memory" / "inspiration.md"
+    overwrite = bool(data.get("force")) or is_default_inspiration_placeholder(inspiration_path)
     result = run_inspiration_agent(
         InspirationOptions(
             root=root,
             source_text=source_text,
             source_type="web_text",
             write_json=bool(data.get("write_json")),
-            overwrite=bool(data.get("force")),
+            overwrite=overwrite,
         ),
         provider,
     )

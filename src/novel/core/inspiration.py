@@ -61,7 +61,6 @@ def run_inspiration_agent(
         system_prompt=build_inspiration_system_prompt(),
         user_prompt=build_inspiration_user_prompt(project, source_text),
         context=_project_context(project),
-        json_schema_name="InspirationBrief" if options.write_json else None,
     )
     content = generate_with_output_guard(
         provider,
@@ -76,13 +75,13 @@ def run_inspiration_agent(
         contract=AgentOutputContract(
             output_kind="markdown",
             target_name="Inspiration Markdown",
-            json_schema_name="InspirationBrief" if options.write_json else None,
-            allow_json_payload=options.write_json,
+            allow_json_payload=True,
+            disallow_workspace_language=False,
             disallow_outline_or_analysis=False,
         ),
     )
     markdown = _ensure_markdown(content, source_text)
-    brief = _brief_from_response(content, source_text, options.source_type)
+    brief = _brief_from_response(markdown, source_text, options.source_type)
 
     _write_new_or_overwrite(markdown_path, markdown, options.overwrite)
     if json_path:
@@ -205,6 +204,9 @@ def _project_context(project: ProjectConfig) -> str:
 
 def _ensure_markdown(content: str, source_text: str) -> str:
     content = content.strip()
+    markdown = _markdown_from_json_payload(content)
+    if markdown:
+        return markdown.strip() + "\n"
     if content:
         return content + "\n"
     return default_mock_inspiration_markdown().replace(
@@ -240,9 +242,32 @@ def _try_parse_brief_json(content: str) -> InspirationBrief | None:
         return None
     try:
         data = json.loads(stripped)
+        if isinstance(data, dict):
+            for key in ("brief", "inspiration", "data"):
+                nested = data.get(key)
+                if isinstance(nested, dict):
+                    data = nested
+                    break
         return InspirationBrief.model_validate(data)
     except (json.JSONDecodeError, ValidationError):
         return None
+
+
+def _markdown_from_json_payload(content: str) -> str | None:
+    stripped = content.strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    for key in ("markdown", "outline", "content", "text"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _extract_list_section(content: str, heading: str) -> list[str]:

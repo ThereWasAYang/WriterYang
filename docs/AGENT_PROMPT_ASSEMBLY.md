@@ -23,7 +23,7 @@ CLI/Web/Session
 - `system_prompt`：来自 `src/novel/prompts/{agent}_system.txt`。
 - `user_prompt`：由对应 `build_*_user_prompt()` 函数组装。
 - `context`：通常放 canon summary 或项目摘要，会进入 provider messages。
-- `json_schema_name`：结构化输出 Agent 会设置，例如 `ChapterPlan`。
+- `json_schema_name`：结构化输出 Agent 会设置，例如 `ChapterPlan`。使用 `json_object` 的 OpenAI-compatible provider 会自动在消息中补充明确的 `JSON` 输出提示，避免 DeepSeek 等服务端拒绝 JSON mode。
 - `request_id`：自动生成，用于 `runs/model_io/` 和 provider log 关联。
 
 内部 Agent 一律走 `AgentOutputContract`：
@@ -56,9 +56,9 @@ Prompt 组装：
 
 输出处理：
 
-- `generate_with_output_guard()` 使用 Markdown contract；`--json` 时允许 JSON payload。
-- `_ensure_markdown()` 确保 Markdown 非空。
-- `_brief_from_response()` 优先解析 JSON，否则从 Markdown 小节提取 `InspirationBrief`。
+- `generate_with_output_guard()` 使用 Markdown contract，不为 Inspiration 额外开启 provider JSON mode；`--json` 只表示本地从 Markdown 派生并写入 `memory/inspiration.json`。
+- `_ensure_markdown()` 确保 Markdown 非空；如果模型意外返回 `{"outline": "..."}` / `{"markdown": "..."}` 这类 JSON 包装，会先解包为 Markdown。
+- `_brief_from_response()` 优先解析合法 `InspirationBrief` JSON，否则从 Markdown 小节提取 `InspirationBrief`。
 
 ## 3. Canon Agent
 

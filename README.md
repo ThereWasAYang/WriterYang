@@ -247,7 +247,7 @@ novel inspire "一个雨夜旧车站里传来已经停播多年的广播声" --p
 novel inspire --input input.txt --path ./rain-station --provider mock --json --quiet --overwrite
 ```
 
-命令会写入 `memory/inspiration.md`。使用 `--json` 时，也会写入 `memory/inspiration.json` 并在 stdout 输出机器可读 JSON；自动化调用建议搭配 `--quiet`。
+命令会写入 `memory/inspiration.md`。使用 `--json` 时，也会写入本地派生的 `memory/inspiration.json` 并在 stdout 输出机器可读 JSON；自动化调用建议搭配 `--quiet`。Web UI 默认只生成 `inspiration.md`，并且只会自动覆盖初始化生成的空白灵感模板，不会静默覆盖作者已写内容。
 
 ## 管理 Canon
 
@@ -479,7 +479,7 @@ web:
 
 - 初始化项目：在本地路径创建最小小说工作区。
 - 项目检查：在 Web UI 中运行 validate，查看 errors / warnings 摘要，不必切换到命令行。
-- Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。
+- Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。Web UI 灵感默认走 Markdown 弱总纲，不为 Inspiration 强制开启 provider JSON mode；需要 `inspiration.json` 时可用 CLI 的 `--json` 或后续工具派生。
 - 项目文件树：只显示工作区内安全文件，排除 `.env*`、search index、备份和缓存。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
 - 章节编辑器：可编辑 `draft.md` / `polished.md`，保存时默认创建 `draft.v2.md` / `polished.v2.md` 等版本文件，并记录 `revision_log.json`，不原地覆盖旧稿。

@@ -398,9 +398,12 @@ class OpenAICompatibleProvider(ModelProvider):
         return self._payload(model_request, stream=stream)
 
     def _payload(self, model_request: ModelRequest, *, stream: bool) -> dict[str, object]:
+        messages = _messages_from_request(model_request)
+        if model_request.json_schema_name and self.json_response_format == "json_object":
+            messages = _ensure_json_mode_messages(messages, model_request.json_schema_name)
         payload: dict[str, object] = {
             "model": self.model,
-            "messages": _messages_from_request(model_request),
+            "messages": messages,
         }
         if stream:
             payload["stream"] = True
@@ -738,6 +741,23 @@ def _messages_from_request(model_request: ModelRequest) -> list[dict[str, str]]:
     user_parts.append(model_request.user_prompt)
     messages.append({"role": "user", "content": "\n\n".join(user_parts)})
     return messages
+
+
+def _ensure_json_mode_messages(
+    messages: list[dict[str, str]],
+    schema_name: str,
+) -> list[dict[str, str]]:
+    combined = "\n".join(message.get("content", "") for message in messages)
+    if "json" in combined.lower():
+        return messages
+    updated = [dict(message) for message in messages]
+    updated[0]["content"] = (
+        updated[0].get("content", "")
+        + "\n\n"
+        f"Output must be valid JSON for schema {schema_name}. "
+        "Do not include Markdown code fences, explanations, or wrapper text."
+    )
+    return updated
 
 
 def _stream_content_from_line(line: str) -> str | None:

@@ -116,6 +116,15 @@ def _has_existing_workspace_data(root: Path) -> bool:
     return any(marker.exists() for marker in workspace_markers)
 
 
+def is_default_inspiration_placeholder(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        return path.read_text(encoding="utf-8") == _inspiration_markdown()
+    except OSError:
+        return False
+
+
 def _workspace_dirs(root: Path) -> tuple[Path, ...]:
     return (
         root,

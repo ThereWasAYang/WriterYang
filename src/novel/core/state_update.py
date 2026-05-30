@@ -747,6 +747,7 @@ def _normalize_state_update_data(data: object) -> object:
     if not isinstance(data, dict):
         return data
     normalized = dict(data)
+    warnings = list(normalized.get("warnings") or []) if isinstance(normalized.get("warnings"), list) else []
     changes = normalized.get("state_changes")
     if isinstance(changes, list):
         normalized_changes = []
@@ -779,13 +780,35 @@ def _normalize_state_update_data(data: object) -> object:
                     "chapter": item.get("chapter"),
                     "scene": item.get("scene"),
                 }
+            else:
+                narrative = dict(narrative)
+                if narrative.get("chapter") is None and item.get("chapter") is not None:
+                    narrative["chapter"] = item.get("chapter")
+                if narrative.get("scene") is None and item.get("scene") is not None:
+                    narrative["scene"] = item.get("scene")
+                item["narrative_position"] = narrative
             story = item.get("story_position")
             if not isinstance(story, dict):
                 item["story_position"] = {
                     "time_label": item.get("in_story_time"),
                 }
+            else:
+                story = dict(story)
+                time_label = story.get("time_label")
+                in_story_time = item.get("in_story_time")
+                if time_label is None and in_story_time is not None:
+                    story["time_label"] = in_story_time
+                elif isinstance(time_label, str) and time_label and in_story_time != time_label:
+                    item["in_story_time"] = time_label
+                    event_id = item.get("id") or "unknown_event"
+                    warnings.append(
+                        f"normalized timeline event {event_id} in_story_time to story_position.time_label"
+                    )
+                item["story_position"] = story
             normalized_events.append(item)
         normalized["timeline_events"] = normalized_events
+    if warnings:
+        normalized["warnings"] = warnings
     return normalized
 
 

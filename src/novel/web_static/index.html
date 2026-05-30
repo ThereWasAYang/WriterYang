@@ -528,7 +528,7 @@
           text: $("instruction").value.trim(),
           provider: $("provider").value,
           force: $("forceWrites").checked,
-          write_json: true,
+          write_json: false,
         });
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });

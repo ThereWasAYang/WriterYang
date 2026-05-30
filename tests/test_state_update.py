@@ -274,6 +274,17 @@ def test_parse_state_update_proposal_normalizes_common_field_aliases() -> None:
     assert proposal.timeline_events[0].location_id == "loc_old_station"
 
 
+def test_parse_state_update_proposal_normalizes_legacy_story_time_alias() -> None:
+    data = json.loads(default_mock_state_update_proposal_json(1))
+    data["timeline_events"][0]["in_story_time"] = "错误的旧别名"
+    data["timeline_events"][0]["story_position"]["time_label"] = "第一章夜雨中"
+
+    proposal = parse_state_update_proposal(json.dumps(data, ensure_ascii=False))
+
+    assert proposal.timeline_events[0].in_story_time == "第一章夜雨中"
+    assert any("normalized timeline event" in warning for warning in proposal.warnings)
+
+
 def test_parse_state_update_proposal_normalizes_list_field_strings() -> None:
     data = json.loads(default_mock_state_update_proposal_json(1))
     data["state_changes"][0]["field"] = "knowledge"

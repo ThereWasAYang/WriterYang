@@ -250,6 +250,7 @@ JSON Schema 导出：
 
 - `OpenAICompatibleProvider.from_config()`：读取 env、默认 base URL、provider 私有字段。
 - `OpenAICompatibleProvider._payload()`：组装请求 payload，包括 `thinking`、`response_format`。
+- `_ensure_json_mode_messages()`：`json_object` 结构化调用时，如果 prompt 中没有 `json` 字样，自动补充 JSON 输出提示，兼容 DeepSeek 等服务端校验。
 - `_model_response_from_openai_raw()`：解析 OpenAI 格式返回。
 - `_stream_content_from_line()`：解析 SSE chunk。
 - `_redact_data()` / `_redact_text()`：日志脱敏。
@@ -309,7 +310,7 @@ Embedding provider：
 - `InspirationOptions` / `InspirationResult` / `InspirationError`。
 - `run_inspiration_agent()`：读取 project 和用户输入，生成 inspiration.md/json。
 - `build_inspiration_system_prompt()` / `build_inspiration_user_prompt()`。
-- `_ensure_markdown()`、`_brief_from_response()`、`_try_parse_brief_json()`：输出处理。
+- `_ensure_markdown()`、`_brief_from_response()`、`_try_parse_brief_json()`：输出处理。`--json` 时本地从 Markdown 或合法 JSON 派生 `InspirationBrief`，不依赖 provider JSON mode；模型意外返回 `outline` / `markdown` JSON 包装时会先解包成 Markdown。
 - `default_mock_inspiration_markdown()`：mock provider 默认响应。
 
 ### `core/canon.py`

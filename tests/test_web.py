@@ -417,6 +417,42 @@ def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
     assert apply_payload["data"]["validation_ok"] is True  # type: ignore[index]
 
 
+def test_api_inspire_overwrites_default_placeholder_without_force(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="Web Inspiration", root=root))
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/inspire",
+        "",
+        json.dumps({"path": str(root), "text": "写一个江湖雨夜故事。", "provider": "mock"}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert "## Weak Outline" in (root / "memory" / "inspiration.md").read_text(encoding="utf-8")
+    assert not (root / "memory" / "inspiration.json").exists()
+
+
+def test_api_inspire_refuses_to_overwrite_user_inspiration_without_force(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="Web Inspiration", root=root))
+    inspiration_path = root / "memory" / "inspiration.md"
+    inspiration_path.write_text("# Inspiration\n\n用户已经写好的灵感。\n", encoding="utf-8")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/inspire",
+        "",
+        json.dumps({"path": str(root), "text": "写一个江湖雨夜故事。", "provider": "mock"}),
+    )
+
+    assert status == 400
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "operation_failed"  # type: ignore[index]
+    assert "用户已经写好的灵感" in inspiration_path.read_text(encoding="utf-8")
+
+
 def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     timeline_path = root / "memory" / "state" / "timeline.json"
@@ -536,6 +572,7 @@ def test_frontend_basic_render() -> None:
     assert "renderNextStep" in html
     assert "refreshAll({ silent: true })" in html
     assert "includeSessionId: false" in html
+    assert "write_json: false" in html
     assert "fetch(" in html
 
 

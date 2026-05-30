@@ -59,6 +59,9 @@
     .badge { display: inline-block; border: 1px solid #d7dde5; border-radius: 999px; padding: 2px 7px; font-size: 12px; background: #fbfcfd; }
     .timeline-lane { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; }
     .timeline-card { min-width: 220px; border: 1px solid #e4e8ed; border-radius: 6px; padding: 8px; background: #fbfcfd; }
+    .status-ok { color: #067647; }
+    .status-warn { color: #b54708; }
+    .status-bad { color: #b42318; }
     .hidden { display: none; }
   </style>
 </head>
@@ -95,6 +98,10 @@
         <span>使用搜索上下文</span>
       </label>
       <label class="row" style="justify-content: flex-start; gap: 8px;">
+        <input id="useVectorContext" type="checkbox" style="width: auto;">
+        <span>使用 embedding 语义检索</span>
+      </label>
+      <label class="row" style="justify-content: flex-start; gap: 8px;">
         <input id="forceWrites" type="checkbox" style="width: auto;">
         <span>允许覆盖已有产物</span>
       </label>
@@ -113,6 +120,12 @@
       <input id="canonProposalPath" placeholder="runs/canon_proposal_....json">
       <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
       <button id="exportMarkdown" style="width: 100%; margin-top: 8px;">导出 Markdown</button>
+      <h2>检索索引</h2>
+      <div id="searchStatusPanel" class="metric">检索状态：未加载</div>
+      <div class="actions">
+        <button id="refreshFtsIndex">刷新关键词索引</button>
+        <button id="refreshEmbeddingIndex">刷新语义向量索引</button>
+      </div>
 
       <h2>项目管家</h2>
       <button id="memoryRepairSuggest" style="width: 100%; margin-top: 8px;">生成记忆修复建议</button>
@@ -346,18 +359,20 @@
     async function refreshAll(options = {}) {
       try {
         const path = projectPath();
-        const [status, canon, chapters, files, management] = await Promise.all([
+        const [status, canon, chapters, files, management, searchStatus] = await Promise.all([
           apiGet("/api/project/status", { path }),
           apiGet("/api/canon", { path }),
           apiGet("/api/chapters", { path }),
           apiGet("/api/file-tree", { path }),
           apiGet("/api/management-events", { path, limit: 10 }),
+          apiGet("/api/search-status", { path }),
         ]);
         renderStatus(status.status);
         $("canonPanel").textContent = canon.summary || "无";
         renderChapters(chapters.chapters || []);
         renderFileTree(files.files || []);
         renderManagementEvents(management.events || []);
+        renderSearchStatus(searchStatus.search || {});
         renderNextStep({ status: status.status, chapters: chapters.chapters || [] });
         if (!options.silent) setMessage("项目已刷新");
       } catch (error) {
@@ -398,6 +413,28 @@
             ${(event.target_files || []).length ? `<div>files: ${escapeHtml((event.target_files || []).join(", "))}</div>` : ""}
           </div>
         `).join("")}
+      `;
+    }
+
+    function renderSearchStatus(search) {
+      const ftsClass = search.fts_status === "indexed" ? "status-ok" : (search.fts_status === "stale" ? "status-warn" : "status-bad");
+      const embeddingOk = search.embedding_status === "indexed";
+      const embeddingWarn = search.embedding_status === "stale" || search.embedding_status === "missing";
+      const embeddingClass = embeddingOk ? "status-ok" : (embeddingWarn ? "status-warn" : "status-bad");
+      const envText = (search.embedding_env_missing || []).length
+        ? `<div>缺少环境变量：${escapeHtml((search.embedding_env_missing || []).join(", "))}</div>`
+        : "";
+      const embeddingHelp = embeddingOk
+        ? "embedding 语义检索可用。"
+        : "当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用。";
+      $("searchStatusPanel").innerHTML = `
+        <b>检索状态</b>
+        <div>FTS：<span class="${ftsClass}">${escapeHtml(search.fts_status || "unknown")}</span></div>
+        <div>Embedding：<span class="${embeddingClass}">${escapeHtml(search.embedding_status || "unknown")}</span></div>
+        <div>文档数：${escapeHtml(search.document_count ?? 0)}</div>
+        <div>Provider：${escapeHtml(search.embedding_provider || "未配置")} / ${escapeHtml(search.embedding_model || "未配置")}</div>
+        ${envText}
+        <div class="${embeddingOk ? "status-ok" : "status-bad"}">${escapeHtml(embeddingHelp)}</div>
       `;
     }
 
@@ -459,6 +496,7 @@
           provider: $("provider").value,
           force: $("forceWrites").checked,
           use_search_context: $("useSearchContext").checked,
+          use_vector_context: $("useVectorContext").checked,
         };
         const data = await apiPost(endpoint, payload);
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
@@ -558,6 +596,19 @@
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
         setMessage(actionMessage("应用 Canon proposal", data));
+      });
+    }
+
+    async function refreshIndex(withEmbeddings) {
+      return withBusy(withEmbeddings ? "刷新语义向量索引" : "刷新关键词索引", async () => {
+        const data = await apiPost("/api/index/refresh", {
+          path: projectPath(),
+          with_embeddings: withEmbeddings,
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderSearchStatus(data.search || {});
+        await refreshAll({ silent: true });
+        setMessage(actionMessage(withEmbeddings ? "刷新语义向量索引" : "刷新关键词索引", data));
       });
     }
 
@@ -1070,6 +1121,8 @@
     $("inspireProject").addEventListener("click", inspireProject);
     $("canonSuggest").addEventListener("click", canonSuggest);
     $("canonApply").addEventListener("click", canonApply);
+    $("refreshFtsIndex").addEventListener("click", () => refreshIndex(false));
+    $("refreshEmbeddingIndex").addEventListener("click", () => refreshIndex(true));
     $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
     $("memoryRepairApply").addEventListener("click", memoryRepairApply);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));

@@ -270,7 +270,7 @@ JSON Schema 导出：
 Embedding provider：
 
 - `EmbeddingProvider`：抽象接口。
-- `LocalHashEmbeddingProvider`：本地 hash embedding，离线可用。
+- `LocalHashEmbeddingProvider`：本地 hash embedding，仅用于测试和离线 fixture，不作为真实业务 fallback。
 - `OpenAIEmbeddingProvider`：兼容 embedding API；适配 DashScope text-embedding-v4 和 Zhipu embedding-3。
 - `EmbeddingProviderFactory`：按 `EmbeddingsConfig` 创建 provider。
 - `create_embedding_provider()`：外部调用入口。
@@ -493,7 +493,9 @@ orchestrator 项目管家修复 proposal：
 
 搜索和 ContextBundle：
 
-- `rebuild_search_index()`：构建 JSON/SQLite 搜索索引，可选 embedding。
+- `rebuild_search_index()`：全量构建 JSON/SQLite/manifest 搜索索引，可选真实 embedding。
+- `refresh_search_index()`：增量刷新新增、修改、删除文档；默认只更新 FTS，不调用外部 embedding API。
+- `search_index_status()`：返回 FTS 和 embedding freshness 状态，供 CLI/Web 状态栏使用。
 - `search_project()`：关键词/字段/类型/章节搜索。
 - `retrieve_context()`：旧的检索入口。
 - `retrieve_context_bundle()`：结构化上下文检索，按 ChapterPlan 扩展实体引用。
@@ -501,7 +503,7 @@ orchestrator 项目管家修复 proposal：
 - `_include_entity_context()`、`_include_related_events()`、`_include_related_hidden_material()`：补充 canon/state/timeline/hidden material。
 - `_maybe_include_hidden_truth()`：按 task visibility 控制 hidden truth。
 - `_score_document()`、`_highlight()`：关键词打分和高亮。
-- `_load_embedding_provider()`：可选 embedding 检索。
+- `_load_embedding_provider()`：显式加载 embedding provider；默认拒绝把 `local_hash` 当作真实业务语义检索。
 
 ### `core/inspection.py`
 
@@ -659,7 +661,7 @@ Agent skill 只作为开发者和外部 Agent 的边界说明，不参与小说�
 
 ### `config/embeddings.yaml`
 
-embedding provider 配置。支持 local hash、DashScope text-embedding-v4、Zhipu embedding-3 等 OpenAI-compatible 形态。
+embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu embedding-3 或 OpenAI-compatible 真实接口。`local_hash` 只用于测试 fixture。
 
 ### `examples/rain_station/`
 

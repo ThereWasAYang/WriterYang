@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -12,7 +14,7 @@ from novel.core.embeddings import (
     EmbeddingError,
     EmbeddingProvider,
     create_embedding_provider,
-    local_embedding_vector,
+    load_embeddings_config,
 )
 from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json
 from novel.core.schemas import (
@@ -59,6 +61,53 @@ class SearchResult:
 class SearchIndexResult:
     index_path: Path
     document_count: int
+    sqlite_path: Path
+    manifest_path: Path
+    refreshed_count: int = 0
+    deleted_count: int = 0
+    embedding_document_count: int = 0
+    with_embeddings: bool = False
+
+
+@dataclass(frozen=True)
+class SearchIndexStatus:
+    fts_status: str
+    embedding_status: str
+    document_count: int
+    stale_document_count: int
+    deleted_document_count: int
+    index_path: Path
+    sqlite_path: Path
+    manifest_path: Path
+    embedding_provider: str | None = None
+    embedding_model: str | None = None
+    embedding_env_missing: tuple[str, ...] = ()
+    message: str = ""
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "fts_status": self.fts_status,
+            "embedding_status": self.embedding_status,
+            "document_count": self.document_count,
+            "stale_document_count": self.stale_document_count,
+            "deleted_document_count": self.deleted_document_count,
+            "index_path": str(self.index_path),
+            "sqlite_path": str(self.sqlite_path),
+            "manifest_path": str(self.manifest_path),
+            "embedding_provider": self.embedding_provider,
+            "embedding_model": self.embedding_model,
+            "embedding_env_missing": list(self.embedding_env_missing),
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True)
+class VectorRecord:
+    provider: str
+    model: str
+    dimensions: int
+    source_hash: str
+    vector: list[float]
 
 
 @dataclass(frozen=True)
@@ -96,21 +145,105 @@ def rebuild_search_index(
     *,
     embedding_provider_name: str = "config",
     embedding_config_path: Path | None = None,
+    with_embeddings: bool = False,
 ) -> SearchIndexResult:
     root = root.resolve()
     if not (root / "project.yaml").exists():
         raise SearchError(f"{root} does not look like a novel workspace")
     documents = _collect_documents(root)
     index_path = search_index_path(root)
+    sqlite_path = sqlite_search_index_path(root)
+    manifest_path = search_manifest_path(root)
     payload = {
         "version": 1,
         "documents": [_document_to_dict(document) for document in documents],
     }
     backup_if_exists(index_path, reason="index_rebuild")
     atomic_write_json(index_path, payload)
-    provider = _load_embedding_provider(root, embedding_provider_name, embedding_config_path)
-    _write_sqlite_index(sqlite_search_index_path(root), documents, provider)
-    return SearchIndexResult(index_path=index_path, document_count=len(documents))
+    provider = (
+        _load_embedding_provider(
+            root,
+            embedding_provider_name,
+            embedding_config_path,
+            allow_local_hash=embedding_provider_name == "local_hash",
+        )
+        if with_embeddings
+        else None
+    )
+    vectors = _write_sqlite_index(sqlite_path, documents, provider=provider, existing_vectors={})
+    _write_search_manifest(root, documents, vectors, provider=provider)
+    return SearchIndexResult(
+        index_path=index_path,
+        document_count=len(documents),
+        sqlite_path=sqlite_path,
+        manifest_path=manifest_path,
+        refreshed_count=len(documents),
+        deleted_count=0,
+        embedding_document_count=len(vectors),
+        with_embeddings=with_embeddings,
+    )
+
+
+def refresh_search_index(
+    root: Path,
+    *,
+    embedding_provider_name: str = "config",
+    embedding_config_path: Path | None = None,
+    with_embeddings: bool = False,
+) -> SearchIndexResult:
+    root = root.resolve()
+    if not (root / "project.yaml").exists():
+        raise SearchError(f"{root} does not look like a novel workspace")
+    documents = _collect_documents(root)
+    index_path = search_index_path(root)
+    sqlite_path = sqlite_search_index_path(root)
+    manifest_path = search_manifest_path(root)
+    old_manifest = _safe_load_manifest(manifest_path)
+    old_documents = _manifest_documents_by_id(old_manifest)
+    current_hashes = {document.id: _document_hash(document) for document in documents}
+    current_ids = set(current_hashes)
+    old_ids = set(old_documents)
+    changed_ids = {
+        document_id
+        for document_id, source_hash in current_hashes.items()
+        if old_documents.get(document_id, {}).get("sha256") != source_hash
+    }
+    deleted_ids = old_ids - current_ids
+    provider = (
+        _load_embedding_provider(
+            root,
+            embedding_provider_name,
+            embedding_config_path,
+            allow_local_hash=embedding_provider_name == "local_hash",
+        )
+        if with_embeddings
+        else None
+    )
+    existing_vectors = _load_existing_vectors(sqlite_path)
+    payload = {
+        "version": 1,
+        "documents": [_document_to_dict(document) for document in documents],
+    }
+    if index_path.exists():
+        backup_if_exists(index_path, reason="index_refresh")
+    atomic_write_json(index_path, payload)
+    vectors = _write_sqlite_index(
+        sqlite_path,
+        documents,
+        provider=provider,
+        existing_vectors=existing_vectors,
+    )
+    _write_search_manifest(root, documents, vectors, provider=provider)
+    return SearchIndexResult(
+        index_path=index_path,
+        document_count=len(documents),
+        sqlite_path=sqlite_path,
+        manifest_path=manifest_path,
+        refreshed_count=len(changed_ids),
+        deleted_count=len(deleted_ids),
+        embedding_document_count=len(vectors),
+        with_embeddings=with_embeddings,
+    )
 
 
 def search_project(
@@ -131,28 +264,39 @@ def search_project(
         raise SearchError("search query must not be empty")
     if limit < 1:
         raise SearchError("--limit must be a positive integer")
-    index_path = search_index_path(root)
     sqlite_path = sqlite_search_index_path(root)
-    if not index_path.exists():
+    status = search_index_status(
+        root,
+        embedding_provider_name=embedding_provider_name,
+        embedding_config_path=embedding_config_path,
+    )
+    if status.fts_status != "indexed":
         if not rebuild_if_missing:
-            raise SearchError(f"{index_path} is missing; run novel index rebuild first")
-        rebuild_search_index(
+            raise SearchError(f"{search_index_path(root)} is missing or stale; run novel index refresh first")
+        refresh_search_index(
             root,
             embedding_provider_name=embedding_provider_name,
             embedding_config_path=embedding_config_path,
         )
-    elif not sqlite_path.exists():
-        documents = _load_index(index_path)
-        provider = _load_embedding_provider(root, embedding_provider_name, embedding_config_path)
-        _write_sqlite_index(sqlite_path, documents, provider)
-    documents = _load_index(index_path)
+        status = search_index_status(
+            root,
+            embedding_provider_name=embedding_provider_name,
+            embedding_config_path=embedding_config_path,
+        )
+    documents = _load_index(search_index_path(root))
     terms = _query_terms(query)
     candidate_ids = _sqlite_candidate_ids(sqlite_path, terms)
-    vector_scores = (
-        _vector_scores(sqlite_path, query, _load_embedding_provider(root, embedding_provider_name, embedding_config_path))
-        if use_vector
-        else {}
-    )
+    vector_scores: dict[str, float] = {}
+    if use_vector:
+        if status.embedding_status != "indexed":
+            raise SearchError(_embedding_unavailable_message(status))
+        provider = _load_embedding_provider(
+            root,
+            embedding_provider_name,
+            embedding_config_path,
+            allow_local_hash=embedding_provider_name == "local_hash",
+        )
+        vector_scores = _vector_scores(sqlite_path, query, provider)
     results = [
         _result_with_vector_score(document, result, vector_scores.get(document.id, 0.0))
         for document in documents
@@ -174,7 +318,7 @@ def retrieve_context(
     chapter_number: int,
     instruction: str | None,
     limit: int = 8,
-    use_vector: bool = True,
+    use_vector: bool = False,
 ) -> RetrievedContext:
     query_parts = [f"chapter {chapter_number}"]
     if instruction and instruction.strip():
@@ -196,7 +340,7 @@ def retrieve_context(
             )
         )
     except SearchError:
-        rebuild_search_index(root)
+        refresh_search_index(root)
         results = tuple(
             _diverse_context_results(
                 search_project(
@@ -222,7 +366,7 @@ def retrieve_context_bundle(
     instruction: str | None,
     plan: ChapterPlan | None = None,
     limit: int = 12,
-    use_vector: bool = True,
+    use_vector: bool = False,
 ) -> ContextBundle:
     root = root.resolve()
     query_parts = [f"chapter {chapter_number}"]
@@ -283,13 +427,14 @@ def retrieve_context_bundle(
             direct_ids=direct_ids,
         )
 
-    search_results = _safe_retrieve_search_results(
+    search_results, search_warnings = _safe_retrieve_search_results(
         root,
         query=query,
         chapter_number=chapter_number,
         limit=limit,
         use_vector=use_vector,
     )
+    warnings.extend(search_warnings)
     for result in search_results:
         _include_search_result(result, task=task, included=included, excluded=excluded)
 
@@ -319,6 +464,165 @@ def write_context_report(root: Path, bundle: ContextBundle, *, force: bool = Fal
         backup_if_exists(target, reason="force")
     atomic_write_model_json(target, bundle)
     return target
+
+
+def search_manifest_path(root: Path) -> Path:
+    return root.resolve() / "memory" / "search_index_manifest.json"
+
+
+def search_index_status(
+    root: Path,
+    *,
+    embedding_provider_name: str = "config",
+    embedding_config_path: Path | None = None,
+) -> SearchIndexStatus:
+    root = root.resolve()
+    index_path = search_index_path(root)
+    sqlite_path = sqlite_search_index_path(root)
+    manifest_path = search_manifest_path(root)
+    documents = _collect_documents(root) if (root / "project.yaml").exists() else []
+    manifest = _safe_load_manifest(manifest_path)
+    manifest_documents = _manifest_documents_by_id(manifest)
+    current_hashes = {document.id: _document_hash(document) for document in documents}
+    current_ids = set(current_hashes)
+    manifest_ids = set(manifest_documents)
+    stale_ids = {
+        document_id
+        for document_id, source_hash in current_hashes.items()
+        if manifest_documents.get(document_id, {}).get("sha256") != source_hash
+    }
+    deleted_ids = manifest_ids - current_ids
+    if not index_path.exists() or not sqlite_path.exists() or not manifest_path.exists():
+        fts_status = "missing"
+    elif stale_ids or deleted_ids:
+        fts_status = "stale"
+    else:
+        fts_status = "indexed"
+
+    embedding_info = _embedding_config_status(root, embedding_provider_name, embedding_config_path)
+    embedding_status = embedding_info["status"]
+    provider_name = embedding_info.get("provider")
+    model_name = embedding_info.get("model")
+    env_missing = tuple(str(item) for item in embedding_info.get("env_missing", ()))
+    if embedding_status == "configured":
+        embedding_status = _embedding_vector_status(
+            sqlite_path,
+            documents,
+            provider=str(provider_name),
+            model=str(model_name),
+        )
+    message = _search_status_message(fts_status, embedding_status, env_missing)
+    return SearchIndexStatus(
+        fts_status=fts_status,
+        embedding_status=embedding_status,
+        document_count=len(documents),
+        stale_document_count=len(stale_ids),
+        deleted_document_count=len(deleted_ids),
+        index_path=index_path,
+        sqlite_path=sqlite_path,
+        manifest_path=manifest_path,
+        embedding_provider=str(provider_name) if provider_name else None,
+        embedding_model=str(model_name) if model_name else None,
+        embedding_env_missing=env_missing,
+        message=message,
+    )
+
+
+def _embedding_config_status(
+    root: Path,
+    provider_name: str,
+    config_path: Path | None,
+) -> dict[str, object]:
+    allow_test = provider_name == "local_hash"
+    if allow_test:
+        return {"status": "configured", "provider": "local_hash", "model": "local-hash-v1", "env_missing": ()}
+    path = config_path or root / "config" / "embeddings.yaml"
+    if not path.exists():
+        return {"status": "not_configured", "env_missing": ()}
+    try:
+        config = load_embeddings_config(path)
+    except Exception:
+        return {"status": "not_configured", "env_missing": ()}
+    selected_name = config.active_provider if provider_name == "config" else provider_name
+    selected = config.providers.get(selected_name)
+    if selected is None:
+        return {"status": "not_configured", "env_missing": ()}
+    provider = selected.provider.lower()
+    if provider == "local_hash":
+        return {"status": "test_only", "provider": provider, "model": selected.model, "env_missing": ()}
+    missing: list[str] = []
+    if selected.api_key_env and not os.environ.get(selected.api_key_env):
+        missing.append(selected.api_key_env)
+    if provider == "openai_compatible" and selected.base_url_env and not os.environ.get(selected.base_url_env):
+        missing.append(selected.base_url_env)
+    if not selected.api_key_env:
+        missing.append("api_key_env")
+    if missing:
+        return {
+            "status": "env_missing",
+            "provider": provider,
+            "model": selected.model,
+            "env_missing": tuple(dict.fromkeys(missing)),
+        }
+    return {"status": "configured", "provider": provider, "model": selected.model, "env_missing": ()}
+
+
+def _embedding_vector_status(
+    sqlite_path: Path,
+    documents: list[SearchDocument],
+    *,
+    provider: str,
+    model: str,
+) -> str:
+    if not sqlite_path.exists():
+        return "missing"
+    vectors = _load_existing_vectors(sqlite_path)
+    if not vectors:
+        return "missing"
+    for document in documents:
+        record = vectors.get(document.id)
+        if not record:
+            return "stale"
+        if record.provider != provider or record.model != model or record.source_hash != _document_hash(document):
+            return "stale"
+    return "indexed"
+
+
+def _search_status_message(
+    fts_status: str,
+    embedding_status: str,
+    env_missing: tuple[str, ...],
+) -> str:
+    if embedding_status == "env_missing":
+        return (
+            "Embedding semantic search is unavailable because environment variables are missing: "
+            + ", ".join(env_missing)
+        )
+    if embedding_status == "test_only":
+        return "local_hash embedding is for tests only; configure a real embedding provider for semantic search."
+    if embedding_status == "not_configured":
+        return "Embedding semantic search is not configured; keyword/FTS search is still available."
+    if embedding_status in {"missing", "stale"}:
+        return "Embedding vectors are missing or stale; run index refresh --with-embeddings."
+    if fts_status in {"missing", "stale"}:
+        return "Keyword/FTS index is missing or stale; it can be refreshed locally without embedding API calls."
+    return "Search index is ready."
+
+
+def _embedding_unavailable_message(status: SearchIndexStatus) -> str:
+    if status.embedding_status == "env_missing":
+        return (
+            "embedding vector search is unavailable; missing environment variables: "
+            + ", ".join(status.embedding_env_missing)
+        )
+    if status.embedding_status == "test_only":
+        return "embedding vector search is unavailable; local_hash is only for tests"
+    if status.embedding_status == "not_configured":
+        return "embedding vector search is unavailable; configure a real embedding provider"
+    return (
+        "embedding vector index is not ready; run novel index refresh --with-embeddings "
+        "with a real embedding provider"
+    )
 
 
 def _load_context_data(root: Path) -> dict[str, Any]:
@@ -581,7 +885,7 @@ def _safe_retrieve_search_results(
     chapter_number: int,
     limit: int,
     use_vector: bool,
-) -> list[SearchResult]:
+) -> tuple[list[SearchResult], list[str]]:
     try:
         return _diverse_context_results(
             search_project(
@@ -594,21 +898,43 @@ def _safe_retrieve_search_results(
             ),
             limit=limit,
             chapter_number=chapter_number,
-        )
-    except SearchError:
-        rebuild_search_index(root)
-        return _diverse_context_results(
-            search_project(
-                root,
-                query,
-                search_type="all",
-                limit=max(limit * 3, limit),
-                highlight=True,
-                use_vector=use_vector,
-            ),
-            limit=limit,
-            chapter_number=chapter_number,
-        )
+        ), []
+    except SearchError as exc:
+        warnings = [f"search context refresh warning: {exc}"]
+        if use_vector:
+            try:
+                return _diverse_context_results(
+                    search_project(
+                        root,
+                        query,
+                        search_type="all",
+                        limit=max(limit * 3, limit),
+                        highlight=True,
+                        use_vector=False,
+                    ),
+                    limit=limit,
+                    chapter_number=chapter_number,
+                ), warnings
+            except SearchError as fallback_exc:
+                warnings.append(f"keyword search fallback failed: {fallback_exc}")
+                return [], warnings
+        try:
+            refresh_search_index(root)
+            return _diverse_context_results(
+                search_project(
+                    root,
+                    query,
+                    search_type="all",
+                    limit=max(limit * 3, limit),
+                    highlight=True,
+                    use_vector=False,
+                ),
+                limit=limit,
+                chapter_number=chapter_number,
+            ), warnings
+        except SearchError as fallback_exc:
+            warnings.append(f"keyword search fallback failed: {fallback_exc}")
+            return [], warnings
 
 
 def _include_search_result(
@@ -688,6 +1014,10 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
 
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def search_index_path(root: Path) -> Path:
     return root.resolve() / "memory" / "search_index.json"
 
@@ -699,6 +1029,8 @@ def sqlite_search_index_path(root: Path) -> Path:
 def _collect_documents(root: Path) -> list[SearchDocument]:
     documents: list[SearchDocument] = []
     documents.extend(_canon_documents(root))
+    documents.extend(_world_rule_documents(root))
+    documents.extend(_state_documents(root))
     documents.extend(_timeline_documents(root))
     documents.extend(_markdown_documents(root))
     documents.extend(_chapter_json_documents(root))
@@ -731,6 +1063,65 @@ def _canon_documents(root: Path) -> list[SearchDocument]:
                     type=document_type,
                     path=_rel(root, path),
                     title=str(value.get(title_key) or entity_id),
+                    text=_json_text(value),
+                    metadata={"entity_id": entity_id, "entity_type": document_type},
+                )
+            )
+    return documents
+
+
+def _world_rule_documents(root: Path) -> list[SearchDocument]:
+    path = root / "memory" / "canon" / "world.json"
+    if not path.exists():
+        return []
+    data = _safe_load_json(path)
+    rules = data.get("world_rules") if isinstance(data, dict) else None
+    if not isinstance(rules, list):
+        return []
+    documents: list[SearchDocument] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_id = str(rule.get("id") or f"rule_{len(documents) + 1}")
+        documents.append(
+            SearchDocument(
+                id=rule_id,
+                type="world_rule",
+                path=_rel(root, path),
+                title=str(rule.get("summary") or rule.get("description") or rule_id),
+                text=_json_text(rule),
+                metadata={"entity_id": rule_id, "entity_type": "world_rule"},
+            )
+        )
+    return documents
+
+
+def _state_documents(root: Path) -> list[SearchDocument]:
+    path = root / "memory" / "state" / "current_state.json"
+    if not path.exists():
+        return []
+    data = _safe_load_json(path)
+    if not isinstance(data, dict):
+        return []
+    documents: list[SearchDocument] = []
+    for key, document_type in (
+        ("character_states", "character_state"),
+        ("item_states", "item_state"),
+        ("location_states", "location_state"),
+    ):
+        values = data.get(key)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            entity_id = str(value.get("entity_id") or f"{document_type}_{len(documents) + 1}")
+            documents.append(
+                SearchDocument(
+                    id=f"state_{entity_id}",
+                    type=document_type,
+                    path=_rel(root, path),
+                    title=entity_id,
                     text=_json_text(value),
                     metadata={"entity_id": entity_id, "entity_type": document_type},
                 )
@@ -985,6 +1376,124 @@ def _document_from_dict(data: dict[str, object]) -> SearchDocument:
     )
 
 
+def _document_hash(document: SearchDocument) -> str:
+    payload = json.dumps(_document_to_dict(document), ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _write_search_manifest(
+    root: Path,
+    documents: list[SearchDocument],
+    vectors: dict[str, VectorRecord],
+    *,
+    provider: EmbeddingProvider | None,
+) -> None:
+    indexed_at = _utc_iso()
+    entries = []
+    for document in documents:
+        vector = vectors.get(document.id)
+        entry: dict[str, object] = {
+            "document_id": document.id,
+            "type": document.type,
+            "path": document.path,
+            "sha256": _document_hash(document),
+            "mtime": _source_mtime(root, document.path),
+            "indexed_at": indexed_at,
+            "fts_status": "indexed",
+            "embedding_status": "indexed" if vector else "not_indexed",
+        }
+        if vector:
+            entry.update(
+                {
+                    "embedding_provider": vector.provider,
+                    "embedding_model": vector.model,
+                    "embedding_dimensions": vector.dimensions,
+                    "embedding_source_hash": vector.source_hash,
+                }
+            )
+        entries.append(entry)
+    payload = {
+        "version": 1,
+        "indexed_at": indexed_at,
+        "document_count": len(documents),
+        "embedding": {
+            "enabled": provider is not None,
+            "provider": provider.provider_name if provider else None,
+            "model": provider.model if provider else None,
+            "document_count": len(vectors),
+        },
+        "documents": entries,
+    }
+    atomic_write_json(search_manifest_path(root), payload)
+
+
+def _source_mtime(root: Path, rel_path: str) -> float | None:
+    path = root / rel_path
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _safe_load_manifest(path: Path) -> dict[str, Any]:
+    try:
+        data = load_json(path)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _manifest_documents_by_id(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    documents = manifest.get("documents")
+    if not isinstance(documents, list):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        document_id = document.get("document_id")
+        if isinstance(document_id, str):
+            result[document_id] = document
+    return result
+
+
+def _load_existing_vectors(path: Path) -> dict[str, VectorRecord]:
+    if not path.exists():
+        return {}
+    try:
+        with sqlite3.connect(path) as conn:
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(vectors)").fetchall()]
+            if not columns:
+                return {}
+            rows = conn.execute("SELECT * FROM vectors").fetchall()
+    except sqlite3.Error:
+        return {}
+    records: dict[str, VectorRecord] = {}
+    for row in rows:
+        values = dict(zip(columns, row))
+        try:
+            raw_vector = values.get("vector")
+            vector = json.loads(raw_vector) if isinstance(raw_vector, str) else raw_vector
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(vector, list):
+            continue
+        document_id = values.get("id")
+        provider = values.get("provider")
+        model = values.get("model")
+        source_hash = values.get("source_hash")
+        if not all(isinstance(value, str) for value in (document_id, provider, model, source_hash)):
+            continue
+        records[str(document_id)] = VectorRecord(
+            provider=str(provider),
+            model=str(model),
+            dimensions=int(values.get("dimensions") or len(vector)),
+            source_hash=str(source_hash),
+            vector=[float(value) for value in vector],
+        )
+    return records
+
+
 def _safe_load_json(path: Path) -> object:
     try:
         return load_json(path)
@@ -1000,9 +1509,16 @@ def _token_text(document: SearchDocument) -> str:
     return " ".join(_query_terms(" ".join([document.id, document.title, document.text])))
 
 
-def _write_sqlite_index(path: Path, documents: list[SearchDocument], provider: EmbeddingProvider | None = None) -> None:
-    provider = provider or create_embedding_provider(path.parent.parent, provider_name="local_hash")
+def _write_sqlite_index(
+    path: Path,
+    documents: list[SearchDocument],
+    *,
+    provider: EmbeddingProvider | None = None,
+    existing_vectors: dict[str, VectorRecord] | None = None,
+) -> dict[str, VectorRecord]:
+    existing_vectors = existing_vectors or {}
     path.parent.mkdir(parents=True, exist_ok=True)
+    vectors = _current_vectors(provider, documents, existing_vectors) if provider else _reusable_vectors(documents, existing_vectors)
     with sqlite3.connect(path) as conn:
         conn.execute("DROP TABLE IF EXISTS documents")
         conn.execute("DROP TABLE IF EXISTS vectors")
@@ -1014,9 +1530,8 @@ def _write_sqlite_index(path: Path, documents: list[SearchDocument], provider: E
             "CREATE VIRTUAL TABLE documents_fts USING fts5(id, type, title, body, token_text)"
         )
         conn.execute(
-            "CREATE TABLE vectors (id TEXT PRIMARY KEY, provider TEXT, model TEXT, dimensions INTEGER, vector TEXT)"
+            "CREATE TABLE vectors (id TEXT PRIMARY KEY, provider TEXT, model TEXT, dimensions INTEGER, source_hash TEXT, vector TEXT)"
         )
-        vectors = _embed_documents(provider, documents)
         for document in documents:
             conn.execute(
                 "INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)",
@@ -1033,11 +1548,20 @@ def _write_sqlite_index(path: Path, documents: list[SearchDocument], provider: E
                 "INSERT INTO documents_fts (id, type, title, body, token_text) VALUES (?, ?, ?, ?, ?)",
                 (document.id, document.type, document.title, document.text, _token_text(document)),
             )
-            vector = vectors.get(document.id) or local_embedding_vector(" ".join([document.title, document.text]))
-            conn.execute(
-                "INSERT INTO vectors VALUES (?, ?, ?, ?, ?)",
-                (document.id, provider.provider_name, provider.model, len(vector), json.dumps(vector)),
-            )
+            vector_record = vectors.get(document.id)
+            if vector_record:
+                conn.execute(
+                    "INSERT INTO vectors VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        document.id,
+                        vector_record.provider,
+                        vector_record.model,
+                        vector_record.dimensions,
+                        vector_record.source_hash,
+                        json.dumps(vector_record.vector),
+                    ),
+                )
+    return vectors
 
 
 def _sqlite_candidate_ids(path: Path, terms: list[str]) -> set[str]:
@@ -1062,18 +1586,62 @@ def _load_embedding_provider(
     root: Path,
     provider_name: str,
     config_path: Path | None,
+    *,
+    allow_local_hash: bool = False,
 ) -> EmbeddingProvider:
     try:
-        return create_embedding_provider(
+        provider = create_embedding_provider(
             root,
             provider_name=provider_name,
             config_path=config_path,
         )
     except EmbeddingError as exc:
         raise SearchError(str(exc)) from exc
+    if provider.provider_name == "local_hash" and not allow_local_hash:
+        raise SearchError(
+            "local_hash embedding is only for tests; configure a real embedding provider "
+            "or omit --use-vector"
+        )
+    return provider
 
 
-def _embed_documents(provider: EmbeddingProvider, documents: list[SearchDocument]) -> dict[str, list[float]]:
+def _current_vectors(
+    provider: EmbeddingProvider,
+    documents: list[SearchDocument],
+    existing_vectors: dict[str, VectorRecord],
+) -> dict[str, VectorRecord]:
+    reusable = {
+        document.id: existing_vectors[document.id]
+        for document in documents
+        if _can_reuse_vector(existing_vectors.get(document.id), provider, _document_hash(document))
+    }
+    to_embed = [document for document in documents if document.id not in reusable]
+    embedded = _embed_documents(provider, to_embed)
+    return {**reusable, **embedded}
+
+
+def _reusable_vectors(
+    documents: list[SearchDocument],
+    existing_vectors: dict[str, VectorRecord],
+) -> dict[str, VectorRecord]:
+    return {
+        document.id: existing_vectors[document.id]
+        for document in documents
+        if existing_vectors.get(document.id)
+        and existing_vectors[document.id].source_hash == _document_hash(document)
+    }
+
+
+def _can_reuse_vector(record: VectorRecord | None, provider: EmbeddingProvider, source_hash: str) -> bool:
+    return bool(
+        record
+        and record.provider == provider.provider_name
+        and record.model == provider.model
+        and record.source_hash == source_hash
+    )
+
+
+def _embed_documents(provider: EmbeddingProvider, documents: list[SearchDocument]) -> dict[str, VectorRecord]:
     if not documents:
         return {}
     texts = [" ".join([document.title, document.text]) for document in documents]
@@ -1083,7 +1651,16 @@ def _embed_documents(provider: EmbeddingProvider, documents: list[SearchDocument
         raise SearchError(str(exc)) from exc
     if len(response.vectors) != len(texts):
         raise SearchError("embedding provider returned the wrong number of vectors")
-    return {document.id: vector for document, vector in zip(documents, response.vectors)}
+    return {
+        document.id: VectorRecord(
+            provider=provider.provider_name,
+            model=provider.model,
+            dimensions=len(vector),
+            source_hash=_document_hash(document),
+            vector=vector,
+        )
+        for document, vector in zip(documents, response.vectors)
+    }
 
 
 def _vector_scores(path: Path, query: str, provider: EmbeddingProvider) -> dict[str, float]:

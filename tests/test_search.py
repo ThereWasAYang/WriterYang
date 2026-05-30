@@ -15,7 +15,14 @@ from novel.core.planning import (
     plan_chapter,
 )
 from novel.core.providers import MockProvider
-from novel.core.search import rebuild_search_index, retrieve_context, retrieve_context_bundle, search_project
+from novel.core.search import (
+    rebuild_search_index,
+    refresh_search_index,
+    retrieve_context,
+    retrieve_context_bundle,
+    search_index_status,
+    search_project,
+)
 from novel.core.schemas import ContextBundle
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
 from novel.core.workspace import InitOptions, init_workspace
@@ -27,14 +34,39 @@ def test_index_rebuild_creates_search_index(tmp_path: Path) -> None:
     result = rebuild_search_index(root)
 
     assert result.index_path == root / "memory" / "search_index.json"
+    assert result.manifest_path == root / "memory" / "search_index_manifest.json"
     assert result.index_path.is_file()
+    assert result.manifest_path.is_file()
     assert (root / "memory" / "search_index.sqlite").is_file()
     assert result.document_count > 0
     with sqlite3.connect(root / "memory" / "search_index.sqlite") as conn:
         vector_count = conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0]
         fts_count = conn.execute("SELECT COUNT(*) FROM documents_fts").fetchone()[0]
-    assert vector_count == result.document_count
+    assert vector_count == 0
     assert fts_count == result.document_count
+    status = search_index_status(root)
+    assert status.fts_status == "indexed"
+    assert status.embedding_status in {"env_missing", "missing", "not_configured", "test_only"}
+
+
+def test_index_refresh_updates_only_changed_documents(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    rebuild_search_index(root)
+    first_status = search_index_status(root)
+    assert first_status.fts_status == "indexed"
+
+    inspiration = root / "memory" / "inspiration.md"
+    inspiration.write_text(inspiration.read_text(encoding="utf-8") + "\n新增线索：蓝色伞柄。\n", encoding="utf-8")
+    stale_status = search_index_status(root)
+    assert stale_status.fts_status == "stale"
+    assert stale_status.stale_document_count >= 1
+
+    result = refresh_search_index(root)
+
+    assert result.refreshed_count >= 1
+    assert result.deleted_count == 0
+    assert search_index_status(root).fts_status == "indexed"
+    assert search_project(root, "蓝色伞柄", limit=5)
 
 
 def test_search_finds_character(tmp_path: Path) -> None:
@@ -51,12 +83,30 @@ def test_search_finds_character(tmp_path: Path) -> None:
 
 def test_search_can_use_vector_scores(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
-    rebuild_search_index(root, embedding_provider_name="local_hash")
+    rebuild_search_index(root, embedding_provider_name="local_hash", with_embeddings=True)
 
-    results = search_project(root, "修复旧物的人", search_type="all", limit=5, use_vector=True)
+    results = search_project(
+        root,
+        "修复旧物的人",
+        search_type="all",
+        limit=5,
+        use_vector=True,
+        embedding_provider_name="local_hash",
+    )
 
     assert results
     assert any("vector_score" in result.metadata for result in results)
+
+
+def test_vector_search_without_real_embedding_index_fails_clearly(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    rebuild_search_index(root)
+
+    code, stdout, stderr = _run_cli(["search", "林澈", "--path", str(root), "--use-vector"])
+
+    assert code != 0
+    assert stdout == ""
+    assert "embedding vector" in stderr
 
 
 def test_search_supports_chinese_tokenization_and_highlight(tmp_path: Path) -> None:
@@ -236,10 +286,21 @@ def test_use_search_context_does_not_break_planning_prompt(tmp_path: Path) -> No
 
 def test_cli_search_json_output(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
-    _run_cli(["index", "rebuild", "--path", str(root), "--embedding-provider", "local_hash"])
+    _run_cli(["index", "rebuild", "--path", str(root), "--embedding-provider", "local_hash", "--with-embeddings"])
 
     code, stdout, stderr = _run_cli(
-        ["search", "林澈", "--path", str(root), "--type", "character", "--use-vector", "--json"]
+        [
+            "search",
+            "林澈",
+            "--path",
+            str(root),
+            "--type",
+            "character",
+            "--use-vector",
+            "--embedding-provider",
+            "local_hash",
+            "--json",
+        ]
     )
 
     assert code == 0

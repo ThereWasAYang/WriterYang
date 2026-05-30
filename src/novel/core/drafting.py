@@ -37,6 +37,7 @@ class ChapterDraftingOptions:
     target_words: int | None = None
     style_note: str | None = None
     use_search_context: bool = False
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,7 @@ def write_chapter_draft(
             task="write",
             instruction=options.instruction,
             plan=plan,
+            use_vector=options.use_vector_context,
         )
         if options.use_search_context
         else None

@@ -24,6 +24,7 @@ from novel.core.management import load_management_events
 from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
+from novel.core.search import refresh_search_index, search_index_status
 from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, CreationSession, RevisionLog, RevisionRecord
 from novel.core.security import validate_secret_config_file
 from novel.core.session import (
@@ -123,6 +124,8 @@ def handle_api_request(
             return _success(_runs_summary(_root_from_query(query)))
         if method == "GET" and path == "/api/usage":
             return _success({"usage": summarize_provider_usage(_root_from_query(query)).as_dict()})
+        if method == "GET" and path == "/api/search-status":
+            return _success({"search": search_index_status(_root_from_query(query)).as_dict()})
         if method == "GET" and path == "/api/provider-config":
             return _success(_provider_config_summary(_root_from_query(query)))
         if method == "GET" and path == "/api/state-timeline":
@@ -177,6 +180,8 @@ def handle_api_request(
             return _success(_locked_write(data, "web save chapter file", _save_chapter_file))
         if method == "POST" and path == "/api/provider-config":
             return _success(_locked_write(data, "web provider config", _save_provider_config))
+        if method == "POST" and path == "/api/index/refresh":
+            return _success(_locked_write(data, "web index refresh", _index_refresh))
         if method == "POST" and path == "/api/init-project":
             return _success(_locked_write(data, "web init project", _init_project))
         if method == "POST" and path == "/api/inspire":
@@ -274,6 +279,7 @@ def _plan_chapter(data: dict[str, object]) -> dict[str, object]:
             instruction=_optional_string(data.get("instruction")),
             force=bool(data.get("force")),
             use_search_context=bool(data.get("use_search_context")),
+            use_vector_context=bool(data.get("use_vector_context")),
         ),
         provider,
     )
@@ -296,6 +302,7 @@ def _write_chapter(data: dict[str, object]) -> dict[str, object]:
             target_words=_optional_int(data.get("target_words")),
             style_note=_optional_string(data.get("style_note")),
             use_search_context=bool(data.get("use_search_context")),
+            use_vector_context=bool(data.get("use_vector_context")),
         ),
         provider,
     )
@@ -342,6 +349,7 @@ def _audit_chapter(data: dict[str, object]) -> dict[str, object]:
             else (),
             audited_file=audited_file,  # type: ignore[arg-type]
             use_search_context=bool(data.get("use_search_context")),
+            use_vector_context=bool(data.get("use_vector_context")),
         ),
         provider,
     )
@@ -479,6 +487,26 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         "path": str(config_path),
         "backup_path": str(backup_path) if backup_path else None,
         "config": _provider_config_summary(root)["agents"],
+    }
+
+
+def _index_refresh(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    result = refresh_search_index(
+        root,
+        embedding_provider_name=str(data.get("embedding_provider") or "config"),
+        with_embeddings=bool(data.get("with_embeddings")),
+    )
+    return {
+        "index_path": str(result.index_path),
+        "sqlite_path": str(result.sqlite_path),
+        "manifest_path": str(result.manifest_path),
+        "document_count": result.document_count,
+        "refreshed_count": result.refreshed_count,
+        "deleted_count": result.deleted_count,
+        "embedding_document_count": result.embedding_document_count,
+        "with_embeddings": result.with_embeddings,
+        "search": search_index_status(root).as_dict(),
     }
 
 

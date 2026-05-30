@@ -334,6 +334,31 @@ def test_api_validate_endpoint_returns_project_report(tmp_path: Path) -> None:
     assert isinstance(data["warnings"], list)  # type: ignore[index]
 
 
+def test_api_search_status_and_refresh_do_not_leak_env_values(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.setenv("UNRELATED_SECRET_VALUE", "dashscope-secret-never-return")
+
+    status_before, payload_before = handle_api_request("GET", "/api/search-status", f"path={root}", None)
+    refresh_status, refresh_payload = handle_api_request(
+        "POST",
+        "/api/index/refresh",
+        "",
+        json.dumps({"path": str(root), "with_embeddings": False}),
+    )
+    status_after, payload_after = handle_api_request("GET", "/api/search-status", f"path={root}", None)
+
+    assert status_before == 200
+    assert payload_before["data"]["search"]["fts_status"] in {"missing", "stale", "indexed"}  # type: ignore[index]
+    assert refresh_status == 200
+    assert refresh_payload["data"]["with_embeddings"] is False  # type: ignore[index]
+    assert status_after == 200
+    assert payload_after["data"]["search"]["fts_status"] == "indexed"  # type: ignore[index]
+    serialized = json.dumps([payload_before, refresh_payload, payload_after], ensure_ascii=False)
+    assert "dashscope-secret-never-return" not in serialized
+    assert "DASHSCOPE_API_KEY" in serialized
+
+
 def test_api_session_revise_outline_keeps_session_id(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     start_status, start_payload = handle_api_request(
@@ -544,6 +569,11 @@ def test_frontend_basic_render() -> None:
     assert 'id="memoryRepairApply"' in html
     assert 'id="memoryRepairProposalPath"' in html
     assert 'id="managementEventsPanel"' in html
+    assert 'id="searchStatusPanel"' in html
+    assert 'id="refreshFtsIndex"' in html
+    assert 'id="refreshEmbeddingIndex"' in html
+    assert 'id="useSearchContext"' in html
+    assert 'id="useVectorContext"' in html
     assert 'id="forceWrites"' in html
     assert 'id="planChapter"' in html
     assert 'id="writeChapter"' in html
@@ -565,6 +595,8 @@ def test_frontend_basic_render() -> None:
     assert "/api/orchestrator/memory-repair/suggest" in html
     assert "/api/orchestrator/memory-repair/apply" in html
     assert "/api/management-events" in html
+    assert "/api/search-status" in html
+    assert "/api/index/refresh" in html
     assert "纠正 Audit 理解并重新审核" in html
     assert "撤回本次打回" in html
     assert "查看被打回原文" in html
@@ -573,6 +605,8 @@ def test_frontend_basic_render() -> None:
     assert "refreshAll({ silent: true })" in html
     assert "includeSessionId: false" in html
     assert "write_json: false" in html
+    assert "use_vector_context" in html
+    assert "当前无法使用基于 embedding 的语义检索" in html
     assert "fetch(" in html
 
 

@@ -37,6 +37,7 @@ class ChapterPlanningOptions:
     instruction: str | None = None
     force: bool = False
     use_search_context: bool = False
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
             chapter_number=options.chapter_number,
             task="plan",
             instruction=options.instruction,
+            use_vector=options.use_vector_context,
         )
         if options.use_search_context
         else None

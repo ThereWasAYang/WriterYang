@@ -189,7 +189,7 @@ agents:
 
 - `examples/rain_station/config/agents.yaml`：DeepSeek 真实 API 模板，适合复制到新项目后替换模型名和环境变量名。使用智谱 GLM 时把 `provider` 改为 `zai`，并把 `base_url_env` / `api_key_env` 指向智谱的环境变量名。
 - `examples/rain_station/config/agents.mock.yaml`：mock provider 模板，适合测试、文档示例和无 API Key 的本地演示。
-- `examples/rain_station/config/embeddings.yaml`：embedding provider 模板，默认使用本地 hash embedding，也给出阿里 DashScope 和智谱 embedding-3 的真实 API 配置示例。
+- `examples/rain_station/config/embeddings.yaml`：embedding provider 模板，默认指向真实 DashScope 配置；本地 hash embedding 只保留为测试项。
 
 厂商差异：
 
@@ -349,30 +349,35 @@ novel generate-chapter 1 --path ./rain-station --provider mock --force
 
 ```bash
 novel index rebuild --path ./rain-station
-novel index rebuild --path ./rain-station --embedding-provider dashscope
+novel index refresh --path ./rain-station
+novel index rebuild --path ./rain-station --with-embeddings --embedding-provider dashscope
+novel index refresh --path ./rain-station --with-embeddings --embedding-provider dashscope
+novel index status --path ./rain-station
 novel search "林澈" --path ./rain-station --type character
 novel search "旧车站广播" --path ./rain-station --type event --limit 5
 novel search "破损车票" --path ./rain-station --type chapter --chapter 1 --highlight --json
-novel search "旧物修复师" --path ./rain-station --use-vector
 novel search "旧物修复师" --path ./rain-station --use-vector --embedding-provider dashscope
 ```
 
-搜索索引位于 `memory/search_index.json` 和 `memory/search_index.sqlite`，可以随时重建。当前实现包括：
+搜索索引位于 `memory/search_index.json`、`memory/search_index.sqlite` 和 `memory/search_index_manifest.json`。当前实现包括：
 
 - 中文检索增强：对连续中文文本生成 2-gram / 3-gram 检索 token。
 - 字段权重：`id`、标题、类型、路径、正文使用不同权重评分。
 - 过滤：支持 `--type character/location/item/event/chapter/all` 和 `--chapter`。
 - 高亮：`--highlight` 会返回 `<mark>...</mark>` 标记的 excerpt。
 - SQLite FTS：`memory/search_index.sqlite` 中包含 FTS5 表。
-- 向量表：SQLite 中包含 embedding 向量表。默认使用本地 deterministic hash embedding，不需要 API Key；需要真实语义向量时，可切换到厂商 embedding provider。
+- freshness manifest：每个文档记录 `sha256`、`mtime`、索引时间和 FTS / embedding 状态。普通 `novel search` 会在 FTS 缺失或过期时自动刷新关键词索引。
+- 向量表：SQLite 中可选保存真实 embedding 向量。真实 embedding 不会自动调用，只有 `index rebuild/refresh --with-embeddings` 才会请求外部 embedding API。
+
+默认可靠路径是关键词 + SQLite FTS。`local_hash` 只用于测试和离线开发 fixture，不作为真实创作的语义检索 fallback。没有配置真实 embedding API 时，`--use-vector` 会给出清晰错误；Web UI 状态栏会标红提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。
 
 Embedding 配置位于 `config/embeddings.yaml`，格式示例：
 
 ```yaml
 schema_version: 2
-active_provider: "local"
+active_provider: "dashscope"
 providers:
-  local:
+  test_local_hash:
     provider: "local_hash"
     model: "local-hash-v1"
     dimensions: 32
@@ -396,7 +401,7 @@ providers:
 
 | provider | 用途 | 默认 base URL |
 | --- | --- | --- |
-| `local_hash` | 离线测试、无 API Key 使用 | 无网络调用 |
+| `local_hash` | 测试 / 离线 fixture | 无网络调用；不推荐真实创作使用 |
 | `dashscope` | 阿里 DashScope `text-embedding-v4` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `zhipu` | 智谱 `embedding-3` | `https://open.bigmodel.cn/api/paas/v4` |
 | `openai` | 标准 OpenAI embeddings | `https://api.openai.com/v1` |
@@ -410,7 +415,10 @@ providers:
 novel plan-chapter 1 --path ./rain-station --provider mock --use-search-context
 novel write-chapter 1 --path ./rain-station --provider mock --use-search-context
 novel audit-chapter 1 --path ./rain-station --provider mock --use-search-context
+novel write-chapter 1 --path ./rain-station --provider mock --use-search-context --use-vector-context
 ```
+
+`--use-search-context` 默认只使用结构化实体扩展 + FTS 补充。只有同时传入 `--use-vector-context`，并且已经用真实 embedding provider 建好向量索引时，才会加入语义向量召回。
 
 ## 受控编排
 

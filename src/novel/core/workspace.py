@@ -233,9 +233,9 @@ def _agents_yaml() -> str:
 def _embeddings_yaml() -> str:
     return (
         f"schema_version: {CURRENT_SCHEMA_VERSION}\n"
-        'active_provider: "local"\n'
+        'active_provider: "dashscope"\n'
         "providers:\n"
-        "  local:\n"
+        "  test_local_hash:\n"
         '    provider: "local_hash"\n'
         '    model: "local-hash-v1"\n'
         "    dimensions: 32\n"

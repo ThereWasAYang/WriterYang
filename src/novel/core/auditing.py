@@ -62,6 +62,7 @@ class ChapterAuditOptions:
     focus: tuple[FocusArea, ...] = ()
     audited_file: AuditedFile = "polished.md"
     use_search_context: bool = False
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -204,6 +205,7 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
             task="audit",
             instruction=options.instruction,
             plan=plan,
+            use_vector=options.use_vector_context,
         )
         if options.use_search_context
         else None

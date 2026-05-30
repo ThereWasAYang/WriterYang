@@ -222,8 +222,6 @@ def create_embedding_provider(
         return LocalHashEmbeddingProvider()
     path = config_path or default_embedding_config_path(root)
     if not path.exists():
-        if provider_name == "config":
-            return LocalHashEmbeddingProvider()
         raise EmbeddingError(f"{path} is missing")
     config = load_embeddings_config(path)
     selected_name = config.active_provider if provider_name == "config" else provider_name

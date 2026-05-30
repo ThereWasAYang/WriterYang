@@ -64,7 +64,7 @@ from novel.core.revision import (
 )
 from novel.core.management import load_management_events
 from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair
-from novel.core.search import SearchError, rebuild_search_index, search_project
+from novel.core.search import SearchError, rebuild_search_index, refresh_search_index, search_index_status, search_project
 from novel.core.session import (
     CreationSessionError,
     SessionActionOptions,
@@ -886,6 +886,52 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("config", "local_hash", "dashscope", "zhipu", "openai", "openai_compatible"),
         help="Embedding provider to use for vector indexing. Defaults to config active_provider.",
     )
+    index_rebuild.add_argument(
+        "--with-embeddings",
+        action="store_true",
+        help="Also build real embedding vectors. This may call an external embedding API.",
+    )
+    index_refresh = index_subparsers.add_parser("refresh", help="Refresh stale local search index documents")
+    index_refresh.add_argument(
+        "--path",
+        default=".",
+        help="Workspace directory. Defaults to the current directory.",
+    )
+    index_refresh.add_argument(
+        "--embedding-config",
+        type=Path,
+        default=None,
+        help="Embedding config file. Defaults to config/embeddings.yaml in the workspace.",
+    )
+    index_refresh.add_argument(
+        "--embedding-provider",
+        default="config",
+        choices=("config", "local_hash", "dashscope", "zhipu", "openai", "openai_compatible"),
+        help="Embedding provider to use when --with-embeddings is set.",
+    )
+    index_refresh.add_argument(
+        "--with-embeddings",
+        action="store_true",
+        help="Refresh real embedding vectors for changed documents. This may call an external embedding API.",
+    )
+    index_status = index_subparsers.add_parser("status", help="Show local search index status")
+    index_status.add_argument(
+        "--path",
+        default=".",
+        help="Workspace directory. Defaults to the current directory.",
+    )
+    index_status.add_argument(
+        "--embedding-config",
+        type=Path,
+        default=None,
+        help="Embedding config file. Defaults to config/embeddings.yaml in the workspace.",
+    )
+    index_status.add_argument(
+        "--embedding-provider",
+        default="config",
+        choices=("config", "local_hash", "dashscope", "zhipu", "openai", "openai_compatible"),
+        help="Embedding provider to inspect. Defaults to config active_provider.",
+    )
 
     search_parser = subparsers.add_parser("search", help="Search project memory")
     search_parser.add_argument("query", help="Keyword query")
@@ -1251,6 +1297,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Add explainable search results to the planning prompt.",
     )
+    plan_parser.add_argument(
+        "--use-vector-context",
+        action="store_true",
+        help="Use real embedding vectors when adding search context. Requires a ready embedding index.",
+    )
 
     write_parser = subparsers.add_parser("write-chapter", help="Generate a chapter draft")
     write_parser.add_argument("chapter_number", type=int, help="Positive chapter number")
@@ -1297,6 +1348,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-search-context",
         action="store_true",
         help="Add explainable search results to the writing prompt.",
+    )
+    write_parser.add_argument(
+        "--use-vector-context",
+        action="store_true",
+        help="Use real embedding vectors when adding search context. Requires a ready embedding index.",
     )
 
     polish_parser = subparsers.add_parser("polish-chapter", help="Polish a chapter draft")
@@ -1402,6 +1458,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-search-context",
         action="store_true",
         help="Add explainable search results to the audit prompt.",
+    )
+    audit_parser.add_argument(
+        "--use-vector-context",
+        action="store_true",
+        help="Use real embedding vectors when adding search context. Requires a ready embedding index.",
     )
 
     revise_parser = subparsers.add_parser("revise-chapter", help="Revise a chapter from instructions or audit")
@@ -1884,6 +1945,7 @@ def main(argv: list[str] | None = None) -> int:
                         Path(args.path),
                         embedding_provider_name=args.embedding_provider,
                         embedding_config_path=args.embedding_config,
+                        with_embeddings=args.with_embeddings,
                     )
             except ProjectLockError as exc:
                 return _failure(args, str(exc), error_type="project_locked")
@@ -1894,9 +1956,65 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "command": "index rebuild",
                     "index_path": str(result.index_path),
+                    "sqlite_path": str(result.sqlite_path),
+                    "manifest_path": str(result.manifest_path),
                     "document_count": result.document_count,
+                    "embedding_document_count": result.embedding_document_count,
+                    "with_embeddings": result.with_embeddings,
                 },
-                [f"Rebuilt search index: {result.index_path}", f"Documents: {result.document_count}"],
+                [
+                    f"Rebuilt search index: {result.index_path}",
+                    f"Documents: {result.document_count}",
+                    f"Embedding vectors: {result.embedding_document_count}",
+                ],
+            )
+        if args.index_command == "refresh":
+            try:
+                with _command_lock(args, Path(args.path), "index refresh"):
+                    result = refresh_search_index(
+                        Path(args.path),
+                        embedding_provider_name=args.embedding_provider,
+                        embedding_config_path=args.embedding_config,
+                        with_embeddings=args.with_embeddings,
+                    )
+            except ProjectLockError as exc:
+                return _failure(args, str(exc), error_type="project_locked")
+            except SearchError as exc:
+                return _failure(args, str(exc), error_type="search_error")
+            return _success(
+                args,
+                {
+                    "command": "index refresh",
+                    "index_path": str(result.index_path),
+                    "sqlite_path": str(result.sqlite_path),
+                    "manifest_path": str(result.manifest_path),
+                    "document_count": result.document_count,
+                    "refreshed_count": result.refreshed_count,
+                    "deleted_count": result.deleted_count,
+                    "embedding_document_count": result.embedding_document_count,
+                    "with_embeddings": result.with_embeddings,
+                },
+                [
+                    f"Refreshed search index: {result.index_path}",
+                    f"Documents: {result.document_count}",
+                    f"Changed: {result.refreshed_count}; deleted: {result.deleted_count}",
+                    f"Embedding vectors: {result.embedding_document_count}",
+                ],
+            )
+        if args.index_command == "status":
+            status = search_index_status(
+                Path(args.path),
+                embedding_provider_name=args.embedding_provider,
+                embedding_config_path=args.embedding_config,
+            )
+            return _success(
+                args,
+                {"command": "index status", **status.as_dict()},
+                [
+                    f"FTS: {status.fts_status}",
+                    f"Embedding: {status.embedding_status}",
+                    status.message,
+                ],
             )
 
     if args.command == "search":
@@ -2289,6 +2407,7 @@ def main(argv: list[str] | None = None) -> int:
                         instruction=instruction,
                         force=args.force,
                         use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
                     ),
                     provider,
                 )
@@ -2353,6 +2472,7 @@ def main(argv: list[str] | None = None) -> int:
                         target_words=args.target_words,
                         style_note=args.style_note,
                         use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
                     ),
                     provider,
                 )
@@ -2460,6 +2580,7 @@ def main(argv: list[str] | None = None) -> int:
                         focus=tuple(args.focus),
                         audited_file=args.audited_file,
                         use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
                     ),
                     provider,
                 )

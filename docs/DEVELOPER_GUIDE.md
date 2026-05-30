@@ -343,10 +343,10 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 常用命令：
 
 ```bash
-conda run -n py312 pytest tests/test_<area>.py -q
-conda run -n py312 pytest -m "not real_api and not web_e2e" -q
-conda run -n py312 ruff check .
-conda run -n py312 mypy src
+pytest tests/test_<area>.py -q
+pytest -m "not real_api and not web_e2e" -q
+ruff check .
+mypy src
 ```
 
 ## 13. 重构准则

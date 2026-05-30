@@ -239,10 +239,10 @@ runs/agent_output_violations/{request_id}.json
 测试命令：
 
 ```bash
-conda run -n py312 pytest tests/test_<area>.py -q
-conda run -n py312 pytest -m "not real_api and not web_e2e" -q
-conda run -n py312 ruff check .
-conda run -n py312 mypy src
+pytest tests/test_<area>.py -q
+pytest -m "not real_api and not web_e2e" -q
+ruff check .
+mypy src
 ```
 
 ## 6. Prompt 调整 checklist
@@ -274,7 +274,7 @@ conda run -n py312 mypy src
 
 ```bash
 novel doctor --project <project> --json --quiet
-conda run -n py312 pytest tests/test_security.py -q
+pytest tests/test_security.py -q
 ```
 
 检查重点：
@@ -297,5 +297,5 @@ conda run -n py312 pytest tests/test_security.py -q
 普通回归仍使用：
 
 ```bash
-conda run -n py312 pytest -m "not real_api and not web_e2e" -q
+pytest -m "not real_api and not web_e2e" -q
 ```

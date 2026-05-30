@@ -142,6 +142,23 @@ def test_readme_links_web_ui_user_guide() -> None:
     assert "Web UI 的 Session 流程" in readme
 
 
+def test_user_docs_use_generic_environment_setup() -> None:
+    docs = [
+        Path("README.md"),
+        Path("docs/QUICKSTART.md"),
+        Path("docs/RELEASE.md"),
+        Path("CONTRIBUTING.md"),
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in docs)
+
+    assert "conda create -n writeryang" in combined
+    assert "python=3.12" in combined
+    local_env_name = "py" + "312"
+    local_conda_run = "conda run " + "-n " + local_env_name
+    assert local_conda_run not in combined
+    assert local_env_name not in combined
+
+
 def test_readme_mentions_workflow_skills_and_scripts() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 

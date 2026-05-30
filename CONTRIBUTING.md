@@ -4,20 +4,23 @@
 
 ## 开发环境
 
-推荐使用 Python 3.12：
+推荐创建独立 Python 3.12 环境：
 
 ```bash
-conda run -n py312 python -m pip install -e ".[dev]"
+conda create -n writeryang-dev python=3.12 -y
+conda activate writeryang-dev
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
 常用检查：
 
 ```bash
-conda run -n py312 pytest -m "not real_api" -q
-conda run -n py312 ruff check .
-conda run -n py312 mypy src
-conda run -n py312 python -m build
-conda run -n py312 python -m twine check dist/*
+pytest -m "not real_api" -q
+ruff check .
+mypy src
+python -m build
+python -m twine check dist/*
 ```
 
 真实 API 测试必须显式标记为 `real_api`，不能作为普通测试的依赖。

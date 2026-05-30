@@ -20,12 +20,39 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 - `skills/`：给人类开发者和外部大模型 Agent 使用的技能。通用技能覆盖维护、调试、真实 API smoke、Web UI QA 和发布；`writeryang-agent-*` 技能按 Agent 独立保存，只描述输入、产物、硬边界和排查入口，不固化剧情、文风或人物塑造方法。
 - `scripts/`：确定性工具脚本，组合现有 CLI/API，避免手工串流程和漏检查。
 
+## 环境配置
+
+建议为 WriterYang 创建一个独立 Python 3.12 环境，不要直接使用系统 Python，也不要复用已有项目环境。
+
+使用 conda：
+
+```bash
+conda create -n writeryang python=3.12 -y
+conda activate writeryang
+python -m pip install --upgrade pip
+```
+
+如果不使用 conda，也可以用 Python 自带的 venv：
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+```
+
+后续命令都假设你已经激活了这个新环境。你可以用下面命令确认当前 Python 路径：
+
+```bash
+python --version
+python -c "import sys; print(sys.executable)"
+```
+
 ## 安装
 
 开发安装：
 
 ```bash
-conda run -n py312 python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 ```
 
 普通本地安装：
@@ -44,8 +71,8 @@ novel --help
 ## 运行测试和构建
 
 ```bash
-conda run -n py312 pytest
-conda run -n py312 python -m build
+pytest
+python -m build
 ```
 
 构建产物会生成到 `dist/`。
@@ -552,10 +579,10 @@ CLI 集成约定：
 发布前请参考 [docs/RELEASE.md](docs/RELEASE.md)。核心检查包括：
 
 ```bash
-conda run -n py312 pytest
-conda run -n py312 pytest tests/test_web.py
-conda run -n py312 pytest -m web_e2e
-conda run -n py312 python -m build
+pytest
+pytest tests/test_web.py
+pytest -m web_e2e
+python -m build
 novel validate --path examples/rain_station
 ```
 
@@ -589,7 +616,7 @@ ZAI_MODEL=
 运行真实 API 测试：
 
 ```bash
-conda run -n py312 pytest -m real_api
+pytest -m real_api
 ```
 
 ## FAQ

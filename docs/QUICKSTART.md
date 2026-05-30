@@ -2,12 +2,19 @@
 
 本教程用 `mock` provider 跑完整流程，不需要真实 API Key。目标是在 10 分钟内理解 WriterYang 的工作方式：所有中间结果都写入本地 Markdown / JSON / YAML 文件，作者可以随时检查和手动编辑。
 
-## 1. 安装
+## 1. 创建独立环境并安装
+
+建议先创建一个新的 Python 3.12 环境：
 
 ```bash
-conda run -n py312 python -m pip install -e ".[dev]"
+conda create -n writeryang python=3.12 -y
+conda activate writeryang
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 novel --version
 ```
+
+不使用 conda 的用户可以改用 `python3.12 -m venv .venv`，激活后再运行同样的 `python -m pip install -e ".[dev]"`。
 
 ## 2. 创建项目
 

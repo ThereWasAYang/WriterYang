@@ -17,12 +17,21 @@ novel --version
 
 ## 2. 测试
 
+建议在干净的独立 Python 3.12 环境中执行发布检查：
+
+```bash
+conda create -n writeryang-release python=3.12 -y
+conda activate writeryang-release
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
 运行全量测试：
 
 ```bash
-conda run -n py312 pytest
-conda run -n py312 ruff check .
-conda run -n py312 mypy src
+pytest
+ruff check .
+mypy src
 ```
 
 测试不能依赖真实 API Key。

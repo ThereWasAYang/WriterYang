@@ -172,8 +172,10 @@ def _looks_like_raw_secret_assignment(line: str) -> bool:
     match = re.match(r"^([A-Z0-9_\-]*(?:API[_-]?KEY|TOKEN|SECRET|ACCESS[_-]?KEY)[A-Z0-9_\-]*)\s*[:=]\s*(.+)$", stripped)
     if not match:
         return False
-    value = match.group(2).strip().strip("\"'")
+    value = match.group(2).strip().rstrip(",").strip().strip("\"'")
     if not value or value.startswith("${") or value.startswith("$") or value.startswith(("(", "[", "{")):
+        return False
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
         return False
     if ENV_NAME_PATTERN.match(value):
         return False

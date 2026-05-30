@@ -98,6 +98,14 @@ exports/
 - Agent 产物：plan/draft/polished/audit/state proposal/revision log/context report。
 - 调试与统计：`runs/` 下的 run log、provider log、完整模型 I/O、输出守卫日志。
 
+记忆分层：
+
+- 长期设定记忆：`memory/canon/*.json`，包括角色、地点、物品、世界规则、隐藏真相和伏笔。Canon 修改必须走 proposal/apply 或明确的 memory repair。
+- 动态状态记忆：`memory/state/current_state.json` 和 `memory/state/timeline.json`。章节通过 state update proposal 变更，timeline 使用 narrative/story 双轨结构。
+- 创作过程记忆：`memory/chapters/{NNN}/`、`memory/sessions/{session_id}/` 和 `memory/archive/`。未归档内容可版本化修订；归档内容默认不可原地改。
+- 检索索引：`memory/search_index.json`、`memory/search_index.sqlite`、`memory/search_index_manifest.json`。FTS 可自动刷新；真实 embedding 向量必须显式刷新，不用 `local_hash` 冒充真实语义检索。
+- 调试记忆：`runs/model_io/`、`runs/provider_calls.jsonl`、`runs/agent_output_violations/`。这些文件可用于定位问题，但可能包含小说正文和隐藏设定，不应提交。
+
 ## 4. Workflow Skills 和工具脚本
 
 仓库级技能放在 `skills/`，用于让人类开发者或外部大模型 Agent 按固定流程工作：
@@ -121,6 +129,14 @@ Agent 级技能也放在 `skills/`，每个 Agent 单独保存、按需加载：
 - `writeryang-agent-revision`：版本化修订、revision log 和 session 修订语义。
 
 不要把多个 Agent 的详细规则混到一个 skill 中；定位到具体 Agent 后再加载对应 skill。创意类能力不能 skill 化或脚本化：不要把剧情设计、正文表达、人物塑造写成固定模板。Agent skill 只记录安全边界、产物契约、排查顺序和测试入口。
+
+渐进式披露原则：
+
+1. 先加载通用维护或排障 skill，例如 `writeryang-maintainer` 或 `writeryang-workflow-debug`。
+2. 通过日志和 artifact 定位到具体 Agent 后，只加载对应 `writeryang-agent-*` skill。
+3. 不把所有 Agent skill 一次性塞进上下文，避免 token 浪费和职责污染。
+4. Skill 只约束确定性流程、文件边界、输出契约和调试顺序；创意内容仍交给 prompt、用户意图和模型能力动态生成。
+5. 如果开发者只改 Web UI、脚本或发布流程，不加载创意 Agent skill。
 
 确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑：
 
@@ -211,6 +227,17 @@ Web API 在 `src/novel/web_api.py`。新增接口时：
 7. 前端只调用 API，不复制业务逻辑。
 
 如果 API 保存文件，必须复用 core 的文件安全语义：默认不覆盖、版本化保存、必要备份、项目锁。
+
+## 7.1 异常和错误处理约定
+
+错误处理分层：
+
+- core service 抛出领域异常，例如 `PlanningError`、`DraftingError`、`AuditError`、`StateUpdateError`、`SearchError`、`MemoryRepairError`。异常消息必须能指导用户下一步，但不能包含 API Key、Authorization 或真实 env 值。
+- CLI 捕获领域异常后走 `_failure()`，文本模式输出简短错误，`--json` 输出稳定 `error.code`、`message` 和 `exit_code`。
+- Web API 捕获异常后返回 `{ok:false,error:{code,message,details,request_id}}`。路径错误、锁冲突、JSON 错误、权限错误应映射到稳定 code。
+- provider 错误使用 `ProviderError` / `EmbeddingError` 子类分类：缺 env、认证失败、rate limit、timeout、network、HTTP、response parse。日志写 error type，不写密钥。
+- 写入失败时应保持原文件不被破坏；重要文件覆盖前先备份，state/timeline/canon apply 失败应尽量回滚。
+- Agent 输出不合约属于 `AgentOutputContractError`，内部任务会 repair retry 一次；仍失败时不写正式 artifact，只写 violation log。
 
 ## 8. 如何新增 Core Service
 

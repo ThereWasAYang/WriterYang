@@ -2,6 +2,8 @@
 
 本文是代码级地图。它不替代源码，但说明每个主要文件、class 和 function 的职责，帮助新开发者或大模型 Agent 快速定位修改点。
 
+覆盖口径：公共 class、service function、CLI/Web 入口和跨模块 helper 会逐项说明；私有 helper 按所在模块的职责分组说明，并在对应模块列出关键函数名。新增 Python 文件、schema、Agent prompt、CLI/Web API 或 workflow skill 后，必须同步更新本文和相关专题文档。
+
 ## 1. 顶层文件
 
 | 路径 | 作用 | 常见修改场景 |
@@ -121,6 +123,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_export_markdown()`：调用 Markdown export。
 - `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
 - `_save_provider_config()`：保存非密钥 provider 配置，写前校验和备份。
+- `_index_refresh()`：调用 `refresh_search_index()`，刷新关键词索引或显式刷新真实 embedding 向量，并返回最新 search status。
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
 - `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
 - `_memory_repair_suggest()` / `_memory_repair_apply()`：项目管家 proposal 和 apply API，调用 `core/memory_repair.py`，不在 Web 层直接 patch 文件。
@@ -130,6 +133,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_read_workspace_file()` / `_read_chapter_file()`：安全读取文件。
 - `_runs_summary()` / `_provider_call_summary()` / `_model_io_summary()`：运行和模型日志摘要。
 - `_provider_config_summary()` / `_sanitize_config()` / `_collect_env_names()`：脱敏展示 agent/embedding 配置。
+- `/api/search-status` 对应 `search_index_status()`；只返回 env 名称和是否缺失，不返回真实 env 值。
 - `_state_timeline_summary()` / `_state_timeline_visual_summary()`：状态和时间线可视化摘要。
 - `_audit_annotations()` / `_locate_quote()`：audit evidence 定位正文。
 - `_workspace_diff()`：版本 diff。
@@ -147,6 +151,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入文件查看区和下一步提示。
 - Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、按 Audit/用户意见修订、认可和归档。
 - 项目管家面板支持生成 memory repair proposal、确认 apply，并显示后台管理动态。
+- 检索索引面板显示 FTS / embedding 状态，支持本地刷新关键词索引，也支持显式刷新真实 embedding 向量索引。
 - 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
 - `renderNextStep()`：根据项目状态、validation 结果和 session 状态显示下一步操作建议。
 
@@ -160,12 +165,13 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 - 配置：`ProjectConfig`、`AgentConfig`、`AgentsConfig`、`EmbeddingProviderConfig`、`EmbeddingsConfig`、`ThinkingConfig`。
 - canon：`Character`、`Location`、`Item`、`WorldRule`、`HiddenTruth`、`ForeshadowingThread` 及对应 file model。
-- state/timeline：`EntityState`、`CharacterState`、`ItemState`、`LocationState`、`TimelineEvent`、`TimelineFile`。
+- state/timeline：`EntityState`、`CharacterState`、`ItemState`、`LocationState`、`TimelineEvent`、`TimelineNarrativePosition`、`TimelineStoryPosition`、`TimelineFile`。`narrative_position` 表示正文呈现顺序，`story_position` 表示故事世界顺序。
 - chapter：`ChapterPlan`、`ChapterScene`、`RequiredContext`、`ChapterMetadata`。
 - audit：`AuditReport`、`AuditIssue`、`AuditEvidence`。
 - workflow/session/export：`AgentRunLog`、`AgentRunStep`、`CreationSession`、`CreationOutline`、`CreationArchiveManifest`、`ExportManifest`。
 - revision/context：`RevisionLog`、`RevisionRecord`、`ContextBundle`、`ContextItem`、`ContextExclusion`。
 - state update：`StateUpdateProposal`、`StateChange`、`StateUpdateApplyLog`。
+- session/memory management：`SessionRewriteEvent`、`SessionRewriteEvents`、`MemoryRepairProposal`、`MemoryRepairOperation`、`MemoryRepairApplyLog`、`ManagementEvent`。
 
 辅助：
 
@@ -220,7 +226,10 @@ schema version 迁移：
 - `migrate_project()`：补齐缺失 `schema_version`，拒绝更新版本项目。
 - `MigrationResult` / `MigrationError`：结果和错误。
 - `_schema_versioned_*_paths()`：列出要迁移的 YAML/JSON。
-- `_add_schema_version_to_*()`：实际迁移单文件。
+- `_migrate_yaml()` / `_migrate_json()`：迁移单个 YAML/JSON 文件。
+- `_set_schema_version()`：补齐或更新 schema version。
+- `_migrate_timeline_events()`：把旧 timeline event 补齐为 narrative/story 双轨结构。
+- `_reject_newer_version()`：拒绝高于当前工具版本的项目文件，避免降级写坏数据。
 
 ### `core/json_schema.py`
 
@@ -273,7 +282,7 @@ Embedding provider：
 - `LocalHashEmbeddingProvider`：本地 hash embedding，仅用于测试和离线 fixture，不作为真实业务 fallback。
 - `OpenAIEmbeddingProvider`：兼容 embedding API；适配 DashScope text-embedding-v4 和 Zhipu embedding-3。
 - `EmbeddingProviderFactory`：按 `EmbeddingsConfig` 创建 provider。
-- `create_embedding_provider()`：外部调用入口。
+- `create_embedding_provider()`：外部调用入口；只有显式 `provider_name="local_hash"` 时返回本地 hash provider，缺失真实配置不再自动 fallback。
 - `local_embedding_vector()`：本地向量生成。
 - `_vectors_from_openai_raw()`：解析 embedding 返回。
 

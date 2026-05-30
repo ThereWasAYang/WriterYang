@@ -109,7 +109,22 @@ def test_readme_core_commands_match_cli() -> None:
 
 def test_user_docs_exist_and_mention_core_workflow() -> None:
     docs = {
-        "docs/WEB_UI_USER_GUIDE.md": ("Web UI", "Session", "修改大纲", "按 Audit 修订内容", "项目检查", "导出 Markdown"),
+        "docs/WEB_UI_USER_GUIDE.md": (
+            "Web UI",
+            "Session",
+            "修改大纲",
+            "按 Audit 修订内容",
+            "项目检查",
+            "导出 Markdown",
+            "使用搜索上下文",
+            "使用 embedding 语义检索",
+            "刷新关键词索引",
+            "刷新语义向量索引",
+            "Provider 配置",
+            "状态 / 时间线",
+            "Rewrite Event ID",
+            "后台管理动态",
+        ),
         "docs/QUICKSTART.md": ("novel inspire", "novel canon apply", "novel export markdown"),
         "docs/MEMORY_EDITING.md": ("hidden_truths.json", "reader_visible_summary", "novel validate"),
         "docs/MODEL_CONFIG_BEST_PRACTICES.md": ("provider", "thinking", "temperature"),

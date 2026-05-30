@@ -16,15 +16,20 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 
 它会自动检测 conda；如果本机有 conda，会优先创建 `WriterYang_YYMMDD` 格式的新环境，例如 `WriterYang_260531`。如果当天同名环境已经存在，会自动使用 `WriterYang_26053101`、`WriterYang_26053102` 这样的后缀。没有 conda 时，脚本会回退到 `.venv/WriterYang_YYMMDD`。
 
+安装完成后，脚本会自动寻找可用 Web UI 端口，打印完整地址并弹出浏览器。默认从 `8765` 开始；如果端口被占用，会自动尝试下一个端口。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
+
 也可以直接运行 Python 入口：
 
 ```bash
 python scripts/install_writeryang.py
 python scripts/install_writeryang.py --dev
 python scripts/install_writeryang.py --dry-run
+python scripts/install_writeryang.py --web-port 9000
+python scripts/install_writeryang.py --no-open-web
+python scripts/install_writeryang.py --no-web
 ```
 
-脚本默认安装运行依赖；开发者需要测试、lint、mypy、build 等工具时使用 `--dev`。
+脚本默认安装运行依赖；开发者需要测试、lint、mypy、build 等工具时使用 `--dev`。如果不希望安装后启动 Web UI，使用 `--no-web`；如果只是不想自动弹出浏览器，使用 `--no-open-web`。
 
 安装完成后，按脚本输出激活新环境，再运行：
 

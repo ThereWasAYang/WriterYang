@@ -92,6 +92,8 @@ def test_readme_core_commands_match_cli() -> None:
         "novel validate --path examples/wuxia_mountain_sect",
         "./install.sh",
         "python scripts/install_writeryang.py --dry-run",
+        "python scripts/install_writeryang.py --web-port 9000",
+        "python scripts/install_writeryang.py --no-web",
     ):
         assert command in readme
     for parser_command in (

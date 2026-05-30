@@ -10,6 +10,18 @@
 ./install.sh
 ```
 
+脚本安装完成后会自动寻找可用端口，打印 Web UI 地址并弹出浏览器。默认从 `8765` 开始；端口被占用会自动换下一个。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。想指定起始端口可用：
+
+```bash
+./install.sh --web-port 9000
+```
+
+如果只想安装，不想立即打开 Web UI：
+
+```bash
+./install.sh --no-web
+```
+
 如果你是开发者，需要测试、lint、mypy、build 等工具：
 
 ```bash

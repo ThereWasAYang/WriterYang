@@ -140,6 +140,7 @@ Agent 级技能也放在 `skills/`，每个 Agent 单独保存、按需加载：
 
 确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑：
 
+- `install_writeryang.py`：一键创建独立 conda/venv 环境并安装工具。
 - `check_local.py`：本地复现 CI 质量门禁。
 - `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke。
 - `debug_bundle.py`：生成脱敏排障包。

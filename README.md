@@ -8,6 +8,35 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 
 建议为 WriterYang 创建一个独立 Python 3.12 环境，不要直接使用系统 Python，也不要复用已有项目环境。
 
+推荐使用一键安装脚本：
+
+```bash
+./install.sh
+```
+
+它会自动检测 conda；如果本机有 conda，会优先创建 `WriterYang_YYMMDD` 格式的新环境，例如 `WriterYang_260531`。如果当天同名环境已经存在，会自动使用 `WriterYang_26053101`、`WriterYang_26053102` 这样的后缀。没有 conda 时，脚本会回退到 `.venv/WriterYang_YYMMDD`。
+
+也可以直接运行 Python 入口：
+
+```bash
+python scripts/install_writeryang.py
+python scripts/install_writeryang.py --dev
+python scripts/install_writeryang.py --dry-run
+```
+
+脚本默认安装运行依赖；开发者需要测试、lint、mypy、build 等工具时使用 `--dev`。
+
+安装完成后，按脚本输出激活新环境，再运行：
+
+```bash
+novel --version
+novel doctor
+```
+
+### 手动安装
+
+如果你不想使用一键脚本，也可以手动创建环境。
+
 使用 conda：
 
 ```bash
@@ -32,6 +61,8 @@ python -c "import sys; print(sys.executable)"
 ```
 
 ## 安装
+
+如果已经按上面的“一键安装脚本”完成安装，可以跳过本节。
 
 开发安装：
 

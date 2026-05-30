@@ -4,7 +4,26 @@
 
 ## 1. 创建独立环境并安装
 
-建议先创建一个新的 Python 3.12 环境：
+建议先使用一键脚本创建独立环境并安装：
+
+```bash
+./install.sh
+```
+
+如果你是开发者，需要测试、lint、mypy、build 等工具：
+
+```bash
+python scripts/install_writeryang.py --dev
+```
+
+安装完成后，按脚本输出激活新环境，并检查：
+
+```bash
+novel --version
+novel doctor
+```
+
+也可以手动创建一个新的 Python 3.12 环境：
 
 ```bash
 conda create -n writeryang python=3.12 -y

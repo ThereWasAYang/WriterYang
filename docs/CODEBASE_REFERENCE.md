@@ -18,7 +18,7 @@
 | `examples/rain_station/` | 雨夜旧车站示例项目。 | README smoke、真实 provider 配置模板。 |
 | `examples/wuxia_mountain_sect/` | 武侠长篇示例项目。 | 中文用户配置参考、validate 示例。 |
 | `skills/` | 仓库级工作流技能。 | 给人类开发者和外部大模型 Agent 提供固定维护、排障、真实 API smoke、Web QA、发布流程。 |
-| `scripts/` | 确定性工具脚本。 | 本地质量门禁、Session smoke、provider ping、debug bundle、Web UI smoke、项目健康报告。 |
+| `scripts/` | 确定性工具脚本。 | 一键安装、本地质量门禁、Session smoke、provider ping、debug bundle、Web UI smoke、项目健康报告。 |
 
 ## 2. 包入口
 
@@ -639,6 +639,7 @@ Agent skill 只作为开发者和外部 Agent 的边界说明，不参与小说�
 
 ### `scripts/`
 
+- `install_writeryang.py`：一键创建独立 conda/venv 环境并安装 WriterYang。
 - `check_local.py`：本地质量门禁，组合 pytest、ruff、mypy、secret scan、build、twine。
 - `smoke_session.py`：创建临时项目并用 CLI 跑完整 Session smoke。
 - `debug_bundle.py`：收集脱敏排障包。

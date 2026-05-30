@@ -90,6 +90,8 @@ def test_readme_core_commands_match_cli() -> None:
         "novel export markdown",
         "novel --version",
         "novel validate --path examples/wuxia_mountain_sect",
+        "./install.sh",
+        "python scripts/install_writeryang.py --dry-run",
     ):
         assert command in readme
     for parser_command in (

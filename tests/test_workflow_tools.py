@@ -10,6 +10,7 @@ from novel.core.workspace import InitOptions, init_workspace
 
 
 SCRIPTS = (
+    "scripts/install_writeryang.py",
     "scripts/check_local.py",
     "scripts/smoke_session.py",
     "scripts/debug_bundle.py",

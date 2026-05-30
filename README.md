@@ -98,7 +98,7 @@ novel --help
 
 ## 新手入口
 
-- [Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)：面向不懂代码和命令行的作者，优先使用浏览器完成创作全流程。
+- [Web UI 小白图文使用指南](docs/WEB_UI_USER_GUIDE.md)：面向不懂代码和命令行的作者，用截图说明浏览器工作台的创作全流程。
 - [新手快速开始](docs/QUICKSTART.md)：用 `mock` provider 跑通 10 分钟测试流程，不需要 API Key；真实创作请先配置 `config/agents.yaml` 的 `default` API。
 - [作者如何手动编辑 memory 文件](docs/MEMORY_EDITING.md)：说明 inspiration、style、canon、state、timeline、章节文件的人工编辑边界。
 - [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 agent 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。

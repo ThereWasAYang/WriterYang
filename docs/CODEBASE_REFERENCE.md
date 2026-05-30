@@ -675,6 +675,7 @@ Agent skill 只作为开发者和外部 Agent 的边界说明，不参与小说�
 - `debug_bundle.py`：收集脱敏排障包。
 - `provider_ping.py`：检查 agent/embedding provider 配置，显式允许后可做真实最小调用。
 - `webui_smoke.py`：启动本地 Web UI 并用 Playwright 跑最小浏览器流程。
+- `capture_webui_guide_screenshots.py`：启动本地 Web UI，用 mock 临时项目生成用户手册截图。
 - `project_health.py`：聚合 validate/status/usage/chapter/session/export 健康摘要。
 
 这些脚本只组合现有 CLI/core，不复制业务决策。

@@ -18,6 +18,8 @@ http://127.0.0.1:8765
 
 如果端口被占用，启动者会看到明确提示，并可以换一个端口。Web 页面打开后，左上角会看到“项目路径”。
 
+![Web UI 整体布局](assets/web-ui-guide/overview.png)
+
 ## 第一次创建小说项目
 
 1. 在“项目路径”输入一个本地文件夹路径。这个文件夹会保存你的小说资料、章节、日志和导出文件。
@@ -26,6 +28,8 @@ http://127.0.0.1:8765
 4. 点击“初始化项目”。
 5. 页面会显示“项目初始引导”。按顺序完成默认 API、可选 embedding、Web UI 端口设置。
 6. 点击“项目检查”。如果显示 0 个错误，就可以继续。
+
+![初始化项目和项目初始引导](assets/web-ui-guide/project_setup.png)
 
 项目初始化后，工具会创建 `memory/`、`config/`、`chapters/`、`runs/`、`exports/` 等目录。你不需要手动理解这些目录；Web UI 会帮你查看和操作。
 
@@ -45,6 +49,8 @@ http://127.0.0.1:8765
 
 以后如果你想单独调整某个 Agent，可以打开“Provider 配置”页，修改非密钥字段，例如 `provider`、`model`、`thinking.type`、`temperature`、`max_tokens`、`timeout_seconds`、`max_retries`。不要把真实 API Key 写进配置页。
 
+![Provider 配置页](assets/web-ui-guide/provider_config.png)
+
 ## Provider 选项
 
 Web UI 的 Provider 下拉框有两个常用选项：
@@ -61,6 +67,10 @@ Web UI 左侧还有“检索索引”状态。关键词检索是默认可用能�
 左侧是操作区，右侧是查看和编辑区。多数按钮执行时会暂时变灰，表示正在运行；真实 API 写作、审核和索引可能需要等待。
 
 ### 左侧操作区
+
+左侧主要负责“告诉工具要做什么”：打开项目、输入指令、选择 Provider、创建 Session、触发修订、查看后台管理动态。
+
+![左侧 Session 和项目管理区域](assets/web-ui-guide/left_session_controls.png)
 
 | 元素 | 用途 | 使用方法 |
 | --- | --- | --- |
@@ -100,6 +110,10 @@ Web UI 左侧还有“检索索引”状态。关键词检索是默认可用能�
 | 项目文件树 | 浏览工作区文件。 | 点击文件后右侧“文件查看”显示内容。 |
 
 ### 右侧查看和编辑区
+
+右侧主要负责“看结果和检查问题”：项目状态、章节文件、审核定位、运行日志、Provider 配置和状态 / 时间线都会在这里查看。
+
+![章节对照视图](assets/web-ui-guide/chapter_compare.png)
 
 | 区域 | 用途 | 使用方法 |
 | --- | --- | --- |
@@ -214,6 +228,10 @@ issue 等级：
 
 修订后系统会生成新版本，提升为当前 `polished.md`，重新审核，并重新生成状态更新 proposal。
 
+![自动打回重写记录](assets/web-ui-guide/rewrite_events.png)
+
+![Audit issue 正文定位](assets/web-ui-guide/audit_locate.png)
+
 ## 让项目管家修正记忆文件
 
 长篇写作时，timeline、state 或 canon 可能被某次 Agent 写错。当前版本建议通过 Web UI 的“项目管家”处理：
@@ -243,6 +261,10 @@ issue 等级：
 
 这样你可以知道工具在何时改动了背景管理文件，避免误以为流程卡住或静默改写。
 
+状态 / 时间线页可以帮助你检查角色位置、物品持有人、地点状态和事件顺序。
+
+![状态和时间线视图](assets/web-ui-guide/state_timeline.png)
+
 ## 查看和编辑章节
 
 常用区域：
@@ -253,6 +275,12 @@ issue 等级：
 - “Revision Diff”：对比两个版本文件。
 
 注意：Web 编辑器默认保存新版本，不会直接覆盖旧稿。已归档内容默认只读。
+
+![章节编辑器](assets/web-ui-guide/chapter_editor.png)
+
+如果真实 API 调用、Agent 输出或自动修订出现异常，可以打开“运行日志”查看 run log、provider calls 和 model I/O 摘要。
+
+![运行日志视图](assets/web-ui-guide/run_logs.png)
 
 ## 认可和归档
 

@@ -147,6 +147,7 @@ Agent 级技能也放在 `skills/`，每个 Agent 单独保存、按需加载：
 - `debug_bundle.py`：生成脱敏排障包。
 - `provider_ping.py`：检查 agent/embedding provider 配置和可选真实调用。
 - `webui_smoke.py`：用 Playwright 跑最小 Web UI 流程。
+- `capture_webui_guide_screenshots.py`：用 mock 临时项目重新生成 Web UI 小白指南截图。
 - `project_health.py`：聚合 validate/status/usage/audit/session/export 状态。
 
 ## 5. 推荐工作流和底层命令

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+import importlib.util
 from importlib import metadata
 from io import StringIO
+import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -146,9 +149,37 @@ def test_readme_links_web_ui_user_guide() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
     assert "docs/WEB_UI_USER_GUIDE.md" in readme
-    assert "Web UI 的 Session 流程" in readme
+    assert "Web UI 小白图文使用指南" in readme
     assert readme.index("## 环境配置") < readme.index("docs/WEB_UI_USER_GUIDE.md")
     assert readme.index("## 安装") < readme.index("docs/WEB_UI_USER_GUIDE.md")
+
+
+def test_web_ui_user_guide_references_existing_screenshots() -> None:
+    guide_path = Path("docs/WEB_UI_USER_GUIDE.md")
+    guide = guide_path.read_text(encoding="utf-8")
+    image_paths = re.findall(r"!\[[^\]]+\]\((assets/web-ui-guide/[^)]+\.png)\)", guide)
+
+    assert len(image_paths) >= 8
+    for image_path in image_paths:
+        assert (guide_path.parent / image_path).exists(), image_path
+
+
+def test_web_ui_guide_screenshot_script_dry_run_does_not_write(tmp_path: Path, capsys) -> None:
+    path = Path("scripts/capture_webui_guide_screenshots.py")
+    spec = importlib.util.spec_from_file_location("capture_webui_guide_screenshots", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    output = tmp_path / "screenshots"
+
+    code = module.main(["--dry-run", "--output", str(output), "--json"])
+
+    assert code == 0
+    assert not output.exists()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True
+    assert "overview.png" in payload["screenshots"]
 
 
 def test_user_docs_use_generic_environment_setup() -> None:

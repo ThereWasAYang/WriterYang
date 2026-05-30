@@ -50,8 +50,10 @@ novel --version
 ## 2. 创建项目
 
 ```bash
-novel init "青灯客栈" --path ./qingdeng-inn
+novel init "青灯客栈" --path ./qingdeng-inn --no-guide
 ```
+
+本教程使用 `mock` provider，因此跳过真实 API 初始引导。真实项目可以直接运行 `novel init "书名" --path ./my-novel`，按提示配置默认 API、可选 embedding 和 Web UI 端口。
 
 生成目录包括：
 

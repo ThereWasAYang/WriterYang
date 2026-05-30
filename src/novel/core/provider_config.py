@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from novel.core.env import load_project_env
 from novel.core.io import load_yaml_model
 from novel.core.providers import LoggingModelProvider, MockProvider, ModelProvider, ProviderFactory
 from novel.core.schemas import AgentConfig, AgentsConfig
@@ -79,7 +80,7 @@ def resolve_agent_config(
             api_key_env="MOCK_API_KEY",
         )
     agents_config = load_agents_config(config_path)
-    return ProviderFactory().resolve_agent_config(
+    return ProviderFactory(env=load_project_env(config_path.parent.parent)).resolve_agent_config(
         agents_config,
         agent_name,
         fallback_agents=fallback_agents,
@@ -129,7 +130,7 @@ def create_agent_provider(
         provider: ModelProvider = MockProvider(fake_response=mock_response)
     else:
         log_path = config_path.parent.parent / "runs" / "provider_calls.jsonl"
-        provider = ProviderFactory(log_path=log_path).create(config)
+        provider = ProviderFactory(env=load_project_env(config_path.parent.parent), log_path=log_path).create(config)
     return LoggingModelProvider(
         provider=provider,
         agent_name=agent_name,

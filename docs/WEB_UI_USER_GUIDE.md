@@ -24,18 +24,35 @@ http://127.0.0.1:8765
 2. 在“新项目标题”输入书名。
 3. 在“类型标签”输入题材，例如：`武侠, 悬疑`。
 4. 点击“初始化项目”。
-5. 点击“项目检查”。如果显示 0 个错误，就可以继续。
+5. 页面会显示“项目初始引导”。按顺序完成默认 API、可选 embedding、Web UI 端口设置。
+6. 点击“项目检查”。如果显示 0 个错误，就可以继续。
 
 项目初始化后，工具会创建 `memory/`、`config/`、`chapters/`、`runs/`、`exports/` 等目录。你不需要手动理解这些目录；Web UI 会帮你查看和操作。
 
-## 配置模型
+## 项目初始引导和模型配置
+
+初始化项目后，Web UI 会显示“项目初始引导”。这一步只需要做一次。
+
+1. 在“默认 API Base URL”输入你的模型服务地址。它必须兼容 OpenAI Chat Completions 格式，例如以 `/v1` 结尾的兼容接口地址。
+2. 在“默认 API Key”输入密钥。输入框会隐藏内容，密钥只保存到项目根目录 `.env`。
+3. 在“默认模型名”输入模型名，例如你的服务商提供的 chat 模型名称。
+4. 点击“测试并保存默认 API”。工具会先做一次最小连通性测试，成功后才把这组配置设为所有 Agent 的默认 API。
+5. 如需语义检索，勾选“配置 embedding API”，填写 embedding base URL、API Key 和模型名，再点击“测试并保存 embedding API / 跳过”。如果暂时不配置，关键词检索仍可用。
+6. 点击“推荐可用端口”或手动输入端口，再点击“保存端口”。端口被占用时，工具会推荐下一个可用端口。
+7. 点击“打开 Web UI（默认）”可以打开当前配置的 Web UI 地址。
+
+真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和调用参数。初始引导完成后，这组 API 会作为所有未单独配置 Agent 的缺省配置。
+
+以后如果你想单独调整某个 Agent，可以打开“Provider 配置”页，修改非密钥字段，例如 `provider`、`model`、`thinking.type`、`temperature`、`max_tokens`、`timeout_seconds`、`max_retries`。不要把真实 API Key 写进配置页。
+
+## Provider 选项
 
 Web UI 的 Provider 下拉框有两个常用选项：
 
 - `config`：使用项目里的模型配置，适合真实创作。
 - `mock`：离线测试用，不调用真实模型，只适合熟悉流程或排查问题。
 
-真实项目需要在 `config/agents.yaml` 配置顶层 `default` API；没有单独配置 API 的 Agent 会自动继承这个缺省配置。真实 API Key 不会写在小说项目里。Provider 配置页只显示环境变量名和是否存在，不显示真实密钥。如果 Web UI 标红提示“default API config is missing”，说明项目还没有配置缺省 API，只能做 mock 测试，不能稳定进行真实创作。
+真实项目需要在 `config/agents.yaml` 配置顶层 `default` API；没有单独配置 API 的 Agent 会自动继承这个缺省配置。默认情况下，初始引导会帮你完成这一步。如果 Web UI 标红提示“default API config is missing”或环境变量不存在，说明项目还没有配置缺省 API，只能做 mock 测试，不能稳定进行真实创作。
 
 Web UI 左侧还有“检索索引”状态。关键词检索是默认可用能力；如果 embedding API 没有配置好，页面会用红色提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。只有在你明确点击“刷新语义向量索引”时，工具才会调用外部 embedding API。
 
@@ -51,6 +68,10 @@ Web UI 左侧还有“检索索引”状态。关键词检索是默认可用能�
 | 打开 / 刷新 | 读取或重新读取当前项目。 | “打开”用于第一次载入，“刷新”用于查看最新文件状态。 |
 | 项目检查 | 运行 validation。 | 查看 errors / warnings；手动编辑 memory 后必须点一次。 |
 | 新项目标题 / 类型标签 / 初始化项目 | 创建新小说项目。 | 填标题和题材，点“初始化项目”；不会静默覆盖已有项目。 |
+| 项目初始引导 | 配置默认 API、可选 embedding 和 Web UI 端口。 | 初始化后自动出现；依次测试并保存默认 API、embedding、端口。 |
+| 默认 API Base URL / API Key / 模型名 | 所有 Agent 的缺省模型配置。 | 必须是 OpenAI-compatible API；保存前会做连通性测试。 |
+| Embedding Base URL / API Key / 模型名 | 可选语义检索配置。 | 可跳过；配置后才可刷新语义向量索引。 |
+| Web UI 端口 / 推荐可用端口 / 保存端口 | 项目默认 Web 端口。 | 端口冲突时工具会推荐可用端口，并写入 `project.yaml`。 |
 | 章节号 | 底层单章命令使用的章节编号。 | 用于“生成计划”“写章节”“润色”“审核”和章节文件查看。 |
 | 聊天 / 指令 | 给当前操作的自然语言要求。 | 可写灵感、大纲修改意见、写作要求、Audit 纠正意见或记忆修复说明。 |
 | Provider | 选择模型来源。 | 默认选 `config` 使用项目配置里的真实模型；`mock（仅测试）` 不调用真实 API。 |

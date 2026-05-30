@@ -122,6 +122,92 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     assert any(item["name"] == "OPENAI_API_KEY" and item["exists"] is True for item in env_entries)
 
 
+def test_api_setup_default_provider_writes_env_and_does_not_leak_secret(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    secret = "sk-test-secret-never-return"
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/setup/default-provider",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "base_url": "https://api.example.test/v1",
+                "api_key": secret,
+                "model": "example-model",
+                "ping": False,
+            }
+        ),
+    )
+
+    assert status == 200
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert secret not in serialized
+    assert (root / ".env").read_text(encoding="utf-8").count("WRITERYANG_DEFAULT_API_KEY") == 1
+    agents_yaml = (root / "config" / "agents.yaml").read_text(encoding="utf-8")
+    assert "WRITERYANG_DEFAULT_API_KEY" in agents_yaml
+    assert secret not in agents_yaml
+
+
+def test_api_setup_embedding_can_be_skipped_or_saved(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    skipped_status, skipped_payload = handle_api_request(
+        "POST",
+        "/api/setup/embedding",
+        "",
+        json.dumps({"path": str(root), "skip": True}),
+    )
+    saved_status, saved_payload = handle_api_request(
+        "POST",
+        "/api/setup/embedding",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "provider": "openai_compatible",
+                "base_url": "https://embed.example.test/v1",
+                "api_key": "embedding-secret",
+                "model": "embedding-model",
+                "ping": False,
+            }
+        ),
+    )
+
+    assert skipped_status == 200
+    assert skipped_payload["data"]["skipped"] is True  # type: ignore[index]
+    assert saved_status == 200
+    serialized = json.dumps(saved_payload, ensure_ascii=False)
+    assert "embedding-secret" not in serialized
+    assert "WRITERYANG_EMBEDDING_API_KEY" in (root / "config" / "embeddings.yaml").read_text(encoding="utf-8")
+
+
+def test_api_setup_recommend_and_save_port(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    monkeypatch.setattr("novel.web_api.find_available_port", lambda start, host="127.0.0.1": int(start))
+    monkeypatch.setattr("novel.core.setup_guide.is_port_available", lambda port, host="127.0.0.1": True)
+
+    recommend_status, recommend_payload = handle_api_request(
+        "GET",
+        "/api/setup/recommend-port",
+        "start_port=8765",
+        None,
+    )
+    selected = recommend_payload["data"]["selected_port"]  # type: ignore[index]
+    save_status, save_payload = handle_api_request(
+        "POST",
+        "/api/setup/web-port",
+        "",
+        json.dumps({"path": str(root), "port": selected}),
+    )
+
+    assert recommend_status == 200
+    assert save_status == 200
+    assert save_payload["data"]["selected_port"] == selected  # type: ignore[index]
+    assert f":{selected}" in save_payload["data"]["url"]  # type: ignore[operator]
+
+
 def test_api_provider_config_warns_without_default(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     (root / "config" / "agents.yaml").write_text(
@@ -605,6 +691,11 @@ def test_frontend_basic_render() -> None:
     assert 'id="validateProject"' in html
     assert 'id="nextStepPanel"' in html
     assert 'id="initProject"' in html
+    assert 'id="setupGuidePanel"' in html
+    assert 'id="setupDefaultProvider"' in html
+    assert 'id="setupEmbedding"' in html
+    assert 'id="setupWebPort"' in html
+    assert 'id="setupOpenWeb"' in html
     assert 'id="inspireProject"' in html
     assert 'id="canonSuggest"' in html
     assert 'id="canonApply"' in html
@@ -626,6 +717,11 @@ def test_frontend_basic_render() -> None:
     assert "/api/save-chapter-file" in html
     assert "/api/audit-annotations" in html
     assert "/api/init-project" in html
+    assert "/api/setup/default-provider" in html
+    assert "/api/setup/embedding" in html
+    assert "/api/setup/recommend-port" in html
+    assert "/api/setup/web-port" in html
+    assert "/api/setup/open-web" in html
     assert "/api/inspire" in html
     assert "/api/canon/suggest" in html
     assert "/api/validate" in html

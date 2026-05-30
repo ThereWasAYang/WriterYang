@@ -49,6 +49,7 @@ scripts/                # 本地质量门禁、smoke、排障、provider ping �
 
 ```text
 project.yaml
+.env                 # 本地私密 API 配置，git/Web 文件树/导出/日志都必须排除
 config/
   agents.yaml
   embeddings.yaml
@@ -280,7 +281,7 @@ def run_xxx(options: XxxOptions, provider: ModelProvider | None = None) -> XxxRe
 
 - `src/novel/prompts/{agent}_system.txt`：system prompt。
 - `core/{agent_service}.py`：options/result、prompt builder、provider 调用、schema 校验、文件写入。
-- `core/provider_config.py` 和默认 `config/agents.yaml` 生成逻辑：让 agent 先继承顶层 `default` API，再按 Agent 差异覆盖；`mock` 只作为显式测试入口。
+- `core/provider_config.py`、`core/setup_guide.py` 和默认 `config/agents.yaml` 生成逻辑：让 agent 先继承顶层 `default` API，再按 Agent 差异覆盖；`mock` 只作为显式测试入口。
 - `core/schemas.py`：如果 Agent 输出结构化 JSON，新增 Pydantic model。
 - `tests/`：mock provider 成功、输出不合规、文件安全、CLI/API 集成。
 
@@ -302,7 +303,7 @@ def run_xxx(options: XxxOptions, provider: ModelProvider | None = None) -> XxxRe
 - `OpenAICompatibleProvider`：OpenAI Chat Completions 兼容 provider，包含 DeepSeek / ZAI 适配。
 - `LoggingModelProvider`：包裹真实和 mock provider，写 `runs/model_io/`。
 
-Agent provider 创建走 `core/provider_config.py::create_agent_provider()`。不要在业务 service 里直接读取 API Key。
+Agent provider 创建走 `core/provider_config.py::create_agent_provider()`，它会合并项目 `.env` 和当前进程环境。不要在业务 service 里直接读取 API Key。项目初始引导逻辑集中在 `core/setup_guide.py`，CLI/Web 只负责采集输入和展示结果。
 
 调试文件：
 

@@ -11,6 +11,7 @@ import time
 from typing import Mapping
 from urllib import error, request
 
+from novel.core.env import load_project_env
 from novel.core.io import load_yaml_model
 from novel.core.schemas import EmbeddingProviderConfig, EmbeddingsConfig
 
@@ -228,7 +229,8 @@ def create_embedding_provider(
     selected = config.providers.get(selected_name)
     if selected is None:
         raise EmbeddingError(f"embedding provider is not configured: {selected_name}")
-    return EmbeddingProviderFactory(env=env).create(selected)
+    env_map = env if env is not None else load_project_env(root)
+    return EmbeddingProviderFactory(env=env_map).create(selected)
 
 
 def local_embedding_vector(text: str, dimensions: int = 32) -> list[float]:

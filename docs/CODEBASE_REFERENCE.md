@@ -43,6 +43,7 @@
 - `src/novel/core/consistency.py`
 - `src/novel/core/drafting.py`
 - `src/novel/core/embeddings.py`
+- `src/novel/core/env.py`
 - `src/novel/core/exporting.py`
 - `src/novel/core/inspection.py`
 - `src/novel/core/inspiration.py`
@@ -63,6 +64,7 @@
 - `src/novel/core/search.py`
 - `src/novel/core/security.py`
 - `src/novel/core/session.py`
+- `src/novel/core/setup_guide.py`
 - `src/novel/core/state_update.py`
 - `src/novel/core/usage.py`
 - `src/novel/core/validation.py`
@@ -123,6 +125,8 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_export_markdown()`：调用 Markdown export。
 - `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
 - `_save_provider_config()`：保存非密钥 provider 配置，写前校验和备份。
+- `_setup_default_provider()` / `_setup_embedding()` / `_setup_web_port()`：Web 初始引导 API；调用 `core/setup_guide.py`，真实 key 写项目 `.env`，响应只返回 env 名和测试结果。
+- `_setup_recommend_port()` / `_setup_open_web()`：推荐可用端口并返回 Web UI URL；Web 场景不另起服务端。
 - `_index_refresh()`：调用 `refresh_search_index()`，刷新关键词索引或显式刷新真实 embedding 向量，并返回最新 search status。
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
 - `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
@@ -148,6 +152,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 文件树。
 - 章节对照、编辑器、audit 定位、运行日志、provider 配置、状态/时间线 tabs。
 - 初始化、inspiration、canon suggest/apply、生成/写作/润色/审核/export/session API 调用。
+- 项目初始引导面板支持保存默认 API、可选 embedding API、推荐并保存 Web 端口，以及打开当前 Web UI 地址。
 - 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入文件查看区和下一步提示。
 - Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、按 Audit/用户意见修订、认可和归档。
 - 项目管家面板支持生成 memory repair proposal、确认 apply，并显示后台管理动态。
@@ -270,9 +275,34 @@ JSON Schema 导出：
 - `ProviderDescriptor`：dry-run-provider 展示结构。
 - `default_agent_config_path()`：默认 `config/agents.yaml`。
 - `load_agents_config()`：读取 `AgentsConfig`。
-- `resolve_agent_config()`：按 agent name、fallback、override 解析配置。
-- `create_agent_provider()`：创建 provider 并包 `LoggingModelProvider`。
+- `resolve_agent_config()`：按 agent name、fallback、override 解析配置；真实调用会合并项目 `.env` 和系统环境变量。
+- `create_agent_provider()`：创建 provider 并包 `LoggingModelProvider`；非 mock provider 会读取项目根目录 `.env`。
 - `describe_agent_provider()`：返回安全配置摘要。
+
+### `core/env.py`
+
+项目级环境变量文件：
+
+- `project_env_path()`：返回项目根目录 `.env`。
+- `read_project_env_file()`：解析本地 `.env`，支持基础引号转义。
+- `load_project_env()`：把项目 `.env` 与当前进程环境合并，供 provider、doctor、validation 和 Web 状态使用。
+- `write_project_env_values()`：安全写入 `.env`，保留既有键，写前备份，写后尽量设为 `0600`。
+
+`.env` 是本地私密运行文件，文件树、日志、导出和 git 都必须排除。
+
+### `core/setup_guide.py`
+
+项目初始引导：
+
+- `SetupGuideError`：初始引导配置或连通性测试失败。
+- `ProviderSetupResult` / `EmbeddingSetupResult` / `PortSetupResult`：引导步骤返回结构。
+- `configure_default_provider()`：测试并保存顶层 default API；真实 key 写 `.env`，`config/agents.yaml` 只写 env 名。
+- `update_default_agent_config()`：更新 `config/agents.yaml.default` 并运行 secret config 检查。
+- `configure_embedding_provider()`：可选测试并保存 embedding provider。
+- `update_embedding_config()`：更新 `config/embeddings.yaml.active_provider` 和 provider 条目。
+- `is_port_available()` / `find_available_port()`：检查和推荐 Web UI 端口。
+- `configure_web_port()` / `update_project_web_port()`：写入 `project.yaml.web.default_port`。
+- `_ping_model_provider()` / `_ping_embedding_provider()`：最小真实连通性测试，失败时不打印密钥。
 
 ### `core/embeddings.py`
 
@@ -282,7 +312,7 @@ Embedding provider：
 - `LocalHashEmbeddingProvider`：本地 hash embedding，仅用于测试和离线 fixture，不作为真实业务 fallback。
 - `OpenAIEmbeddingProvider`：兼容 embedding API；适配 DashScope text-embedding-v4 和 Zhipu embedding-3。
 - `EmbeddingProviderFactory`：按 `EmbeddingsConfig` 创建 provider。
-- `create_embedding_provider()`：外部调用入口；只有显式 `provider_name="local_hash"` 时返回本地 hash provider，缺失真实配置不再自动 fallback。
+- `create_embedding_provider()`：外部调用入口；默认读取项目 `.env`，只有显式 `provider_name="local_hash"` 时返回本地 hash provider，缺失真实配置不再自动 fallback。
 - `local_embedding_vector()`：本地向量生成。
 - `_vectors_from_openai_raw()`：解析 embedding 返回。
 

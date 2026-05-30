@@ -4,7 +4,7 @@ WriterYang 支持给不同 agent 配不同模型。推荐原则是：结构化�
 
 ## Provider 字段
 
-真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。未单独配置 API 的 Agent 会继承 `default`，只覆盖温度、输出长度、thinking 等差异字段。
+真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。未单独配置 API 的 Agent 会继承 `default`，只覆盖温度、输出长度、thinking 等差异字段。新项目可通过 CLI/Web 的“项目初始引导”完成这一步：真实 API Key 写入项目 `.env`，YAML 只保存环境变量名。
 
 ```yaml
 default:
@@ -34,7 +34,7 @@ agents:
 - `zai`：智谱 GLM 官方 API，默认 `https://open.bigmodel.cn/api/paas/v4`，支持 `thinking.type`。
 - `mock`：仅测试/调试，不调用 API。真实创作不要把它作为 `default`。
 
-真实 API Key 只能放在环境变量中。配置文件只写环境变量名，例如：
+真实 API Key 只能放在环境变量中或项目根目录 `.env` 中。配置文件只写环境变量名，例如：
 
 ```yaml
 api_key_env: "WRITER_API_KEY"

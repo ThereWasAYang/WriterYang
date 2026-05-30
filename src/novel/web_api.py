@@ -15,6 +15,7 @@ import yaml
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import apply_canon_proposal, load_canon_provider, suggest_canon, CanonSuggestOptions
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
+from novel.core.env import load_project_env
 from novel.core.exporting import MarkdownExportOptions, export_markdown, parse_chapter_selector
 from novel.core.inspiration import InspirationOptions, load_inspiration_provider, run_inspiration_agent
 from novel.core.inspection import format_canon, get_project_status
@@ -25,6 +26,13 @@ from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, sug
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.search import refresh_search_index, search_index_status
+from novel.core.setup_guide import (
+    SetupGuideError,
+    configure_default_provider,
+    configure_embedding_provider,
+    configure_web_port,
+    find_available_port,
+)
 from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, CreationSession, RevisionLog, RevisionRecord
 from novel.core.security import validate_secret_config_file
 from novel.core.session import (
@@ -126,6 +134,8 @@ def handle_api_request(
             return _success({"usage": summarize_provider_usage(_root_from_query(query)).as_dict()})
         if method == "GET" and path == "/api/search-status":
             return _success({"search": search_index_status(_root_from_query(query)).as_dict()})
+        if method == "GET" and path == "/api/setup/recommend-port":
+            return _success(_setup_recommend_port(query))
         if method == "GET" and path == "/api/provider-config":
             return _success(_provider_config_summary(_root_from_query(query)))
         if method == "GET" and path == "/api/state-timeline":
@@ -184,6 +194,14 @@ def handle_api_request(
             return _success(_locked_write(data, "web index refresh", _index_refresh))
         if method == "POST" and path == "/api/init-project":
             return _success(_locked_write(data, "web init project", _init_project))
+        if method == "POST" and path == "/api/setup/default-provider":
+            return _success(_locked_write(data, "web setup default provider", _setup_default_provider))
+        if method == "POST" and path == "/api/setup/embedding":
+            return _success(_locked_write(data, "web setup embedding", _setup_embedding))
+        if method == "POST" and path == "/api/setup/web-port":
+            return _success(_locked_write(data, "web setup web port", _setup_web_port))
+        if method == "POST" and path == "/api/setup/open-web":
+            return _success(_setup_open_web(data))
         if method == "POST" and path == "/api/inspire":
             return _success(_locked_write(data, "web inspire", _inspire))
         if method == "POST" and path == "/api/canon/suggest":
@@ -226,6 +244,8 @@ def handle_api_request(
         return _failure(400, "invalid_json", "request body must be valid JSON", request_id=request_id)
     except MemoryRepairError as exc:
         return _failure(400, "memory_repair_error", str(exc), request_id=request_id)
+    except SetupGuideError as exc:
+        return _failure(400, "setup_guide_error", str(exc), request_id=request_id)
     except ValueError as exc:
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
     except Exception as exc:
@@ -539,7 +559,103 @@ def _init_project(data: dict[str, object]) -> dict[str, object]:
         "root": str(result.root),
         "created_files": [str(path) for path in result.created_files],
         "created_dirs": [str(path) for path in result.created_dirs],
+        "setup_required": True,
     }
+
+
+def _setup_recommend_port(query: dict[str, str]) -> dict[str, object]:
+    start = _optional_int(query.get("start_port")) or 8765
+    host = query.get("host") or "127.0.0.1"
+    selected = find_available_port(start, host=host)
+    return {
+        "host": host,
+        "requested_port": start,
+        "selected_port": selected,
+        "available": selected == start,
+        "url": f"http://{host}:{selected}",
+    }
+
+
+def _setup_default_provider(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    result = configure_default_provider(
+        root,
+        provider=_optional_string(data.get("provider")) or "openai_compatible",
+        base_url=_required_string(data.get("base_url"), "base_url"),
+        api_key=_required_string(data.get("api_key"), "api_key"),
+        model=_required_string(data.get("model"), "model"),
+        thinking_type=_optional_string(data.get("thinking_type")) or "disabled",
+        temperature=_optional_float(data.get("temperature"), 0.5),
+        max_context_tokens=_optional_int(data.get("max_context_tokens")) or 128000,
+        max_tokens=_optional_int(data.get("max_tokens")) or 8192,
+        timeout_seconds=_optional_float(data.get("timeout_seconds"), 60.0),
+        max_retries=_optional_int(data.get("max_retries")) or 1,
+        ping=bool(data.get("ping", True)),
+    )
+    return {
+        "config_path": str(result.config_path),
+        "env_path": str(result.env_path),
+        "provider": result.provider,
+        "model": result.model,
+        "api_key_env": result.api_key_env,
+        "base_url_env": result.base_url_env,
+        "ping_ok": result.ping_ok,
+        "ping_message": result.ping_message,
+        "message": "这组 API 配置已作为所有未单独配置 Agent 的默认配置。可在 config/agents.yaml 中单独覆盖每个 Agent 的模型、思考模式、温度等参数。",
+    }
+
+
+def _setup_embedding(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    if bool(data.get("skip")):
+        return {"skipped": True, "message": "已跳过 embedding API 配置；关键词/FTS 检索仍可用。"}
+    dimensions = _optional_int(data.get("dimensions"))
+    result = configure_embedding_provider(
+        root,
+        provider=_optional_string(data.get("provider")) or "openai_compatible",
+        provider_name=_optional_string(data.get("provider_name")) or "configured",
+        base_url=_required_string(data.get("base_url"), "base_url"),
+        api_key=_required_string(data.get("api_key"), "api_key"),
+        model=_required_string(data.get("model"), "model"),
+        dimensions=dimensions if dimensions and dimensions > 0 else None,
+        batch_size=_optional_int(data.get("batch_size")) or 16,
+        timeout_seconds=_optional_float(data.get("timeout_seconds"), 30.0),
+        max_retries=_optional_int(data.get("max_retries")) or 1,
+        ping=bool(data.get("ping", True)),
+    )
+    return {
+        "config_path": str(result.config_path),
+        "env_path": str(result.env_path),
+        "active_provider": result.active_provider,
+        "provider": result.provider,
+        "model": result.model,
+        "api_key_env": result.api_key_env,
+        "base_url_env": result.base_url_env,
+        "ping_ok": result.ping_ok,
+        "ping_message": result.ping_message,
+    }
+
+
+def _setup_web_port(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    host = _optional_string(data.get("host")) or "127.0.0.1"
+    requested = _optional_int(data.get("port")) or 8765
+    result = configure_web_port(root, requested_port=requested, host=host)
+    return {
+        "project_path": str(result.project_path),
+        "host": result.host,
+        "requested_port": result.requested_port,
+        "selected_port": result.selected_port,
+        "available": result.requested_port == result.selected_port,
+        "url": result.url,
+    }
+
+
+def _setup_open_web(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    host = _optional_string(data.get("host")) or "127.0.0.1"
+    port = _optional_int(data.get("port")) or _configured_web_port(root)
+    return {"url": f"http://{host}:{port}", "opened": False}
 
 
 def _inspire(data: dict[str, object]) -> dict[str, object]:
@@ -1334,11 +1450,12 @@ def _safe_config_file(path: Path) -> dict[str, object]:
         return {"path": str(path), "exists": False, "content": None, "env": []}
     data = load_yaml(path)
     env_names = sorted(_collect_env_names(data))
+    env = load_project_env(path.parent.parent)
     return {
         "path": str(path),
         "exists": True,
         "content": _sanitize_config(data),
-        "env": [{"name": name, "exists": bool(os.environ.get(name))} for name in env_names],
+        "env": [{"name": name, "exists": bool(env.get(name))} for name in env_names],
     }
 
 
@@ -1584,6 +1701,36 @@ def _optional_int(value: object) -> int | None:
     if value in (None, ""):
         return None
     return int(value)
+
+
+def _optional_float(value: object, default: float) -> float:
+    if value in (None, ""):
+        return default
+    return float(value)
+
+
+def _required_string(value: object, field_name: str) -> str:
+    text = _optional_string(value)
+    if text is None:
+        raise WebAPIError("invalid_request", f"{field_name} is required", status=400)
+    return text
+
+
+def _configured_web_port(root: Path) -> int:
+    project_path = root / "project.yaml"
+    if not project_path.exists():
+        return 8765
+    try:
+        data = load_yaml(project_path)
+    except Exception:
+        return 8765
+    web = data.get("web") if isinstance(data, dict) else None
+    if isinstance(web, dict):
+        try:
+            return int(web.get("default_port") or 8765)
+        except (TypeError, ValueError):
+            return 8765
+    return 8765
 
 
 def _split_csv(value: str) -> list[str]:

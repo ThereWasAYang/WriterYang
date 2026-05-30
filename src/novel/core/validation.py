@@ -8,6 +8,7 @@ from pydantic import ValidationError
 import yaml
 
 from novel.core.consistency import check_project_consistency
+from novel.core.env import load_project_env
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.schemas import (
@@ -326,10 +327,12 @@ def _validate_agent_names(
             report.warning(path, f"recommended agent is missing: {name}")
     else:
         _validate_single_agent_config(report, path, "default", agents.default)
+        _validate_agent_env_presence(report, root, path, "default", agents.default)
         if agents.default.provider.lower() == "mock":
             report.warning(path, "default API config uses mock provider; mock is intended for tests only")
     for name, config in agents.agents.items():
         _validate_single_agent_config(report, path, name, config)
+        _validate_agent_env_presence(report, root, path, name, config)
         if config.provider and config.provider.lower() == "mock":
             report.warning(path, f"agent {name} uses mock provider; mock is intended for tests only")
         if agents.default is None and isinstance(config, AgentConfigPatch):
@@ -346,6 +349,20 @@ def _validate_single_agent_config(
 ) -> None:
     if config.api_key_env and config.api_key_env.startswith(("sk-", "sk_")):
         report.error(path, f"agent {name} appears to store a raw API key")
+
+
+def _validate_agent_env_presence(
+    report: ValidationReport,
+    root: Path,
+    path: Path,
+    name: str,
+    config: AgentConfig | AgentConfigPatch,
+) -> None:
+    env = load_project_env(root)
+    if config.api_key_env and not env.get(config.api_key_env):
+        report.warning(path, f"agent {name} api_key_env is not set: {config.api_key_env}")
+    if config.base_url_env and config.provider == "openai_compatible" and not env.get(config.base_url_env):
+        report.warning(path, f"agent {name} base_url_env is not set: {config.base_url_env}")
 
 
 def _validate_embedding_config(

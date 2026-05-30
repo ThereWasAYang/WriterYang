@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import importlib.util
 import json
 import os
 import re
 import sys
+import webbrowser
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -24,6 +26,7 @@ from novel.core.canon import (
     load_canon_provider,
     suggest_canon,
 )
+from novel.core.env import load_project_env
 from novel.core.drafting import (
     ChapterDraftingOptions,
     DraftingError,
@@ -129,6 +132,14 @@ from novel.core.orchestrator import (
 )
 from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
 from novel.core.security import scan_security
+from novel.core.setup_guide import (
+    SetupGuideError,
+    configure_default_provider,
+    configure_embedding_provider,
+    configure_web_port,
+    find_available_port,
+    is_port_available,
+)
 from novel.core.schemas import AgentsConfig, AuditReport, CreationSession, ProjectConfig
 from novel.core.usage import UsageError, summarize_provider_usage
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
@@ -156,6 +167,7 @@ ERROR_CODES = {
     "project_read_error": "Project data could not be read.",
     "revision_error": "Chapter revision failed.",
     "search_error": "Search index or query failed.",
+    "setup_guide_error": "Project initial setup guide failed.",
     "state_update_error": "State/timeline update failed.",
     "usage_error": "Provider usage statistics could not be read.",
     "validation_failed": "Project validation failed.",
@@ -626,6 +638,115 @@ def _resolve_web_port(path: str, explicit_port: int | None) -> int:
     return 8765
 
 
+def _should_run_init_guide(args: argparse.Namespace) -> bool:
+    if getattr(args, "no_guide", False):
+        return False
+    if getattr(args, "guide", False):
+        return True
+    if _wants_json(args) or _quiet(args):
+        return False
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _run_init_setup_guide(root: Path) -> tuple[list[str], bool, int]:
+    lines = [
+        "",
+        "项目初始引导",
+        "默认 API 需要使用 OpenAI-compatible /chat/completions 格式。",
+        "API Key 会写入项目根目录 .env；config/agents.yaml 只保存环境变量名。",
+    ]
+    print("\n".join(lines))
+    output_lines: list[str] = []
+
+    base_url = _prompt_text("默认 API base URL", "https://api.openai.com/v1")
+    api_key = getpass.getpass("默认 API Key（输入时不会显示，留空跳过默认 API 配置）: ").strip()
+    model = ""
+    if api_key:
+        while not model:
+            model = _prompt_text("默认模型名", "")
+            if not model:
+                print("模型名必填；没有模型名无法进行连通性测试。")
+        try:
+            result = configure_default_provider(
+                root,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                provider="openai_compatible",
+                ping=True,
+            )
+        except SetupGuideError as exc:
+            raise SetupGuideError(
+                f"默认 API 配置未保存，连通性测试失败：{exc}"
+            ) from exc
+        output_lines.append(f"默认 API 连通性测试通过：{result.provider} / {result.model}")
+        output_lines.append(
+            "这组 API 配置已作为所有未单独配置 Agent 的默认配置；"
+            "后续可编辑 config/agents.yaml 为单个 Agent 覆盖模型、思考模式、温度等参数。"
+        )
+    else:
+        output_lines.append("已跳过默认 API 配置；运行真实 Agent 前需要先配置 config/agents.yaml 和 .env。")
+
+    if _prompt_yes_no("是否配置 embedding API？", default=False):
+        embedding_base_url = _prompt_text("Embedding API base URL（OpenAI-compatible /embeddings 格式）", base_url)
+        embedding_api_key = getpass.getpass("Embedding API Key（输入时不会显示）: ").strip()
+        embedding_model = ""
+        while not embedding_model:
+            embedding_model = _prompt_text("Embedding 模型名", "")
+            if not embedding_model:
+                print("Embedding 模型名必填；如暂不配置，请按 Ctrl+C 中止后重新 init --no-guide。")
+        if not embedding_api_key:
+            raise SetupGuideError("embedding API Key must not be empty")
+        try:
+            embedding_result = configure_embedding_provider(
+                root,
+                base_url=embedding_base_url,
+                api_key=embedding_api_key,
+                model=embedding_model,
+                provider="openai_compatible",
+                provider_name="configured",
+                ping=True,
+            )
+        except SetupGuideError as exc:
+            raise SetupGuideError(f"Embedding 配置未保存，连通性测试失败：{exc}") from exc
+        output_lines.append(
+            f"Embedding 连通性测试通过：{embedding_result.provider} / {embedding_result.model}"
+        )
+    else:
+        output_lines.append("已跳过 embedding API 配置；关键词/FTS 检索仍可用。")
+
+    recommended_port = find_available_port(8765)
+    while True:
+        port_text = _prompt_text("Web UI 端口", str(recommended_port))
+        try:
+            requested_port = int(port_text)
+        except ValueError:
+            print("端口号必须是 1-65535 之间的整数。")
+            continue
+        if not is_port_available(requested_port):
+            replacement = find_available_port(requested_port + 1 if requested_port < 65535 else 8765)
+            print(f"端口 {requested_port} 已被占用，将改用 {replacement}。")
+            requested_port = replacement
+        port_result = configure_web_port(root, requested_port=requested_port)
+        output_lines.append(f"Web UI 默认端口已写入 project.yaml：{port_result.selected_port}")
+        open_web = _prompt_yes_no("是否现在打开 Web UI？", default=True)
+        return output_lines, open_web, port_result.selected_port
+
+
+def _prompt_text(label: str, default: str) -> str:
+    suffix = f" [{default}]" if default else ""
+    value = input(f"{label}{suffix}: ").strip()
+    return value or default
+
+
+def _prompt_yes_no(label: str, *, default: bool) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    value = input(f"{label} [{suffix}]: ").strip().lower()
+    if not value:
+        return default
+    return value in {"y", "yes", "是", "好", "打开"}
+
+
 def completion_script(shell: str) -> str:
     commands = (
         "init validate migrate schema index search ask session status usage show inspire canon plan-chapter "
@@ -764,12 +885,13 @@ def _doctor_env_checks(path: Path) -> list[dict[str, object]]:
     except Exception as exc:
         _doctor_check(checks, f"env:{path.name}", "error", f"could not read config: {exc}")
         return checks
+    env = load_project_env(path.parent.parent)
     for env_name in sorted(_collect_env_names(config)):
         _doctor_check(
             checks,
             f"env:{env_name}",
-            "ok" if os.environ.get(env_name) else "warning",
-            "set" if os.environ.get(env_name) else "not set",
+            "ok" if env.get(env_name) else "warning",
+            "set" if env.get(env_name) else "not set",
         )
     return checks
 
@@ -858,6 +980,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Genre label. Can be provided multiple times.",
+    )
+    guide_group = init_parser.add_mutually_exclusive_group()
+    guide_group.add_argument(
+        "--guide",
+        action="store_true",
+        help="Run the interactive initial setup guide after creating the workspace.",
+    )
+    guide_group.add_argument(
+        "--no-guide",
+        action="store_true",
+        help="Skip the interactive initial setup guide.",
     )
 
     validate_parser = subparsers.add_parser("validate", help="Validate a novel project workspace")
@@ -1871,6 +2004,35 @@ def main(argv: list[str] | None = None) -> int:
             result = init_workspace(options)
         except WorkspaceExistsError as exc:
             return _failure(args, str(exc), error_type="workspace_exists")
+        setup_lines: list[str] = []
+        open_web = False
+        web_port: int | None = None
+        if _should_run_init_guide(args):
+            try:
+                setup_lines, open_web, web_port = _run_init_setup_guide(result.root)
+            except SetupGuideError as exc:
+                return _failure(
+                    args,
+                    f"Workspace created at {result.root}, but initial setup failed: {exc}",
+                    error_type="setup_guide_error",
+                )
+        elif not getattr(args, "no_guide", False) and not _wants_json(args) and not _quiet(args):
+            setup_lines.append("Skipped initial setup guide because this command is not running in an interactive terminal.")
+
+        if open_web and web_port is not None:
+            from novel.web_server import WebServerError, run_web_server
+
+            url = f"http://127.0.0.1:{web_port}"
+            print(f"Created novel workspace: {result.root}")
+            for line in setup_lines:
+                print(line)
+            print(f"Web UI: {url}")
+            webbrowser.open(url)
+            try:
+                run_web_server(host="127.0.0.1", port=web_port)
+            except WebServerError as exc:
+                return _failure(args, str(exc), error_type="web_error")
+            return 0
 
         return _success(
             args,
@@ -1878,10 +2040,14 @@ def main(argv: list[str] | None = None) -> int:
                 "command": "init",
                 "root": str(result.root),
                 "project_file": str(result.root / "project.yaml"),
+                "setup_guide_ran": bool(setup_lines) and not setup_lines[0].startswith("Skipped"),
+                "setup_messages": setup_lines,
+                "web_port": web_port,
             },
             [
                 f"Created novel workspace: {result.root}",
                 f"Project file: {result.root / 'project.yaml'}",
+                *setup_lines,
             ],
         )
 

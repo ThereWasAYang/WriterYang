@@ -141,6 +141,22 @@ novel init "雨夜旧车站"
 novel init "雨夜旧车站" --path ./rain-station
 ```
 
+交互式终端中，`novel init` 创建项目后会默认进入“项目初始引导”：
+
+- 输入一组 OpenAI-compatible API Key、base URL 和模型名，作为所有 Agent 的缺省 API 配置。
+- 工具会先做一次连通性测试；通过后才把真实 key 写入项目根目录 `.env`，并把 `config/agents.yaml` 的顶层 `default` 指向对应环境变量名。
+- 可选配置 embedding API；跳过后仍可使用关键词/FTS 检索。
+- 选择 Web UI 默认端口；如果端口被占用会自动推荐下一个可用端口，并写入 `project.yaml`。
+- 最后默认打开 Web UI。
+
+`.env` 是本地私密运行文件，会被 `.gitignore`、Web 文件树、导出和日志排除。`config/agents.yaml` 不保存真实密钥；之后可以在这个文件中为单个 Agent 覆盖模型、`thinking.type`、`temperature`、`max_tokens`、超时和重试等参数。
+
+如果你只是跑 mock 教程或自动化脚本，不想进入引导：
+
+```bash
+novel init "雨夜旧车站" --path ./rain-station --no-guide
+```
+
 也可以验证内置示例项目：
 
 ```bash
@@ -483,7 +499,7 @@ providers:
 | `openai` | 标准 OpenAI embeddings | `https://api.openai.com/v1` |
 | `openai_compatible` | 其他 OpenAI-compatible embeddings | 必须通过 `base_url_env` 配置 |
 
-真实 embedding API 使用 OpenAI-compatible `/embeddings` 请求形态。API Key 只通过环境变量读取，不写入项目文件，也不会写入搜索索引或错误消息。
+真实 embedding API 使用 OpenAI-compatible `/embeddings` 请求形态。API Key 通过环境变量或项目 `.env` 读取，不写入 `config/embeddings.yaml`、搜索索引或错误消息。
 
 规划、写作、审核可以选择加入检索上下文：
 
@@ -562,6 +578,7 @@ web:
 当前 Web 工作台还支持：
 
 - 初始化项目：在本地路径创建最小小说工作区。
+- 项目初始引导：初始化后配置默认 API、可选 embedding API 和 Web UI 端口；真实 key 只写项目 `.env`，配置页只显示环境变量名和是否存在。
 - 项目检查：在 Web UI 中运行 validate，查看 errors / warnings 摘要，不必切换到命令行。
 - Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。Web UI 灵感默认走 Markdown 弱总纲，不为 Inspiration 强制开启 provider JSON mode；需要 `inspiration.json` 时可用 CLI 的 `--json` 或后续工具派生。
 - 项目文件树：只显示工作区内安全文件，排除 `.env*`、search index、备份和缓存。

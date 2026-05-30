@@ -16,7 +16,8 @@ def test_validate_cli_reports_success(tmp_path: Path) -> None:
     code, stdout, stderr = _run_cli(["validate", "--path", str(root)])
 
     assert code == 0
-    assert "Validation passed: 0 warning(s)" in stdout
+    assert "agent default api_key_env is not set: OPENAI_API_KEY" in stdout
+    assert "Validation passed: 2 warning(s)" in stdout
     assert stderr == ""
 
 
@@ -220,4 +221,3 @@ def _write_sample_project_data(root: Path) -> None:
 
 def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-

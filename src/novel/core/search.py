@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import sqlite3
@@ -16,6 +15,7 @@ from novel.core.embeddings import (
     create_embedding_provider,
     load_embeddings_config,
 )
+from novel.core.env import load_project_env
 from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json
 from novel.core.schemas import (
     ChapterPlan,
@@ -551,9 +551,10 @@ def _embedding_config_status(
     if provider == "local_hash":
         return {"status": "test_only", "provider": provider, "model": selected.model, "env_missing": ()}
     missing: list[str] = []
-    if selected.api_key_env and not os.environ.get(selected.api_key_env):
+    env = load_project_env(root)
+    if selected.api_key_env and not env.get(selected.api_key_env):
         missing.append(selected.api_key_env)
-    if provider == "openai_compatible" and selected.base_url_env and not os.environ.get(selected.base_url_env):
+    if provider == "openai_compatible" and selected.base_url_env and not env.get(selected.base_url_env):
         missing.append(selected.base_url_env)
     if not selected.api_key_env:
         missing.append("api_key_env")

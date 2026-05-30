@@ -7,11 +7,14 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import signal
 import shlex
 import shutil
 import socket
 import subprocess
 import sys
+import time
+from urllib.parse import urlparse
 import webbrowser
 from typing import Mapping, Optional, Sequence
 
@@ -85,11 +88,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             _run(command, cwd=repo_root)
         if plan.launcher_path and plan.launcher_command:
             _write_web_launcher(plan.launcher_path, plan.launcher_command, cwd=repo_root, url=plan.web_url)
-        if plan.web_url and not args.no_open_web:
-            webbrowser.open(plan.web_url)
         if plan.web_command:
             print("\nStarting WriterYang Web UI. Press Ctrl+C to stop.")
-            _run_web_command(plan.web_command, cwd=repo_root)
+            _run_web_command(
+                plan.web_command,
+                cwd=repo_root,
+                url=plan.web_url,
+                open_browser=not args.no_open_web,
+            )
         if plan.activate_shell and is_interactive_terminal(os.environ):
             print("\nEntering the new WriterYang environment shell. Type exit to return.")
             _run(plan.activate_shell.command, cwd=repo_root, env=plan.activate_shell.env)
@@ -316,16 +322,7 @@ def _resolve_launcher_path(repo_root: Path, launcher_path: Path | None) -> Path:
 
 def _write_web_launcher(path: Path, command: list[str], *, cwd: Path, url: str | None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    open_url = ""
-    if url:
-        quoted_url = shlex.quote(url)
-        open_url = (
-            "if command -v open >/dev/null 2>&1; then\n"
-            f"  open {quoted_url} >/dev/null 2>&1 || true\n"
-            "elif command -v xdg-open >/dev/null 2>&1; then\n"
-            f"  xdg-open {quoted_url} >/dev/null 2>&1 || true\n"
-            "fi\n"
-        )
+    open_url = _launcher_open_after_ready_script(url)
     content = (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
@@ -336,6 +333,35 @@ def _write_web_launcher(path: Path, command: list[str], *, cwd: Path, url: str |
     )
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def _launcher_open_after_ready_script(url: str | None) -> str:
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    host = parsed.hostname or WEB_HOST
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    quoted_url = shlex.quote(url)
+    return (
+        "WRITERYANG_WEB_HOST=" + shlex.quote(host) + "\n"
+        "WRITERYANG_WEB_PORT=" + shlex.quote(str(port)) + "\n"
+        "WRITERYANG_WEB_URL=" + quoted_url + "\n"
+        "(\n"
+        "  i=0\n"
+        "  while [ \"$i\" -lt 150 ]; do\n"
+        "    if (: >/dev/tcp/$WRITERYANG_WEB_HOST/$WRITERYANG_WEB_PORT) >/dev/null 2>&1; then\n"
+        "      if command -v open >/dev/null 2>&1; then\n"
+        "        open \"$WRITERYANG_WEB_URL\" >/dev/null 2>&1 || true\n"
+        "      elif command -v xdg-open >/dev/null 2>&1; then\n"
+        "        xdg-open \"$WRITERYANG_WEB_URL\" >/dev/null 2>&1 || true\n"
+        "      fi\n"
+        "      exit 0\n"
+        "    fi\n"
+        "    i=$((i + 1))\n"
+        "    sleep 0.1\n"
+        "  done\n"
+        ") &\n"
+    )
 
 
 def _print_plan(plan: InstallPlan, *, dry_run: bool) -> None:
@@ -381,16 +407,38 @@ def _run(command: list[str], *, cwd: Path, env: Mapping[str, str] | None = None)
     subprocess.run(command, cwd=cwd, env=merged_env if env else None, check=True)
 
 
-def _run_web_command(command: list[str], *, cwd: Path) -> None:
+def _run_web_command(command: list[str], *, cwd: Path, url: str | None, open_browser: bool) -> None:
+    print(f"$ {shlex.join(command)}")
+    process = subprocess.Popen(command, cwd=cwd)
     try:
-        _run(command, cwd=cwd)
+        if open_browser and url:
+            if _wait_for_web_server(url):
+                webbrowser.open(url)
+            else:
+                print(f"Web UI is still starting. If the browser does not open, visit: {url}", file=sys.stderr)
+        returncode = process.wait()
+        if returncode not in {0, -signal.SIGINT, 130}:
+            raise subprocess.CalledProcessError(returncode, command)
     except KeyboardInterrupt:
+        process.send_signal(signal.SIGINT)
+        process.wait()
         print("\nWeb UI stopped.")
-    except subprocess.CalledProcessError as exc:
-        if exc.returncode in {-2, 130}:
-            print("\nWeb UI stopped.")
-            return
-        raise
+
+
+def _wait_for_web_server(url: str, timeout_seconds: float = 15.0) -> bool:
+    parsed = urlparse(url)
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if not host:
+        return False
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.2):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
 
 
 if __name__ == "__main__":

@@ -236,6 +236,7 @@ def test_write_web_launcher_creates_executable_command_file(tmp_path: Path) -> N
     assert "WriterYang_260531" in content
     assert "novel web" in content
     assert "http://127.0.0.1:8765" in content
+    assert "/dev/tcp/$WRITERYANG_WEB_HOST/$WRITERYANG_WEB_PORT" in content
     assert launcher.stat().st_mode & 0o111
 
 
@@ -267,39 +268,73 @@ def test_no_open_web_starts_server_without_browser(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
     opened: list[str] = []
     calls: list[list[str]] = []
+    web_calls: list[list[str]] = []
     monkeypatch.setattr(installer.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(installer, "_wait_for_web_server", lambda url: True)
 
     def fake_run(command, *, cwd):
         calls.append(command)
 
+    class FakeProcess:
+        def wait(self):
+            return 0
+
+    def fake_popen(command, *, cwd):
+        web_calls.append(command)
+        return FakeProcess()
+
     monkeypatch.setattr(installer, "_run", fake_run)
+    monkeypatch.setattr(installer.subprocess, "Popen", fake_popen)
 
     code = installer.main(["--no-open-web", "--launcher-path", str(tmp_path / "WriterYang_WebUI.command")])
 
     assert code == 0
     assert opened == []
-    assert calls[-1][-4:] == ["--host", "127.0.0.1", "--port", "8765"]
+    assert web_calls[-1][-4:] == ["--host", "127.0.0.1", "--port", "8765"]
 
 
-def test_default_install_opens_browser_before_starting_server(monkeypatch, tmp_path: Path) -> None:
+def test_default_install_opens_browser_after_server_is_ready(monkeypatch, tmp_path: Path) -> None:
     installer = _load_installer()
     monkeypatch.setattr(installer, "find_conda", lambda env: "/opt/conda/bin/conda")
     monkeypatch.setattr(installer, "existing_conda_env_names", lambda conda: set())
     monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
     opened: list[str] = []
     calls: list[list[str]] = []
-    monkeypatch.setattr(installer.webbrowser, "open", lambda url: opened.append(url))
+    events: list[str] = []
+
+    def fake_open(url):
+        events.append("open")
+        opened.append(url)
+
+    def fake_wait_for_web_server(url):
+        events.append("ready")
+        return True
+
+    monkeypatch.setattr(installer.webbrowser, "open", fake_open)
+    monkeypatch.setattr(installer, "_wait_for_web_server", fake_wait_for_web_server)
 
     def fake_run(command, *, cwd):
         calls.append(command)
 
+    class FakeProcess:
+        def wait(self):
+            events.append("wait")
+            return 0
+
+    def fake_popen(command, *, cwd):
+        events.append("popen")
+        calls.append(command)
+        return FakeProcess()
+
     monkeypatch.setattr(installer, "_run", fake_run)
+    monkeypatch.setattr(installer.subprocess, "Popen", fake_popen)
 
     code = installer.main(["--launcher-path", str(tmp_path / "WriterYang_WebUI.command")])
 
     assert code == 0
     assert opened == ["http://127.0.0.1:8765"]
     assert calls[-1][-4:] == ["--host", "127.0.0.1", "--port", "8765"]
+    assert events[-4:] == ["popen", "ready", "open", "wait"]
 
 
 def test_interactive_no_web_enters_new_environment_shell(monkeypatch, tmp_path: Path) -> None:

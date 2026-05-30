@@ -140,6 +140,8 @@ def test_readme_links_web_ui_user_guide() -> None:
 
     assert "docs/WEB_UI_USER_GUIDE.md" in readme
     assert "Web UI 的 Session 流程" in readme
+    assert readme.index("## 环境配置") < readme.index("docs/WEB_UI_USER_GUIDE.md")
+    assert readme.index("## 安装") < readme.index("docs/WEB_UI_USER_GUIDE.md")
 
 
 def test_user_docs_use_generic_environment_setup() -> None:

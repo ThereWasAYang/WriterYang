@@ -4,22 +4,6 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 
 当前版本重点是本地 CLI 和可用的本地 Web UI。新用户推荐优先走 Web UI 的 Session 流程；CLI 保留给高级使用、调试、自动化和外部工具集成。所有测试都使用 `MockProvider`，不依赖真实 API Key。
 
-## 新手入口
-
-- [Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)：面向不懂代码和命令行的作者，优先使用浏览器完成创作全流程。
-- [新手快速开始](docs/QUICKSTART.md)：用 `mock` provider 跑通 10 分钟流程，不需要 API Key。
-- [作者如何手动编辑 memory 文件](docs/MEMORY_EDITING.md)：说明 inspiration、style、canon、state、timeline、章节文件的人工编辑边界。
-- [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 agent 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。
-
-## 开发者入口
-
-- [开发者指南](docs/DEVELOPER_GUIDE.md)：工程结构、分层原则、新功能开发、BUG 定位和安全重构流程。
-- [代码库参考手册](docs/CODEBASE_REFERENCE.md)：逐模块说明入口文件、core service、schema、prompt、tests 和主要函数职责。
-- [Agent Prompt 组装说明](docs/AGENT_PROMPT_ASSEMBLY.md)：说明每个 Agent 的 system/user prompt 如何由项目文件和上下文组装。
-- [调试与重构手册](docs/DEBUGGING_AND_REFACTORING.md)：常见故障路径、日志位置、provider 调试和重构 checklist。
-- `skills/`：给人类开发者和外部大模型 Agent 使用的技能。通用技能覆盖维护、调试、真实 API smoke、Web UI QA 和发布；`writeryang-agent-*` 技能按 Agent 独立保存，只描述输入、产物、硬边界和排查入口，不固化剧情、文风或人物塑造方法。
-- `scripts/`：确定性工具脚本，组合现有 CLI/API，避免手工串流程和漏检查。
-
 ## 环境配置
 
 建议为 WriterYang 创建一个独立 Python 3.12 环境，不要直接使用系统 Python，也不要复用已有项目环境。
@@ -67,6 +51,24 @@ python -m pip install .
 novel --version
 novel --help
 ```
+
+安装完成后，再进入下面的用户指南或开发者文档。
+
+## 新手入口
+
+- [Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)：面向不懂代码和命令行的作者，优先使用浏览器完成创作全流程。
+- [新手快速开始](docs/QUICKSTART.md)：用 `mock` provider 跑通 10 分钟流程，不需要 API Key。
+- [作者如何手动编辑 memory 文件](docs/MEMORY_EDITING.md)：说明 inspiration、style、canon、state、timeline、章节文件的人工编辑边界。
+- [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 agent 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。
+
+## 开发者入口
+
+- [开发者指南](docs/DEVELOPER_GUIDE.md)：工程结构、分层原则、新功能开发、BUG 定位和安全重构流程。
+- [代码库参考手册](docs/CODEBASE_REFERENCE.md)：逐模块说明入口文件、core service、schema、prompt、tests 和主要函数职责。
+- [Agent Prompt 组装说明](docs/AGENT_PROMPT_ASSEMBLY.md)：说明每个 Agent 的 system/user prompt 如何由项目文件和上下文组装。
+- [调试与重构手册](docs/DEBUGGING_AND_REFACTORING.md)：常见故障路径、日志位置、provider 调试和重构 checklist。
+- `skills/`：给人类开发者和外部大模型 Agent 使用的技能。通用技能覆盖维护、调试、真实 API smoke、Web UI QA 和发布；`writeryang-agent-*` 技能按 Agent 独立保存，只描述输入、产物、硬边界和排查入口，不固化剧情、文风或人物塑造方法。
+- `scripts/`：确定性工具脚本，组合现有 CLI/API，避免手工串流程和漏检查。
 
 ## 运行测试和构建
 

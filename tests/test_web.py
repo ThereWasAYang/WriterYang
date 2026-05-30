@@ -117,8 +117,32 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     assert "sk-test-secret-never-return" not in serialized
     assert "dashscope-secret-never-return" not in serialized
     assert "OPENAI_API_KEY" in serialized
+    assert payload["data"]["agents"]["warnings"] == []  # type: ignore[index]
     env_entries = payload["data"]["agents"]["env"]  # type: ignore[index]
     assert any(item["name"] == "OPENAI_API_KEY" and item["exists"] is True for item in env_entries)
+
+
+def test_api_provider_config_warns_without_default(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    (root / "config" / "agents.yaml").write_text(
+        "\n".join(
+            [
+                "agents:",
+                "  writer:",
+                '    provider: "openai_compatible"',
+                '    api_key_env: "WRITER_API_KEY"',
+                '    model: "writer-model"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status, payload = handle_api_request("GET", "/api/provider-config", f"path={root}", None)
+
+    assert status == 200
+    warnings = payload["data"]["agents"]["warnings"]  # type: ignore[index]
+    assert any("default API config is missing" in warning for warning in warnings)
 
 
 def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
@@ -286,6 +310,22 @@ def test_api_provider_config_save_updates_non_secret_fields(tmp_path: Path) -> N
     agents = json.loads(json.dumps(payload["data"]["config"]["content"], ensure_ascii=False))  # type: ignore[index]
     assert agents["agents"]["writer"]["model"] == "web-writer-model"
     assert list((root / "config").glob("agents.yaml.bak_*"))
+
+
+def test_api_provider_config_save_updates_default_config(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "default": {"model": "web-default-model"}}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    content = payload["data"]["config"]["content"]  # type: ignore[index]
+    assert content["default"]["model"] == "web-default-model"  # type: ignore[index]
 
 
 def test_api_provider_config_rejects_raw_api_key_without_leaking(tmp_path: Path) -> None:
@@ -549,6 +589,9 @@ def test_frontend_basic_render() -> None:
     assert 'id="runLogs"' in html
     assert 'id="providerConfig"' in html
     assert 'id="providerFieldEditor"' in html
+    assert 'id="providerConfigWarnings"' in html
+    assert '<option value="config">config</option>' in html
+    assert '<option value="mock">mock（仅测试）</option>' in html
     assert 'id="stateTimeline"' in html
     assert 'id="diffViewer"' in html
     assert 'id="sessionStart"' in html

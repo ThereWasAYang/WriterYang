@@ -18,6 +18,8 @@ CLI/Web/Session
   -> atomic write artifact
 ```
 
+Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API，再合并当前 Agent 的差异字段；显式 `--provider mock` 会绕过真实 API 配置，仅用于测试/调试。
+
 `ModelRequest` 字段：
 
 - `system_prompt`：来自 `src/novel/prompts/{agent}_system.txt`。

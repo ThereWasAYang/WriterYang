@@ -71,6 +71,59 @@ def test_model_override_is_temporary(tmp_path: Path) -> None:
     assert original.model == "writer-model"
 
 
+def test_default_config_and_agent_partial_override(tmp_path: Path) -> None:
+    config_path = _default_agents_config(tmp_path)
+
+    writer = resolve_agent_config(config_path, "writer")
+    audit = resolve_agent_config(config_path, "audit")
+
+    assert writer.provider == "deepseek"
+    assert writer.model == "default-model"
+    assert writer.api_key_env == "DEFAULT_API_KEY"
+    assert writer.temperature == 0.9
+    assert writer.max_tokens == 24000
+    assert audit.provider == "deepseek"
+    assert audit.temperature == 0.2
+
+
+def test_missing_agent_uses_default_config(tmp_path: Path) -> None:
+    config_path = _default_agents_config(tmp_path)
+
+    config = resolve_agent_config(config_path, "revision")
+
+    assert config.provider == "deepseek"
+    assert config.model == "default-model"
+    assert config.api_key_env == "DEFAULT_API_KEY"
+
+
+def test_fallback_agent_merges_with_default_config(tmp_path: Path) -> None:
+    config_path = _default_agents_config(tmp_path)
+
+    config = resolve_agent_config(config_path, "revision", fallback_agents=("writer",))
+
+    assert config.provider == "deepseek"
+    assert config.temperature == 0.9
+    assert config.max_tokens == 24000
+
+
+def test_incomplete_agent_without_default_has_clear_error(tmp_path: Path) -> None:
+    path = tmp_path / "agents.yaml"
+    path.write_text(
+        yaml.safe_dump({"agents": {"writer": {"temperature": 0.9}}}, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+    try:
+        resolve_agent_config(path, "writer")
+    except Exception as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected provider config failure")
+
+    assert "no default API config" in message
+    assert "provider" in message
+
+
 def test_missing_api_key_env_is_clear_and_does_not_leak_secret(tmp_path: Path) -> None:
     agents_config = load_agents_config(_agents_config(tmp_path))
 
@@ -136,6 +189,7 @@ def test_cli_model_override_dry_run(tmp_path: Path) -> None:
     assert stderr == ""
     assert "agent: writer" in stdout
     assert "model: override-model" in stdout
+    assert "source: agent:writer" in stdout
     assert "thinking: disabled" in stdout
 
 
@@ -226,6 +280,33 @@ def _agents_config(tmp_path: Path) -> Path:
                     }
                     for agent_name in AGENTS
                 }
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _default_agents_config(tmp_path: Path) -> Path:
+    path = tmp_path / "agents.default.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {
+                    "provider": "deepseek",
+                    "base_url_env": "DEFAULT_BASE_URL",
+                    "api_key_env": "DEFAULT_API_KEY",
+                    "model": "default-model",
+                    "thinking": {"type": "disabled"},
+                    "temperature": 0.5,
+                    "max_tokens": 8192,
+                },
+                "agents": {
+                    "writer": {"temperature": 0.9, "max_tokens": 24000},
+                    "audit": {"temperature": 0.2},
+                },
             },
             allow_unicode=True,
             sort_keys=False,

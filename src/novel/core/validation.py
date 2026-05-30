@@ -12,6 +12,7 @@ from novel.core.io import load_json_model, load_yaml_model
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.schemas import (
     AgentConfig,
+    AgentConfigPatch,
     AgentsConfig,
     AuditReport,
     ChapterMetadata,
@@ -307,6 +308,7 @@ def _validate_agent_names(
 ) -> None:
     if not agents:
         return
+    path = root / "config" / "agents.yaml"
     required_agents = {
         "orchestrator",
         "inspiration",
@@ -317,17 +319,32 @@ def _validate_agent_names(
         "audit",
         "state_update",
     }
-    missing = sorted(required_agents - set(agents.agents))
-    for name in missing:
-        report.warning(root / "config" / "agents.yaml", f"recommended agent is missing: {name}")
+    if agents.default is None:
+        report.warning(path, "default API config is missing; real projects should define config/agents.yaml default")
+        missing = sorted(required_agents - set(agents.agents))
+        for name in missing:
+            report.warning(path, f"recommended agent is missing: {name}")
+    else:
+        _validate_single_agent_config(report, path, "default", agents.default)
+        if agents.default.provider.lower() == "mock":
+            report.warning(path, "default API config uses mock provider; mock is intended for tests only")
     for name, config in agents.agents.items():
-        _validate_single_agent_config(report, root / "config" / "agents.yaml", name, config)
+        _validate_single_agent_config(report, path, name, config)
+        if config.provider and config.provider.lower() == "mock":
+            report.warning(path, f"agent {name} uses mock provider; mock is intended for tests only")
+        if agents.default is None and isinstance(config, AgentConfigPatch):
+            missing_fields = sorted({"provider", "model", "api_key_env"} - set(config.model_dump(exclude_none=True)))
+            if missing_fields:
+                report.error(
+                    path,
+                    f"agent {name} is incomplete without a default API config: missing {', '.join(missing_fields)}",
+                )
 
 
 def _validate_single_agent_config(
-    report: ValidationReport, path: Path, name: str, config: AgentConfig
+    report: ValidationReport, path: Path, name: str, config: AgentConfig | AgentConfigPatch
 ) -> None:
-    if config.api_key_env.startswith(("sk-", "sk_")):
+    if config.api_key_env and config.api_key_env.startswith(("sk-", "sk_")):
         report.error(path, f"agent {name} appears to store a raw API key")
 
 

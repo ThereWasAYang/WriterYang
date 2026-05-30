@@ -92,6 +92,55 @@ def test_validate_fresh_workspace_passes(tmp_path: Path) -> None:
     assert report.errors == []
 
 
+def test_validate_warns_when_default_agent_config_missing(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "config" / "agents.yaml").write_text(
+        "\n".join(
+            [
+                "agents:",
+                "  writer:",
+                '    provider: "openai_compatible"',
+                '    api_key_env: "WRITER_API_KEY"',
+                '    model: "writer-model"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = validate_project(root)
+
+    assert report.ok
+    assert any("default API config is missing" in message.message for message in report.warnings)
+
+
+def test_validate_warns_when_agent_config_uses_mock(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "config" / "agents.yaml").write_text(
+        "\n".join(
+            [
+                "default:",
+                '  provider: "mock"',
+                '  api_key_env: "MOCK_API_KEY"',
+                '  model: "mock-model"',
+                "agents:",
+                "  writer:",
+                '    provider: "mock"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = validate_project(root)
+
+    assert report.ok
+    assert any("default API config uses mock" in message.message for message in report.warnings)
+    assert any("agent writer uses mock provider" in message.message for message in report.warnings)
+
+
 def test_validate_ignores_provider_usage_summary(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

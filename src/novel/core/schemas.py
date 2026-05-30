@@ -102,8 +102,36 @@ class AgentConfig(FlexibleModel):
         return value
 
 
+class AgentConfigPatch(FlexibleModel):
+    provider: str | None = Field(default=None, min_length=1)
+    model: str | None = Field(default=None, min_length=1)
+    api_key_env: str | None = Field(default=None, min_length=1, pattern=r"^[A-Z][A-Z0-9_]*$")
+    base_url_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
+    reasoning: str | None = None
+    thinking: ThinkingConfig | None = None
+    max_context_tokens: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(default=None, gt=0)
+    temperature: float | None = Field(default=None, ge=0)
+    timeout_seconds: float | None = Field(default=None, gt=0)
+    max_retries: int | None = Field(default=None, ge=0)
+
+    @field_validator("api_key_env", "base_url_env")
+    @classmethod
+    def reject_raw_keys(cls, value: str | None) -> str | None:
+        if value and value.startswith(("sk-", "sk_")):
+            raise ValueError("store environment variable names, not raw API keys")
+        return value
+
+
 class AgentsConfig(SchemaVersionedModel):
-    agents: dict[str, AgentConfig] = Field(min_length=1)
+    default: AgentConfig | None = None
+    agents: dict[str, AgentConfig | AgentConfigPatch] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def require_default_or_agents(self) -> "AgentsConfig":
+        if self.default is None and not self.agents:
+            raise ValueError("agents config requires a default config or at least one agent config")
+        return self
 
 
 class EmbeddingProviderConfig(FlexibleModel):

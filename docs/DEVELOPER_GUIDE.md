@@ -279,7 +279,7 @@ def run_xxx(options: XxxOptions, provider: ModelProvider | None = None) -> XxxRe
 
 - `src/novel/prompts/{agent}_system.txt`：system prompt。
 - `core/{agent_service}.py`：options/result、prompt builder、provider 调用、schema 校验、文件写入。
-- `core/provider_config.py` 和默认 `config/agents.yaml` 生成逻辑：让 agent 能读取独立配置。
+- `core/provider_config.py` 和默认 `config/agents.yaml` 生成逻辑：让 agent 先继承顶层 `default` API，再按 Agent 差异覆盖；`mock` 只作为显式测试入口。
 - `core/schemas.py`：如果 Agent 输出结构化 JSON，新增 Pydantic model。
 - `tests/`：mock provider 成功、输出不合规、文件安全、CLI/API 集成。
 

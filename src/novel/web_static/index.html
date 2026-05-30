@@ -90,8 +90,8 @@
 
       <label for="provider">Provider</label>
       <select id="provider">
-        <option value="mock">mock</option>
         <option value="config">config</option>
+        <option value="mock">mock（仅测试）</option>
       </select>
       <label class="row" style="justify-content: flex-start; gap: 8px;">
         <input id="useSearchContext" type="checkbox" style="width: auto;">
@@ -288,6 +288,7 @@
       <div id="providerConfig" class="tabPanel hidden">
         <div class="panel">
           <div class="row"><h2 style="margin: 0;">Provider 配置</h2><button id="loadProviderConfig">刷新配置</button></div>
+          <div id="providerConfigWarnings" class="muted" style="margin-top: 8px;"></div>
           <div class="grid" style="margin-top: 10px;">
             <div>
               <label for="providerAgentSelect">Agent</label>
@@ -792,6 +793,10 @@
       try {
         const data = await apiGet("/api/provider-config", { path: projectPath() });
         providerConfigCache = data.agents?.content || null;
+        const warnings = data.agents?.warnings || [];
+        $("providerConfigWarnings").innerHTML = warnings.length
+          ? `<span style="color:#b91c1c;">${warnings.map(escapeHtml).join("<br>")}</span>`
+          : "Agent API 配置正常。";
         $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
         renderProviderEditor(providerConfigCache);
       } catch (error) {
@@ -801,7 +806,7 @@
 
     function renderProviderEditor(config) {
       const agents = config?.agents || {};
-      const names = Object.keys(agents);
+      const names = ["default", ...Object.keys(agents)];
       $("providerAgentSelect").innerHTML = names.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join("");
       if (names.length) {
         $("providerAgentSelect").value = $("providerAgentSelect").value || names[0];
@@ -813,7 +818,7 @@
 
     function renderProviderAgentFields() {
       const name = $("providerAgentSelect").value;
-      const agent = providerConfigCache?.agents?.[name] || {};
+      const agent = name === "default" ? providerConfigCache?.default || {} : providerConfigCache?.agents?.[name] || {};
       const editable = {};
       [
         "provider", "model", "base_url_env", "api_key_env", "reasoning", "thinking",
@@ -828,10 +833,16 @@
       try {
         const agentName = $("providerAgentSelect").value;
         const patch = JSON.parse($("providerFieldEditor").value || "{}");
-        const data = await apiPost("/api/provider-config", {
+        const payload = {
           path: projectPath(),
-          agents: { [agentName]: patch },
-        });
+          agents: {},
+        };
+        if (agentName === "default") {
+          payload.default = patch;
+        } else {
+          payload.agents = { [agentName]: patch };
+        }
+        const data = await apiPost("/api/provider-config", payload);
         $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
         await loadProviderConfig();
         setMessage("Provider 配置已保存并备份");

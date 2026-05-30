@@ -4,13 +4,35 @@ WriterYang 支持给不同 agent 配不同模型。推荐原则是：结构化�
 
 ## Provider 字段
 
+真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。未单独配置 API 的 Agent 会继承 `default`，只覆盖温度、输出长度、thinking 等差异字段。
+
+```yaml
+default:
+  provider: "deepseek"
+  base_url_env: "WRITERYANG_REAL_BASE_URL"
+  api_key_env: "WRITERYANG_REAL_API_KEY"
+  model: "deepseek-chat"
+  thinking:
+    type: "disabled"
+  temperature: 0.5
+  max_tokens: 8192
+agents:
+  writer:
+    temperature: 0.9
+    max_tokens: 24000
+  audit:
+    temperature: 0.2
+```
+
+解析顺序：显式 `--provider mock` 测试覆盖 > Agent 覆盖合并 `default` > fallback Agent 覆盖合并 `default` > 仅使用 `default`。缺少 `default` 时，`validate`、`doctor` 和 Web UI 会告警；运行到未配置 Agent 时会失败。
+
 `config/agents.yaml` 的 `provider` 当前支持：
 
-- `mock`：离线测试，不调用 API。
 - `openai`：标准 OpenAI API，默认 `https://api.openai.com/v1`。
 - `openai_compatible`：通用 Chat Completions 兼容接口，需要 `base_url_env`。
 - `deepseek`：DeepSeek 官方 API，支持 `thinking.type`。
 - `zai`：智谱 GLM 官方 API，默认 `https://open.bigmodel.cn/api/paas/v4`，支持 `thinking.type`。
+- `mock`：仅测试/调试，不调用 API。真实创作不要把它作为 `default`。
 
 真实 API Key 只能放在环境变量中。配置文件只写环境变量名，例如：
 
@@ -61,11 +83,12 @@ thinking:
 
 ## 推荐落地策略
 
-1. 先用 `mock` 跑通项目结构和流程。
-2. 只给 `inspiration`、`plot`、`writer`、`polish`、`audit` 配真实模型。
-3. JSON 输出类 agent 先低温测试，确认 schema 稳定。
-4. 正文类 agent 再调温度和 `max_tokens`。
-5. 真实 API 上线前运行：
+1. 先配置顶层 `default` 真实 API，并用 `novel doctor --project <project>` 检查环境变量是否存在。
+2. Agent 默认继承 `default`；只给 `writer`、`plot`、`audit` 等重点 Agent 覆盖差异参数。
+3. JSON 输出类 Agent 先低温测试，确认 schema 稳定。
+4. 正文类 Agent 再调温度和 `max_tokens`。
+5. 如需离线熟悉流程，显式传 `--provider mock`，不要把 mock 写成真实项目 default。
+6. 真实 API 上线前运行：
 
 ```bash
 novel doctor --project <project>

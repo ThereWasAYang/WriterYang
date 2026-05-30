@@ -19,6 +19,7 @@ class ProviderDescriptor:
     agent_name: str
     provider: str
     model: str
+    source: str
     api_key_env: str
     base_url_env: str | None
     reasoning: str | None
@@ -34,6 +35,7 @@ class ProviderDescriptor:
             f"agent: {self.agent_name}",
             f"provider: {self.provider}",
             f"model: {self.model}",
+            f"source: {self.source}",
             f"api_key_env: {self.api_key_env}",
         ]
         if self.base_url_env:
@@ -70,6 +72,12 @@ def resolve_agent_config(
     overrides: ProviderOverrides | None = None,
 ) -> AgentConfig:
     overrides = overrides or ProviderOverrides()
+    if overrides.provider_name.lower() == "mock":
+        return AgentConfig(
+            provider="mock",
+            model=overrides.model_name or "mock-model",
+            api_key_env="MOCK_API_KEY",
+        )
     agents_config = load_agents_config(config_path)
     return ProviderFactory().resolve_agent_config(
         agents_config,
@@ -78,6 +86,29 @@ def resolve_agent_config(
         provider_override=overrides.provider_name,
         model_override=overrides.model_name,
     )
+
+
+def resolve_agent_config_source(
+    config_path: Path,
+    agent_name: str,
+    *,
+    fallback_agents: tuple[str, ...] = (),
+    overrides: ProviderOverrides | None = None,
+) -> str:
+    overrides = overrides or ProviderOverrides()
+    if overrides.provider_name.lower() == "mock":
+        return "override:mock"
+    agents_config = load_agents_config(config_path)
+    agents = agents_config.agents
+    for candidate in (agent_name, *fallback_agents):
+        if candidate in agents:
+            config = agents[candidate]
+            if isinstance(config, AgentConfig) and agents_config.default is None:
+                return f"agent:{candidate}"
+            return f"default+agent:{candidate}"
+    if agents_config.default is not None:
+        return "default"
+    return "unresolved"
 
 
 def create_agent_provider(
@@ -121,10 +152,17 @@ def describe_agent_provider(
         fallback_agents=fallback_agents,
         overrides=overrides,
     )
+    source = resolve_agent_config_source(
+        config_path,
+        agent_name,
+        fallback_agents=fallback_agents,
+        overrides=overrides,
+    )
     return ProviderDescriptor(
         agent_name=agent_name,
         provider=config.provider,
         model=config.model,
+        source=source,
         api_key_env=config.api_key_env,
         base_url_env=config.base_url_env,
         reasoning=config.reasoning,

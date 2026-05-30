@@ -12,7 +12,7 @@ from typing import Iterable, Mapping
 from urllib import error, request
 
 from novel.core.io import atomic_write_json
-from novel.core.schemas import AgentConfig
+from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.usage import refresh_provider_usage_summary_for_log
 
 
@@ -619,23 +619,56 @@ class ProviderFactory:
         provider_override: str | None = None,
         model_override: str | None = None,
     ) -> AgentConfig:
+        if provider_override and provider_override.lower() == "mock":
+            return AgentConfig(
+                provider="mock",
+                model=model_override or "mock-model",
+                api_key_env="MOCK_API_KEY",
+            )
         agents = getattr(agents_config, "agents", None)
         if not isinstance(agents, dict):
             raise ProviderError("agents config is missing agents mapping")
-        selected_name = next(
-            (name for name in (agent_name, *fallback_agents) if name in agents),
-            None,
-        )
-        if selected_name is None:
+        default_config = getattr(agents_config, "default", None)
+        selected_name = next((name for name in (agent_name, *fallback_agents) if name in agents), None)
+        selected_config = agents[selected_name] if selected_name else None
+        if selected_config is None and default_config is None:
             names = ", ".join((agent_name, *fallback_agents))
-            raise ProviderError(f"config/agents.yaml is missing agent config: {names}")
-        config = agents[selected_name]
+            raise ProviderError(
+                f"config/agents.yaml is missing agent config and default API config: {names}"
+            )
+        config = _merge_agent_config(default_config, selected_config)
         updates: dict[str, object] = {}
         if provider_override and provider_override != "config":
             updates["provider"] = provider_override
         if model_override:
             updates["model"] = model_override
         return config.model_copy(update=updates) if updates else config
+
+
+def _merge_agent_config(
+    default_config: AgentConfig | None,
+    agent_config: AgentConfig | AgentConfigPatch | None,
+) -> AgentConfig:
+    if agent_config is None:
+        if default_config is None:
+            raise ProviderError("config/agents.yaml is missing default API config")
+        return default_config
+    if default_config is None:
+        if isinstance(agent_config, AgentConfig):
+            return agent_config
+        missing = ", ".join(sorted(_missing_required_agent_fields(agent_config)))
+        raise ProviderError(
+            "config/agents.yaml agent override is incomplete and no default API config is defined"
+            + (f": missing {missing}" if missing else "")
+        )
+    merged = default_config.model_dump(mode="python")
+    merged.update(agent_config.model_dump(mode="python", exclude_unset=True, exclude_none=True))
+    return AgentConfig.model_validate(merged)
+
+
+def _missing_required_agent_fields(config: AgentConfigPatch) -> set[str]:
+    provided = set(config.model_dump(mode="python", exclude_unset=True, exclude_none=True))
+    return {"provider", "model", "api_key_env"} - provided
 
 
 def _required_env(env: Mapping[str, str], name: str, config_field: str) -> str:

@@ -58,11 +58,14 @@ def test_example_agent_configs_include_real_and_mock_templates() -> None:
     real_config = load_yaml(Path("examples/rain_station/config/agents.yaml"))
     mock_config = load_yaml(Path("examples/rain_station/config/agents.mock.yaml"))
 
+    default = real_config["default"]
     writer = real_config["agents"]["writer"]
-    assert writer["provider"] == "deepseek"
-    assert writer["thinking"]["type"] == "disabled"
-    assert writer["base_url_env"] == "WRITERYANG_REAL_BASE_URL"
-    assert writer["api_key_env"] == "WRITERYANG_REAL_API_KEY"
+    assert default["provider"] == "deepseek"
+    assert default["thinking"]["type"] == "disabled"
+    assert default["base_url_env"] == "WRITERYANG_REAL_BASE_URL"
+    assert default["api_key_env"] == "WRITERYANG_REAL_API_KEY"
+    assert writer["temperature"] == 0.9
+    assert "provider" not in writer
 
     assert mock_config["agents"]["writer"]["provider"] == "mock"
 

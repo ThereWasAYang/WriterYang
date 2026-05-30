@@ -269,7 +269,7 @@ def _plan_chapter(data: dict[str, object]) -> dict[str, object]:
     chapter_number = _chapter_number(data)
     provider = load_planning_provider(
         root,
-        str(data.get("provider") or "mock"),
+        str(data.get("provider") or "config"),
         chapter_number=chapter_number,
     )
     result = plan_chapter(
@@ -292,7 +292,7 @@ def _plan_chapter(data: dict[str, object]) -> dict[str, object]:
 
 def _write_chapter(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
-    provider = load_drafting_provider(root, str(data.get("provider") or "mock"))
+    provider = load_drafting_provider(root, str(data.get("provider") or "config"))
     result = write_chapter_draft(
         ChapterDraftingOptions(
             root=root,
@@ -311,7 +311,7 @@ def _write_chapter(data: dict[str, object]) -> dict[str, object]:
 
 def _polish_chapter(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
-    provider = load_polishing_provider(root, str(data.get("provider") or "mock"))
+    provider = load_polishing_provider(root, str(data.get("provider") or "config"))
     result = polish_chapter(
         ChapterPolishingOptions(
             root=root,
@@ -333,7 +333,7 @@ def _audit_chapter(data: dict[str, object]) -> dict[str, object]:
     audited_file = str(data.get("audited_file") or "polished.md")
     provider = load_audit_provider(
         root,
-        str(data.get("provider") or "mock"),
+        str(data.get("provider") or "config"),
         chapter_number=chapter_number,
         audited_file=audited_file,  # type: ignore[arg-type]
     )
@@ -391,7 +391,7 @@ def _generate_chapter(data: dict[str, object]) -> dict[str, object]:
             chapter_number=_chapter_number(data),
             instruction=_optional_string(data.get("instruction")),
             force=bool(data.get("force")),
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
             target_words=_optional_int(data.get("target_words")),
             style_note=_optional_string(data.get("style_note")),
             skip_polish=bool(data.get("skip_polish")),
@@ -463,9 +463,21 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
     if not isinstance(raw_config, dict):
         raise WebAPIError("invalid_config", "config/agents.yaml must be a YAML mapping", status=400)
     agents_update = data.get("agents")
+    default_update = data.get("default")
+    if agents_update is None and default_update is None:
+        raise WebAPIError("invalid_request", "default or agents must be a mapping", status=400)
+    if agents_update is None:
+        agents_update = {}
     if not isinstance(agents_update, dict):
         raise WebAPIError("invalid_request", "agents must be a mapping", status=400)
     updated = dict(raw_config)
+    if default_update is not None:
+        if not isinstance(default_update, dict):
+            raise WebAPIError("invalid_request", "default must be a mapping", status=400)
+        current_default = updated.get("default")
+        if current_default is not None and not isinstance(current_default, dict):
+            raise WebAPIError("invalid_config", "default config must be a mapping", status=400)
+        updated["default"] = {**(current_default or {}), **_clean_agent_config_patch(default_update)}
     agents = dict(updated.get("agents") or {})
     for agent_name, patch in agents_update.items():
         if not isinstance(agent_name, str) or not isinstance(patch, dict):
@@ -532,7 +544,7 @@ def _init_project(data: dict[str, object]) -> dict[str, object]:
 
 def _inspire(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
-    provider = load_inspiration_provider(root, str(data.get("provider") or "mock"))
+    provider = load_inspiration_provider(root, str(data.get("provider") or "config"))
     source_text = _optional_string(data.get("text")) or _optional_string(data.get("instruction"))
     if not source_text:
         raise WebAPIError("invalid_request", "inspiration text must not be empty", status=400)
@@ -556,7 +568,7 @@ def _inspire(data: dict[str, object]) -> dict[str, object]:
 
 def _canon_suggest(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
-    provider = load_canon_provider(root, str(data.get("provider") or "mock"))
+    provider = load_canon_provider(root, str(data.get("provider") or "config"))
     output = _optional_string(data.get("output"))
     output_path = _safe_workspace_file(root, output) if output else _default_canon_proposal_path(root)
     result = suggest_canon(CanonSuggestOptions(root=root, output_path=output_path), provider)
@@ -624,7 +636,7 @@ def _session_start(data: dict[str, object]) -> dict[str, object]:
             user_intent=str(data.get("intent") or ""),
             chapter_range=chapter_range,
             segment_range=segment_range,
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
         )
     )
@@ -637,7 +649,7 @@ def _session_revise_outline(data: dict[str, object]) -> dict[str, object]:
             root=_root_from_body(data),
             session_id=str(data.get("session_id") or ""),
             instruction=str(data.get("instruction") or ""),
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
         )
     )
@@ -660,7 +672,7 @@ def _session_run(data: dict[str, object]) -> dict[str, object]:
         SessionRunOptions(
             root=_root_from_body(data),
             session_id=str(data.get("session_id") or ""),
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             max_auto_revision_rounds=_optional_int(data.get("max_auto_revision_rounds")),
         )
@@ -674,7 +686,7 @@ def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
             root=_root_from_body(data),
             session_id=str(data.get("session_id") or ""),
             instruction=str(data.get("instruction") or ""),
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             from_audit=bool(data.get("from_audit")),
         )
@@ -689,7 +701,7 @@ def _session_revise_audit(data: dict[str, object]) -> dict[str, object]:
             session_id=str(data.get("session_id") or ""),
             event_id=str(data.get("event_id") or ""),
             instruction=str(data.get("instruction") or ""),
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
         )
     )
@@ -703,7 +715,7 @@ def _session_retry_rewrite(data: dict[str, object]) -> dict[str, object]:
             session_id=str(data.get("session_id") or ""),
             event_id=str(data.get("event_id") or ""),
             instruction=_optional_string(data.get("instruction")),
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
         )
     )
@@ -716,7 +728,7 @@ def _session_undo_rewrite(data: dict[str, object]) -> dict[str, object]:
             root=_root_from_body(data),
             session_id=str(data.get("session_id") or ""),
             event_id=str(data.get("event_id") or ""),
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
         )
     )
     return _session_result_payload(result)
@@ -727,7 +739,7 @@ def _session_accept(data: dict[str, object]) -> dict[str, object]:
         SessionActionOptions(
             root=_root_from_body(data),
             session_id=str(data.get("session_id") or ""),
-            provider_name=str(data.get("provider") or "mock"),
+            provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
         )
     )
@@ -961,8 +973,10 @@ def _runs_summary(root: Path) -> dict[str, object]:
 
 def _provider_config_summary(root: Path) -> dict[str, object]:
     _require_workspace(root)
+    agents = _safe_config_file(root / "config" / "agents.yaml")
+    agents["warnings"] = _agent_config_warnings(root / "config" / "agents.yaml")
     return {
-        "agents": _safe_config_file(root / "config" / "agents.yaml"),
+        "agents": agents,
         "embeddings": _safe_config_file(root / "config" / "embeddings.yaml"),
     }
 
@@ -1326,6 +1340,24 @@ def _safe_config_file(path: Path) -> dict[str, object]:
         "content": _sanitize_config(data),
         "env": [{"name": name, "exists": bool(os.environ.get(name))} for name in env_names],
     }
+
+
+def _agent_config_warnings(path: Path) -> list[str]:
+    if not path.exists():
+        return ["config/agents.yaml does not exist"]
+    try:
+        config = AgentsConfig.model_validate(load_yaml(path))
+    except Exception as exc:
+        return [f"config/agents.yaml is invalid: {_safe_error(str(exc))}"]
+    warnings: list[str] = []
+    if config.default is None:
+        warnings.append("default API config is missing; unconfigured agents cannot use provider config")
+    elif config.default.provider.lower() == "mock":
+        warnings.append("default provider uses mock; mock is intended for tests only")
+    for name, item in sorted(config.agents.items()):
+        if item.provider and item.provider.lower() == "mock":
+            warnings.append(f"agent {name} uses mock provider; mock is intended for tests only")
+    return warnings
 
 
 def _safe_json(path: Path) -> object:

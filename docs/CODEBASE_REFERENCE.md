@@ -652,7 +652,7 @@ Agent skill 只作为开发者和外部 Agent 的边界说明，不参与小说�
 
 ### `config/agents.yaml`
 
-每个 agent 支持：
+真实项目应配置顶层 `default` API；每个 agent 可以只写差异字段并继承 `default`。完整配置或 `default` 支持：
 
 - `provider`
 - `base_url_env`
@@ -666,7 +666,7 @@ Agent skill 只作为开发者和外部 Agent 的边界说明，不参与小说�
 - `timeout_seconds`
 - `max_retries`
 
-解析和默认值在 `schemas.AgentConfig`、`provider_config.py`、`providers.py`。
+解析和默认值在 `schemas.AgentConfig`、`schemas.AgentConfigPatch`、`provider_config.py`、`providers.py`。`mock` provider 仅用于显式测试/调试入口，不应作为真实项目 `default`。
 
 ### `config/embeddings.yaml`
 

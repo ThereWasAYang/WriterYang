@@ -199,24 +199,36 @@ def _project_yaml(
 
 def _agents_yaml() -> str:
     agents = {
-        "orchestrator": ("OPENAI_BASE_URL", "OPENAI_API_KEY", "model-name", "medium", 128000, 4096, 0.4, 60, 1),
-        "inspiration": ("INSPIRATION_BASE_URL", "INSPIRATION_API_KEY", "model-name", "medium", 64000, 4096, 0.8, 60, 1),
-        "canon": ("CANON_BASE_URL", "CANON_API_KEY", "model-name", "medium", 64000, 8192, 0.5, 60, 1),
-        "plot": ("PLOT_BASE_URL", "PLOT_API_KEY", "model-name", "high", 128000, 8192, 0.6, 90, 1),
-        "writer": ("WRITER_BASE_URL", "WRITER_API_KEY", "model-name", "high", 128000, 24000, 0.9, 120, 1),
-        "polish": ("POLISH_BASE_URL", "POLISH_API_KEY", "model-name", "medium", 128000, 24000, 0.7, 90, 1),
-        "audit": ("AUDIT_BASE_URL", "AUDIT_API_KEY", "model-name", "low", 64000, 8192, 0.2, 60, 1),
-        "state_update": ("STATE_UPDATE_BASE_URL", "STATE_UPDATE_API_KEY", "model-name", "low", 64000, 8192, 0.2, 60, 1),
+        "orchestrator": ("medium", 128000, 4096, 0.4, 60, 1),
+        "inspiration": ("medium", 64000, 4096, 0.8, 60, 1),
+        "canon": ("medium", 64000, 8192, 0.5, 60, 1),
+        "plot": ("high", 128000, 8192, 0.6, 90, 1),
+        "writer": ("high", 128000, 24000, 0.9, 120, 1),
+        "polish": ("medium", 128000, 24000, 0.7, 90, 1),
+        "audit": ("low", 64000, 8192, 0.2, 60, 1),
+        "state_update": ("low", 64000, 8192, 0.2, 60, 1),
     }
-    lines = [f"schema_version: {CURRENT_SCHEMA_VERSION}\n", "agents:\n"]
-    for name, (base_url_env, api_key_env, model, reasoning, max_context_tokens, max_tokens, temperature, timeout, retries) in agents.items():
+    lines = [
+        f"schema_version: {CURRENT_SCHEMA_VERSION}\n",
+        "default:\n",
+        '  provider: "openai_compatible"\n',
+        '  base_url_env: "OPENAI_BASE_URL"\n',
+        '  api_key_env: "OPENAI_API_KEY"\n',
+        '  model: "model-name"\n',
+        '  reasoning: "medium"\n',
+        "  thinking:\n",
+        '    type: "disabled"\n',
+        "  max_context_tokens: 128000\n",
+        "  max_tokens: 8192\n",
+        "  temperature: 0.5\n",
+        "  timeout_seconds: 60\n",
+        "  max_retries: 1\n",
+        "agents:\n",
+    ]
+    for name, (reasoning, max_context_tokens, max_tokens, temperature, timeout, retries) in agents.items():
         lines.extend(
             [
                 f"  {name}:\n",
-                '    provider: "openai_compatible"\n',
-                f'    base_url_env: "{base_url_env}"\n',
-                f'    api_key_env: "{api_key_env}"\n',
-                f'    model: "{model}"\n',
                 f'    reasoning: "{reasoning}"\n',
                 "    thinking:\n",
                 '      type: "disabled"\n',

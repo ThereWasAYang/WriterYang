@@ -13,15 +13,15 @@
     },
     {
       "name": "ask",
-      "argv": ["novel", "ask", "{request}", "--project", "{project}", "--provider", "mock", "--json", "--quiet"]
+      "argv": ["novel", "ask", "{request}", "--project", "{project}", "--provider", "config", "--json", "--quiet"]
     },
     {
       "name": "generate_chapter",
-      "argv": ["novel", "generate-chapter", "{chapter_number}", "--project", "{project}", "--provider", "mock", "--json", "--quiet"]
+      "argv": ["novel", "generate-chapter", "{chapter_number}", "--project", "{project}", "--provider", "config", "--json", "--quiet"]
     },
     {
       "name": "audit_chapter",
-      "argv": ["novel", "audit-chapter", "{chapter_number}", "--project", "{project}", "--provider", "mock", "--json", "--quiet"]
+      "argv": ["novel", "audit-chapter", "{chapter_number}", "--project", "{project}", "--provider", "config", "--json", "--quiet"]
     },
     {
       "name": "export_markdown",

@@ -57,7 +57,7 @@ novel --help
 ## 新手入口
 
 - [Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)：面向不懂代码和命令行的作者，优先使用浏览器完成创作全流程。
-- [新手快速开始](docs/QUICKSTART.md)：用 `mock` provider 跑通 10 分钟流程，不需要 API Key。
+- [新手快速开始](docs/QUICKSTART.md)：用 `mock` provider 跑通 10 分钟测试流程，不需要 API Key；真实创作请先配置 `config/agents.yaml` 的 `default` API。
 - [作者如何手动编辑 memory 文件](docs/MEMORY_EDITING.md)：说明 inspiration、style、canon、state、timeline、章节文件的人工编辑边界。
 - [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 agent 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。
 
@@ -114,7 +114,7 @@ novel validate --path examples/wuxia_mountain_sect
 novel status --path examples/wuxia_mountain_sect
 ```
 
-示例项目的 `config/agents.yaml` 是 DeepSeek 真实 API 配置模板，并显式关闭 `thinking`。如果只想离线试用或跑 mock 流程，可以参考 `config/agents.mock.yaml`，或者在命令中传入 `--provider mock`。
+示例项目的 `config/agents.yaml` 是 DeepSeek 真实 API 配置模板，使用顶层 `default` 缺省 API 配置，并显式关闭 `thinking`。如果只想离线测试流程，可以参考 `config/agents.mock.yaml`，或者在命令中显式传入 `--provider mock`。
 `examples/wuxia_mountain_sect` 是武侠长篇示例，配置项带中文注释，适合作为新项目配置模板。
 
 生成文件默认不会静默覆盖已有用户数据。
@@ -131,15 +131,15 @@ init -> inspire -> canon suggest/apply -> session start/outline -> approve outli
 
 ```bash
 novel init "新书名" --path ./my-novel
-novel inspire "一句或一段原始灵感" --path ./my-novel --provider mock --overwrite
-novel canon suggest --path ./my-novel --provider mock --output canon-proposal.json
+novel inspire "一句或一段原始灵感" --path ./my-novel --provider config --overwrite
+novel canon suggest --path ./my-novel --provider config --output canon-proposal.json
 novel canon apply canon-proposal.json --path ./my-novel
-novel session start "写第1章：雨夜旧车站，建立调查动机" --path ./my-novel --chapters 1 --provider mock
+novel session start "写第1章：雨夜旧车站，建立调查动机" --path ./my-novel --chapters 1 --provider config
 novel session approve-outline <session_id> --path ./my-novel
-novel session run <session_id> --path ./my-novel --provider mock
-novel session revise-content <session_id> --path ./my-novel --provider mock --instruction "加强压抑感，减少解释"
-novel session revise-content <session_id> --path ./my-novel --provider mock --from-audit
-novel session accept <session_id> --path ./my-novel --provider mock
+novel session run <session_id> --path ./my-novel --provider config
+novel session revise-content <session_id> --path ./my-novel --provider config --instruction "加强压抑感，减少解释"
+novel session revise-content <session_id> --path ./my-novel --provider config --from-audit
+novel session accept <session_id> --path ./my-novel --provider config
 novel session archive <session_id> --path ./my-novel
 novel export markdown --path ./my-novel --toc --force
 ```
@@ -181,15 +181,24 @@ novel show state --path ./rain-station
 
 ## Provider 配置
 
-每个 agent 可以在 `config/agents.yaml` 中使用独立模型配置。项目文件只保存环境变量名，不保存真实 API Key。
+真实项目必须在 `config/agents.yaml` 中配置至少一个顶层 `default` API。未单独配置 API 的 Agent 会继承 `default`，每个 Agent 只需要覆盖差异参数。项目文件只保存环境变量名，不保存真实 API Key。
 
 ```yaml
+default:
+  provider: "deepseek"
+  base_url_env: "WRITERYANG_REAL_BASE_URL"
+  api_key_env: "WRITERYANG_REAL_API_KEY"
+  model: "deepseek-chat"
+  reasoning: "medium"
+  max_context_tokens: 128000
+  max_tokens: 8192
+  temperature: 0.5
+  timeout_seconds: 60
+  max_retries: 1
+  thinking:
+    type: "disabled"
 agents:
   writer:
-    provider: "deepseek"
-    base_url_env: "WRITER_BASE_URL"
-    api_key_env: "WRITER_API_KEY"
-    model: "writer-model-name"
     reasoning: "high"
     max_context_tokens: 128000
     max_tokens: 24000
@@ -206,18 +215,20 @@ agents:
 
 | provider | 用途 | 说明 |
 | --- | --- | --- |
-| `mock` | 测试 / 离线演示 | 不调用真实 API，适合跑测试、验证流程、写文档示例。 |
 | `openai` | 标准 OpenAI API | 默认 base URL 为 `https://api.openai.com/v1`，结构化输出优先使用 `response_format: json_schema`，不发送厂商私有 `thinking`。 |
 | `openai_compatible` | 通用 OpenAI Chat Completions 兼容接口 | 需要配置 `base_url_env`，结构化输出使用较通用的 `response_format: json_object`，不发送厂商私有 `thinking`。适合尚未做专门适配的第三方兼容服务。 |
 | `deepseek` | DeepSeek 官方 API | 默认 base URL 为 `https://api.deepseek.com`，会发送 DeepSeek 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
 | `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
+| `mock` | 测试 / 调试 | 不调用真实 API，仅用于自动化测试、离线 smoke 和文档演示。真实创作不要把它作为 default。 |
+
+解析顺序是：显式 `--provider mock` 测试覆盖 > 当前 Agent 覆盖字段合并 `default` > fallback Agent 覆盖字段合并 `default` > 仅使用 `default`。如果没有 `default` 且目标 Agent 也没有完整配置，运行时会报错；`novel validate`、`novel doctor` 和 Web UI Provider 配置页会提前给出告警。
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
 
 示例项目提供两个配置文件：
 
-- `examples/rain_station/config/agents.yaml`：DeepSeek 真实 API 模板，适合复制到新项目后替换模型名和环境变量名。使用智谱 GLM 时把 `provider` 改为 `zai`，并把 `base_url_env` / `api_key_env` 指向智谱的环境变量名。
-- `examples/rain_station/config/agents.mock.yaml`：mock provider 模板，适合测试、文档示例和无 API Key 的本地演示。
+- `examples/rain_station/config/agents.yaml`：DeepSeek 真实 API 模板，使用顶层 `default` 加 Agent 差异覆盖。使用智谱 GLM 时把 `default.provider` 改为 `zai`，并把 `base_url_env` / `api_key_env` 指向智谱的环境变量名。
+- `examples/rain_station/config/agents.mock.yaml`：mock provider 模板，只适合测试、文档示例和无 API Key 的本地演示。
 - `examples/rain_station/config/embeddings.yaml`：embedding provider 模板，默认指向真实 DashScope 配置；本地 hash embedding 只保留为测试项。
 
 厂商差异：
@@ -241,7 +252,7 @@ novel usage --path ./rain-station --json
 生成命令支持临时覆盖：
 
 ```bash
-novel write-chapter 1 --path ./rain-station --agent-config config/agents.yaml --provider mock
+novel write-chapter 1 --path ./rain-station --agent-config config/agents.yaml --provider config
 novel write-chapter 1 --path ./rain-station --model temporary-model --dry-run-provider
 ```
 
@@ -272,8 +283,8 @@ novel write-chapter 1 --path ./rain-station --model temporary-model --dry-run-pr
 ## 生成灵感
 
 ```bash
-novel inspire "一个雨夜旧车站里传来已经停播多年的广播声" --path ./rain-station --provider mock --overwrite
-novel inspire --input input.txt --path ./rain-station --provider mock --json --quiet --overwrite
+novel inspire "一个雨夜旧车站里传来已经停播多年的广播声" --path ./rain-station --provider config --overwrite
+novel inspire --input input.txt --path ./rain-station --provider config --json --quiet --overwrite
 ```
 
 命令会写入 `memory/inspiration.md`。使用 `--json` 时，也会写入本地派生的 `memory/inspiration.json` 并在 stdout 输出机器可读 JSON；自动化调用建议搭配 `--quiet`。Web UI 默认只生成 `inspiration.md`，并且只会自动覆盖初始化生成的空白灵感模板，不会静默覆盖作者已写内容。
@@ -281,8 +292,8 @@ novel inspire --input input.txt --path ./rain-station --provider mock --json --q
 ## 管理 Canon
 
 ```bash
-novel canon suggest --path ./rain-station --provider mock
-novel canon suggest --path ./rain-station --provider mock --output canon-proposal.json
+novel canon suggest --path ./rain-station --provider config
+novel canon suggest --path ./rain-station --provider config --output canon-proposal.json
 novel canon apply canon-proposal.json --path ./rain-station
 novel canon validate --path ./rain-station
 novel canon show --path ./rain-station
@@ -295,36 +306,36 @@ novel canon show --path ./rain-station
 生成章节计划：
 
 ```bash
-novel plan-chapter 1 --path ./rain-station --provider mock
-novel plan-chapter 2 --path ./rain-station --provider mock --instruction "这一章要让主角第一次怀疑沈鹿的身份，但不要揭示真相"
-novel plan-chapter 3 --path ./rain-station --provider mock --input chapter3_request.txt
+novel plan-chapter 1 --path ./rain-station --provider config
+novel plan-chapter 2 --path ./rain-station --provider config --instruction "这一章要让主角第一次怀疑沈鹿的身份，但不要揭示真相"
+novel plan-chapter 3 --path ./rain-station --provider config --input chapter3_request.txt
 ```
 
 写初稿：
 
 ```bash
-novel write-chapter 1 --path ./rain-station --provider mock
-novel write-chapter 1 --path ./rain-station --provider mock --target-words 3000
-novel write-chapter 2 --path ./rain-station --provider mock --instruction "加强压抑感，减少解释性文字"
-novel write-chapter 3 --path ./rain-station --provider mock --input chapter3_writing_request.txt
+novel write-chapter 1 --path ./rain-station --provider config
+novel write-chapter 1 --path ./rain-station --provider config --target-words 3000
+novel write-chapter 2 --path ./rain-station --provider config --instruction "加强压抑感，减少解释性文字"
+novel write-chapter 3 --path ./rain-station --provider config --input chapter3_writing_request.txt
 ```
 
 润色：
 
 ```bash
-novel polish-chapter 1 --path ./rain-station --provider mock
-novel polish-chapter 1 --path ./rain-station --provider mock --light-edit
-novel polish-chapter 1 --path ./rain-station --provider mock --deep-edit
-novel polish-chapter 1 --path ./rain-station --provider mock --keep-length
+novel polish-chapter 1 --path ./rain-station --provider config
+novel polish-chapter 1 --path ./rain-station --provider config --light-edit
+novel polish-chapter 1 --path ./rain-station --provider config --deep-edit
+novel polish-chapter 1 --path ./rain-station --provider config --keep-length
 ```
 
 审核：
 
 ```bash
-novel audit-chapter 1 --path ./rain-station --provider mock
-novel audit-chapter 1 --path ./rain-station --provider mock --strict
-novel audit-chapter 1 --path ./rain-station --provider mock --focus canon --focus timeline
-novel audit-chapter 1 --path ./rain-station --provider mock --audited-file draft.md --force
+novel audit-chapter 1 --path ./rain-station --provider config
+novel audit-chapter 1 --path ./rain-station --provider config --strict
+novel audit-chapter 1 --path ./rain-station --provider config --focus canon --focus timeline
+novel audit-chapter 1 --path ./rain-station --provider config --audited-file draft.md --force
 ```
 
 以上命令默认拒绝覆盖已有输出文件；需要明确传入 `--force`。
@@ -332,9 +343,9 @@ novel audit-chapter 1 --path ./rain-station --provider mock --audited-file draft
 ## 修订章节
 
 ```bash
-novel revise-chapter 1 --path ./rain-station --provider mock --instruction "加强悬疑感，但不要改变结尾事件"
-novel revise-chapter 1 --path ./rain-station --provider mock --from-audit
-novel revise-chapter 1 --path ./rain-station --provider mock --target draft --instruction "压缩解释性文字"
+novel revise-chapter 1 --path ./rain-station --provider config --instruction "加强悬疑感，但不要改变结尾事件"
+novel revise-chapter 1 --path ./rain-station --provider config --from-audit
+novel revise-chapter 1 --path ./rain-station --provider config --target draft --instruction "压缩解释性文字"
 ```
 
 修订默认保存为版本文件，例如 `polished.v2.md` 或 `draft.v2.md`，并更新 `revision_log.json`。
@@ -346,10 +357,10 @@ novel revise-chapter 1 --path ./rain-station --provider mock --target draft --in
 `timeline.json` 使用双轨时间线：`narrative_position` 记录事件在正文中的呈现章节/场景，`story_position` 记录故事世界内的真实时间。倒序、插叙、回忆和多线叙事应保持 narrative 顺序递增；只有明确填写了同一故事线的 `story_position.order` 时，工具才会把 causes/effects 的先后关系作为硬冲突检查。
 
 ```bash
-novel propose-state-update 1 --path ./rain-station --provider mock
+novel propose-state-update 1 --path ./rain-station --provider config
 novel apply-state-update 1 --path ./rain-station
 novel accept-chapter 1 --path ./rain-station
-novel accept-chapter 1 --path ./rain-station --propose --provider mock
+novel accept-chapter 1 --path ./rain-station --propose --provider config
 ```
 
 proposal 文件会保存为 `memory/chapters/{chapter_number}/state_update_proposal.json`。
@@ -361,14 +372,14 @@ proposal 文件会保存为 `memory/chapters/{chapter_number}/state_update_propo
 ## 一键生成章节流水线
 
 ```bash
-novel generate-chapter 1 --path ./rain-station --provider mock
-novel generate-chapter 1 --path ./rain-station --provider mock --target-words 3000
-novel generate-chapter 1 --path ./rain-station --provider mock --stop-after plan
-novel generate-chapter 1 --path ./rain-station --provider mock --stop-after write
-novel generate-chapter 1 --path ./rain-station --provider mock --skip-polish
-novel generate-chapter 1 --path ./rain-station --provider mock --skip-audit
-novel generate-chapter 1 --path ./rain-station --provider mock --resume
-novel generate-chapter 1 --path ./rain-station --provider mock --force
+novel generate-chapter 1 --path ./rain-station --provider config
+novel generate-chapter 1 --path ./rain-station --provider config --target-words 3000
+novel generate-chapter 1 --path ./rain-station --provider config --stop-after plan
+novel generate-chapter 1 --path ./rain-station --provider config --stop-after write
+novel generate-chapter 1 --path ./rain-station --provider config --skip-polish
+novel generate-chapter 1 --path ./rain-station --provider config --skip-audit
+novel generate-chapter 1 --path ./rain-station --provider config --resume
+novel generate-chapter 1 --path ./rain-station --provider config --force
 ```
 
 每次运行都会写入 `runs/run_*.json`。如果某一步失败，run log 会记录失败状态和错误信息。
@@ -441,10 +452,10 @@ providers:
 规划、写作、审核可以选择加入检索上下文：
 
 ```bash
-novel plan-chapter 1 --path ./rain-station --provider mock --use-search-context
-novel write-chapter 1 --path ./rain-station --provider mock --use-search-context
-novel audit-chapter 1 --path ./rain-station --provider mock --use-search-context
-novel write-chapter 1 --path ./rain-station --provider mock --use-search-context --use-vector-context
+novel plan-chapter 1 --path ./rain-station --provider config --use-search-context
+novel write-chapter 1 --path ./rain-station --provider config --use-search-context
+novel audit-chapter 1 --path ./rain-station --provider config --use-search-context
+novel write-chapter 1 --path ./rain-station --provider config --use-search-context --use-vector-context
 ```
 
 `--use-search-context` 默认只使用结构化实体扩展 + FTS 补充。只有同时传入 `--use-vector-context`，并且已经用真实 embedding provider 建好向量索引时，才会加入语义向量召回。
@@ -452,11 +463,11 @@ novel write-chapter 1 --path ./rain-station --provider mock --use-search-context
 ## 受控编排
 
 ```bash
-novel ask "写第1章：雨夜旧车站，建立调查动机" --path ./rain-station --provider mock
+novel ask "写第1章：雨夜旧车站，建立调查动机" --path ./rain-station --provider config
 novel session show <session_id> --path ./rain-station
 novel session approve-outline <session_id> --path ./rain-station
-novel session run <session_id> --path ./rain-station --provider mock
-novel ask "请为第1章生成章节计划" --path ./rain-station --provider mock --dry-run
+novel session run <session_id> --path ./rain-station --provider config
+novel ask "请为第1章生成章节计划" --path ./rain-station --provider config --dry-run
 ```
 
 `novel ask` 是规则化 orchestrator，不做自由多 agent 辩论。非 dry-run 时，它会创建 Creation Session 和大纲 proposal；dry-run 仍只显示分类和 handoff 计划，不写文件。
@@ -563,7 +574,7 @@ Web API 统一返回：
 ```bash
 novel status --project ./rain-station --json --quiet
 novel doctor --project ./rain-station --json --quiet
-novel ask "请为第1章生成章节计划" --project ./rain-station --provider mock --json --quiet
+novel ask "请为第1章生成章节计划" --project ./rain-station --provider config --json --quiet
 ```
 
 更多说明见 [docs/INTEGRATION.md](docs/INTEGRATION.md) 和 [docs/openclaw_tool_manifest.json](docs/openclaw_tool_manifest.json)。

@@ -1,104 +1,69 @@
 schema_version: 2
+default:
+  provider: "deepseek"
+  base_url_env: "WRITERYANG_REAL_BASE_URL"
+  api_key_env: "WRITERYANG_REAL_API_KEY"
+  model: "your-model-name"
+  reasoning: "medium"
+  thinking:
+    type: "disabled"
+  max_context_tokens: 128000
+  max_tokens: 8192
+  temperature: 0.5
+  timeout_seconds: 60
+  max_retries: 1
 agents:
   orchestrator:
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "your-model-name"
     reasoning: "medium"
-    thinking:
-      type: "disabled"
     max_context_tokens: 128000
     max_tokens: 4096
     temperature: 0.4
     timeout_seconds: 60
     max_retries: 1
   inspiration:
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "your-model-name"
     reasoning: "medium"
-    thinking:
-      type: "disabled"
     max_context_tokens: 64000
     max_tokens: 4096
     temperature: 0.8
     timeout_seconds: 60
     max_retries: 1
   canon:
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "your-model-name"
     reasoning: "medium"
-    thinking:
-      type: "disabled"
     max_context_tokens: 64000
     max_tokens: 8192
     temperature: 0.5
     timeout_seconds: 60
     max_retries: 1
   plot:
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "your-model-name"
     reasoning: "high"
-    thinking:
-      type: "disabled"
     max_context_tokens: 128000
     max_tokens: 8192
     temperature: 0.6
     timeout_seconds: 90
     max_retries: 1
   writer:
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "your-model-name"
     reasoning: "high"
-    thinking:
-      type: "disabled"
     max_context_tokens: 128000
     max_tokens: 24000
     temperature: 0.9
     timeout_seconds: 120
     max_retries: 1
   polish:
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "your-model-name"
     reasoning: "medium"
-    thinking:
-      type: "disabled"
     max_context_tokens: 128000
     max_tokens: 24000
     temperature: 0.7
     timeout_seconds: 90
     max_retries: 1
   audit:
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "your-model-name"
     reasoning: "low"
-    thinking:
-      type: "disabled"
     max_context_tokens: 64000
     max_tokens: 8192
     temperature: 0.2
     timeout_seconds: 60
     max_retries: 1
   state_update:
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "your-model-name"
     reasoning: "low"
-    thinking:
-      type: "disabled"
     max_context_tokens: 64000
     max_tokens: 8192
     temperature: 0.2

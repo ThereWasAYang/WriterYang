@@ -1,6 +1,6 @@
 # 新手快速开始
 
-本教程用 `mock` provider 跑完整流程，不需要真实 API Key。目标是在 10 分钟内理解 WriterYang 的工作方式：所有中间结果都写入本地 Markdown / JSON / YAML 文件，作者可以随时检查和手动编辑。
+本教程用 `mock` provider 跑完整测试流程，不需要真实 API Key。`mock` 只适合离线熟悉工具和自动化测试；真实小说项目应先配置 `config/agents.yaml` 顶层 `default` API，再使用 `--provider config`。本教程的目标是在 10 分钟内理解 WriterYang 的工作方式：所有中间结果都写入本地 Markdown / JSON / YAML 文件，作者可以随时检查和手动编辑。
 
 ## 1. 创建独立环境并安装
 
@@ -25,7 +25,7 @@ novel init "青灯客栈" --path ./qingdeng-inn
 生成目录包括：
 
 - `project.yaml`：作品基本信息。
-- `config/agents.yaml`：各 agent 的模型配置，只保存环境变量名。
+- `config/agents.yaml`：各 agent 的模型配置，只保存环境变量名；真实项目必须配置顶层 `default` API。
 - `memory/inspiration.md`：灵感和弱总纲。
 - `memory/canon/*.json`：人物、地点、物品、世界规则、隐藏真相和伏笔。
 - `memory/state/*.json`：当前状态和时间线。

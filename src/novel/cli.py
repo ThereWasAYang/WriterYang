@@ -129,7 +129,7 @@ from novel.core.orchestrator import (
 )
 from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
 from novel.core.security import scan_security
-from novel.core.schemas import AuditReport, CreationSession, ProjectConfig
+from novel.core.schemas import AgentsConfig, AuditReport, CreationSession, ProjectConfig
 from novel.core.usage import UsageError, summarize_provider_usage
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
@@ -711,6 +711,7 @@ def run_doctor(root: Path) -> dict[str, object]:
         )
         for config_rel in ("config/agents.yaml", "config/embeddings.yaml"):
             checks.extend(_doctor_env_checks(root / config_rel))
+        checks.extend(_doctor_agent_config_checks(root / "config" / "agents.yaml"))
     else:
         _doctor_check(checks, "project", "warning", f"{root} does not look like a novel workspace")
 
@@ -770,6 +771,42 @@ def _doctor_env_checks(path: Path) -> list[dict[str, object]]:
             "ok" if os.environ.get(env_name) else "warning",
             "set" if os.environ.get(env_name) else "not set",
         )
+    return checks
+
+
+def _doctor_agent_config_checks(path: Path) -> list[dict[str, object]]:
+    checks: list[dict[str, object]] = []
+    if not path.exists():
+        return checks
+    try:
+        config = load_yaml_model(path, AgentsConfig)
+    except Exception as exc:
+        _doctor_check(checks, "agent-config", "error", f"could not read config/agents.yaml: {exc}")
+        return checks
+    if config.default is None:
+        _doctor_check(
+            checks,
+            "agent-config:default",
+            "warning",
+            "default API config is missing; unconfigured agents cannot use provider config",
+        )
+    else:
+        status = "warning" if config.default.provider.lower() == "mock" else "ok"
+        message = (
+            "default provider uses mock; mock is intended for tests only"
+            if status == "warning"
+            else f"default provider is {config.default.provider}"
+        )
+        _doctor_check(checks, "agent-config:default", status, message)
+    for name, config_item in sorted(config.agents.items()):
+        provider = config_item.provider
+        if provider and provider.lower() == "mock":
+            _doctor_check(
+                checks,
+                f"agent-config:{name}",
+                "warning",
+                "agent uses mock provider; mock is intended for tests only",
+            )
     return checks
 
 

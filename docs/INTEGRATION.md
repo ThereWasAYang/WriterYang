@@ -17,6 +17,7 @@ novel status --project ./rain-station --json --quiet
 - 传入 `--json` 时，只解析 stdout 的 JSON。
 - 不要抓取人类可读文本。
 - 不要把真实 API Key 作为 CLI 参数传入；请使用 `config/agents.yaml` 中声明的环境变量名。
+- 真实项目应配置 `config/agents.yaml` 顶层 `default` API，并默认传 `--provider config`；`--provider mock` 只用于外部工具的离线测试。
 
 ## 稳定命令
 
@@ -32,31 +33,31 @@ novel doctor --project ./rain-station --json --quiet
 生成流程：
 
 ```bash
-novel inspire "雨夜旧车站里传来广播声" --project ./rain-station --provider mock --json --quiet --overwrite
-novel canon suggest --project ./rain-station --provider mock --json --quiet --output canon-proposal.json
+novel inspire "雨夜旧车站里传来广播声" --project ./rain-station --provider config --json --quiet --overwrite
+novel canon suggest --project ./rain-station --provider config --json --quiet --output canon-proposal.json
 novel canon apply canon-proposal.json --project ./rain-station --json --quiet
 novel canon show --project ./rain-station --json --quiet
-novel plan-chapter 1 --project ./rain-station --provider mock --json --quiet
-novel write-chapter 1 --project ./rain-station --provider mock --json --quiet
-novel polish-chapter 1 --project ./rain-station --provider mock --json --quiet
-novel audit-chapter 1 --project ./rain-station --provider mock --json --quiet
-novel generate-chapter 1 --project ./rain-station --provider mock --json --quiet
+novel plan-chapter 1 --project ./rain-station --provider config --json --quiet
+novel write-chapter 1 --project ./rain-station --provider config --json --quiet
+novel polish-chapter 1 --project ./rain-station --provider config --json --quiet
+novel audit-chapter 1 --project ./rain-station --provider config --json --quiet
+novel generate-chapter 1 --project ./rain-station --provider config --json --quiet
 ```
 
 状态、导出和编排：
 
 ```bash
-novel propose-state-update 1 --project ./rain-station --provider mock --json --quiet
+novel propose-state-update 1 --project ./rain-station --provider config --json --quiet
 novel apply-state-update 1 --project ./rain-station --json --quiet
 novel accept-chapter 1 --project ./rain-station --json --quiet
 novel export markdown --project ./rain-station --include-unaccepted --json --quiet
 novel export docx --project ./rain-station --include-unaccepted --json --quiet
-novel ask "请为第1章生成章节计划" --project ./rain-station --provider mock --json --quiet
+novel ask "请为第1章生成章节计划" --project ./rain-station --provider config --json --quiet
 novel ask "第2章 event_x 其实是回忆，不是当前行动" --project ./rain-station --json --quiet
 novel ask "确认应用 repair_20260530_010101_000001" --project ./rain-station --json --quiet
-novel session revise-audit <session_id> <event_id> --project ./rain-station --provider mock --instruction "这是回忆段落" --json --quiet
-novel session retry-rewrite <session_id> <event_id> --project ./rain-station --provider mock --json --quiet
-novel session undo-rewrite <session_id> <event_id> --project ./rain-station --provider mock --json --quiet
+novel session revise-audit <session_id> <event_id> --project ./rain-station --provider config --instruction "这是回忆段落" --json --quiet
+novel session retry-rewrite <session_id> <event_id> --project ./rain-station --provider config --json --quiet
+novel session undo-rewrite <session_id> <event_id> --project ./rain-station --provider config --json --quiet
 ```
 
 ## JSON 输出格式
@@ -183,7 +184,7 @@ Shell 示例：
 
 ```bash
 novel status --project ./rain-station --json --quiet
-novel ask "请审核第1章一致性" --project ./rain-station --provider mock --json --quiet
+novel ask "请审核第1章一致性" --project ./rain-station --provider config --json --quiet
 ```
 
 ## 轻量 Tool Manifest

@@ -717,3 +717,9 @@ pytest -m real_api
 ### 是否已经是完整 MCP server？
 
 不是。当前提供稳定 CLI contract 和轻量 tool manifest，完整 MCP server 留到后续版本。
+
+## License
+
+Copyright 2026 WriterYang.
+
+本项目基于 [Apache License 2.0](LICENSE) 开源。该协议适用于整个仓库，包括代码、文档、schemas、skills 和示例项目。

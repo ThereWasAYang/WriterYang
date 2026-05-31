@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import novel
@@ -232,6 +233,15 @@ def test_package_console_script_entry_point_is_declared() -> None:
 
 def test_packaging_metadata_version_matches_package() -> None:
     assert metadata.version("writeryang") == novel.__version__
+
+
+def test_project_license_metadata_is_declared() -> None:
+    license_path = Path("LICENSE")
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert license_path.exists()
+    assert pyproject["project"]["license"] == "Apache-2.0"
+    assert pyproject["project"]["license-files"] == ["LICENSE"]
 
 
 def _run_cli(args: list[str]) -> tuple[int, str, str]:

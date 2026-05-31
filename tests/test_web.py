@@ -429,6 +429,22 @@ def test_api_provider_config_save_updates_default_config(tmp_path: Path) -> None
     assert content["default"]["model"] == "web-default-model"  # type: ignore[index]
 
 
+def test_api_provider_config_save_can_add_known_agent_override(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "agents": {"revision": {"model": "web-revision-model"}}}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    content = payload["data"]["config"]["content"]  # type: ignore[index]
+    assert content["agents"]["revision"]["model"] == "web-revision-model"  # type: ignore[index]
+
+
 def test_api_provider_config_rejects_raw_api_key_without_leaking(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     secret = "sk-test-secret-never-return"
@@ -680,8 +696,12 @@ def test_frontend_basic_render() -> None:
 
     assert 'id="projectPath"' in html
     assert 'id="runtimePanel"' in html
+    assert "runtime-panel" in html
     assert 'id="instruction"' in html
     assert 'id="fileTree"' in html
+    assert 'id="projectFiles"' in html
+    assert 'id="projectFileCurrent"' in html
+    assert 'id="projectFileViewer"' in html
     assert 'id="chapterList"' in html
     assert 'id="compareGrid"' in html
     assert 'id="chapterEditor"' in html
@@ -690,6 +710,17 @@ def test_frontend_basic_render() -> None:
     assert 'id="auditIssueList"' in html
     assert 'id="runLogs"' in html
     assert 'id="providerConfig"' in html
+    assert "Agent 模型配置" in html
+    assert 'id="providerProviderField"' in html
+    assert 'id="providerModelField"' in html
+    assert 'id="providerBaseUrlEnvField"' in html
+    assert 'id="providerApiKeyEnvField"' in html
+    assert 'id="providerThinkingTypeField"' in html
+    assert 'id="providerTemperatureField"' in html
+    assert 'id="providerMaxTokensField"' in html
+    assert 'id="providerMaxContextTokensField"' in html
+    assert 'id="providerTimeoutSecondsField"' in html
+    assert 'id="providerMaxRetriesField"' in html
     assert 'id="providerFieldEditor"' in html
     assert 'id="providerConfigWarnings"' in html
     assert '<option value="config">config</option>' in html

@@ -49,9 +49,9 @@ http://127.0.0.1:8765
 
 真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和调用参数。初始引导完成后，这组 API 会作为所有未单独配置 Agent 的缺省配置。
 
-以后如果你想单独调整某个 Agent，可以打开“Provider 配置”页，修改非密钥字段，例如 `provider`、`model`、`thinking.type`、`temperature`、`max_tokens`、`timeout_seconds`、`max_retries`。不要把真实 API Key 写进配置页。
+以后如果你想单独调整某个 Agent，可以打开右侧“Agent 模型配置”页，修改非密钥字段，例如 `provider`、`model`、`thinking.type`、`temperature`、`max_tokens`、`timeout_seconds`、`max_retries`。不要把真实 API Key 写进配置页。
 
-![Provider 配置页](assets/web-ui-guide/provider_config.png)
+![Agent 模型配置页](assets/web-ui-guide/provider_config.png)
 
 ## Provider 选项
 
@@ -110,11 +110,11 @@ Web UI 左侧还有“检索索引”状态。关键词检索是默认可用能�
 | 根据新审核重新打回 | 基于复审后的 audit 重新修订。 | 复审仍有合理阻断问题时使用。 |
 | 撤回本次打回 | 恢复被打回原文快照。 | 当你认为自动重写方向错误时使用。 |
 | Session 面板 / 下一步提示 / 自动打回重写记录 / 被打回原文 | 展示 Session 状态、推荐操作和打回证据。 | 遇到 `needs_revision` 时先看这些区域，不要重复创建新 Session 覆盖产物。 |
-| 项目文件树 | 浏览工作区文件。 | 点击文件后右侧“文件查看”显示内容。 |
+| 项目文件 | 浏览工作区文件。 | 在右侧“项目文件”页查看；点击文件名后，内容会显示在“文件预览”里。“读取”只是把文件内容加载到 Web UI，不会修改文件。 |
 
 ### 右侧查看和编辑区
 
-右侧主要负责“看结果和检查问题”：项目状态、章节文件、审核定位、运行日志、Provider 配置和状态 / 时间线都会在这里查看。
+右侧主要负责“看结果和检查问题”：项目状态、章节文件、项目文件、审核定位、运行日志、Agent 模型配置和状态 / 时间线都会在这里查看。
 
 ![章节对照视图](assets/web-ui-guide/chapter_compare.png)
 
@@ -124,12 +124,12 @@ Web UI 左侧还有“检索索引”状态。关键词检索是默认可用能�
 | Canon 摘要 | 快速查看当前设定数量和摘要。 | 用于确认设定是否已应用。 |
 | 章节列表 | 查看每章文件和审核状态。 | 点击“选择”会切换左侧章节号并加载对照视图。 |
 | 章节对照 | 同时显示 `plan.json`、`draft.md`、`polished.md`、`audit.json`。 | 点“加载对照”；适合检查一次章节流程是否完整。 |
-| 文件查看 | 读取单个章节文件或文件树选择的文件。 | 可选择 plan/draft/polished/audit，也可点击文件树。 |
+| 文件查看 | 读取单个章节文件。 | 可选择 plan/draft/polished/audit；项目任意白名单文件请到“项目文件”页查看。 |
 | Revision Diff | 查看两个版本文件的 unified diff。 | 填入两个相对路径后点“查看 Diff”。 |
 | 章节编辑器 | 可保存编辑 `draft.md` 或 `polished.md`。 | 加载后编辑，点“保存新版本”；会写 `draft.v2.md` / `polished.v2.md`，不覆盖原稿。 |
 | Audit 定位 | 把 audit issue 的 evidence quote 定位到正文。 | 选择 draft 或 polished，点“加载定位”，点击 issue 跳转到匹配位置。 |
 | 运行日志 | 查看 run log、provider calls、model I/O 摘要。 | 排查真实 API 或 Agent 输出问题时使用。 |
-| Provider 配置 | 查看和编辑非密钥模型配置。 | 只编辑 provider、model、temperature、thinking 等字段；不会显示或保存真实 API Key。 |
+| Agent 模型配置 | 查看和编辑各 Agent 的非密钥模型配置。 | 用表单修改 provider、model、temperature、thinking、max_tokens 等字段；高级 JSON 折叠区可编辑少见字段；不会显示或保存真实 API Key。 |
 | 状态 / 时间线 | 查看角色、物品、地点状态和 timeline。 | 用于检查状态流转、物品持有人、地点变化和时间线事件。 |
 
 ## 输入灵感

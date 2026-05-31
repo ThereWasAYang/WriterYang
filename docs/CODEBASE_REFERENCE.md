@@ -158,14 +158,15 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 - 项目路径输入。
 - 状态面板。
-- 文件树。
-- 章节对照、编辑器、audit 定位、运行日志、provider 配置、状态/时间线 tabs。
+- 右侧“项目文件”tab 内的安全文件树和只读文件预览；左侧不常驻文件树，避免挤占主操作区。
+- 章节对照、编辑器、audit 定位、运行日志、Agent 模型配置、状态/时间线 tabs。
 - 初始化、inspiration、canon suggest/apply、生成/写作/润色/审核/export/session API 调用。
 - 项目初始引导面板支持保存默认 API、可选 embedding API、推荐并保存 Web 端口，以及打开当前 Web UI 地址。
 - 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入文件查看区和下一步提示。
 - Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、按 Audit/用户意见修订、认可和归档。
 - 项目管家面板支持生成 memory repair proposal、确认 apply，并显示后台管理动态。
 - 检索索引面板显示 FTS / embedding 状态，支持本地刷新关键词索引，也支持显式刷新真实 embedding 向量索引。
+- Agent 模型配置页用表单编辑 `provider`、`model`、`thinking.type`、`temperature`、`max_tokens` 等非密钥字段，并保留高级 JSON 折叠区；真实 API Key 仍只通过 `.env` / 初始引导管理。
 - 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
 - `renderNextStep()`：根据项目状态、validation 结果和 session 状态显示下一步操作建议。
 

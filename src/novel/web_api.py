@@ -71,6 +71,17 @@ EXCLUDED_FILENAMES = {
     "search_index.sqlite",
     ".DS_Store",
 }
+EDITABLE_AGENT_NAMES = {
+    "orchestrator",
+    "inspiration",
+    "canon",
+    "plot",
+    "writer",
+    "polish",
+    "audit",
+    "state_update",
+    "revision",
+}
 
 
 class WebErrorPayload(BaseModel):
@@ -511,7 +522,9 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         if not isinstance(agent_name, str) or not isinstance(patch, dict):
             raise WebAPIError("invalid_request", "agent updates must be mappings", status=400)
         if agent_name not in agents or not isinstance(agents[agent_name], dict):
-            raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
+            if agent_name not in EDITABLE_AGENT_NAMES:
+                raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
+            agents[agent_name] = {}
         cleaned = _clean_agent_config_patch(patch)
         agents[agent_name] = {**agents[agent_name], **cleaned}
     updated["agents"] = agents

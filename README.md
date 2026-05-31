@@ -267,7 +267,7 @@ agents:
       type: "disabled"
 ```
 
-支持的 agent 名称包括 `orchestrator`、`inspiration`、`canon`、`plot`、`writer`、`polish`、`audit`、`state_update`。
+支持的 agent 名称包括 `orchestrator`、`inspiration`、`canon`、`plot`、`writer`、`polish`、`audit`、`state_update`、`revision`。
 
 `provider` 字段当前支持以下值：
 
@@ -279,7 +279,7 @@ agents:
 | `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
 | `mock` | 测试 / 调试 | 不调用真实 API，仅用于自动化测试、离线 smoke 和文档演示。真实创作不要把它作为 default。 |
 
-解析顺序是：显式 `--provider mock` 测试覆盖 > 当前 Agent 覆盖字段合并 `default` > fallback Agent 覆盖字段合并 `default` > 仅使用 `default`。如果没有 `default` 且目标 Agent 也没有完整配置，运行时会报错；`novel validate`、`novel doctor` 和 Web UI Provider 配置页会提前给出告警。
+解析顺序是：显式 `--provider mock` 测试覆盖 > 当前 Agent 覆盖字段合并 `default` > fallback Agent 覆盖字段合并 `default` > 仅使用 `default`。如果没有 `default` 且目标 Agent 也没有完整配置，运行时会报错；`novel validate`、`novel doctor` 和 Web UI 的“Agent 模型配置”页会提前给出告警。
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
 
@@ -587,13 +587,13 @@ web:
 - 项目初始引导：初始化后配置默认 API、可选 embedding API 和 Web UI 端口；真实 key 只写项目 `.env`，配置页只显示环境变量名和是否存在。
 - 项目检查：在 Web UI 中运行 validate，查看 errors / warnings 摘要，不必切换到命令行。
 - Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。Web UI 灵感默认走 Markdown 弱总纲，不为 Inspiration 强制开启 provider JSON mode；需要 `inspiration.json` 时可用 CLI 的 `--json` 或后续工具派生。
-- 项目文件树：只显示工作区内安全文件，排除 `.env*`、search index、备份和缓存。
+- 项目文件：右侧 tab 中显示安全文件树和只读预览；点击文件名后，内容显示在“项目文件”页的文件预览区，不会修改文件。文件树排除 `.env*`、search index、备份和缓存。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
 - 章节编辑器：可编辑 `draft.md` / `polished.md`，保存时默认创建 `draft.v2.md` / `polished.v2.md` 等版本文件，并记录 `revision_log.json`，不原地覆盖旧稿。
 - Audit 定位：读取 `audit.json` 的 evidence quote，定位到正文中的行列位置；找不到时显示无法定位。
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
-- Provider 配置：展示并允许编辑非密钥字段，例如 provider、model、temperature、thinking、timeout；只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
+- Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、temperature、thinking、timeout；高级 JSON 折叠区保留给少见字段。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
 - 自动打回重写记录：当 Audit 把正文打回重写时，显示第几章第几轮、打回原因、系统动作和“查看被打回原文”按钮；如果你认为打回不合理，应检查对应 `audit.json`、`memory/state/timeline.json`、`current_state.json` 和 canon 文件。

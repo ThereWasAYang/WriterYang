@@ -130,7 +130,7 @@ def test_user_docs_exist_and_mention_core_workflow() -> None:
             "使用 embedding 语义检索",
             "刷新关键词索引",
             "刷新语义向量索引",
-            "Provider 配置",
+            "Agent 模型配置",
             "状态 / 时间线",
             "Rewrite Event ID",
             "后台管理动态",

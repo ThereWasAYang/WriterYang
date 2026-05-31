@@ -15,6 +15,7 @@ from novel.core.provider_config import (
     resolve_agent_config,
 )
 from novel.core.providers import LoggingModelProvider, MissingProviderEnvError, MockProvider, ProviderFactory
+from novel.core.revision import load_revision_provider
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -27,6 +28,7 @@ AGENTS = (
     "polish",
     "audit",
     "state_update",
+    "revision",
 )
 
 
@@ -104,6 +106,53 @@ def test_fallback_agent_merges_with_default_config(tmp_path: Path) -> None:
     assert config.provider == "deepseek"
     assert config.temperature == 0.9
     assert config.max_tokens == 24000
+
+
+def test_load_revision_provider_prefers_revision_agent_config(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "config" / "agents.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "revision": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "revision-model"},
+                    "polish": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "polish-model"},
+                }
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    provider = load_revision_provider(root, "config", target="polished")
+
+    assert isinstance(provider, LoggingModelProvider)
+    assert provider.agent_name == "revision"
+    assert provider.model == "revision-model"
+
+
+def test_load_revision_provider_falls_back_to_target_agent_config(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "config" / "agents.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "polish": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "polish-model"},
+                }
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    provider = load_revision_provider(root, "config", target="polished")
+
+    assert isinstance(provider, LoggingModelProvider)
+    assert provider.agent_name == "revision"
+    assert provider.model == "polish-model"
 
 
 def test_incomplete_agent_without_default_has_clear_error(tmp_path: Path) -> None:

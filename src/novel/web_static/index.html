@@ -41,6 +41,8 @@
     .status-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .metric { border: 1px solid #e4e8ed; border-radius: 6px; padding: 10px; background: #fbfcfd; }
     .metric b { display: block; font-size: 18px; overflow-wrap: anywhere; }
+    .runtime-panel, .runtime-panel * { overflow-wrap: anywhere; word-break: break-word; }
+    .runtime-panel { font-size: 12px; line-height: 1.45; }
     table { width: 100%; border-collapse: collapse; }
     th, td { border-bottom: 1px solid #e4e8ed; padding: 8px; text-align: left; vertical-align: top; }
     th { font-size: 12px; color: #5b6673; }
@@ -59,6 +61,8 @@
     .badge { display: inline-block; border: 1px solid #d7dde5; border-radius: 999px; padding: 2px 7px; font-size: 12px; background: #fbfcfd; }
     .timeline-lane { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; }
     .timeline-card { min-width: 220px; border: 1px solid #e4e8ed; border-radius: 6px; padding: 8px; background: #fbfcfd; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+    .form-grid label { margin-top: 0; }
     .status-ok { color: #067647; }
     .status-warn { color: #b54708; }
     .status-bad { color: #b42318; }
@@ -69,7 +73,7 @@
   <main>
     <aside>
       <h1>WriterYang</h1>
-      <div id="runtimePanel" class="metric status-warn" style="margin-bottom: 12px;">运行环境：检测中</div>
+      <div id="runtimePanel" class="metric runtime-panel status-warn" style="margin-bottom: 12px;">运行环境：检测中</div>
       <label for="projectPath">项目路径</label>
       <input id="projectPath" placeholder="/path/to/novel-workspace">
       <div class="row" style="margin-top: 8px;">
@@ -202,9 +206,6 @@
       <div id="rewriteEventsPanel" class="metric" style="margin-top: 10px;">自动打回重写记录：暂无</div>
       <textarea id="rejectedTextViewer" class="editor" readonly placeholder="点击“查看被打回原文”后显示快照"></textarea>
       <div id="message" class="message"></div>
-
-      <h2>项目文件树</h2>
-      <div id="fileTree" class="file-tree">未加载</div>
     </aside>
 
     <section>
@@ -227,11 +228,32 @@
       <div class="panel">
         <div class="row">
           <button class="tab active" data-tab="chapterCompare">章节对照</button>
+          <button class="tab" data-tab="projectFiles">项目文件</button>
           <button class="tab" data-tab="chapterEditor">章节编辑器</button>
           <button class="tab" data-tab="auditLocate">Audit 定位</button>
           <button class="tab" data-tab="runLogs">运行日志</button>
-          <button class="tab" data-tab="providerConfig">Provider 配置</button>
+          <button class="tab" data-tab="providerConfig">Agent 模型配置</button>
           <button class="tab" data-tab="stateTimeline">状态 / 时间线</button>
+        </div>
+      </div>
+
+      <div id="projectFiles" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row">
+            <h2 style="margin: 0;">项目文件</h2>
+            <button id="refreshProjectFiles">刷新文件树</button>
+          </div>
+          <div class="grid" style="margin-top: 10px;">
+            <div>
+              <h3>项目文件树</h3>
+              <div id="fileTree" class="file-tree">未加载</div>
+            </div>
+            <div>
+              <h3>文件预览</h3>
+              <div id="projectFileCurrent" class="badge">当前文件：未读取</div>
+              <pre id="projectFileViewer" class="chapter-pre" style="margin-top: 8px;">点击文件树中的文件名后在这里预览。读取只是把文件内容加载到 Web UI，不会修改文件。</pre>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -326,15 +348,75 @@
 
       <div id="providerConfig" class="tabPanel hidden">
         <div class="panel">
-          <div class="row"><h2 style="margin: 0;">Provider 配置</h2><button id="loadProviderConfig">刷新配置</button></div>
+          <div class="row"><h2 style="margin: 0;">Agent 模型配置</h2><button id="loadProviderConfig">刷新配置</button></div>
           <div id="providerConfigWarnings" class="muted" style="margin-top: 8px;"></div>
           <div class="grid" style="margin-top: 10px;">
             <div>
               <label for="providerAgentSelect">Agent</label>
               <select id="providerAgentSelect"></select>
-              <label for="providerFieldEditor">非密钥配置 JSON</label>
-              <textarea id="providerFieldEditor" class="editor" style="min-height: 260px;"></textarea>
-              <button id="saveProviderConfig" class="primary" style="margin-top: 8px;">保存 Provider 配置</button>
+              <div class="form-grid" style="margin-top: 10px;">
+                <div>
+                  <label for="providerProviderField">provider</label>
+                  <select id="providerProviderField">
+                    <option value="">继承 / 不设置</option>
+                    <option value="openai">openai</option>
+                    <option value="openai_compatible">openai_compatible</option>
+                    <option value="deepseek">deepseek</option>
+                    <option value="zai">zai</option>
+                    <option value="mock">mock（仅测试）</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="providerModelField">model</label>
+                  <input id="providerModelField" placeholder="模型名">
+                </div>
+                <div>
+                  <label for="providerBaseUrlEnvField">base_url_env</label>
+                  <input id="providerBaseUrlEnvField" placeholder="BASE_URL 环境变量名">
+                </div>
+                <div>
+                  <label for="providerApiKeyEnvField">api_key_env</label>
+                  <input id="providerApiKeyEnvField" placeholder="API_KEY 环境变量名">
+                </div>
+                <div>
+                  <label for="providerThinkingTypeField">thinking.type</label>
+                  <select id="providerThinkingTypeField">
+                    <option value="">继承 / 不设置</option>
+                    <option value="disabled">disabled</option>
+                    <option value="enabled">enabled</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="providerReasoningField">reasoning</label>
+                  <input id="providerReasoningField" placeholder="none/minimal/low/medium/high">
+                </div>
+                <div>
+                  <label for="providerTemperatureField">temperature</label>
+                  <input id="providerTemperatureField" type="number" min="0" step="0.01" placeholder="0.7">
+                </div>
+                <div>
+                  <label for="providerMaxTokensField">max_tokens</label>
+                  <input id="providerMaxTokensField" type="number" min="1" step="1" placeholder="8192">
+                </div>
+                <div>
+                  <label for="providerMaxContextTokensField">max_context_tokens</label>
+                  <input id="providerMaxContextTokensField" type="number" min="1" step="1" placeholder="64000">
+                </div>
+                <div>
+                  <label for="providerTimeoutSecondsField">timeout_seconds</label>
+                  <input id="providerTimeoutSecondsField" type="number" min="1" step="1" placeholder="60">
+                </div>
+                <div>
+                  <label for="providerMaxRetriesField">max_retries</label>
+                  <input id="providerMaxRetriesField" type="number" min="0" step="1" placeholder="1">
+                </div>
+              </div>
+              <details style="margin-top: 12px;">
+                <summary>高级 JSON 编辑</summary>
+                <label for="providerFieldEditor">非密钥配置 JSON</label>
+                <textarea id="providerFieldEditor" class="editor" style="min-height: 180px;"></textarea>
+              </details>
+              <button id="saveProviderConfig" class="primary" style="margin-top: 8px;">保存 Agent 模型配置</button>
             </div>
             <div>
               <h3>脱敏配置</h3>
@@ -356,6 +438,16 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const chapterFileTypes = ["plan", "draft", "polished", "audit"];
+    const providerAgentNames = [
+      "orchestrator", "inspiration", "canon", "plot", "writer",
+      "polish", "audit", "state_update", "revision",
+    ];
+    const providerFormFieldIds = [
+      "providerProviderField", "providerModelField", "providerBaseUrlEnvField",
+      "providerApiKeyEnvField", "providerThinkingTypeField", "providerReasoningField",
+      "providerTemperatureField", "providerMaxTokensField", "providerMaxContextTokensField",
+      "providerTimeoutSecondsField", "providerMaxRetriesField",
+    ];
     let editorLoadedContent = "";
     let editorSourceFile = "";
     let providerConfigCache = null;
@@ -406,7 +498,7 @@
 
     function renderRuntime(runtime) {
       const ok = Boolean(runtime.managed_install);
-      $("runtimePanel").className = `metric ${ok ? "status-ok" : "status-warn"}`;
+      $("runtimePanel").className = `metric runtime-panel ${ok ? "status-ok" : "status-warn"}`;
       $("runtimePanel").innerHTML = `
         <b>运行环境：${escapeHtml(runtime.environment || "未知")}</b>
         <div>版本：${escapeHtml(runtime.version || "")}</div>
@@ -564,8 +656,10 @@
     async function readWorkspaceFile(relPath) {
       try {
         const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
-        $("fileViewer").textContent = data.content || "";
-        setMessage(`已读取 ${data.path}`);
+        showTab("projectFiles");
+        $("projectFileCurrent").textContent = `当前文件：${data.path || relPath}`;
+        $("projectFileViewer").textContent = data.content || "";
+        setMessage(`已读取 ${data.path}，内容显示在右侧“项目文件”页`);
       } catch (error) {
         setMessage(error.message, true);
       }
@@ -980,10 +1074,11 @@
 
     function renderProviderEditor(config) {
       const agents = config?.agents || {};
-      const names = ["default", ...Object.keys(agents)];
+      const names = ["default", ...Array.from(new Set([...providerAgentNames, ...Object.keys(agents)]))];
+      const previousName = $("providerAgentSelect").value;
       $("providerAgentSelect").innerHTML = names.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join("");
       if (names.length) {
-        $("providerAgentSelect").value = $("providerAgentSelect").value || names[0];
+        $("providerAgentSelect").value = names.includes(previousName) ? previousName : names[0];
         renderProviderAgentFields();
       } else {
         $("providerFieldEditor").value = "";
@@ -993,20 +1088,89 @@
     function renderProviderAgentFields() {
       const name = $("providerAgentSelect").value;
       const agent = name === "default" ? providerConfigCache?.default || {} : providerConfigCache?.agents?.[name] || {};
+      $("providerProviderField").value = agent.provider || "";
+      $("providerModelField").value = agent.model || "";
+      $("providerBaseUrlEnvField").value = agent.base_url_env || "";
+      $("providerApiKeyEnvField").value = agent.api_key_env || "";
+      $("providerThinkingTypeField").value = agent.thinking?.type || "";
+      $("providerReasoningField").value = agent.reasoning || "";
+      $("providerTemperatureField").value = agent.temperature ?? "";
+      $("providerMaxTokensField").value = agent.max_tokens ?? "";
+      $("providerMaxContextTokensField").value = agent.max_context_tokens ?? "";
+      $("providerTimeoutSecondsField").value = agent.timeout_seconds ?? "";
+      $("providerMaxRetriesField").value = agent.max_retries ?? "";
+      $("providerFieldEditor").value = JSON.stringify(providerEditablePatch(agent), null, 2);
+    }
+
+    function providerEditablePatch(agent) {
       const editable = {};
       [
-        "provider", "model", "base_url_env", "api_key_env", "reasoning", "thinking",
+        "provider", "model", "base_url_env", "api_key_env", "reasoning",
         "max_context_tokens", "max_tokens", "temperature", "timeout_seconds", "max_retries",
       ].forEach((key) => {
         if (Object.prototype.hasOwnProperty.call(agent, key)) editable[key] = agent[key];
       });
-      $("providerFieldEditor").value = JSON.stringify(editable, null, 2);
+      if (agent.thinking?.type) editable.thinking = { type: agent.thinking.type };
+      return editable;
+    }
+
+    function buildProviderPatchFromForm() {
+      const patch = {};
+      [
+        ["provider", "providerProviderField"],
+        ["model", "providerModelField"],
+        ["base_url_env", "providerBaseUrlEnvField"],
+        ["api_key_env", "providerApiKeyEnvField"],
+        ["reasoning", "providerReasoningField"],
+      ].forEach(([key, id]) => {
+        const value = $(id).value.trim();
+        if (value) patch[key] = value;
+      });
+      const thinkingType = $("providerThinkingTypeField").value.trim();
+      if (thinkingType) patch.thinking = { type: thinkingType };
+      [
+        ["temperature", "providerTemperatureField"],
+        ["max_tokens", "providerMaxTokensField"],
+        ["max_context_tokens", "providerMaxContextTokensField"],
+        ["timeout_seconds", "providerTimeoutSecondsField"],
+        ["max_retries", "providerMaxRetriesField"],
+      ].forEach(([key, id]) => {
+        const raw = $(id).value.trim();
+        if (!raw) return;
+        const value = Number(raw);
+        if (Number.isNaN(value)) throw new Error(`${key} 必须是数字`);
+        patch[key] = key === "temperature" || key === "timeout_seconds" ? value : Math.trunc(value);
+      });
+      return patch;
+    }
+
+    function providerPatchFromEditorAndForm() {
+      const raw = $("providerFieldEditor").value.trim();
+      let advanced = {};
+      if (raw) {
+        advanced = JSON.parse(raw);
+        if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) {
+          throw new Error("高级 JSON 必须是对象");
+        }
+      }
+      return { ...advanced, ...buildProviderPatchFromForm() };
+    }
+
+    function syncProviderFormToAdvancedJson() {
+      try {
+        const raw = $("providerFieldEditor").value.trim();
+        const advanced = raw ? JSON.parse(raw) : {};
+        if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) return;
+        $("providerFieldEditor").value = JSON.stringify({ ...advanced, ...buildProviderPatchFromForm() }, null, 2);
+      } catch {
+        // Keep the user's JSON untouched until save surfaces the parse error.
+      }
     }
 
     async function saveProviderConfig() {
       try {
         const agentName = $("providerAgentSelect").value;
-        const patch = JSON.parse($("providerFieldEditor").value || "{}");
+        const patch = providerPatchFromEditorAndForm();
         const payload = {
           path: projectPath(),
           agents: {},
@@ -1019,7 +1183,7 @@
         const data = await apiPost("/api/provider-config", payload);
         $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
         await loadProviderConfig();
-        setMessage("Provider 配置已保存并备份");
+        setMessage("Agent 模型配置已保存并备份");
       } catch (error) {
         setMessage(error.message, true);
       }
@@ -1319,6 +1483,7 @@
 
     $("openProject").addEventListener("click", openProject);
     $("refreshProject").addEventListener("click", refreshAll);
+    $("refreshProjectFiles").addEventListener("click", refreshAll);
     $("validateProject").addEventListener("click", validateProject);
     $("toggleProjectInit").addEventListener("click", toggleProjectInit);
     $("initProject").addEventListener("click", initProject);
@@ -1365,6 +1530,10 @@
     $("loadRuns").addEventListener("click", loadRuns);
     $("loadProviderConfig").addEventListener("click", loadProviderConfig);
     $("providerAgentSelect").addEventListener("change", renderProviderAgentFields);
+    providerFormFieldIds.forEach((id) => {
+      $(id).addEventListener("input", syncProviderFormToAdvancedJson);
+      $(id).addEventListener("change", syncProviderFormToAdvancedJson);
+    });
     $("saveProviderConfig").addEventListener("click", saveProviderConfig);
     $("loadStateTimeline").addEventListener("click", loadStateTimeline);
     $("loadDiff").addEventListener("click", loadDiff);

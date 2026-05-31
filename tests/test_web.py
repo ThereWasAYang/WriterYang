@@ -873,6 +873,8 @@ def test_frontend_basic_render() -> None:
     assert 'id="memoryRepairProposalPath"' in html
     assert 'id="managementEventsPanel"' in html
     assert 'id="embeddingConfigPanel"' in html
+    assert 'id="embeddingConfigSummary"' in html
+    assert 'id="embeddingConfigForm"' in html
     assert 'id="configEmbeddingBaseUrl"' in html
     assert 'id="configEmbeddingApiKey"' in html
     assert 'id="configEmbeddingModel"' in html
@@ -930,7 +932,12 @@ def test_frontend_basic_render() -> None:
     assert "resizeTextareaToContent" not in app_js
     assert "saveEmbeddingConfig" in app_js
     assert 'hasResponseField(setup, "embedding_api")' in app_js
-    assert "renderEmbeddingConfigStatus" in app_js
+    assert "embeddingConfigEditing" in app_js
+    assert "renderEmbeddingConfigPanel" in app_js
+    assert "editEmbeddingConfig" in app_js
+    assert 'status === "backend_mismatch"' in app_js
+    assert "Embedding API 已配置" in app_js
+    assert "模型：" in app_js
     assert "configEmbeddingBaseUrl" in app_js
     assert '$("configEmbeddingBaseUrl").value = ""' in app_js
     assert '$("configEmbeddingModel").value = ""' in app_js

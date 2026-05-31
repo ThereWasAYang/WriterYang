@@ -429,13 +429,16 @@
           <div id="embeddingConfigPanel" class="panel">
             <h2 style="margin-top: 0;">Embedding API 配置</h2>
             <p class="page-note">重新测试并保存语义检索 API。API Key 只写入项目 `.env`，不会写入 YAML、日志或页面脱敏配置。</p>
-            <label for="configEmbeddingBaseUrl">Embedding Base URL</label>
-            <input id="configEmbeddingBaseUrl" placeholder="https://.../v1">
-            <label for="configEmbeddingApiKey">Embedding API Key</label>
-            <input id="configEmbeddingApiKey" type="password" placeholder="每次保存都需要重新输入">
-            <label for="configEmbeddingModel">Embedding 模型名</label>
-            <input id="configEmbeddingModel" placeholder="例如 text-embedding-v4">
-            <button id="saveEmbeddingConfig" class="primary" style="width: 100%; margin-top: 8px;">测试并保存 embedding API</button>
+            <div id="embeddingConfigSummary" class="metric">Embedding API：未加载</div>
+            <div id="embeddingConfigForm">
+              <label for="configEmbeddingBaseUrl">Embedding Base URL</label>
+              <input id="configEmbeddingBaseUrl" placeholder="https://.../v1">
+              <label for="configEmbeddingApiKey">Embedding API Key</label>
+              <input id="configEmbeddingApiKey" type="password" placeholder="每次保存都需要重新输入">
+              <label for="configEmbeddingModel">Embedding 模型名</label>
+              <input id="configEmbeddingModel" placeholder="例如 text-embedding-v4">
+              <button id="saveEmbeddingConfig" class="primary" style="width: 100%; margin-top: 8px;">测试并保存 embedding API</button>
+            </div>
             <div id="embeddingConfigStatus" class="message">保存成功后会自动刷新语义向量索引。</div>
           </div>
 

@@ -16,6 +16,7 @@
     let providerEffectiveCache = {};
     let providerConfigBackendMismatch = "";
     let backendMismatchAlertShown = false;
+    let embeddingConfigEditing = false;
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -431,7 +432,8 @@
         $("configEmbeddingApiKey").value = "";
         if (!hasResponseField(setup, "embedding_api")) {
           const message = backendVersionMismatchMessage("/api/setup/embedding", ["embedding_api"]);
-          setEmbeddingConfigStatus(message, true);
+          embeddingConfigEditing = true;
+          renderEmbeddingConfigPanel({ status: "backend_mismatch", message });
           warnBackendVersionMismatch(message);
           return;
         }
@@ -446,11 +448,15 @@
           try { await refreshAll({ silent: true }); } catch {}
           $("configEmbeddingBaseUrl").value = "";
           $("configEmbeddingModel").value = "";
+          embeddingConfigEditing = false;
+          renderEmbeddingConfigPanel(setup.embedding_api || {});
           setEmbeddingConfigStatus("Embedding API 已保存，语义向量索引已刷新。");
           setMessage(actionMessage("保存 embedding API 并刷新语义向量索引", refresh));
         } catch (error) {
           $("fileViewer").textContent = JSON.stringify({ embedding_setup: setup, index_refresh_error: error.message }, null, 2);
           try { await refreshAll({ silent: true }); } catch {}
+          embeddingConfigEditing = true;
+          renderEmbeddingConfigPanel(setup.embedding_api || {});
           setEmbeddingConfigStatus(`Embedding API 已保存，但语义向量索引刷新失败：${error.message}`, true);
           setMessage(`Embedding API 已保存，但语义向量索引刷新失败：${error.message}`, true);
         }
@@ -727,9 +733,10 @@
           : "";
         if (providerConfigBackendMismatch) {
           warnBackendVersionMismatch(providerConfigBackendMismatch);
-          setEmbeddingConfigStatus(providerConfigBackendMismatch, true);
+          embeddingConfigEditing = true;
+          renderEmbeddingConfigPanel({ status: "backend_mismatch", message: providerConfigBackendMismatch });
         } else {
-          renderEmbeddingConfigStatus(data.embedding_api || {});
+          renderEmbeddingConfigPanel(data.embedding_api || {});
         }
         providerConfigCache = data.agents?.content || null;
         providerEffectiveCache = data.effective_agents || {};
@@ -747,21 +754,70 @@
       }
     }
 
-    function renderEmbeddingConfigStatus(summary = {}) {
-      if (summary.configured === true) {
-        setEmbeddingConfigStatus(`Embedding API 已配置：${summary.provider || "config"} / ${summary.model || "未设置"}`);
+    function renderEmbeddingConfigPanel(summary = {}) {
+      const status = summary.status || (summary.configured === true ? "configured" : "not_configured");
+      const configured = summary.configured === true && status === "configured";
+      const form = $("embeddingConfigForm");
+      const summaryPanel = $("embeddingConfigSummary");
+      if (!form || !summaryPanel) return;
+
+      const showCollapsed = configured && !embeddingConfigEditing;
+      form.classList.toggle("hidden", showCollapsed);
+
+      if (configured) {
+        const provider = summary.provider || summary.active_provider || "config";
+        const model = summary.model || "未设置";
+        const apiKeyEnv = summary.api_key_env || "未设置";
+        const baseUrlEnv = summary.base_url_env || "未设置";
+        summaryPanel.classList.remove("hidden");
+        summaryPanel.innerHTML = `
+          <b class="status-ok">Embedding API 已配置</b>
+          <div>模型：${escapeHtml(model)}</div>
+          <div>Provider：${escapeHtml(provider)}</div>
+          <div>api_key_env：${escapeHtml(apiKeyEnv)}</div>
+          <div>base_url_env：${escapeHtml(baseUrlEnv)}</div>
+          ${showCollapsed ? '<button id="editEmbeddingConfig" style="width: 100%; margin-top: 8px;">修改配置</button>' : ""}
+        `;
+        const editButton = $("editEmbeddingConfig");
+        if (editButton) {
+          editButton.addEventListener("click", () => {
+            embeddingConfigEditing = true;
+            renderEmbeddingConfigPanel(summary);
+          });
+        }
+        if (embeddingConfigEditing) {
+          setEmbeddingConfigStatus("请重新填写 Embedding Base URL、API Key 和模型名后保存。");
+        } else {
+          setEmbeddingConfigStatus("Embedding API 已配置。点击“修改配置”可重新测试并保存。");
+        }
         return;
       }
-      if (summary.status === "env_missing") {
+
+      summaryPanel.classList.toggle("hidden", status === "not_configured" || status === "backend_mismatch");
+      if (status === "env_missing") {
+        summaryPanel.innerHTML = `
+          <b class="status-bad">Embedding API 未配置完整</b>
+          <div>模型：${escapeHtml(summary.model || "未设置")}</div>
+          <div>Provider：${escapeHtml(summary.provider || summary.active_provider || "未设置")}</div>
+        `;
         setEmbeddingConfigStatus(`Embedding API 配置缺少环境变量：${(summary.env_missing || []).join(", ")}`, true);
         return;
       }
-      if (summary.status === "invalid_config") {
+      if (status === "invalid_config") {
+        summaryPanel.innerHTML = '<b class="status-bad">Embedding API 配置无效</b>';
         setEmbeddingConfigStatus(`Embedding API 配置无效：${summary.message || "请重新填写并保存。"}`, true);
         return;
       }
-      if (summary.status === "test_only") {
+      if (status === "test_only") {
+        summaryPanel.innerHTML = `
+          <b class="status-warn">当前是测试 embedding 配置</b>
+          <div>模型：${escapeHtml(summary.model || "未设置")}</div>
+        `;
         setEmbeddingConfigStatus("当前是测试 embedding 配置；请填写真实 API 后保存。", true);
+        return;
+      }
+      if (status === "backend_mismatch") {
+        setEmbeddingConfigStatus(summary.message || providerConfigBackendMismatch || "Web UI 后台版本不匹配，请重启后台进程。", true);
         return;
       }
       setEmbeddingConfigStatus("请填写 Embedding Base URL、API Key 和模型名。");

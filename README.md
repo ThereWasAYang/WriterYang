@@ -603,7 +603,7 @@ web:
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
 - Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。“恢复继承 default”会删除该 Agent 在 `config/agents.yaml` 中的覆盖配置。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
-- Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。每次保存都需要重填 Base URL、API Key 和模型名；API Key 只写入项目 `.env`，保存成功后清空输入框并自动刷新语义向量索引。
+- Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，只显示“Embedding API 已配置”和当前模型名；点击“修改配置”后重新填写 Base URL、API Key 和模型名。API Key 只写入项目 `.env`，保存成功后清空输入框并自动刷新语义向量索引。
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。

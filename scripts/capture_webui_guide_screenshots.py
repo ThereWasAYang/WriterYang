@@ -117,8 +117,9 @@ def _run_playwright(url: str, project: Path, output: Path) -> None:
 
         page.click("#initProject")
         page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('初始化项目')")
-        page.locator("aside").screenshot(path=str(output / "project_setup.png"))
+        page.locator("#setupGuidePanel").screenshot(path=str(output / "project_setup.png"))
 
+        page.click('[data-page="workbenchPage"]')
         page.select_option("#provider", "mock")
         page.fill("#instruction", "雨夜山城里，旧钟声让年轻刀客想起一桩未解旧案。")
         _click_and_wait_message(page, "#inspireProject", "生成灵感")
@@ -128,7 +129,7 @@ def _run_playwright(url: str, project: Path, output: Path) -> None:
         _click_and_wait_message(page, "#sessionApprove", "批准 Session 大纲")
 
         _seed_guide_files(project)
-        page.click("#refreshProject")
+        page.evaluate("refreshAll({ silent: false })")
         page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('项目已刷新')")
         page.fill("#sessionId", GUIDE_SESSION_ID)
         page.evaluate(
@@ -141,8 +142,9 @@ def _run_playwright(url: str, project: Path, output: Path) -> None:
             """
         )
 
-        page.evaluate("document.querySelector('aside').scrollTop = 740")
-        page.locator("aside").screenshot(path=str(output / "left_session_controls.png"))
+        page.locator("#workbenchPage .workspace-grid > .stack").first.screenshot(
+            path=str(output / "left_session_controls.png")
+        )
         page.locator("#rewriteEventsPanel").screenshot(path=str(output / "rewrite_events.png"))
 
         page.click("#loadCompare")
@@ -158,17 +160,18 @@ def _run_playwright(url: str, project: Path, output: Path) -> None:
         page.wait_for_function("() => document.querySelector('#auditIssueList')?.textContent?.includes('guide_issue_clock')")
         page.locator("#auditLocate").screenshot(path=str(output / "audit_locate.png"))
 
+        page.click('[data-page="logsPage"]')
         _show_tab(page, "runLogs")
         page.wait_for_function("() => document.querySelector('#runLogPanel')?.textContent?.includes('guide_run')")
         page.locator("#runLogs").screenshot(path=str(output / "run_logs.png"))
 
-        _show_tab(page, "providerConfig")
+        page.click('[data-page="configPage"]')
         page.wait_for_function("() => document.querySelector('#providerConfigPanel')?.textContent?.includes('agents')")
-        page.locator("#providerConfig").screenshot(path=str(output / "provider_config.png"))
+        page.locator("#configPage").screenshot(path=str(output / "provider_config.png"))
 
-        _show_tab(page, "stateTimeline")
+        page.click('[data-page="memoryPage"]')
         page.wait_for_function("() => document.querySelector('#stateTimelinePanel')?.textContent?.includes('旧钟楼')")
-        page.locator("#stateTimeline").screenshot(path=str(output / "state_timeline.png"))
+        page.locator("#memoryPage").screenshot(path=str(output / "state_timeline.png"))
         browser.close()
 
 
@@ -177,6 +180,7 @@ GUIDE_SESSION_ID = "session_20260531_120000_000001"
 
 def _seed_guide_files(project: Path) -> None:
     now = "2026-05-31T12:00:00Z"
+    (project / ".env").write_text("DASHSCOPE_API_KEY=placeholder\n", encoding="utf-8")
     chapter_dir = project / "memory" / "chapters" / "001"
     chapter_dir.mkdir(parents=True, exist_ok=True)
     _write_json(

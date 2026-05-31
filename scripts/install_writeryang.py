@@ -121,11 +121,13 @@ def build_install_plan(
     base_name = dated_env_base_name(now)
     if conda:
         env_name = unique_name(base_name, existing_conda_env_names(conda))
-        web = build_web_launch(conda=conda, env_name=env_name, start_port=web_port, check_port=check_web_port)
+        env_prefix = conda_env_prefix(conda, env_name)
+        env_python = conda_env_python_path(env_prefix)
+        web = build_web_launch(conda_env_prefix=env_prefix, start_port=web_port, check_port=check_web_port)
         commands = [
             [conda, "create", "-n", env_name, f"python={PYTHON_VERSION}", "-y"],
-            [conda, "run", "-n", env_name, "python", "-m", "pip", "install", "--upgrade", "pip"],
-            [conda, "run", "-n", env_name, "python", "-m", "pip", "install", install_target],
+            [str(env_python), "-m", "pip", "install", "--upgrade", "pip"],
+            [str(env_python), "-m", "pip", "install", install_target],
         ]
         return InstallPlan(
             mode="conda",
@@ -137,7 +139,9 @@ def build_install_plan(
             web_command=web.command if start_web else None,
             launcher_path=_resolve_launcher_path(repo_root, launcher_path),
             launcher_command=web.command,
-            activate_shell=build_activate_shell(conda=conda, env_name=env_name, env=env) if activate_shell else None,
+            activate_shell=build_activate_shell(env=env, env_name=env_name, conda_env_prefix=env_prefix)
+            if activate_shell
+            else None,
         )
 
     python = find_python312()
@@ -177,32 +181,38 @@ def build_web_launch(
     *,
     start_port: int,
     host: str = WEB_HOST,
-    conda: str | None = None,
-    env_name: str | None = None,
+    conda_env_prefix: Path | None = None,
     venv_path: Path | None = None,
     check_port: bool = True,
 ) -> WebLaunch:
     port = find_available_port(host, start_port) if check_port else validate_port(start_port)
     url = f"http://{host}:{port}"
-    if conda and env_name:
-        command = [conda, "run", "-n", env_name, "novel", "web", "--host", host, "--port", str(port)]
+    if conda_env_prefix:
+        command = [str(conda_env_novel_path(conda_env_prefix)), "web", "--host", host, "--port", str(port)]
     elif venv_path:
         command = [str(venv_novel_path(venv_path)), "web", "--host", host, "--port", str(port)]
     else:
-        raise RuntimeError("web launch requires either conda/env_name or venv_path")
+        raise RuntimeError("web launch requires either conda_env_prefix or venv_path")
     return WebLaunch(url=url, command=command)
 
 
 def build_activate_shell(
     *,
     env: Mapping[str, str],
-    conda: str | None = None,
     env_name: str | None = None,
+    conda_env_prefix: Path | None = None,
     venv_path: Path | None = None,
 ) -> ShellLaunch:
     shell = env.get("SHELL") or shutil.which("zsh") or shutil.which("bash") or "/bin/sh"
-    if conda and env_name:
-        return ShellLaunch(command=[conda, "run", "--no-capture-output", "-n", env_name, shell, "-i"])
+    if conda_env_prefix and env_name:
+        bin_dir = conda_env_prefix / "bin"
+        existing_path = env.get("PATH", "")
+        overrides = {
+            "CONDA_DEFAULT_ENV": env_name,
+            "CONDA_PREFIX": str(conda_env_prefix),
+            "PATH": f"{bin_dir}{os.pathsep}{existing_path}" if existing_path else str(bin_dir),
+        }
+        return ShellLaunch(command=shell_without_startup_files(shell), env=overrides)
     if venv_path:
         bin_dir = venv_path / ("Scripts" if os.name == "nt" else "bin")
         existing_path = env.get("PATH", "")
@@ -243,6 +253,37 @@ def find_conda(env: Mapping[str, str]) -> Optional[str]:
     if conda_exe and Path(conda_exe).exists():
         return conda_exe
     return shutil.which("conda")
+
+
+def conda_env_prefix(conda: str, env_name: str) -> Path:
+    conda_path = Path(conda).resolve()
+    if conda_path.parent.name == "bin":
+        return conda_path.parent.parent / "envs" / env_name
+    raise RuntimeError(
+        f"could not infer conda environment prefix from {conda}; "
+        "run the installer from a shell where CONDA_EXE points to conda's bin/conda"
+    )
+
+
+def conda_env_python_path(env_prefix: Path) -> Path:
+    if os.name == "nt":
+        return env_prefix / "python.exe"
+    return env_prefix / "bin" / "python"
+
+
+def conda_env_novel_path(env_prefix: Path) -> Path:
+    if os.name == "nt":
+        return env_prefix / "Scripts" / "novel.exe"
+    return env_prefix / "bin" / "novel"
+
+
+def shell_without_startup_files(shell: str) -> list[str]:
+    name = Path(shell).name
+    if name == "zsh":
+        return [shell, "-f", "-i"]
+    if name == "bash":
+        return [shell, "--noprofile", "--norc", "-i"]
+    return [shell, "-i"]
 
 
 def existing_conda_env_names(conda: str) -> set[str]:

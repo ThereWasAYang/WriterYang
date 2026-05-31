@@ -49,15 +49,20 @@ def test_conda_plan_is_preferred_when_conda_exists(monkeypatch, tmp_path: Path) 
     assert plan.mode == "conda"
     assert plan.env_name == "WriterYang_260531"
     assert plan.commands[0] == ["/opt/conda/bin/conda", "create", "-n", "WriterYang_260531", "python=3.12", "-y"]
+    assert plan.commands[1] == [
+        "/opt/conda/envs/WriterYang_260531/bin/python",
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "pip",
+    ]
+    assert plan.commands[2][0] == "/opt/conda/envs/WriterYang_260531/bin/python"
     assert plan.commands[-1][-1] == "."
     assert plan.activation_command == "conda activate WriterYang_260531"
     assert plan.web_url == "http://127.0.0.1:8765"
     assert plan.web_command == [
-        "/opt/conda/bin/conda",
-        "run",
-        "-n",
-        "WriterYang_260531",
-        "novel",
+        "/opt/conda/envs/WriterYang_260531/bin/novel",
         "web",
         "--host",
         "127.0.0.1",
@@ -67,13 +72,11 @@ def test_conda_plan_is_preferred_when_conda_exists(monkeypatch, tmp_path: Path) 
     assert plan.launcher_path == tmp_path / "WriterYang_WebUI.command"
     assert plan.launcher_command == plan.web_command
     assert plan.activate_shell is not None
-    assert plan.activate_shell.command[:5] == [
-        "/opt/conda/bin/conda",
-        "run",
-        "--no-capture-output",
-        "-n",
-        "WriterYang_260531",
-    ]
+    assert plan.activate_shell.command[-1] == "-i"
+    assert plan.activate_shell.env is not None
+    assert plan.activate_shell.env["CONDA_DEFAULT_ENV"] == "WriterYang_260531"
+    assert plan.activate_shell.env["CONDA_PREFIX"] == "/opt/conda/envs/WriterYang_260531"
+    assert plan.activate_shell.env["PATH"].startswith("/opt/conda/envs/WriterYang_260531/bin")
 
 
 def test_conda_plan_uses_suffix_when_env_exists(monkeypatch, tmp_path: Path) -> None:
@@ -228,7 +231,7 @@ def test_no_activate_shell_disables_shell_launch(monkeypatch, tmp_path: Path) ->
 def test_write_web_launcher_creates_executable_command_file(tmp_path: Path) -> None:
     installer = _load_installer()
     launcher = tmp_path / "WriterYang_WebUI.command"
-    command = ["/opt/conda/bin/conda", "run", "-n", "WriterYang_260531", "novel", "web", "--port", "8765"]
+    command = ["/opt/conda/envs/WriterYang_260531/bin/novel", "web", "--port", "8765"]
 
     installer._write_web_launcher(launcher, command, cwd=tmp_path, url="http://127.0.0.1:8765")
 
@@ -344,14 +347,18 @@ def test_interactive_no_web_enters_new_environment_shell(monkeypatch, tmp_path: 
     monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
     monkeypatch.setattr(installer, "is_interactive_terminal", lambda env: True)
     calls: list[list[str]] = []
+    envs: list[dict[str, str] | None] = []
 
     def fake_run(command, *, cwd, env=None):
         calls.append(command)
+        envs.append(env)
 
     monkeypatch.setattr(installer, "_run", fake_run)
 
     code = installer.main(["--no-web", "--launcher-path", str(tmp_path / "WriterYang_WebUI.command")])
 
     assert code == 0
-    assert calls[-1][:4] == ["/opt/conda/bin/conda", "run", "--no-capture-output", "-n"]
-    assert calls[-1][4].startswith("WriterYang_")
+    assert calls[-1][-1] == "-i"
+    assert envs[-1] is not None
+    assert envs[-1]["CONDA_DEFAULT_ENV"].startswith("WriterYang_")
+    assert envs[-1]["PATH"].startswith("/opt/conda/envs/")

@@ -705,6 +705,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="sessionReviseInstruction"' in html
     assert 'id="sessionReviseOutline"' in html
     assert 'id="validateProject"' in html
+    assert 'id="validationStatusPanel"' in html
     assert 'id="nextStepPanel"' in html
     assert 'id="initProject"' in html
     assert 'id="setupGuidePanel"' in html

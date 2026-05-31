@@ -77,6 +77,7 @@
         <button id="refreshProject">刷新</button>
       </div>
       <button id="validateProject" style="width: 100%; margin-top: 8px;">项目检查</button>
+      <div id="validationStatusPanel" class="metric" style="margin-top: 8px;">项目检查结果：未运行</div>
       <label for="projectTitle">新项目标题</label>
       <input id="projectTitle" placeholder="用于初始化新小说项目">
       <label for="projectGenre">类型标签</label>
@@ -796,6 +797,7 @@
       return withBusy("项目检查", async () => {
         const data = await apiGet("/api/validate", { path: projectPath() });
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderValidationStatus(data);
         renderNextStep({ validation: data });
         setMessage(`项目检查完成：${data.error_count || 0} 个错误，${data.warning_count || 0} 个警告`);
       });
@@ -1185,6 +1187,28 @@
         }
       }
       $("nextStepPanel").textContent = text;
+    }
+
+    function renderValidationStatus(validation) {
+      const errorCount = validation.error_count || 0;
+      const warningCount = validation.warning_count || 0;
+      const panel = $("validationStatusPanel");
+      const stateClass = errorCount > 0 ? "status-bad" : (warningCount > 0 ? "status-warn" : "status-ok");
+      const details = [...(validation.errors || []), ...(validation.warnings || [])].slice(0, 5);
+      const detailHtml = details.length
+        ? details.map((item) => `
+          <div style="margin-top: 4px;">
+            <b>${escapeHtml(item.level || "")}</b>
+            ${escapeHtml(item.path || "")}: ${escapeHtml(item.message || "")}
+          </div>
+        `).join("")
+        : "<div>未发现错误或警告。</div>";
+      panel.className = `metric ${stateClass}`;
+      panel.innerHTML = `
+        <b>项目检查结果：${errorCount} 个错误，${warningCount} 个警告</b>
+        ${detailHtml}
+        ${details.length < ((validation.errors || []).length + (validation.warnings || []).length) ? "<div>更多详情见右侧“文件查看”。</div>" : ""}
+      `;
     }
 
     function renderSessionAuditSummary(auditSummary) {

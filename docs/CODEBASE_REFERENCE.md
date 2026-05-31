@@ -110,6 +110,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 启动静态页面和 API。
 - 读取默认端口或 CLI 传入端口。
 - 端口冲突时给清晰错误。
+- 对 HTML/API 响应发送 no-cache headers，避免浏览器继续显示旧版 Web UI。
 - 不包含业务逻辑。
 
 ### `src/novel/web_api.py`

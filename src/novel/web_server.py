@@ -65,6 +65,7 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self._send_no_cache_headers()
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -73,8 +74,14 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
             encoded = body.encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", content_type)
+            self._send_no_cache_headers()
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
             self.wfile.write(encoded)
+
+        def _send_no_cache_headers(self) -> None:
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
 
     return Handler

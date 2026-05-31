@@ -10,7 +10,9 @@
 ./install.sh
 ```
 
-脚本安装完成后会自动寻找可用端口，打印 Web UI 地址并弹出浏览器。默认从 `8765` 开始；端口被占用会自动换下一个。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
+脚本安装完成后会以 editable 模式安装当前源码目录，并自动寻找可用端口，打印 Web UI 地址并弹出浏览器。默认从 `8765` 开始；端口被占用会自动换下一个。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
+
+editable 模式的含义是：之后你更新 WriterYang 源码后，只需要重启 Web UI，就会加载新版本。如果你之前用旧脚本安装过，Web UI 一直显示旧界面，可以重新运行 `./install.sh`，或进入旧环境后执行 `python -m pip install -e .`。
 
 安装器还会生成 `WriterYang_WebUI.command`。以后可以直接双击这个文件打开 Web UI，它会固定使用本次安装创建的新环境。Web server 停止后，终端会进入一个已激活新环境的子 shell；后续 `novel ...` 命令默认使用这个新环境，输入 `exit` 回到原终端。想指定起始端口可用：
 

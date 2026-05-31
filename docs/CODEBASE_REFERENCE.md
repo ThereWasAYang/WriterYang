@@ -708,7 +708,7 @@ Agent skill 只作为开发者和外部 Agent 的边界说明，不参与小说�
 
 ### `scripts/`
 
-- `install_writeryang.py`：一键创建独立 conda/venv 环境并安装 WriterYang。
+- `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装 WriterYang；同时生成固定环境的 Web UI 启动器。
 - `check_local.py`：本地质量门禁，组合 pytest、ruff、mypy、secret scan、build、twine。
 - `smoke_session.py`：创建临时项目并用 CLI 跑完整 Session smoke。
 - `debug_bundle.py`：收集脱敏排障包。

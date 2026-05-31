@@ -117,7 +117,7 @@ def build_install_plan(
     activate_shell: bool = True,
 ) -> InstallPlan:
     conda = find_conda(env)
-    install_target = ".[dev]" if dev else "."
+    install_args = editable_install_args(dev=dev)
     base_name = dated_env_base_name(now)
     if conda:
         env_name = unique_name(base_name, existing_conda_env_names(conda))
@@ -127,7 +127,7 @@ def build_install_plan(
         commands = [
             [conda, "create", "-n", env_name, f"python={PYTHON_VERSION}", "-y"],
             [str(env_python), "-m", "pip", "install", "--upgrade", "pip"],
-            [str(env_python), "-m", "pip", "install", install_target],
+            [str(env_python), "-m", "pip", "install", *install_args],
         ]
         return InstallPlan(
             mode="conda",
@@ -155,7 +155,7 @@ def build_install_plan(
     commands = [
         [python, "-m", "venv", str(venv_path)],
         [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"],
-        [str(venv_python), "-m", "pip", "install", install_target],
+        [str(venv_python), "-m", "pip", "install", *install_args],
     ]
     return InstallPlan(
         mode="venv",
@@ -175,6 +175,11 @@ def build_install_plan(
 class WebLaunch:
     url: str
     command: list[str]
+
+
+def editable_install_args(*, dev: bool) -> list[str]:
+    target = ".[dev]" if dev else "."
+    return ["-e", target]
 
 
 def build_web_launch(

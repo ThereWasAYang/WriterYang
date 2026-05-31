@@ -16,7 +16,7 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 
 它会自动检测 conda；如果本机有 conda，会优先创建 `WriterYang_YYMMDD` 格式的新环境，例如 `WriterYang_260531`。如果当天同名环境已经存在，会自动使用 `WriterYang_26053101`、`WriterYang_26053102` 这样的后缀。没有 conda 时，脚本会回退到 `.venv/WriterYang_YYMMDD`。
 
-安装完成后，脚本会自动寻找可用 Web UI 端口，打印完整地址并弹出浏览器。默认从 `8765` 开始；如果端口被占用，会自动尝试下一个端口。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
+安装完成后，脚本会以 editable 模式安装当前源码目录。之后你更新代码或拉取新版本后，只需要重启 Web UI，就会加载新的源码和前端静态文件，不需要每次重新安装。脚本还会自动寻找可用 Web UI 端口，打印完整地址并弹出浏览器。默认从 `8765` 开始；如果端口被占用，会自动尝试下一个端口。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
 
 脚本还会生成 `WriterYang_WebUI.command` 启动器。之后不懂命令行的用户可以直接双击这个文件启动 Web UI；启动器会固定使用安装脚本创建的新环境。Web server 停止后，交互式终端会进入一个已经激活新环境的子 shell，后续 `novel ...` 命令默认走这个新环境；输入 `exit` 可以回到原终端。
 
@@ -34,6 +34,12 @@ python scripts/install_writeryang.py --launcher-path ./WriterYang_WebUI.command
 ```
 
 脚本默认安装运行依赖；开发者需要测试、lint、mypy、build 等工具时使用 `--dev`。如果不希望安装后启动 Web UI，使用 `--no-web`；如果只是不想自动弹出浏览器，使用 `--no-open-web`。如果不想在安装后进入新环境子 shell，使用 `--no-activate-shell`。
+
+如果你之前使用旧版本安装脚本创建过环境，Web UI 可能仍在读取环境 `site-packages` 里的旧副本。解决方式是重新运行 `./install.sh` 创建新环境，或者在旧环境中执行一次：
+
+```bash
+python -m pip install -e .
+```
 
 如果你使用的是脚本进入的新环境子 shell，可以直接运行：
 
@@ -81,11 +87,13 @@ python -c "import sys; print(sys.executable)"
 python -m pip install -e ".[dev]"
 ```
 
-普通本地安装：
+普通本地固定安装：
 
 ```bash
 python -m pip install .
 ```
+
+固定安装会复制一份代码到当前环境，适合发布包验证；如果你希望 `git pull` 或本地修改后立即生效，请使用 editable 安装。
 
 检查命令：
 

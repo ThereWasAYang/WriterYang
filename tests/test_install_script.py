@@ -58,7 +58,7 @@ def test_conda_plan_is_preferred_when_conda_exists(monkeypatch, tmp_path: Path) 
         "pip",
     ]
     assert plan.commands[2][0] == "/opt/conda/envs/WriterYang_260531/bin/python"
-    assert plan.commands[-1][-1] == "."
+    assert plan.commands[-1][-2:] == ["-e", "."]
     assert plan.activation_command == "conda activate WriterYang_260531"
     assert plan.web_url == "http://127.0.0.1:8765"
     assert plan.web_command == [
@@ -117,7 +117,7 @@ def test_venv_plan_when_conda_missing(monkeypatch, tmp_path: Path) -> None:
     assert plan.mode == "venv"
     assert plan.env_name == "WriterYang_260531"
     assert plan.commands[0] == ["/usr/bin/python3.12", "-m", "venv", str((tmp_path / ".venv" / "WriterYang_260531").resolve())]
-    assert plan.commands[-1][-1] == "."
+    assert plan.commands[-1][-2:] == ["-e", "."]
     assert "activate" in plan.activation_command
     assert plan.web_url == "http://127.0.0.1:8765"
     assert plan.web_command == [
@@ -149,7 +149,14 @@ def test_dev_plan_installs_dev_extra(monkeypatch, tmp_path: Path) -> None:
         now=datetime(2026, 5, 31),
     )
 
-    assert plan.commands[-1][-1] == ".[dev]"
+    assert plan.commands[-1][-2:] == ["-e", ".[dev]"]
+
+
+def test_installer_uses_editable_install_args() -> None:
+    installer = _load_installer()
+
+    assert installer.editable_install_args(dev=False) == ["-e", "."]
+    assert installer.editable_install_args(dev=True) == ["-e", ".[dev]"]
 
 
 def test_web_port_uses_next_available_port(monkeypatch, tmp_path: Path) -> None:

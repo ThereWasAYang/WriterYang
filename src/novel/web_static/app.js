@@ -14,6 +14,8 @@
     let editorSourceFile = "";
     let providerConfigCache = null;
     let providerEffectiveCache = {};
+    let providerConfigBackendMismatch = "";
+    let backendMismatchAlertShown = false;
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -26,6 +28,23 @@
     function setMessage(text, isError = false) {
       $("message").textContent = text;
       $("message").className = isError ? "message error" : "message";
+    }
+
+    function hasResponseField(data, field) {
+      return Boolean(data) && Object.prototype.hasOwnProperty.call(data, field);
+    }
+
+    function backendVersionMismatchMessage(endpoint, fields) {
+      return `Web UI 后台版本不匹配：${endpoint} 响应缺少 ${fields.join(", ")}。请停止并重启 Web UI 后台进程，然后刷新页面。`;
+    }
+
+    function warnBackendVersionMismatch(message) {
+      if (!message) return;
+      setMessage(message, true);
+      if (!backendMismatchAlertShown) {
+        backendMismatchAlertShown = true;
+        window.alert(message);
+      }
     }
 
     function showMainPage(pageId) {
@@ -409,9 +428,13 @@
           model,
           ping: true,
         });
-        $("configEmbeddingBaseUrl").value = "";
         $("configEmbeddingApiKey").value = "";
-        $("configEmbeddingModel").value = "";
+        if (!hasResponseField(setup, "embedding_api")) {
+          const message = backendVersionMismatchMessage("/api/setup/embedding", ["embedding_api"]);
+          setEmbeddingConfigStatus(message, true);
+          warnBackendVersionMismatch(message);
+          return;
+        }
         setEmbeddingConfigStatus(`Embedding API 已保存：${setup.provider} / ${setup.model}。正在刷新语义向量索引...`);
         try {
           const refresh = await apiPost("/api/index/refresh", {
@@ -421,6 +444,8 @@
           $("fileViewer").textContent = JSON.stringify({ embedding_setup: setup, index_refresh: refresh }, null, 2);
           renderSearchStatus(refresh.search || {});
           try { await refreshAll({ silent: true }); } catch {}
+          $("configEmbeddingBaseUrl").value = "";
+          $("configEmbeddingModel").value = "";
           setEmbeddingConfigStatus("Embedding API 已保存，语义向量索引已刷新。");
           setMessage(actionMessage("保存 embedding API 并刷新语义向量索引", refresh));
         } catch (error) {
@@ -694,9 +719,24 @@
     async function loadProviderConfig() {
       try {
         const data = await apiGet("/api/provider-config", { path: projectPath() });
+        const missingFields = [];
+        if (!hasResponseField(data, "effective_agents")) missingFields.push("effective_agents");
+        if (!hasResponseField(data, "embedding_api")) missingFields.push("embedding_api");
+        providerConfigBackendMismatch = missingFields.length
+          ? backendVersionMismatchMessage("/api/provider-config", missingFields)
+          : "";
+        if (providerConfigBackendMismatch) {
+          warnBackendVersionMismatch(providerConfigBackendMismatch);
+          setEmbeddingConfigStatus(providerConfigBackendMismatch, true);
+        } else {
+          renderEmbeddingConfigStatus(data.embedding_api || {});
+        }
         providerConfigCache = data.agents?.content || null;
         providerEffectiveCache = data.effective_agents || {};
-        const warnings = data.agents?.warnings || [];
+        const warnings = [
+          ...(providerConfigBackendMismatch ? [providerConfigBackendMismatch] : []),
+          ...(data.agents?.warnings || []),
+        ];
         $("providerConfigWarnings").innerHTML = warnings.length
           ? `<span style="color:#b91c1c;">${warnings.map(escapeHtml).join("<br>")}</span>`
           : "Agent API 配置正常。";
@@ -705,6 +745,26 @@
       } catch (error) {
         setMessage(error.message, true);
       }
+    }
+
+    function renderEmbeddingConfigStatus(summary = {}) {
+      if (summary.configured === true) {
+        setEmbeddingConfigStatus(`Embedding API 已配置：${summary.provider || "config"} / ${summary.model || "未设置"}`);
+        return;
+      }
+      if (summary.status === "env_missing") {
+        setEmbeddingConfigStatus(`Embedding API 配置缺少环境变量：${(summary.env_missing || []).join(", ")}`, true);
+        return;
+      }
+      if (summary.status === "invalid_config") {
+        setEmbeddingConfigStatus(`Embedding API 配置无效：${summary.message || "请重新填写并保存。"}`, true);
+        return;
+      }
+      if (summary.status === "test_only") {
+        setEmbeddingConfigStatus("当前是测试 embedding 配置；请填写真实 API 后保存。", true);
+        return;
+      }
+      setEmbeddingConfigStatus("请填写 Embedding Base URL、API Key 和模型名。");
     }
 
     function renderProviderEditor(config) {
@@ -884,8 +944,12 @@
           <span>${escapeHtml(value ?? "未设置")}</span>
         </div>
       `).join("");
-      const error = effective.error ? `<div class="message error">${escapeHtml(effective.error)}</div>` : "";
-      $("providerEffectivePanel").innerHTML = `<div class="provider-effective-list">${body}</div>${error}`;
+      const errors = [
+        ...(providerConfigBackendMismatch ? [providerConfigBackendMismatch] : []),
+        ...(effective.error ? [effective.error] : []),
+      ];
+      const error = errors.map((item) => `<div class="message error">${escapeHtml(item)}</div>`).join("");
+      $("providerEffectivePanel").innerHTML = `${error}<div class="provider-effective-list">${body}</div>`;
     }
 
     async function loadStateTimeline() {

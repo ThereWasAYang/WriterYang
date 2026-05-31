@@ -125,6 +125,7 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     root = _workspace_ready_for_generation(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret-never-return")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-secret-never-return")
+    monkeypatch.setenv("DASHSCOPE_EMBEDDING_BASE_URL", "https://dashscope-secret-never-return.example/v1")
 
     status, payload = handle_api_request("GET", "/api/provider-config", f"path={root}", None)
 
@@ -134,6 +135,9 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     assert "dashscope-secret-never-return" not in serialized
     assert "OPENAI_API_KEY" in serialized
     assert payload["data"]["agents"]["warnings"] == []  # type: ignore[index]
+    assert payload["data"]["embedding_api"]["configured"] is True  # type: ignore[index]
+    assert payload["data"]["embedding_api"]["provider"] == "dashscope"  # type: ignore[index]
+    assert payload["data"]["embedding_api"]["model"] == "text-embedding-v4"  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default + agent override"  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["config"]["api_key_env"] == "OPENAI_API_KEY"  # type: ignore[index]
     env_entries = payload["data"]["agents"]["env"]  # type: ignore[index]
@@ -198,6 +202,12 @@ def test_api_setup_embedding_can_be_skipped_or_saved(tmp_path: Path) -> None:
     assert saved_status == 200
     serialized = json.dumps(saved_payload, ensure_ascii=False)
     assert "embedding-secret" not in serialized
+    assert saved_payload["data"]["embedding_api"]["configured"] is True  # type: ignore[index]
+    assert saved_payload["data"]["embedding_api"]["status"] == "configured"  # type: ignore[index]
+    assert saved_payload["data"]["embedding_api"]["provider"] == "openai_compatible"  # type: ignore[index]
+    assert saved_payload["data"]["embedding_api"]["model"] == "embedding-model"  # type: ignore[index]
+    assert saved_payload["data"]["embedding_api"]["api_key_env"] == "WRITERYANG_EMBEDDING_API_KEY"  # type: ignore[index]
+    assert saved_payload["data"]["embedding_api"]["base_url_env"] == "WRITERYANG_EMBEDDING_BASE_URL"  # type: ignore[index]
     assert "WRITERYANG_EMBEDDING_API_KEY" in (root / "config" / "embeddings.yaml").read_text(encoding="utf-8")
 
 
@@ -912,10 +922,15 @@ def test_frontend_basic_render() -> None:
     assert "write_json: false" in app_js
     assert "clearProviderAgentConfig" in app_js
     assert "clear_agents" in app_js
+    assert "backendVersionMismatchMessage" in app_js
+    assert "warnBackendVersionMismatch" in app_js
+    assert "Web UI 后台版本不匹配" in app_js
     assert "renderProviderEffectivePanel" in app_js
     assert "全部继承 default" in app_js
     assert "resizeTextareaToContent" not in app_js
     assert "saveEmbeddingConfig" in app_js
+    assert 'hasResponseField(setup, "embedding_api")' in app_js
+    assert "renderEmbeddingConfigStatus" in app_js
     assert "configEmbeddingBaseUrl" in app_js
     assert '$("configEmbeddingBaseUrl").value = ""' in app_js
     assert '$("configEmbeddingModel").value = ""' in app_js

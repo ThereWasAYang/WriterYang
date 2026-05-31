@@ -35,7 +35,7 @@ from novel.core.setup_guide import (
     configure_web_port,
     find_available_port,
 )
-from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, CreationSession, RevisionLog, RevisionRecord
+from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, CreationSession, EmbeddingsConfig, RevisionLog, RevisionRecord
 from novel.core.security import validate_secret_config_file
 from novel.core.session import (
     SessionActionOptions,
@@ -672,6 +672,7 @@ def _setup_embedding(data: dict[str, object]) -> dict[str, object]:
         "base_url_env": result.base_url_env,
         "ping_ok": result.ping_ok,
         "ping_message": result.ping_message,
+        "embedding_api": _embedding_api_config_summary(root),
     }
 
 
@@ -1159,6 +1160,70 @@ def _provider_config_summary(root: Path) -> dict[str, object]:
         "agents": agents,
         "embeddings": _safe_config_file(root / "config" / "embeddings.yaml"),
         "effective_agents": _effective_agent_config_summary(agents_path),
+        "embedding_api": _embedding_api_config_summary(root),
+    }
+
+
+def _embedding_api_config_summary(root: Path) -> dict[str, object]:
+    path = root / "config" / "embeddings.yaml"
+    if not path.exists():
+        return {
+            "configured": False,
+            "status": "not_configured",
+            "active_provider": None,
+            "provider": None,
+            "model": None,
+            "env_missing": [],
+        }
+    try:
+        config = EmbeddingsConfig.model_validate(load_yaml(path))
+    except Exception as exc:
+        return {
+            "configured": False,
+            "status": "invalid_config",
+            "active_provider": None,
+            "provider": None,
+            "model": None,
+            "env_missing": [],
+            "message": _safe_error(str(exc)),
+        }
+    selected = config.providers.get(config.active_provider)
+    if selected is None:
+        return {
+            "configured": False,
+            "status": "not_configured",
+            "active_provider": config.active_provider,
+            "provider": None,
+            "model": None,
+            "env_missing": [],
+        }
+    provider = selected.provider.lower()
+    if provider == "local_hash":
+        return {
+            "configured": False,
+            "status": "test_only",
+            "active_provider": config.active_provider,
+            "provider": provider,
+            "model": selected.model,
+            "env_missing": [],
+        }
+    env = load_project_env(root)
+    missing: list[str] = []
+    if selected.api_key_env and not env.get(selected.api_key_env):
+        missing.append(selected.api_key_env)
+    if provider == "openai_compatible" and selected.base_url_env and not env.get(selected.base_url_env):
+        missing.append(selected.base_url_env)
+    if not selected.api_key_env:
+        missing.append("api_key_env")
+    return {
+        "configured": not missing,
+        "status": "env_missing" if missing else "configured",
+        "active_provider": config.active_provider,
+        "provider": provider,
+        "model": selected.model,
+        "api_key_env": selected.api_key_env,
+        "base_url_env": selected.base_url_env,
+        "env_missing": list(dict.fromkeys(missing)),
     }
 
 

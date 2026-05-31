@@ -23,11 +23,13 @@ from novel.core.polishing import DraftDocument, PolishingError, read_markdown_wi
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditReport,
     ChapterMetadata,
     ChapterPlan,
     CharacterState,
+    ContextBundle,
     EntityState,
     ItemState,
     LocationState,
@@ -51,6 +53,8 @@ class StateUpdateProposeOptions:
     instruction: str | None = None
     force: bool = False
     allow_unresolved_audit: bool = False
+    use_search_context: bool = False
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,8 @@ class AcceptChapterOptions:
     propose: bool = False
     instruction: str | None = None
     force_proposal: bool = False
+    use_search_context: bool = True
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -74,6 +80,7 @@ class StateUpdateProposeResult:
     proposal_path: Path
     proposal: StateUpdateProposal
     warnings: tuple[str, ...] = ()
+    context_report_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +113,8 @@ class StateUpdateContext:
     canon_summary: str
     state_json: str
     timeline_json: str
+    search_context: str = ""
+    context_bundle: ContextBundle | None = None
 
 
 def propose_state_update(
@@ -119,7 +128,13 @@ def propose_state_update(
     proposal_path = chapter_dir / "state_update_proposal.json"
     _refuse_existing(proposal_path, options.force)
 
-    context = load_state_update_context(root, options.chapter_number)
+    context = load_state_update_context(
+        root,
+        options.chapter_number,
+        instruction=options.instruction,
+        use_search_context=options.use_search_context,
+        use_vector_context=options.use_vector_context,
+    )
     _ensure_audit_allows_progress(context.audit, allow_issues=options.allow_unresolved_audit)
 
     user_prompt = build_state_update_user_prompt(
@@ -131,6 +146,11 @@ def propose_state_update(
     if options.force:
         backup_if_exists(proposal_path, reason="force")
     atomic_write_model_json(proposal_path, proposal)
+    context_report_path = (
+        write_context_report(root, context.context_bundle, force=options.force)
+        if context.context_bundle
+        else None
+    )
     record_management_event(
         root,
         "state_update_proposed",
@@ -144,6 +164,7 @@ def propose_state_update(
         proposal_path=proposal_path,
         proposal=proposal,
         warnings=tuple(warnings),
+        context_report_path=context_report_path,
     )
 
 
@@ -266,6 +287,8 @@ def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None
                 instruction=options.instruction,
                 force=options.force_proposal,
                 allow_unresolved_audit=options.allow_issues,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
         )
@@ -316,7 +339,14 @@ def _load_existing_apply_result(root: Path, chapter_number: int) -> StateUpdateA
     )
 
 
-def load_state_update_context(root: Path, chapter_number: int) -> StateUpdateContext:
+def load_state_update_context(
+    root: Path,
+    chapter_number: int,
+    *,
+    instruction: str | None = None,
+    use_search_context: bool = False,
+    use_vector_context: bool = False,
+) -> StateUpdateContext:
     chapter_dir = _chapter_dir(root, chapter_number)
     plan_path = chapter_dir / "plan.json"
     polished_path = chapter_dir / "polished.md"
@@ -329,14 +359,29 @@ def load_state_update_context(root: Path, chapter_number: int) -> StateUpdateCon
         raise StateUpdateError(f"{audit_path} is missing; run novel audit-chapter first")
 
     canon = load_canon_files(root)
+    plan = load_json_model(plan_path, ChapterPlan)
+    context_bundle = (
+        retrieve_context_bundle(
+            root,
+            chapter_number=chapter_number,
+            task="state_update",
+            instruction=instruction,
+            plan=plan,
+            use_vector=use_vector_context,
+        )
+        if use_search_context
+        else None
+    )
     return StateUpdateContext(
         project=load_yaml_model(root / "project.yaml", ProjectConfig),
-        plan=load_json_model(plan_path, ChapterPlan),
+        plan=plan,
         polished=_read_front_matter(polished_path),
         audit=load_json_model(audit_path, AuditReport),
         canon_summary=format_canon_summary(canon),
         state_json=(root / "memory" / "state" / "current_state.json").read_text(encoding="utf-8"),
         timeline_json=(root / "memory" / "state" / "timeline.json").read_text(encoding="utf-8"),
+        search_context=context_bundle.render_for_prompt() if context_bundle else "",
+        context_bundle=context_bundle,
     )
 
 
@@ -637,6 +682,7 @@ def build_state_update_user_prompt(
         "- 插叙、回忆、揭示旧事时，narrative_position 仍写正文出现位置，story_position 写故事世界时间。\n"
         "- 不要为了倒序/插叙把 narrative_position 倒退；如果无法判断 scene，宁可省略 scene 或写入 warnings。\n"
         "- 新 timeline event 的 narrative_position 不能倒退到现有 timeline 的最后事件之前。\n\n"
+        f"{context.search_context}\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
         f"AuditReport：\n{context.audit.model_dump_json(indent=2)}\n\n"
         f"Polished metadata：\n{json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"

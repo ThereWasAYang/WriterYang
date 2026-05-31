@@ -22,6 +22,7 @@ from novel.core.search import (
     retrieve_context_bundle,
     search_index_status,
     search_project,
+    write_context_report,
 )
 from novel.core.schemas import ContextBundle
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
@@ -96,6 +97,26 @@ def test_search_can_use_vector_scores(tmp_path: Path) -> None:
 
     assert results
     assert any("vector_score" in result.metadata for result in results)
+
+
+def test_vector_search_auto_refreshes_stale_embedding_index(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    rebuild_search_index(root)
+
+    results = search_project(
+        root,
+        "修复旧物的人",
+        search_type="all",
+        limit=5,
+        use_vector=True,
+        embedding_provider_name="local_hash",
+    )
+
+    assert results
+    assert any("vector_score" in result.metadata for result in results)
+    with sqlite3.connect(root / "memory" / "search_index.sqlite") as conn:
+        vector_count = conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0]
+    assert vector_count > 0
 
 
 def test_vector_search_without_real_embedding_index_fails_clearly(tmp_path: Path) -> None:
@@ -197,6 +218,24 @@ def test_context_bundle_schema_round_trips() -> None:
     assert reloaded.excluded[0].reason == "protected from drafting output"
 
 
+def test_project_level_context_bundle_writes_run_report(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+
+    bundle = retrieve_context_bundle(
+        root,
+        chapter_number=None,
+        task="canon",
+        instruction="旧车站广播",
+        limit=5,
+    )
+    path = write_context_report(root, bundle)
+
+    assert path.is_file()
+    assert path.parent == root / "runs"
+    assert "context_report.canon" in path.name
+    assert bundle.chapter_number is None
+
+
 def test_context_bundle_expands_chapter_plan_entities_and_state(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
     _write_current_state(root)
@@ -282,6 +321,16 @@ def test_use_search_context_does_not_break_planning_prompt(tmp_path: Path) -> No
     assert result.context_report_path.is_file()
     assert provider.requests
     assert "Context bundle" in provider.requests[0].user_prompt
+
+
+def test_generate_chapter_uses_search_context_by_default(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+
+    result = generate_chapter(GenerateChapterOptions(root=root, chapter_number=1, provider_name="mock"))
+
+    assert result.run_log.status == "completed"
+    reports = list((root / "memory" / "chapters" / "001").glob("context_report*.json"))
+    assert reports
 
 
 def test_cli_search_json_output(tmp_path: Path) -> None:

@@ -676,7 +676,16 @@ class ChapterPlan(SchemaVersionedModel):
         return self
 
 
-ContextTask = Literal["plan", "write", "polish", "audit", "state_update"]
+ContextTask = Literal[
+    "inspiration",
+    "canon",
+    "plan",
+    "write",
+    "polish",
+    "audit",
+    "state_update",
+    "revision",
+]
 ContextVisibility = Literal["reader_visible", "author_only", "hidden_truth", "audit_only"]
 
 
@@ -699,7 +708,7 @@ class ContextExclusion(FlexibleModel):
 
 
 class ContextBundle(SchemaVersionedModel):
-    chapter_number: int = Field(ge=1)
+    chapter_number: int | None = Field(default=None, ge=1)
     task: ContextTask
     query: str
     included: list[ContextItem] = Field(default_factory=list)
@@ -717,7 +726,7 @@ class ContextBundle(SchemaVersionedModel):
             "Context bundle (explainable retrieval):",
             f"- task: {self.task}",
             f"- query: {self.query}",
-            f"- chapter_number: {self.chapter_number}",
+            f"- chapter_number: {self.chapter_number if self.chapter_number is not None else 'project'}",
             "- included:",
         ]
         if not self.included:

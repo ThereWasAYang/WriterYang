@@ -51,6 +51,8 @@ class GenerateChapterOptions:
     skip_polish: bool = False
     skip_audit: bool = False
     stop_after: StopAfter | None = None
+    use_search_context: bool = True
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,6 +180,8 @@ def _run_plan_step(
                 chapter_number=options.chapter_number,
                 instruction=options.instruction,
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             loader(root, options.provider_name, "plan", options.chapter_number),
         )
@@ -225,6 +229,8 @@ def _run_write_step(
                 force=options.force,
                 target_words=options.target_words,
                 style_note=options.style_note,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             loader(root, options.provider_name, "write", options.chapter_number),
         )
@@ -267,6 +273,8 @@ def _run_polish_step(
                 instruction=options.instruction,
                 force=options.force,
                 style_note=options.style_note,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             loader(root, options.provider_name, "polish", options.chapter_number),
         )
@@ -308,6 +316,8 @@ def _run_audit_step(
                 chapter_number=options.chapter_number,
                 instruction=options.instruction,
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             loader(root, options.provider_name, "audit", options.chapter_number),
         )

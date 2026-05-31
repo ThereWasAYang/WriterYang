@@ -48,6 +48,20 @@ def test_mock_provider_can_generate_state_update_proposal(tmp_path: Path) -> Non
     assert "只输出结构化 JSON" in provider.requests[0].system_prompt
 
 
+def test_state_update_can_receive_search_context(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    provider = MockProvider(fake_response=default_mock_state_update_proposal_json(1))
+
+    result = propose_state_update(
+        StateUpdateProposeOptions(root=root, chapter_number=1, use_search_context=True),
+        provider,
+    )
+
+    assert "Context bundle" in provider.requests[0].user_prompt
+    assert result.context_report_path is not None
+    assert result.context_report_path.is_file()
+
+
 def test_state_update_agent_question_repairs_once(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     provider = MockProvider(fake_response=["是否现在更新状态文件？", default_mock_state_update_proposal_json(1)])

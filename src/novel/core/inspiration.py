@@ -16,6 +16,7 @@ from novel.core.io import atomic_write_text, backup_if_exists, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import InspirationBrief, ProjectConfig
 
 
@@ -30,6 +31,8 @@ class InspirationOptions:
     source_type: str = "user_text"
     write_json: bool = False
     overwrite: bool = False
+    use_search_context: bool = False
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class InspirationResult:
     json_path: Path | None
     markdown: str
     brief: InspirationBrief | None
+    context_report_path: Path | None = None
 
 
 def run_inspiration_agent(
@@ -56,10 +60,22 @@ def run_inspiration_agent(
     _refuse_existing(markdown_path, options.overwrite)
     if json_path:
         _refuse_existing(json_path, options.overwrite)
+    context_bundle = (
+        retrieve_context_bundle(
+            root,
+            chapter_number=None,
+            task="inspiration",
+            instruction=source_text,
+            use_vector=options.use_vector_context,
+        )
+        if options.use_search_context
+        else None
+    )
+    search_context = context_bundle.render_for_prompt() if context_bundle else ""
 
     model_request = ModelRequest(
         system_prompt=build_inspiration_system_prompt(),
-        user_prompt=build_inspiration_user_prompt(project, source_text),
+        user_prompt=build_inspiration_user_prompt(project, source_text, search_context=search_context),
         context=_project_context(project),
     )
     content = generate_with_output_guard(
@@ -90,12 +106,14 @@ def run_inspiration_agent(
             brief.model_dump_json(indent=2) + "\n",
             options.overwrite,
         )
+    context_report_path = write_context_report(root, context_bundle, force=options.overwrite) if context_bundle else None
 
     return InspirationResult(
         markdown_path=markdown_path,
         json_path=json_path,
         markdown=markdown,
         brief=brief if json_path else None,
+        context_report_path=context_report_path,
     )
 
 
@@ -130,11 +148,12 @@ def build_inspiration_system_prompt() -> str:
     return load_prompt_template("inspiration_system")
 
 
-def build_inspiration_user_prompt(project: ProjectConfig, source_text: str) -> str:
+def build_inspiration_user_prompt(project: ProjectConfig, source_text: str, *, search_context: str = "") -> str:
     return (
         f"项目标题：{project.title}\n"
         f"语言：{project.language}\n"
         f"类型：{', '.join(project.genre)}\n\n"
+        f"{search_context}\n"
         "用户原始灵感：\n"
         f"{source_text}\n\n"
         "请生成一份 Markdown 弱总纲，必须包含这些小节：\n"

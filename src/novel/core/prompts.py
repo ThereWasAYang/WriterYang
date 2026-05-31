@@ -4,7 +4,7 @@ from functools import lru_cache
 from importlib.resources import files
 
 
-PROMPT_VERSION = "2026-05-24"
+PROMPT_VERSION = "2026-05-31"
 
 
 @lru_cache(maxsize=None)

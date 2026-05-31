@@ -20,9 +20,11 @@ from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditReport,
     ChapterPlan,
+    ContextBundle,
     EntityState,
     ProjectConfig,
     RevisionLog,
@@ -47,6 +49,8 @@ class ChapterRevisionOptions:
     target: RevisionTarget = "polished"
     force: bool = False
     save_as_version: bool = True
+    use_search_context: bool = False
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,7 @@ class ChapterRevisionResult:
     record: RevisionRecord
     revised_markdown: str
     warnings: tuple[str, ...] = ()
+    context_report_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +87,8 @@ class RevisionContext:
     canon_summary: str
     state: EntityState
     timeline: TimelineFile
+    search_context: str = ""
+    context_bundle: ContextBundle | None = None
 
 
 def revise_chapter(
@@ -168,12 +175,18 @@ def revise_chapter(
     )
     log_path = chapter_dir / "revision_log.json"
     _append_revision_log(log_path, options.chapter_number, record)
+    context_report_path = (
+        write_context_report(root, context.context_bundle, force=options.force)
+        if context.context_bundle
+        else None
+    )
     return ChapterRevisionResult(
         output_path=output_path,
         revision_log_path=log_path,
         record=record,
         revised_markdown=revised_markdown,
         warnings=tuple(warnings),
+        context_report_path=context_report_path,
     )
 
 
@@ -200,6 +213,8 @@ def revise_chapter_loop(
             target=current_options.target,
             force=current_options.force,
             save_as_version=True,
+            use_search_context=current_options.use_search_context,
+            use_vector_context=current_options.use_vector_context,
         )
     run_log_path = _write_revision_loop_log(options.base_options.root, options.base_options.chapter_number, results)
     return RevisionLoopResult(results=tuple(results), run_log_path=run_log_path)
@@ -225,10 +240,23 @@ def load_revision_context(
     style_guide = _read_style_guide(root, warnings)
     audit = load_json_model(audit_path, AuditReport) if audit_path.exists() else None
     canon = load_canon_files(root)
+    plan = load_json_model(plan_path, ChapterPlan)
+    context_bundle = (
+        retrieve_context_bundle(
+            root,
+            chapter_number=options.chapter_number,
+            task="revision",
+            instruction=options.instruction,
+            plan=plan,
+            use_vector=options.use_vector_context,
+        )
+        if options.use_search_context
+        else None
+    )
     return (
         RevisionContext(
             project=load_yaml_model(root / "project.yaml", ProjectConfig),
-            plan=load_json_model(plan_path, ChapterPlan),
+            plan=plan,
             source_document=read_markdown_with_front_matter(source_path),
             source_file=source_file,
             audit=audit,
@@ -236,6 +264,8 @@ def load_revision_context(
             canon_summary=format_canon_summary(canon),
             state=load_json_model(root / "memory" / "state" / "current_state.json", EntityState),
             timeline=load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile),
+            search_context=context_bundle.render_for_prompt() if context_bundle else "",
+            context_bundle=context_bundle,
         ),
         warnings,
     )
@@ -288,6 +318,7 @@ def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisio
         f"用户修订要求：{options.instruction or '无'}\n\n"
         "请只输出修订后的正文 Markdown，不要包含 YAML front matter。"
         "保留章节核心剧情与结尾钩子，除非用户明确要求改变。\n\n"
+        f"{context.search_context}\n"
         f"Blocking audit issues（必须逐条解决 medium/high/critical，优先应用 suggested_fix）：\n"
         f"{blocking_issue_text}\n\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"

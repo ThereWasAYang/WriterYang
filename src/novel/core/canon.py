@@ -18,6 +18,7 @@ from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     CanonProposal,
     CharactersFile,
@@ -39,6 +40,8 @@ class CanonError(RuntimeError):
 class CanonSuggestOptions:
     root: Path
     output_path: Path | None = None
+    use_search_context: bool = False
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,7 @@ class CanonSuggestResult:
     proposal: CanonProposal
     proposal_json: str
     output_path: Path | None
+    context_report_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,18 @@ def suggest_canon(options: CanonSuggestOptions, provider: ModelProvider) -> Cano
     inspiration_json = _read_optional_text(root / "memory" / "inspiration.json")
     style_guide = _read_optional_text(root / "memory" / "style_guide.md")
     existing_summary = format_canon_summary(load_canon_files(root))
+    context_bundle = (
+        retrieve_context_bundle(
+            root,
+            chapter_number=None,
+            task="canon",
+            instruction=inspiration_md,
+            use_vector=options.use_vector_context,
+        )
+        if options.use_search_context
+        else None
+    )
+    search_context = context_bundle.render_for_prompt() if context_bundle else ""
 
     user_prompt = build_canon_user_prompt(
         project=project,
@@ -68,6 +84,7 @@ def suggest_canon(options: CanonSuggestOptions, provider: ModelProvider) -> Cano
         inspiration_json=inspiration_json,
         style_guide=style_guide,
         existing_summary=existing_summary,
+        search_context=search_context,
     )
     proposal = _generate_canon_proposal_with_repair(root, provider, user_prompt, existing_summary)
     proposal_json = proposal.model_dump_json(indent=2) + "\n"
@@ -78,11 +95,13 @@ def suggest_canon(options: CanonSuggestOptions, provider: ModelProvider) -> Cano
             raise CanonError(f"{output_path} already exists; refusing to overwrite proposal")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(output_path, proposal_json)
+    context_report_path = write_context_report(root, context_bundle) if context_bundle else None
 
     return CanonSuggestResult(
         proposal=proposal,
         proposal_json=proposal_json,
         output_path=output_path,
+        context_report_path=context_report_path,
     )
 
 
@@ -225,6 +244,7 @@ def build_canon_user_prompt(
     inspiration_json: str,
     style_guide: str,
     existing_summary: str,
+    search_context: str = "",
 ) -> str:
     return (
         f"项目：{project.title}\n"
@@ -254,6 +274,7 @@ def build_canon_user_prompt(
         "- reader_visible_summary 只写读者可见信息。\n"
         "- hidden_truths 不得混入 reader_visible_summary。\n"
         "- foreshadowing_threads 应关联 hidden_truth_id 或 related_entity_ids。\n\n"
+        f"{search_context}\n"
         f"已有 canon 摘要：\n{existing_summary}\n\n"
         f"style guide：\n{style_guide}\n\n"
         f"inspiration.md：\n{inspiration_md}\n\n"

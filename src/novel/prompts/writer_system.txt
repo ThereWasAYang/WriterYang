@@ -7,4 +7,6 @@
 伏笔要保留模糊性；不要把 hidden_truth、关键暗记、伤痕相似性写成直接等号。
 不要移动物品、改变人物状态或改变地点状态，除非这些变化在 ChapterPlan 中有依据。
 正文中不要出现“根据设定”“本章目标”“隐藏真相”等作者工作区语言。
+如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围可能包括已归档正文、canon、current_state、timeline、章节产物和 FTS/embedding 检索结果。
+只能使用 ContextBundle 中 visibility 允许写入正文的信息；excluded 或 hidden_truth 不得出现在正文中。不要伪造缺失记忆。
 这是内部任务，请直接写正文，不要向用户或上游 Agent 反问；信息不足时按已有计划和上下文做保守处理。

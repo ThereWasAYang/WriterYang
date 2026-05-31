@@ -345,6 +345,8 @@ def _polish_chapter(data: dict[str, object]) -> dict[str, object]:
             style_note=_optional_string(data.get("style_note")),
             keep_length=bool(data.get("keep_length")),
             edit_mode=str(data.get("edit_mode") or "normal"),  # type: ignore[arg-type]
+            use_search_context=bool(data.get("use_search_context")),
+            use_vector_context=bool(data.get("use_vector_context")),
         ),
         provider,
     )
@@ -421,6 +423,8 @@ def _generate_chapter(data: dict[str, object]) -> dict[str, object]:
             skip_polish=bool(data.get("skip_polish")),
             skip_audit=bool(data.get("skip_audit")),
             stop_after=_optional_string(data.get("stop_after")),  # type: ignore[arg-type]
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=bool(data.get("use_vector_context")),
         )
     )
     return {
@@ -677,6 +681,8 @@ def _inspire(data: dict[str, object]) -> dict[str, object]:
             source_type="web_text",
             write_json=bool(data.get("write_json")),
             overwrite=overwrite,
+            use_search_context=bool(data.get("use_search_context")),
+            use_vector_context=bool(data.get("use_vector_context")),
         ),
         provider,
     )
@@ -691,7 +697,15 @@ def _canon_suggest(data: dict[str, object]) -> dict[str, object]:
     provider = load_canon_provider(root, str(data.get("provider") or "config"))
     output = _optional_string(data.get("output"))
     output_path = _safe_workspace_file(root, output) if output else _default_canon_proposal_path(root)
-    result = suggest_canon(CanonSuggestOptions(root=root, output_path=output_path), provider)
+    result = suggest_canon(
+        CanonSuggestOptions(
+            root=root,
+            output_path=output_path,
+            use_search_context=bool(data.get("use_search_context")),
+            use_vector_context=bool(data.get("use_vector_context")),
+        ),
+        provider,
+    )
     return {
         "output_path": str(result.output_path) if result.output_path else None,
         "relative_path": _relative(root, result.output_path) if result.output_path else None,
@@ -758,6 +772,8 @@ def _session_start(data: dict[str, object]) -> dict[str, object]:
             segment_range=segment_range,
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=bool(data.get("use_vector_context")),
         )
     )
     return _session_result_payload(result)
@@ -771,6 +787,8 @@ def _session_revise_outline(data: dict[str, object]) -> dict[str, object]:
             instruction=str(data.get("instruction") or ""),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=bool(data.get("use_vector_context")),
         )
     )
     return _session_result_payload(result)
@@ -795,6 +813,8 @@ def _session_run(data: dict[str, object]) -> dict[str, object]:
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             max_auto_revision_rounds=_optional_int(data.get("max_auto_revision_rounds")),
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=bool(data.get("use_vector_context")),
         )
     )
     return _session_result_payload(result)
@@ -809,6 +829,8 @@ def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             from_audit=bool(data.get("from_audit")),
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=bool(data.get("use_vector_context")),
         )
     )
     return _session_result_payload(result)
@@ -823,6 +845,8 @@ def _session_revise_audit(data: dict[str, object]) -> dict[str, object]:
             instruction=str(data.get("instruction") or ""),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=bool(data.get("use_vector_context")),
         )
     )
     return _session_result_payload(result)
@@ -837,6 +861,8 @@ def _session_retry_rewrite(data: dict[str, object]) -> dict[str, object]:
             instruction=_optional_string(data.get("instruction")),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=bool(data.get("use_vector_context")),
         )
     )
     return _session_result_payload(result)
@@ -849,6 +875,8 @@ def _session_undo_rewrite(data: dict[str, object]) -> dict[str, object]:
             session_id=str(data.get("session_id") or ""),
             event_id=str(data.get("event_id") or ""),
             provider_name=str(data.get("provider") or "config"),
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=bool(data.get("use_vector_context")),
         )
     )
     return _session_result_payload(result)

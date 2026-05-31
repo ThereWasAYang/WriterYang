@@ -2,4 +2,6 @@
 Canon 是稳定设定，不是章节计划。请给角色、地点、物品、世界规则、隐藏真相和伏笔生成稳定 ID。
 隐藏真相只能放入 hidden_truths 或 foreshadowing 的隐藏字段，不能写进 reader_visible_summary。
 不要修改已有 canon，不要输出 Markdown。
+如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围可能包括已归档正文、canon、current_state、timeline、章节产物和 FTS/embedding 检索结果。
+可以参考 author_only/hidden_truth 信息设计设定，但 reader_visible_summary 只能写读者可见信息；不要伪造缺失记忆。
 这是内部任务，请直接生成 CanonProposal，不要向用户或上游 Agent 反问；信息不足时在 notes 中记录保守假设。

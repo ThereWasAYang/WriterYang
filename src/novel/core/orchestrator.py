@@ -113,6 +113,8 @@ class OrchestratorOptions:
     max_steps: int = 8
     max_retries: int = 0
     max_agent_calls: int = 8
+    use_search_context: bool = True
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -295,6 +297,8 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
                 source_text=plan.instruction,
                 source_type="ask",
                 overwrite=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
         )
@@ -305,7 +309,15 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
     if plan.task == "canon":
         provider = load_canon_provider(root, provider_name)
         output_path = root / "runs" / f"canon_proposal_{_timestamp()}.json"
-        result = suggest_canon(CanonSuggestOptions(root=root, output_path=output_path), provider)
+        result = suggest_canon(
+            CanonSuggestOptions(
+                root=root,
+                output_path=output_path,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
+            ),
+            provider,
+        )
         return [_rel(root, result.output_path)] if result.output_path else []
     if plan.task == "plan":
         assert chapter is not None
@@ -316,6 +328,8 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
                 chapter_number=chapter,
                 instruction=plan.instruction,
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
         )
@@ -329,6 +343,8 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
                 chapter_number=chapter,
                 instruction=plan.instruction,
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
         )
@@ -342,6 +358,8 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
                 chapter_number=chapter,
                 instruction=plan.instruction,
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
         )
@@ -355,6 +373,8 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
                 chapter_number=chapter,
                 instruction=plan.instruction,
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
         )
@@ -370,6 +390,8 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
                 from_audit=True,
                 target="polished",
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
             provider_name=provider_name,
@@ -384,6 +406,8 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
                 chapter_number=chapter,
                 instruction=plan.instruction,
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
         )

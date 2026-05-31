@@ -104,7 +104,7 @@ exports/
 - 长期设定记忆：`memory/canon/*.json`，包括角色、地点、物品、世界规则、隐藏真相和伏笔。Canon 修改必须走 proposal/apply 或明确的 memory repair。
 - 动态状态记忆：`memory/state/current_state.json` 和 `memory/state/timeline.json`。章节通过 state update proposal 变更，timeline 使用 narrative/story 双轨结构。
 - 创作过程记忆：`memory/chapters/{NNN}/`、`memory/sessions/{session_id}/` 和 `memory/archive/`。未归档内容可版本化修订；归档内容默认不可原地改。
-- 检索索引：`memory/search_index.json`、`memory/search_index.sqlite`、`memory/search_index_manifest.json`。FTS 可自动刷新；真实 embedding 向量必须显式刷新，不用 `local_hash` 冒充真实语义检索。
+- 检索索引：`memory/search_index.json`、`memory/search_index.sqlite`、`memory/search_index_manifest.json`。FTS 可自动刷新；真实 embedding 向量只在显式 vector 检索或手动 `--with-embeddings` 刷新时调用外部 API，不用 `local_hash` 冒充真实语义检索。
 - 调试记忆：`runs/model_io/`、`runs/provider_calls.jsonl`、`runs/agent_output_violations/`。这些文件可用于定位问题，但可能包含小说正文和隐藏设定，不应提交。
 
 ## 4. Workflow Skills 和工具脚本
@@ -325,7 +325,7 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 - current_state / timeline。
 - 当前章节 plan / draft / polished / audit。
 - 用户 instruction / input 文件内容。
-- 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展 + 关键词/SQLite FTS；向量召回必须显式启用 `--use-vector-context` 并先构建真实 embedding 索引。
+- 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展 + 关键词/SQLite FTS；向量召回必须显式启用 `--use-vector-context`，搜索层会在真实 embedding 向量缺失或过期时先刷新索引。
 
 详见 `docs/AGENT_PROMPT_ASSEMBLY.md`。
 

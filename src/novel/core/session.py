@@ -54,6 +54,8 @@ class SessionStartOptions:
     segment_range: tuple[int, ...] | None = None
     provider_name: ProviderName = "config"
     force: bool = False
+    use_search_context: bool = True
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,8 @@ class SessionRunOptions:
     provider_name: ProviderName = "config"
     force: bool = False
     max_auto_revision_rounds: int | None = None
+    use_search_context: bool = True
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,8 @@ class SessionInstructionOptions:
     provider_name: ProviderName = "config"
     force: bool = False
     from_audit: bool = False
+    use_search_context: bool = True
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,8 @@ class SessionRewriteControlOptions:
     instruction: str | None = None
     provider_name: ProviderName = "config"
     force: bool = False
+    use_search_context: bool = True
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -120,7 +128,14 @@ def start_session(options: SessionStartOptions) -> SessionResult:
     _ensure_session_mutable(root, session)
     session_dir = _session_dir(root, session_id)
     session_dir.mkdir(parents=True, exist_ok=True)
-    session = _write_outline_proposal(root, session, options.provider_name, options.force)
+    session = _write_outline_proposal(
+        root,
+        session,
+        options.provider_name,
+        options.force,
+        use_search_context=options.use_search_context,
+        use_vector_context=options.use_vector_context,
+    )
     _write_session(root, session)
     return SessionResult(
         session=session,
@@ -145,7 +160,14 @@ def revise_outline(options: SessionInstructionOptions) -> SessionResult:
         raise CreationSessionError("outline revision requires --instruction")
     merged_intent = f"{session.user_intent}\n\n用户对大纲的修改意见：{options.instruction.strip()}"
     session = session.model_copy(update={"user_intent": merged_intent, "updated_at": _utc_now()})
-    session = _write_outline_proposal(root, session, options.provider_name, force=True)
+    session = _write_outline_proposal(
+        root,
+        session,
+        options.provider_name,
+        force=True,
+        use_search_context=options.use_search_context,
+        use_vector_context=options.use_vector_context,
+    )
     _write_session(root, session)
     return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Outline revised.")
 
@@ -199,7 +221,15 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     revisions: list[str] = []
     for chapter_number in session.chapter_range:
         _retire_state_update_proposal(root, chapter_number)
-        _generate_chapter_content(root, chapter_number, session, options.provider_name, force=options.force)
+        _generate_chapter_content(
+            root,
+            chapter_number,
+            session,
+            options.provider_name,
+            force=options.force,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+        )
         audit_report = _load_audit(root, chapter_number)
         round_number = 0
         while _has_hard_issues(audit_report) and round_number < max_rounds:
@@ -222,8 +252,18 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                         audit_report,
                         options.provider_name,
                         round_number,
+                        use_search_context=options.use_search_context,
+                        use_vector_context=options.use_vector_context,
                     )
-                    _generate_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+                    _generate_chapter_content(
+                        root,
+                        chapter_number,
+                        session,
+                        options.provider_name,
+                        force=True,
+                        use_search_context=options.use_search_context,
+                        use_vector_context=options.use_vector_context,
+                    )
                     after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
                 except Exception:
                     _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
@@ -245,11 +285,21 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                         audit_report,
                         options.provider_name,
                         round_number,
+                        use_search_context=options.use_search_context,
+                        use_vector_context=options.use_vector_context,
                     )
                     revisions.append(_rel(root, revision_path))
                     after_output_path = _promote_revision_to_polished(root, chapter_number, revision_path)
                     _retire_state_update_proposal(root, chapter_number)
-                    _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+                    _audit_chapter_content(
+                        root,
+                        chapter_number,
+                        session,
+                        options.provider_name,
+                        force=True,
+                        use_search_context=options.use_search_context,
+                        use_vector_context=options.use_vector_context,
+                    )
                 except Exception:
                     _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
                     raise
@@ -282,7 +332,15 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 session_path=_session_path(root, session.session_id),
                 message=f"Session stopped after unresolved audit issues in chapter {chapter_number}.",
             )
-        _propose_state(root, chapter_number, session, options.provider_name, force=options.force)
+        _propose_state(
+            root,
+            chapter_number,
+            session,
+            options.provider_name,
+            force=options.force,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+        )
 
     session = session.model_copy(
         update={
@@ -320,6 +378,8 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
                 from_audit=options.from_audit,
                 target="polished",
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
             provider_name=options.provider_name,
@@ -328,7 +388,15 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
         promoted_path = _promote_revision_to_polished(root, chapter_number, result.output_path)
         final_outputs.append(_rel(root, promoted_path))
         _retire_state_update_proposal(root, chapter_number)
-        _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+        _audit_chapter_content(
+            root,
+            chapter_number,
+            session,
+            options.provider_name,
+            force=True,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+        )
         audit_path = _chapter_dir(root, chapter_number) / "audit.json"
         audits.append(_rel(root, audit_path))
         if _has_hard_issues(_load_audit(root, chapter_number)):
@@ -354,7 +422,15 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
         )
 
     for chapter_number in session.chapter_range:
-        _propose_state(root, chapter_number, session, options.provider_name, force=True)
+        _propose_state(
+            root,
+            chapter_number,
+            session,
+            options.provider_name,
+            force=True,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+        )
 
     session = session.model_copy(
         update={
@@ -476,6 +552,8 @@ def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
         options.provider_name,
         instruction=instruction,
         force=True,
+        use_search_context=options.use_search_context,
+        use_vector_context=options.use_vector_context,
     )
     revision = SessionAuditRevision(
         instruction=options.instruction.strip(),
@@ -501,6 +579,8 @@ def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
         options.provider_name,
         force=True,
         final_output_path=polished_path,
+        use_search_context=options.use_search_context,
+        use_vector_context=options.use_vector_context,
     )
     session = session.model_copy(
         update={
@@ -520,7 +600,15 @@ def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
     polished_path = _chapter_dir(root, chapter_number) / "polished.md"
     backup_if_exists(polished_path, reason="undo_rewrite")
     atomic_write_text(polished_path, snapshot_path.read_text(encoding="utf-8"))
-    _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+    _audit_chapter_content(
+        root,
+        chapter_number,
+        session,
+        options.provider_name,
+        force=True,
+        use_search_context=options.use_search_context,
+        use_vector_context=options.use_vector_context,
+    )
     audit_path = _chapter_dir(root, chapter_number) / "audit.json"
     updated_event = event.model_copy(
         update={
@@ -541,6 +629,8 @@ def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         options.provider_name,
         force=True,
         final_output_path=polished_path,
+        use_search_context=options.use_search_context,
+        use_vector_context=options.use_vector_context,
     )
     session = session.model_copy(
         update={
@@ -562,8 +652,25 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
     new_revisions: list[str] = []
     if event.action == "plot_replan":
         _retire_state_update_proposal(root, chapter_number)
-        _auto_replan_chapter(root, chapter_number, session, audit_report, options.provider_name, event.round_number + 1)
-        _generate_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+        _auto_replan_chapter(
+            root,
+            chapter_number,
+            session,
+            audit_report,
+            options.provider_name,
+            event.round_number + 1,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+        )
+        _generate_chapter_content(
+            root,
+            chapter_number,
+            session,
+            options.provider_name,
+            force=True,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+        )
         after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
     else:
         revision_path = _auto_repair_chapter_with_instruction(
@@ -574,11 +681,21 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
             options.provider_name,
             event.round_number + 1,
             options.instruction,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
         )
         new_revisions.append(_rel(root, revision_path))
         after_output_path = _promote_revision_to_polished(root, chapter_number, revision_path)
         _retire_state_update_proposal(root, chapter_number)
-        _audit_chapter_content(root, chapter_number, session, options.provider_name, force=True)
+        _audit_chapter_content(
+            root,
+            chapter_number,
+            session,
+            options.provider_name,
+            force=True,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+        )
     audit_report = _load_audit(root, chapter_number)
     updated_event = event.model_copy(
         update={
@@ -596,6 +713,8 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         options.provider_name,
         force=True,
         final_output_path=after_output_path,
+        use_search_context=options.use_search_context,
+        use_vector_context=options.use_vector_context,
     )
     session = session.model_copy(
         update={
@@ -639,6 +758,8 @@ def _session_status_after_manual_rewrite(
     *,
     force: bool,
     final_output_path: Path,
+    use_search_context: bool,
+    use_vector_context: bool,
 ) -> dict[str, object]:
     if _has_hard_issues(audit_report):
         return {
@@ -647,7 +768,15 @@ def _session_status_after_manual_rewrite(
             "final_output_paths": _with_replaced_output(session.final_output_paths, root, final_output_path),
         }
     _retire_state_update_proposal(root, chapter_number)
-    _propose_state(root, chapter_number, session, provider_name, force=force)
+    _propose_state(
+        root,
+        chapter_number,
+        session,
+        provider_name,
+        force=force,
+        use_search_context=use_search_context,
+        use_vector_context=use_vector_context,
+    )
     return {
         "status": "needs_user_review",
         "content_status": "needs_user_review",
@@ -670,6 +799,9 @@ def _write_outline_proposal(
     session: CreationSession,
     provider_name: str,
     force: bool,
+    *,
+    use_search_context: bool,
+    use_vector_context: bool,
 ) -> CreationSession:
     chapters: list[CreationOutlineChapter] = []
     for chapter_number in session.chapter_range:
@@ -680,6 +812,8 @@ def _write_outline_proposal(
                 chapter_number=chapter_number,
                 instruction=session.user_intent,
                 force=force,
+                use_search_context=use_search_context,
+                use_vector_context=use_vector_context,
             ),
             provider,
         )
@@ -720,6 +854,8 @@ def _run_segment_session(root: Path, session: CreationSession, options: SessionR
                 instruction=session.user_intent,
                 target="polished",
                 force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             ),
             provider,
             provider_name=options.provider_name,
@@ -745,21 +881,44 @@ def _generate_chapter_content(
     provider_name: str,
     *,
     force: bool,
+    use_search_context: bool,
+    use_vector_context: bool,
 ) -> None:
     instruction = _session_instruction(session)
     draft_provider = load_drafting_provider(root, provider_name)
     write_chapter_draft(
-        ChapterDraftingOptions(root=root, chapter_number=chapter_number, instruction=instruction, force=force),
+        ChapterDraftingOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=instruction,
+            force=force,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
+        ),
         draft_provider,
     )
     polish_provider = load_polishing_provider(root, provider_name)
     polish_chapter(
-        ChapterPolishingOptions(root=root, chapter_number=chapter_number, instruction=instruction, force=force),
+        ChapterPolishingOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=instruction,
+            force=force,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
+        ),
         polish_provider,
     )
     audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
     audit_chapter(
-        ChapterAuditOptions(root=root, chapter_number=chapter_number, instruction=instruction, force=force),
+        ChapterAuditOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=instruction,
+            force=force,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
+        ),
         audit_provider,
     )
 
@@ -771,6 +930,8 @@ def _audit_chapter_content(
     provider_name: str,
     *,
     force: bool,
+    use_search_context: bool,
+    use_vector_context: bool,
 ) -> None:
     audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
     audit_chapter(
@@ -779,6 +940,8 @@ def _audit_chapter_content(
             chapter_number=chapter_number,
             instruction=_session_instruction(session),
             force=force,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
         ),
         audit_provider,
     )
@@ -792,6 +955,8 @@ def _audit_chapter_content_with_instruction(
     *,
     instruction: str,
     force: bool,
+    use_search_context: bool,
+    use_vector_context: bool,
 ) -> None:
     audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
     audit_chapter(
@@ -800,6 +965,8 @@ def _audit_chapter_content_with_instruction(
             chapter_number=chapter_number,
             instruction=f"{_session_instruction(session)}\n\n{instruction}",
             force=force,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
         ),
         audit_provider,
     )
@@ -812,6 +979,9 @@ def _auto_repair_chapter(
     audit_report: AuditReport,
     provider_name: str,
     round_number: int,
+    *,
+    use_search_context: bool,
+    use_vector_context: bool,
 ) -> Path:
     issue_summary = "; ".join(
         f"{issue.severity}/{issue.type}: {issue.description}"
@@ -830,6 +1000,8 @@ def _auto_repair_chapter(
             from_audit=True,
             target="polished",
             force=True,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
         ),
         provider,
         provider_name=provider_name,
@@ -845,6 +1017,9 @@ def _auto_repair_chapter_with_instruction(
     provider_name: str,
     round_number: int,
     instruction: str | None,
+    *,
+    use_search_context: bool,
+    use_vector_context: bool,
 ) -> Path:
     issue_summary = "; ".join(
         f"{issue.severity}/{issue.type}: {issue.description}"
@@ -864,6 +1039,8 @@ def _auto_repair_chapter_with_instruction(
             from_audit=True,
             target="polished",
             force=True,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
         ),
         provider,
         provider_name=provider_name,
@@ -878,6 +1055,9 @@ def _auto_replan_chapter(
     audit_report: AuditReport,
     provider_name: str,
     round_number: int,
+    *,
+    use_search_context: bool,
+    use_vector_context: bool,
 ) -> None:
     issue_summary = _blocking_issue_summary(audit_report)
     provider = load_planning_provider(root, provider_name, chapter_number=chapter_number)
@@ -892,6 +1072,8 @@ def _auto_replan_chapter(
                 f"并解决这些问题：{issue_summary}"
             ),
             force=True,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
         ),
         provider,
     )
@@ -959,7 +1141,16 @@ def _blocking_issue_summary(report: AuditReport) -> str:
     )
 
 
-def _propose_state(root: Path, chapter_number: int, session: CreationSession, provider_name: str, *, force: bool) -> None:
+def _propose_state(
+    root: Path,
+    chapter_number: int,
+    session: CreationSession,
+    provider_name: str,
+    *,
+    force: bool,
+    use_search_context: bool,
+    use_vector_context: bool,
+) -> None:
     provider = load_state_update_provider(root, provider_name, chapter_number=chapter_number)
     propose_state_update(
         StateUpdateProposeOptions(
@@ -967,6 +1158,8 @@ def _propose_state(root: Path, chapter_number: int, session: CreationSession, pr
             chapter_number=chapter_number,
             instruction=_session_instruction(session),
             force=force,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
         ),
         provider,
     )

@@ -107,6 +107,27 @@ def test_inspiration_agent_accepts_json_wrapper_from_provider(tmp_path: Path) ->
     assert data["themes"] == ["记忆", "失踪"]
 
 
+def test_inspiration_agent_can_receive_search_context(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "memory" / "style_guide.md").write_text("保持悬疑。", encoding="utf-8")
+    provider = MockProvider(fake_response=FAKE_MARKDOWN)
+
+    result = run_inspiration_agent(
+        InspirationOptions(
+            root=root,
+            source_text="继续发展旧车站广播的灵感",
+            overwrite=True,
+            use_search_context=True,
+        ),
+        provider,
+    )
+
+    assert "Context bundle" in provider.requests[0].user_prompt
+    assert result.context_report_path is not None
+    assert result.context_report_path.is_file()
+
+
 def test_inspiration_agent_refuses_to_overwrite_existing_markdown(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

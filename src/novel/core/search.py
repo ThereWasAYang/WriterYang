@@ -28,6 +28,7 @@ from novel.core.schemas import (
 
 
 SearchType = Literal["character", "location", "item", "event", "chapter", "all"]
+HIDDEN_TRUTH_REDACT_TASKS: set[ContextTask] = {"inspiration", "write", "polish", "revision"}
 
 
 class SearchError(RuntimeError):
@@ -288,6 +289,18 @@ def search_project(
     candidate_ids = _sqlite_candidate_ids(sqlite_path, terms)
     vector_scores: dict[str, float] = {}
     if use_vector:
+        if status.embedding_status in {"missing", "stale"}:
+            refresh_search_index(
+                root,
+                embedding_provider_name=embedding_provider_name,
+                embedding_config_path=embedding_config_path,
+                with_embeddings=True,
+            )
+            status = search_index_status(
+                root,
+                embedding_provider_name=embedding_provider_name,
+                embedding_config_path=embedding_config_path,
+            )
         if status.embedding_status != "indexed":
             raise SearchError(_embedding_unavailable_message(status))
         provider = _load_embedding_provider(
@@ -361,7 +374,7 @@ def retrieve_context(
 def retrieve_context_bundle(
     root: Path,
     *,
-    chapter_number: int,
+    chapter_number: int | None,
     task: ContextTask,
     instruction: str | None,
     plan: ChapterPlan | None = None,
@@ -369,7 +382,7 @@ def retrieve_context_bundle(
     use_vector: bool = False,
 ) -> ContextBundle:
     root = root.resolve()
-    query_parts = [f"chapter {chapter_number}"]
+    query_parts = [f"chapter {chapter_number}" if chapter_number is not None else f"{task} project memory"]
     if instruction and instruction.strip():
         query_parts.append(instruction.strip())
     query = " ".join(query_parts)
@@ -451,14 +464,20 @@ def retrieve_context_bundle(
 
 
 def write_context_report(root: Path, bundle: ContextBundle, *, force: bool = False) -> Path:
-    chapter_dir = root.resolve() / "memory" / "chapters" / f"{bundle.chapter_number:03d}"
-    chapter_dir.mkdir(parents=True, exist_ok=True)
-    target = chapter_dir / "context_report.json"
+    root = root.resolve()
+    if bundle.chapter_number is None:
+        report_dir = root / "runs"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        target = report_dir / f"context_report.{bundle.task}.{_utc_now().strftime('%Y%m%d_%H%M%S')}.json"
+    else:
+        report_dir = root / "memory" / "chapters" / f"{bundle.chapter_number:03d}"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        target = report_dir / "context_report.json"
     if target.exists() and not force:
-        target = chapter_dir / f"context_report.{bundle.task}.json"
+        target = report_dir / f"context_report.{bundle.task}.json"
         counter = 1
         while target.exists():
-            target = chapter_dir / f"context_report.{bundle.task}.{counter}.json"
+            target = report_dir / f"context_report.{bundle.task}.{counter}.json"
             counter += 1
     elif target.exists() and force:
         backup_if_exists(target, reason="force")
@@ -798,7 +817,7 @@ def _maybe_include_hidden_truth(
     truth_id = truth.get("id")
     if not isinstance(truth_id, str):
         return
-    if task in {"write", "polish"}:
+    if task in HIDDEN_TRUTH_REDACT_TASKS:
         _put_exclusion(
             excluded,
             ContextExclusion(
@@ -816,7 +835,7 @@ def _maybe_include_hidden_truth(
             id=truth_id,
             type="hidden_truth",
             source="memory/canon/hidden_truths.json",
-            visibility="hidden_truth" if task == "plan" else "audit_only",
+            visibility="audit_only" if task == "audit" else "hidden_truth",
             reason=reason,
             priority=78 if task == "plan" else 96,
             content=_safe_content(truth),
@@ -839,7 +858,7 @@ def _maybe_include_foreshadowing(
     is_related = bool(direct_ids.intersection(_string_list(thread.get("related_entity_ids")))) or not direct_ids
     if not is_related:
         return
-    if task in {"write", "polish"} and has_hidden:
+    if task in HIDDEN_TRUTH_REDACT_TASKS and has_hidden:
         safe_thread = dict(thread)
         safe_thread.pop("hidden_truth", None)
         _put_context_item(
@@ -883,7 +902,7 @@ def _safe_retrieve_search_results(
     root: Path,
     *,
     query: str,
-    chapter_number: int,
+    chapter_number: int | None,
     limit: int,
     use_vector: bool,
 ) -> tuple[list[SearchResult], list[str]]:
@@ -945,7 +964,7 @@ def _include_search_result(
     included: dict[tuple[str, str], ContextItem],
     excluded: dict[tuple[str, str], ContextExclusion],
 ) -> None:
-    if task in {"write", "polish"} and result.path.endswith("hidden_truths.json"):
+    if task in HIDDEN_TRUTH_REDACT_TASKS and result.path.endswith("hidden_truths.json"):
         _put_exclusion(
             excluded,
             ContextExclusion(
@@ -1324,13 +1343,14 @@ def _diverse_context_results(
     results: list[SearchResult],
     *,
     limit: int,
-    chapter_number: int,
+    chapter_number: int | None,
 ) -> list[SearchResult]:
-    def priority(result: SearchResult) -> tuple[int, int]:
+    def priority(result: SearchResult) -> tuple[int, int, int]:
         chapter = result.metadata.get("chapter_number") or result.metadata.get("chapter")
-        near_chapter = isinstance(chapter, int) and abs(chapter - chapter_number) <= 1
+        near_chapter = chapter_number is not None and isinstance(chapter, int) and abs(chapter - chapter_number) <= 1
+        archived = result.path.startswith("memory/archive/") or "/archive/" in result.path
         type_priority = {"character": 0, "location": 1, "item": 2, "event": 3, "chapter": 4}.get(result.type, 5)
-        return (0 if near_chapter else 1, type_priority)
+        return (0 if archived else 1, 0 if near_chapter else 1, type_priority)
 
     selected: list[SearchResult] = []
     type_counts: dict[str, int] = {}

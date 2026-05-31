@@ -7,6 +7,8 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.providers import MockProvider
+from novel.core.revision import ChapterRevisionOptions, revise_chapter
 from novel.core.schemas import RevisionLog
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
 from novel.core.workspace import InitOptions, init_workspace
@@ -148,6 +150,27 @@ def test_revise_chapter_loop_requires_explicit_confirmation(tmp_path: Path) -> N
     assert code == 1
     assert stdout == ""
     assert "--confirm-loop" in stderr
+
+
+def test_revise_chapter_search_context_protects_hidden_truth(tmp_path: Path) -> None:
+    root = _workspace_with_generated_chapter(tmp_path)
+    provider = MockProvider(fake_response="修订后的正文仍保留广播与车票，只让林澈意识到雨夜还有未解之事。")
+
+    result = revise_chapter(
+        ChapterRevisionOptions(
+            root=root,
+            chapter_number=1,
+            instruction="保持悬疑",
+            use_search_context=True,
+        ),
+        provider,
+    )
+
+    prompt = provider.requests[0].user_prompt
+    assert "Context bundle" in prompt
+    assert "旧车站在特定雨夜会短暂连接过去的时间层" not in prompt
+    assert result.context_report_path is not None
+    assert result.context_report_path.is_file()
 
 
 def test_revise_chapter_loop_writes_versions_and_run_log(tmp_path: Path) -> None:

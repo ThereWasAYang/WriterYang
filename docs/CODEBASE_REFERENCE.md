@@ -533,8 +533,8 @@ orchestrator 项目管家修复 proposal：
 搜索和 ContextBundle：
 
 - `rebuild_search_index()`：全量构建 JSON/SQLite/manifest 搜索索引，可选真实 embedding。
-- `refresh_search_index()`：增量刷新新增、修改、删除文档；默认只更新 FTS，不调用外部 embedding API。
-- `search_index_status()`：返回 FTS 和 embedding freshness 状态，供 CLI/Web 状态栏使用。
+- `refresh_search_index()`：增量刷新新增、修改、删除文档；默认只更新 FTS，`with_embeddings=True` 时刷新真实 embedding。
+- `search_index_status()`：返回 FTS 和 embedding freshness 状态，供 CLI/Web 状态栏使用；`search_project(use_vector=True)` 会在真实向量缺失或过期时先调用 embedding refresh。
 - `search_project()`：关键词/字段/类型/章节搜索。
 - `retrieve_context()`：旧的检索入口。
 - `retrieve_context_bundle()`：结构化上下文检索，按 ChapterPlan 扩展实体引用。

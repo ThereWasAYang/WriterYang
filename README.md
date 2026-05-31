@@ -464,8 +464,8 @@ novel search "旧物修复师" --path ./rain-station --use-vector --embedding-pr
 - 过滤：支持 `--type character/location/item/event/chapter/all` 和 `--chapter`。
 - 高亮：`--highlight` 会返回 `<mark>...</mark>` 标记的 excerpt。
 - SQLite FTS：`memory/search_index.sqlite` 中包含 FTS5 表。
-- freshness manifest：每个文档记录 `sha256`、`mtime`、索引时间和 FTS / embedding 状态。普通 `novel search` 会在 FTS 缺失或过期时自动刷新关键词索引。
-- 向量表：SQLite 中可选保存真实 embedding 向量。真实 embedding 不会自动调用，只有 `index rebuild/refresh --with-embeddings` 才会请求外部 embedding API。
+- freshness manifest：每个文档记录 `sha256`、`mtime`、索引时间和 FTS / embedding 状态。普通 `novel search` 会在 FTS 缺失或过期时自动刷新关键词索引；显式启用 `--use-vector` / `--use-vector-context` 时，会先刷新缺失或过期的真实 embedding 向量。
+- 向量表：SQLite 中可选保存真实 embedding 向量。真实 embedding 只在用户显式刷新向量索引或显式启用 vector 检索时调用，不会作为普通 FTS 搜索的隐式成本。
 
 默认可靠路径是关键词 + SQLite FTS。`local_hash` 只用于测试和离线开发 fixture，不作为真实创作的语义检索 fallback。没有配置真实 embedding API 时，`--use-vector` 会给出清晰错误；Web UI 状态栏会标红提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。
 
@@ -516,7 +516,7 @@ novel audit-chapter 1 --path ./rain-station --provider config --use-search-conte
 novel write-chapter 1 --path ./rain-station --provider config --use-search-context --use-vector-context
 ```
 
-`--use-search-context` 默认只使用结构化实体扩展 + FTS 补充。只有同时传入 `--use-vector-context`，并且已经用真实 embedding provider 建好向量索引时，才会加入语义向量召回。
+`--use-search-context` 默认只使用结构化实体扩展 + FTS 补充。只有同时传入 `--use-vector-context`，才会加入语义向量召回；如果真实 embedding 向量缺失或过期，工具会先自动刷新向量索引。没有配置真实 embedding API 时会给出清晰错误或 warning，不会用 `local_hash` 冒充真实语义检索。
 
 ## 受控编排
 

@@ -11,7 +11,7 @@ from novel.core.state_update import build_state_update_system_prompt
 
 
 def test_prompt_templates_are_versioned_and_loadable() -> None:
-    assert PROMPT_VERSION == "2026-05-24"
+    assert PROMPT_VERSION == "2026-05-31"
     assert "Writer Agent" in load_prompt_template("writer_system")
 
 
@@ -27,3 +27,21 @@ def test_agent_system_prompts_keep_core_constraints() -> None:
     assert "reader_visible_summary" in build_canon_system_prompt()
     assert "Revision Loop 必须受最大轮数限制" in build_revision_system_prompt()
     assert "只输出结构化 JSON" in build_state_update_system_prompt()
+
+
+def test_all_agent_prompts_explain_context_bundle_memory() -> None:
+    prompts = [
+        build_planning_system_prompt(),
+        build_writer_system_prompt(),
+        build_polish_system_prompt(),
+        build_audit_system_prompt(),
+        build_canon_system_prompt(),
+        build_revision_system_prompt(),
+        build_state_update_system_prompt(),
+        load_prompt_template("inspiration_system"),
+    ]
+
+    for prompt in prompts:
+        assert "ContextBundle" in prompt
+        assert "FTS/embedding" in prompt
+        assert "不要伪造缺失记忆" in prompt

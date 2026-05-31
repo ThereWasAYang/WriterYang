@@ -356,7 +356,7 @@ Session 层是用户协作入口。它可以要求用户批准大纲和最终内
 - `plan` 和 `audit` 可以看到 hidden truth，但必须标记为内部参考。
 - `write` 默认不把 hidden truth 原文放进 prompt。
 - 如果开启 `--use-search-context`，默认使用 ChapterPlan 实体扩展 + 关键词/SQLite FTS 补充，并写 `context_report*.json` 供追踪。
-- 只有同时开启 `--use-vector-context` 且已用真实 embedding provider 建好向量索引时，才加入语义向量召回；`local_hash` 只用于测试 fixture。
+- 只有同时开启 `--use-vector-context` 时，才加入语义向量召回；如果真实 embedding 向量缺失或过期，搜索层会先自动刷新。`local_hash` 只用于测试 fixture，不作为真实业务 fallback。
 
 ## 13. Prompt 和日志排查
 

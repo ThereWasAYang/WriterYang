@@ -144,6 +144,22 @@ def test_polish_chapter_modes_and_flags_cli(tmp_path: Path) -> None:
     assert deep_err == ""
 
 
+def test_polish_chapter_search_context_protects_hidden_truth(tmp_path: Path) -> None:
+    root = _workspace_with_draft(tmp_path)
+    provider = MockProvider(fake_response="雨声更深，林澈仍只看见旧车站的空站台。")
+
+    result = polish_chapter(
+        ChapterPolishingOptions(root=root, chapter_number=1, use_search_context=True),
+        provider,
+    )
+
+    prompt = provider.requests[0].user_prompt
+    assert "Context bundle" in prompt
+    assert "旧车站在特定雨夜会短暂连接过去的时间层" not in prompt
+    assert result.context_report_path is not None
+    assert result.context_report_path.is_file()
+
+
 def test_polish_chapter_rejects_conflicting_edit_modes(tmp_path: Path) -> None:
     root = _workspace_with_draft(tmp_path)
 
@@ -235,4 +251,3 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     with redirect_stdout(stdout), redirect_stderr(stderr):
         code = main(args)
     return code, stdout.getvalue(), stderr.getvalue()
-

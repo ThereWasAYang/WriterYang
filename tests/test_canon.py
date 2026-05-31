@@ -33,6 +33,17 @@ def test_mock_provider_generates_canon_proposal(tmp_path: Path) -> None:
     assert "hidden_truths 不得混入 reader_visible_summary" in provider.requests[0].user_prompt
 
 
+def test_canon_suggest_can_receive_search_context(tmp_path: Path) -> None:
+    root = _workspace_with_inspiration(tmp_path)
+    provider = MockProvider(fake_response=default_mock_canon_proposal_json())
+
+    result = suggest_canon(CanonSuggestOptions(root=root, use_search_context=True), provider)
+
+    assert "Context bundle" in provider.requests[0].user_prompt
+    assert result.context_report_path is not None
+    assert result.context_report_path.is_file()
+
+
 def test_canon_suggest_does_not_overwrite_canon_files(tmp_path: Path) -> None:
     root = _workspace_with_inspiration(tmp_path)
     original = (root / "memory" / "canon" / "characters.json").read_text(encoding="utf-8")

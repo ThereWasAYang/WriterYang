@@ -204,6 +204,28 @@ def _add_agent_runtime_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_search_context_args(parser: argparse.ArgumentParser, *, default_enabled: bool = False) -> None:
+    if default_enabled:
+        parser.add_argument(
+            "--no-search-context",
+            dest="use_search_context",
+            action="store_false",
+            default=True,
+            help="Disable automatic FTS memory context for this workflow.",
+        )
+    else:
+        parser.add_argument(
+            "--use-search-context",
+            action="store_true",
+            help="Add explainable FTS memory context to the agent prompt.",
+        )
+    parser.add_argument(
+        "--use-vector-context",
+        action="store_true",
+        help="Use real embedding vectors when adding search context. Refreshes stale vectors first.",
+    )
+
+
 def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
     command = args.session_command
     if command == "start":
@@ -217,6 +239,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 segment_range=segments,
                 provider_name=args.provider,
                 force=args.force,
+                use_search_context=getattr(args, "use_search_context", True),
+                use_vector_context=getattr(args, "use_vector_context", False),
             )
         )
     if command == "show":
@@ -229,6 +253,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 instruction=args.instruction,
                 provider_name=args.provider,
                 force=args.force,
+                use_search_context=getattr(args, "use_search_context", True),
+                use_vector_context=getattr(args, "use_vector_context", False),
             )
         )
     if command == "approve-outline":
@@ -241,6 +267,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 provider_name=args.provider,
                 force=args.force,
                 max_auto_revision_rounds=args.max_auto_revision_rounds,
+                use_search_context=getattr(args, "use_search_context", True),
+                use_vector_context=getattr(args, "use_vector_context", False),
             )
         )
     if command == "revise-content":
@@ -252,6 +280,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 provider_name=args.provider,
                 force=args.force,
                 from_audit=args.from_audit,
+                use_search_context=getattr(args, "use_search_context", True),
+                use_vector_context=getattr(args, "use_vector_context", False),
             )
         )
     if command == "revise-audit":
@@ -263,6 +293,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 instruction=args.instruction,
                 provider_name=args.provider,
                 force=args.force,
+                use_search_context=getattr(args, "use_search_context", True),
+                use_vector_context=getattr(args, "use_vector_context", False),
             )
         )
     if command == "retry-rewrite":
@@ -274,6 +306,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 instruction=args.instruction,
                 provider_name=args.provider,
                 force=args.force,
+                use_search_context=getattr(args, "use_search_context", True),
+                use_vector_context=getattr(args, "use_vector_context", False),
             )
         )
     if command == "undo-rewrite":
@@ -283,6 +317,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 session_id=args.session_id,
                 event_id=args.event_id,
                 provider_name=args.provider,
+                use_search_context=getattr(args, "use_search_context", True),
+                use_vector_context=getattr(args, "use_vector_context", False),
             )
         )
     if command == "accept":
@@ -1202,6 +1238,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print allowed handoff rules before the plan.",
     )
+    _add_search_context_args(ask_parser, default_enabled=True)
 
     session_parser = subparsers.add_parser("session", help="Manage collaborative creation sessions")
     session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
@@ -1218,6 +1255,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provider to use for outline generation.",
     )
     session_start.add_argument("--force", action="store_true", help="Overwrite outline artifacts if needed.")
+    _add_search_context_args(session_start, default_enabled=True)
 
     session_show = session_subparsers.add_parser("show", help="Show a creation session")
     session_show.add_argument("session_id", help="Session id")
@@ -1234,6 +1272,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provider to use for outline revision.",
     )
     session_revise_outline.add_argument("--force", action="store_true", help="Overwrite outline artifacts if needed.")
+    _add_search_context_args(session_revise_outline, default_enabled=True)
 
     session_approve = session_subparsers.add_parser("approve-outline", help="Approve a session outline")
     session_approve.add_argument("session_id", help="Session id")
@@ -1256,6 +1295,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum automatic repair rounds. Defaults to session setting.",
     )
+    _add_search_context_args(session_run, default_enabled=True)
 
     session_revise_content = session_subparsers.add_parser("revise-content", help="Revise generated session content")
     session_revise_content.add_argument("session_id", help="Session id")
@@ -1273,6 +1313,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provider to use for content revision.",
     )
     session_revise_content.add_argument("--force", action="store_true", help="Overwrite selected revision artifacts.")
+    _add_search_context_args(session_revise_content, default_enabled=True)
 
     session_revise_audit = session_subparsers.add_parser("revise-audit", help="Correct Audit understanding and rerun audit for a rewrite event")
     session_revise_audit.add_argument("session_id", help="Session id")
@@ -1286,6 +1327,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provider to use for audit revision.",
     )
     session_revise_audit.add_argument("--force", action="store_true", help="Overwrite audit artifacts if needed.")
+    _add_search_context_args(session_revise_audit, default_enabled=True)
 
     session_retry_rewrite = session_subparsers.add_parser("retry-rewrite", help="Retry a rewrite event from the latest audit")
     session_retry_rewrite.add_argument("session_id", help="Session id")
@@ -1299,6 +1341,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provider to use for rewrite retry.",
     )
     session_retry_rewrite.add_argument("--force", action="store_true", help="Overwrite generated artifacts if needed.")
+    _add_search_context_args(session_retry_rewrite, default_enabled=True)
 
     session_undo_rewrite = session_subparsers.add_parser("undo-rewrite", help="Restore rejected text snapshot for a rewrite event")
     session_undo_rewrite.add_argument("session_id", help="Session id")
@@ -1310,6 +1353,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use for post-restore audit.",
     )
+    _add_search_context_args(session_undo_rewrite, default_enabled=True)
 
     session_accept = session_subparsers.add_parser("accept", help="Accept generated session content")
     session_accept.add_argument("session_id", help="Session id")
@@ -1387,6 +1431,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Replace existing inspiration files.",
     )
+    _add_search_context_args(inspire_parser)
 
     canon_parser = subparsers.add_parser("canon", help="Manage canon data")
     canon_subparsers = canon_parser.add_subparsers(dest="canon_command", required=True)
@@ -1410,6 +1455,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Save proposal JSON to this file. Refuses to overwrite.",
     )
+    _add_search_context_args(canon_suggest)
 
     canon_apply = canon_subparsers.add_parser("apply", help="Apply a canon proposal")
     canon_apply.add_argument("proposal_file", type=Path, help="Canon proposal JSON file")
@@ -1470,7 +1516,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument(
         "--use-vector-context",
         action="store_true",
-        help="Use real embedding vectors when adding search context. Requires a ready embedding index.",
+        help="Use real embedding vectors when adding search context. Refreshes stale vectors first.",
     )
 
     write_parser = subparsers.add_parser("write-chapter", help="Generate a chapter draft")
@@ -1522,7 +1568,7 @@ def build_parser() -> argparse.ArgumentParser:
     write_parser.add_argument(
         "--use-vector-context",
         action="store_true",
-        help="Use real embedding vectors when adding search context. Requires a ready embedding index.",
+        help="Use real embedding vectors when adding search context. Refreshes stale vectors first.",
     )
 
     polish_parser = subparsers.add_parser("polish-chapter", help="Polish a chapter draft")
@@ -1575,6 +1621,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Deep edit: improve rhythm, dialogue, and description without changing facts.",
     )
+    _add_search_context_args(polish_parser)
 
     audit_parser = subparsers.add_parser("audit-chapter", help="Audit a chapter for consistency")
     audit_parser.add_argument("chapter_number", type=int, help="Positive chapter number")
@@ -1632,7 +1679,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument(
         "--use-vector-context",
         action="store_true",
-        help="Use real embedding vectors when adding search context. Requires a ready embedding index.",
+        help="Use real embedding vectors when adding search context. Refreshes stale vectors first.",
     )
 
     revise_parser = subparsers.add_parser("revise-chapter", help="Revise a chapter from instructions or audit")
@@ -1693,6 +1740,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Explicitly allow more than one revision round.",
     )
+    _add_search_context_args(revise_parser)
 
     propose_state_parser = subparsers.add_parser(
         "propose-state-update",
@@ -1732,6 +1780,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow proposal generation when audit has medium, high, or critical issues.",
     )
+    _add_search_context_args(propose_state_parser)
 
     apply_state_parser = subparsers.add_parser(
         "apply-state-update",
@@ -1787,6 +1836,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite existing state_update_proposal.json when used with --propose.",
     )
+    _add_search_context_args(accept_parser, default_enabled=True)
 
     generate_parser = subparsers.add_parser(
         "generate-chapter",
@@ -1853,6 +1903,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Stop after the selected pipeline step.",
     )
+    _add_search_context_args(generate_parser, default_enabled=True)
 
     export_parser = subparsers.add_parser("export", help="Export project content")
     export_subparsers = export_parser.add_subparsers(dest="export_command", required=True)
@@ -2286,6 +2337,8 @@ def main(argv: list[str] | None = None) -> int:
                             max_steps=args.max_steps,
                             max_retries=args.max_retries,
                             max_agent_calls=args.max_agent_calls,
+                            use_search_context=args.use_search_context,
+                            use_vector_context=args.use_vector_context,
                         )
                     )
                     payload = {
@@ -2359,6 +2412,8 @@ def main(argv: list[str] | None = None) -> int:
                         chapter_range=(chapter,),
                         provider_name=args.provider,
                         force=args.force,
+                        use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
                     )
                 )
         except ProjectLockError as exc:
@@ -2473,6 +2528,8 @@ def main(argv: list[str] | None = None) -> int:
                         source_type=source_type,
                         write_json=args.json,
                         overwrite=args.overwrite,
+                        use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
                     ),
                     provider,
                 )
@@ -2517,7 +2574,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 with _command_lock(args, root, "canon suggest", enabled=args.output is not None):
                     result = suggest_canon(
-                        CanonSuggestOptions(root=root, output_path=args.output),
+                        CanonSuggestOptions(
+                            root=root,
+                            output_path=args.output,
+                            use_search_context=args.use_search_context,
+                            use_vector_context=args.use_vector_context,
+                        ),
                         provider,
                     )
             except ProjectLockError as exc:
@@ -2730,6 +2792,8 @@ def main(argv: list[str] | None = None) -> int:
                         style_note=args.style_note,
                         keep_length=args.keep_length,
                         edit_mode=edit_mode,
+                        use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
                     ),
                     provider,
                 )
@@ -2851,6 +2915,8 @@ def main(argv: list[str] | None = None) -> int:
                 target=args.target,
                 force=args.force,
                 save_as_version=args.save_as_version,
+                use_search_context=args.use_search_context,
+                use_vector_context=args.use_vector_context,
             )
             if args.max_rounds > 1:
                 with _command_lock(args, root, "revise-chapter"):
@@ -2927,6 +2993,8 @@ def main(argv: list[str] | None = None) -> int:
                         instruction=instruction,
                         force=args.force,
                         allow_unresolved_audit=args.allow_unresolved_audit,
+                        use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
                     ),
                     provider,
                 )
@@ -3021,6 +3089,8 @@ def main(argv: list[str] | None = None) -> int:
                         propose=args.propose,
                         instruction=instruction,
                         force_proposal=args.force,
+                        use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
                     ),
                     provider,
                 )
@@ -3088,11 +3158,13 @@ def main(argv: list[str] | None = None) -> int:
                         model_name=args.model,
                         target_words=args.target_words,
                         style_note=args.style_note,
-                        skip_polish=args.skip_polish,
-                        skip_audit=args.skip_audit,
-                        stop_after=args.stop_after,
-                    )
-                )
+                skip_polish=args.skip_polish,
+                skip_audit=args.skip_audit,
+                stop_after=args.stop_after,
+                use_search_context=args.use_search_context,
+                use_vector_context=args.use_vector_context,
+            )
+        )
         except ProjectLockError as exc:
             return _failure(args, str(exc), error_type="project_locked")
         except WorkflowError as exc:

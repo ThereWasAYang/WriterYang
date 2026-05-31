@@ -128,7 +128,7 @@
         <option value="mock">mock（仅测试）</option>
       </select>
       <label class="row" style="justify-content: flex-start; gap: 8px;">
-        <input id="useSearchContext" type="checkbox" style="width: auto;">
+        <input id="useSearchContext" type="checkbox" style="width: auto;" checked>
         <span>使用搜索上下文</span>
       </label>
       <label class="row" style="justify-content: flex-start; gap: 8px;">
@@ -591,14 +591,16 @@
     }
 
     function sessionPayload(options = {}) {
-      const payload = {
-        path: projectPath(),
-        intent: $("instruction").value.trim(),
-        instruction: $("instruction").value.trim(),
-        chapters: $("sessionChapters").value.trim(),
-        provider: $("provider").value,
-        force: $("forceWrites").checked,
-      };
+        const payload = {
+          path: projectPath(),
+          intent: $("instruction").value.trim(),
+          instruction: $("instruction").value.trim(),
+          chapters: $("sessionChapters").value.trim(),
+          provider: $("provider").value,
+          force: $("forceWrites").checked,
+          use_search_context: $("useSearchContext").checked,
+          use_vector_context: $("useVectorContext").checked,
+        };
       if (options.includeSessionId !== false) payload.session_id = $("sessionId").value.trim();
       if (options.fromAudit) payload.from_audit = true;
       return payload;
@@ -714,6 +716,8 @@
           provider: $("provider").value,
           force: $("forceWrites").checked,
           write_json: false,
+          use_search_context: $("useSearchContext").checked,
+          use_vector_context: $("useVectorContext").checked,
         });
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
@@ -726,6 +730,8 @@
         const data = await apiPost("/api/canon/suggest", {
           path: projectPath(),
           provider: $("provider").value,
+          use_search_context: $("useSearchContext").checked,
+          use_vector_context: $("useVectorContext").checked,
         });
         if (data.relative_path) $("canonProposalPath").value = data.relative_path;
         $("fileViewer").textContent = JSON.stringify(data, null, 2);

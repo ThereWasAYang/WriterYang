@@ -19,6 +19,7 @@ from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, 
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -43,6 +44,8 @@ class ChapterPolishingOptions:
     style_note: str | None = None
     keep_length: bool = False
     edit_mode: EditMode = "normal"
+    use_search_context: bool = False
+    use_vector_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,7 @@ class ChapterPolishingResult:
     polished_path: Path
     polished_markdown: str
     warnings: tuple[str, ...] = ()
+    context_report_path: Path | None = None
 
 
 def polish_chapter(
@@ -99,6 +103,19 @@ def polish_chapter(
     canon = load_canon_files(root)
     state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
     timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    context_bundle = (
+        retrieve_context_bundle(
+            root,
+            chapter_number=options.chapter_number,
+            task="polish",
+            instruction=options.instruction,
+            plan=plan,
+            use_vector=options.use_vector_context,
+        )
+        if options.use_search_context
+        else None
+    )
+    search_context = context_bundle.render_for_prompt() if context_bundle else ""
 
     model_request = ModelRequest(
         system_prompt=build_polish_system_prompt(),
@@ -115,6 +132,7 @@ def polish_chapter(
             style_note=options.style_note,
             keep_length=options.keep_length,
             edit_mode=options.edit_mode,
+            search_context=search_context,
         ),
         context=format_canon_summary(canon),
     )
@@ -150,10 +168,12 @@ def polish_chapter(
     if options.force:
         backup_if_exists(polished_path, reason="force")
     atomic_write_text(polished_path, polished_markdown)
+    context_report_path = write_context_report(root, context_bundle, force=options.force) if context_bundle else None
     return ChapterPolishingResult(
         polished_path=polished_path,
         polished_markdown=polished_markdown,
         warnings=tuple(warnings),
+        context_report_path=context_report_path,
     )
 
 
@@ -210,6 +230,7 @@ def build_polish_user_prompt(
     style_note: str | None,
     keep_length: bool,
     edit_mode: EditMode,
+    search_context: str = "",
 ) -> str:
     return (
         f"项目：{project.title}\n"
@@ -222,6 +243,7 @@ def build_polish_user_prompt(
         f"临时文风要求：{style_note or '无'}\n\n"
         "请只输出润色后的正文 Markdown，不要包含 YAML front matter，"
         "不要包含 provider 原始响应、调试信息、JSON、分析说明、大纲或包装语。\n\n"
+        f"{search_context}\n"
         f"ChapterPlan：\n{plan.model_dump_json(indent=2)}\n\n"
         f"Draft metadata：\n{json.dumps(draft.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
         f"Draft body：\n{draft.body}\n\n"

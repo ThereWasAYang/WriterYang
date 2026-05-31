@@ -359,9 +359,9 @@
                     <option value="mock">mock（仅测试）</option>
                   </select>
                 </div>
-                <div class="provider-field-wide">
+                <div>
                   <label for="providerModelField">model</label>
-                  <textarea id="providerModelField" class="compact-textarea" rows="2" placeholder="模型名"></textarea>
+                  <input id="providerModelField" placeholder="模型名">
                 </div>
                 <div class="provider-field-wide">
                   <label for="providerBaseUrlEnvField">base_url_env</label>
@@ -409,11 +409,18 @@
                 <label for="providerFieldEditor">非密钥配置 JSON</label>
                 <textarea id="providerFieldEditor" class="editor" style="min-height: 180px;"></textarea>
               </details>
-              <button id="saveProviderConfig" class="primary" style="margin-top: 8px;">保存 Agent 模型配置</button>
+              <div class="actions">
+                <button id="saveProviderConfig" class="primary">保存 Agent 模型配置</button>
+                <button id="clearProviderAgentConfig" class="hidden">恢复继承 default</button>
+              </div>
             </div>
             <div>
-              <h3>脱敏配置</h3>
-              <pre id="providerConfigPanel">未加载</pre>
+              <h3>当前 Agent 生效配置</h3>
+              <div id="providerEffectivePanel" class="metric">未加载</div>
+              <details style="margin-top: 12px;">
+                <summary>完整脱敏调试 JSON</summary>
+                <pre id="providerConfigPanel">未加载</pre>
+              </details>
             </div>
           </div>
         </div>

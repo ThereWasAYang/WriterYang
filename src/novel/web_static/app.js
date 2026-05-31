@@ -13,6 +13,7 @@
     let editorLoadedContent = "";
     let editorSourceFile = "";
     let providerConfigCache = null;
+    let providerEffectiveCache = {};
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -694,6 +695,7 @@
       try {
         const data = await apiGet("/api/provider-config", { path: projectPath() });
         providerConfigCache = data.agents?.content || null;
+        providerEffectiveCache = data.effective_agents || {};
         const warnings = data.agents?.warnings || [];
         $("providerConfigWarnings").innerHTML = warnings.length
           ? `<span style="color:#b91c1c;">${warnings.map(escapeHtml).join("<br>")}</span>`
@@ -723,7 +725,6 @@
       const agent = name === "default" ? providerConfigCache?.default || {} : providerConfigCache?.agents?.[name] || {};
       $("providerProviderField").value = agent.provider || "";
       $("providerModelField").value = agent.model || "";
-      resizeTextareaToContent("providerModelField");
       $("providerBaseUrlEnvField").value = agent.base_url_env || "";
       $("providerApiKeyEnvField").value = agent.api_key_env || "";
       $("providerThinkingTypeField").value = agent.thinking?.type || "";
@@ -734,13 +735,9 @@
       $("providerTimeoutSecondsField").value = agent.timeout_seconds ?? "";
       $("providerMaxRetriesField").value = agent.max_retries ?? "";
       $("providerFieldEditor").value = JSON.stringify(providerEditablePatch(agent), null, 2);
-    }
-
-    function resizeTextareaToContent(id) {
-      const field = $(id);
-      if (!field || field.tagName !== "TEXTAREA") return;
-      field.style.height = "auto";
-      field.style.height = `${Math.max(64, field.scrollHeight)}px`;
+      const canClear = name !== "default" && Object.prototype.hasOwnProperty.call(providerConfigCache?.agents || {}, name);
+      $("clearProviderAgentConfig").classList.toggle("hidden", !canClear);
+      renderProviderEffectivePanel();
     }
 
     function providerEditablePatch(agent) {
@@ -799,7 +796,6 @@
 
     function syncProviderFormToAdvancedJson() {
       try {
-        resizeTextareaToContent("providerModelField");
         const raw = $("providerFieldEditor").value.trim();
         const advanced = raw ? JSON.parse(raw) : {};
         if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) return;
@@ -829,6 +825,67 @@
       } catch (error) {
         setMessage(error.message, true);
       }
+    }
+
+    async function clearProviderAgentConfig() {
+      try {
+        const agentName = $("providerAgentSelect").value;
+        if (agentName === "default") {
+          throw new Error("default 配置不能恢复继承。");
+        }
+        if (!confirm(`删除 ${agentName} 的覆盖配置并恢复继承 default？`)) return;
+        const data = await apiPost("/api/provider-config", {
+          path: projectPath(),
+          clear_agents: [agentName],
+        });
+        $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
+        await loadProviderConfig();
+        $("providerAgentSelect").value = agentName;
+        renderProviderAgentFields();
+        setMessage(`${agentName} 已恢复继承 default`);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    function renderProviderEffectivePanel() {
+      const name = $("providerAgentSelect").value;
+      const effective = providerEffectiveCache?.[name] || {};
+      const config = effective.config || {};
+      const source = effective.source_label || effective.source || "unresolved";
+      const overrideFields = effective.override_fields || [];
+      let inheritance = "未解析";
+      if (name === "default" && source === "default") {
+        inheritance = "默认配置";
+      } else if (effective.has_override) {
+        inheritance = source === "default + agent override" ? "default + agent override" : "Agent 覆盖配置";
+      } else if (effective.inherits_default || source === "default") {
+        inheritance = "全部继承 default";
+      }
+      const rows = [
+        ["来源", source],
+        ["继承状态", inheritance],
+        ["覆盖字段", overrideFields.length ? overrideFields.join(", ") : "无"],
+        ["provider", config.provider],
+        ["model", config.model],
+        ["base_url_env", config.base_url_env],
+        ["api_key_env", config.api_key_env],
+        ["thinking", config.thinking?.type],
+        ["reasoning", config.reasoning],
+        ["temperature", config.temperature],
+        ["max_tokens", config.max_tokens],
+        ["max_context_tokens", config.max_context_tokens],
+        ["timeout_seconds", config.timeout_seconds],
+        ["max_retries", config.max_retries],
+      ];
+      const body = rows.map(([label, value]) => `
+        <div class="provider-effective-row">
+          <b>${escapeHtml(label)}</b>
+          <span>${escapeHtml(value ?? "未设置")}</span>
+        </div>
+      `).join("");
+      const error = effective.error ? `<div class="message error">${escapeHtml(effective.error)}</div>` : "";
+      $("providerEffectivePanel").innerHTML = `<div class="provider-effective-list">${body}</div>${error}`;
     }
 
     async function loadStateTimeline() {
@@ -1181,7 +1238,7 @@
       $(id).addEventListener("change", syncProviderFormToAdvancedJson);
     });
     $("saveProviderConfig").addEventListener("click", saveProviderConfig);
-    window.addEventListener("resize", () => resizeTextareaToContent("providerModelField"));
+    $("clearProviderAgentConfig").addEventListener("click", clearProviderAgentConfig);
     $("loadStateTimeline").addEventListener("click", loadStateTimeline);
     $("loadDiff").addEventListener("click", loadDiff);
     document.querySelectorAll(".nav-button").forEach((button) => {

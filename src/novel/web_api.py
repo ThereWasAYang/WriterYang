@@ -57,6 +57,7 @@ from novel.core.session import (
     start_session,
     undo_rewrite,
 )
+from novel.core.providers import ProviderFactory
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
@@ -503,12 +504,17 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         raise WebAPIError("invalid_config", "config/agents.yaml must be a YAML mapping", status=400)
     agents_update = data.get("agents")
     default_update = data.get("default")
-    if agents_update is None and default_update is None:
-        raise WebAPIError("invalid_request", "default or agents must be a mapping", status=400)
+    clear_agents = data.get("clear_agents")
+    if agents_update is None and default_update is None and clear_agents is None:
+        raise WebAPIError("invalid_request", "default, agents, or clear_agents must be provided", status=400)
     if agents_update is None:
         agents_update = {}
     if not isinstance(agents_update, dict):
         raise WebAPIError("invalid_request", "agents must be a mapping", status=400)
+    if clear_agents is None:
+        clear_agents = []
+    if not isinstance(clear_agents, list) or any(not isinstance(name, str) for name in clear_agents):
+        raise WebAPIError("invalid_request", "clear_agents must be a list of agent names", status=400)
     updated = dict(raw_config)
     if default_update is not None:
         if not isinstance(default_update, dict):
@@ -518,6 +524,15 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
             raise WebAPIError("invalid_config", "default config must be a mapping", status=400)
         updated["default"] = {**(current_default or {}), **_clean_agent_config_patch(default_update)}
     agents = dict(updated.get("agents") or {})
+    cleared: list[str] = []
+    for agent_name in clear_agents:
+        if agent_name == "default":
+            raise WebAPIError("invalid_request", "default config cannot be cleared", status=400)
+        if agent_name not in EDITABLE_AGENT_NAMES and agent_name not in agents:
+            raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
+        if agent_name in agents:
+            agents.pop(agent_name, None)
+            cleared.append(agent_name)
     for agent_name, patch in agents_update.items():
         if not isinstance(agent_name, str) or not isinstance(patch, dict):
             raise WebAPIError("invalid_request", "agent updates must be mappings", status=400)
@@ -536,10 +551,13 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         if backup_path:
             atomic_write_text(config_path, backup_path.read_text(encoding="utf-8"))
         raise WebAPIError("unsafe_config_secret", "provider config contains unsafe secret-like values", status=400)
+    summary = _provider_config_summary(root)
     return {
         "path": str(config_path),
         "backup_path": str(backup_path) if backup_path else None,
-        "config": _provider_config_summary(root)["agents"],
+        "cleared_agents": cleared,
+        "config": summary["agents"],
+        "effective_agents": summary["effective_agents"],
     }
 
 
@@ -1134,12 +1152,78 @@ def _runs_summary(root: Path) -> dict[str, object]:
 
 def _provider_config_summary(root: Path) -> dict[str, object]:
     _require_workspace(root)
-    agents = _safe_config_file(root / "config" / "agents.yaml")
+    agents_path = root / "config" / "agents.yaml"
+    agents = _safe_config_file(agents_path)
     agents["warnings"] = _agent_config_warnings(root / "config" / "agents.yaml")
     return {
         "agents": agents,
         "embeddings": _safe_config_file(root / "config" / "embeddings.yaml"),
+        "effective_agents": _effective_agent_config_summary(agents_path),
     }
+
+
+def _effective_agent_config_summary(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        raw = load_yaml(path)
+        config = AgentsConfig.model_validate(raw)
+    except Exception as exc:
+        return {
+            name: {"source": "unresolved", "source_label": "unresolved", "error": _safe_error(str(exc))}
+            for name in sorted(EDITABLE_AGENT_NAMES)
+        }
+    raw_agents = raw.get("agents") if isinstance(raw, dict) else {}
+    if not isinstance(raw_agents, dict):
+        raw_agents = {}
+    names = ["default", *sorted(set(EDITABLE_AGENT_NAMES) | set(raw_agents))]
+    resolver = ProviderFactory(env={})
+    summaries: dict[str, object] = {}
+    for name in names:
+        if name == "default":
+            if config.default is None:
+                summaries[name] = {"source": "unresolved", "source_label": "unresolved", "has_override": False}
+                continue
+            summaries[name] = {
+                "source": "default",
+                "source_label": "default",
+                "has_override": False,
+                "inherits_default": False,
+                "override_fields": [],
+                "config": _sanitize_config(config.default.model_dump(mode="json", exclude_none=True)),
+            }
+            continue
+        has_override = name in config.agents
+        selected = config.agents.get(name)
+        override = (
+            selected.model_dump(mode="json", exclude_unset=True, exclude_none=True)
+            if selected is not None
+            else {}
+        )
+        try:
+            resolved = resolver.resolve_agent_config(config, name)
+        except Exception as exc:
+            summaries[name] = {
+                "source": "unresolved",
+                "source_label": "unresolved",
+                "has_override": has_override,
+                "inherits_default": False,
+                "override_fields": sorted(override),
+                "override": _sanitize_config(override),
+                "error": _safe_error(str(exc)),
+            }
+            continue
+        source = "default + agent override" if has_override and config.default is not None else "agent override" if has_override else "default"
+        summaries[name] = {
+            "source": source,
+            "source_label": source,
+            "has_override": has_override,
+            "inherits_default": not has_override and config.default is not None,
+            "override_fields": sorted(override),
+            "override": _sanitize_config(override),
+            "config": _sanitize_config(resolved.model_dump(mode="json", exclude_none=True)),
+        }
+    return summaries
 
 
 def _state_timeline_summary(root: Path) -> dict[str, object]:

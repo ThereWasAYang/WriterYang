@@ -7,7 +7,8 @@ from pathlib import Path
 
 from novel.cli import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.io import atomic_write_model_json
+from novel.core.io import atomic_write_model_json, load_yaml
+from novel.core.provider_config import resolve_agent_config
 from novel.core.schemas import AuditReport, CreationSession, SessionRewriteEvent, SessionRewriteEvents, TimelineFile
 from novel.core.session import SessionResult
 from novel.core.workspace import InitOptions, init_workspace
@@ -133,6 +134,8 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     assert "dashscope-secret-never-return" not in serialized
     assert "OPENAI_API_KEY" in serialized
     assert payload["data"]["agents"]["warnings"] == []  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default + agent override"  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["config"]["api_key_env"] == "OPENAI_API_KEY"  # type: ignore[index]
     env_entries = payload["data"]["agents"]["env"]  # type: ignore[index]
     assert any(item["name"] == "OPENAI_API_KEY" and item["exists"] is True for item in env_entries)
 
@@ -472,6 +475,49 @@ def test_api_provider_config_save_can_add_known_agent_override(tmp_path: Path) -
     assert content["agents"]["revision"]["model"] == "web-revision-model"  # type: ignore[index]
 
 
+def test_api_provider_config_clear_agent_override_restores_default(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    config_path = root / "config" / "agents.yaml"
+    before = resolve_agent_config(config_path, "writer")
+    assert before.max_tokens == 24000
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "clear_agents": ["writer"]}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["data"]["cleared_agents"] == ["writer"]  # type: ignore[index]
+    assert "writer" not in payload["data"]["config"]["content"]["agents"]  # type: ignore[index]
+    after = resolve_agent_config(config_path, "writer")
+    assert after.model == "model-name"
+    assert after.max_tokens == 8192
+    assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default"  # type: ignore[index]
+    assert list((root / "config").glob("agents.yaml.bak_*"))
+
+
+def test_api_provider_config_clear_rejects_default_and_unknown_agent(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    before = load_yaml(root / "config" / "agents.yaml")
+
+    for agent_name, message in [
+        ("default", "default config cannot be cleared"),
+        ("not_an_agent", "unknown agent: not_an_agent"),
+    ]:
+        status, payload = handle_api_request(
+            "POST",
+            "/api/provider-config",
+            "",
+            json.dumps({"path": str(root), "clear_agents": [agent_name]}),
+        )
+        assert status == 400
+        assert message in payload["error"]["message"]  # type: ignore[index]
+        assert load_yaml(root / "config" / "agents.yaml") == before
+
+
 def test_api_provider_config_rejects_raw_api_key_without_leaking(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     secret = "sk-test-secret-never-return"
@@ -767,10 +813,10 @@ def test_frontend_basic_render() -> None:
     assert "provider-config-grid" in html
     assert "provider-form-grid" in html
     assert "provider-field-wide" in html
-    assert "compact-textarea" in html
     assert "Agent 模型配置" in html
     assert 'id="providerProviderField"' in html
-    assert 'id="providerModelField"' in html
+    assert '<input id="providerModelField"' in html
+    assert '<textarea id="providerModelField"' not in html
     assert 'id="providerBaseUrlEnvField"' in html
     assert 'id="providerApiKeyEnvField"' in html
     assert 'id="providerThinkingTypeField"' in html
@@ -781,6 +827,10 @@ def test_frontend_basic_render() -> None:
     assert 'id="providerMaxRetriesField"' in html
     assert 'id="providerFieldEditor"' in html
     assert 'id="providerConfigWarnings"' in html
+    assert 'id="clearProviderAgentConfig"' in html
+    assert 'id="providerEffectivePanel"' in html
+    assert "当前 Agent 生效配置" in html
+    assert "完整脱敏调试 JSON" in html
     assert '<option value="config">config</option>' in html
     assert '<option value="mock">mock（仅测试）</option>' in html
     assert 'id="stateTimeline"' in html
@@ -860,8 +910,11 @@ def test_frontend_basic_render() -> None:
     assert "refreshAll({ silent: true })" in app_js
     assert "includeSessionId: false" in app_js
     assert "write_json: false" in app_js
-    assert "resizeTextareaToContent" in app_js
-    assert 'window.addEventListener("resize"' in app_js
+    assert "clearProviderAgentConfig" in app_js
+    assert "clear_agents" in app_js
+    assert "renderProviderEffectivePanel" in app_js
+    assert "全部继承 default" in app_js
+    assert "resizeTextareaToContent" not in app_js
     assert "saveEmbeddingConfig" in app_js
     assert "configEmbeddingBaseUrl" in app_js
     assert '$("configEmbeddingBaseUrl").value = ""' in app_js

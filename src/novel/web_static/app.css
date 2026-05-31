@@ -36,7 +36,6 @@
       background: #fff; color: #20242a; font: inherit;
     }
     textarea { min-height: 94px; resize: vertical; }
-    .compact-textarea { min-height: 64px; height: auto; line-height: 1.35; overflow: hidden; overflow-wrap: anywhere; word-break: break-word; }
     button {
       border: 1px solid #aeb8c3; border-radius: 6px; background: #fff; color: #20242a;
       padding: 8px 10px; font: inherit; cursor: pointer;
@@ -78,6 +77,11 @@
     .provider-config-grid { grid-template-columns: minmax(360px, 1.25fr) minmax(300px, .75fr); align-items: start; }
     .provider-form-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
     .provider-field-wide { grid-column: 1 / -1; }
+    .provider-effective-list { display: grid; gap: 6px; }
+    .provider-effective-row { display: grid; grid-template-columns: minmax(132px, .46fr) minmax(0, 1fr); gap: 8px; }
+    .provider-effective-row b { color: #46515f; display: block; font-size: 13px; white-space: nowrap; }
+    .provider-effective-row b,
+    .provider-effective-row span { min-width: 0; overflow-wrap: anywhere; word-break: normal; }
     .provider-form-grid label,
     .provider-form-grid input,
     .provider-form-grid textarea,
@@ -98,4 +102,7 @@
     @media (max-width: 980px) {
       .app-header { grid-template-columns: 1fr; }
       .dashboard-grid, .workspace-grid, .grid, .four, .config-layout, .provider-config-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .provider-effective-row { grid-template-columns: 1fr; gap: 2px; }
     }

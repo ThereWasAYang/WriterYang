@@ -287,7 +287,7 @@ agents:
 | `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
 | `mock` | 测试 / 调试 | 不调用真实 API，仅用于自动化测试、离线 smoke 和文档演示。真实创作不要把它作为 default。 |
 
-解析顺序是：显式 `--provider mock` 测试覆盖 > 当前 Agent 覆盖字段合并 `default` > fallback Agent 覆盖字段合并 `default` > 仅使用 `default`。如果没有 `default` 且目标 Agent 也没有完整配置，运行时会报错；`novel validate`、`novel doctor` 和 Web UI 的“Agent 模型配置”页会提前给出告警。
+解析顺序是：显式 `--provider mock` 测试覆盖 > 当前 Agent 覆盖字段合并 `default` > fallback Agent 覆盖字段合并 `default` > 仅使用 `default`。如果没有 `default` 且目标 Agent 也没有完整配置，运行时会报错；`novel validate`、`novel doctor` 和 Web UI 的“Agent 模型配置”页会提前给出告警。Web UI 中的“恢复继承 default”会删除当前 Agent 的覆盖字段，因此后续解析会直接走 `default`。
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
 
@@ -602,7 +602,7 @@ web:
 - Audit 定位：读取 `audit.json` 的 evidence quote，定位到正文中的行列位置；找不到时显示无法定位。
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
-- Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；长模型名和环境变量字段使用更宽输入区，model 支持换行并按内容自动增高；高级 JSON 折叠区保留给少见字段。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
+- Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。“恢复继承 default”会删除该 Agent 在 `config/agents.yaml` 中的覆盖配置。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。每次保存都需要重填 Base URL、API Key 和模型名；API Key 只写入项目 `.env`，保存成功后清空输入框并自动刷新语义向量索引。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。

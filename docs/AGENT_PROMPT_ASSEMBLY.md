@@ -306,6 +306,7 @@ Prompt 组装：
 行为：
 
 - `classify_request()` 用关键词和章节号识别任务。
+- 关键词分类只能作为低风险入口识别或 fallback。用户自然语言可能随意且包含错别字，高风险决策必须走结构化 Orchestrator/model decision、schema 校验和保守 fallback，不能只靠硬编码关键词。
 - `HANDOFF_RULES` 限制允许的 agent handoff。
 - dry-run 只输出计划，不写文件。
 - 非 dry-run 调用对应底层 service。

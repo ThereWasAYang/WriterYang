@@ -13,9 +13,33 @@ class WebServerError(RuntimeError):
     """Raised when the local Web UI server cannot start."""
 
 
+_STATIC_DIR = Path(__file__).with_name("web_static")
+_STATIC_CONTENT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+}
+
+
 def index_html() -> str:
-    path = Path(__file__).with_name("web_static") / "index.html"
+    path = _STATIC_DIR / "index.html"
     return path.read_text(encoding="utf-8")
+
+
+def static_asset_bytes(path: str) -> tuple[bytes, str] | None:
+    relative = path.removeprefix("/static/").lstrip("/")
+    if not relative or relative.startswith("."):
+        return None
+    target = (_STATIC_DIR / relative).resolve()
+    static_root = _STATIC_DIR.resolve()
+    if target != static_root and static_root not in target.parents:
+        return None
+    if not target.is_file():
+        return None
+    content_type = _STATIC_CONTENT_TYPES.get(target.suffix)
+    if content_type is None:
+        return None
+    return target.read_bytes(), content_type
 
 
 def run_web_server(host: str = "127.0.0.1", port: int = 8765) -> None:
@@ -41,6 +65,14 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
             parsed = urlparse(self.path)
             if parsed.path == "/":
                 self._send_text(200, index_html(), "text/html; charset=utf-8")
+                return
+            if parsed.path.startswith("/static/"):
+                asset = static_asset_bytes(parsed.path)
+                if asset is None:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+                    return
+                body, content_type = asset
+                self._send_bytes(200, body, content_type)
                 return
             if parsed.path.startswith("/api/"):
                 status, payload = handle_api_request("GET", parsed.path, parsed.query, None)
@@ -72,12 +104,15 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
 
         def _send_text(self, status: int, body: str, content_type: str) -> None:
             encoded = body.encode("utf-8")
+            self._send_bytes(status, encoded, content_type)
+
+        def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self._send_no_cache_headers()
-            self.send_header("Content-Length", str(len(encoded)))
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(encoded)
+            self.wfile.write(body)
 
         def _send_no_cache_headers(self) -> None:
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")

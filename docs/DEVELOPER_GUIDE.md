@@ -21,7 +21,10 @@ src/novel/
   cli.py                # CLI 参数解析、文本/JSON 输出、命令锁
   web_api.py            # 本地 Web API，包装 core service
   web_server.py         # 静态页面和 API 的本地 HTTP server
-  web_static/index.html # Vanilla HTML/JS 前端
+  web_static/           # Vanilla Web 前端静态资源
+    index.html          # 页面结构
+    app.css             # 页面样式
+    app.js              # API 调用和交互逻辑
   core/                 # 可复用业务逻辑，CLI/Web 共用
   prompts/              # Agent system prompt 模板
 schemas/                # 由 Pydantic 导出的 JSON Schema

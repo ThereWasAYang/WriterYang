@@ -67,7 +67,7 @@ ignore_errors = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-novel = ["web_static/*.html", "prompts/*.txt"]
+novel = ["web_static/*.html", "web_static/*.css", "web_static/*.js", "prompts/*.txt"]
 
 [tool.setuptools.data-files]
 "schemas" = ["schemas/*.json"]

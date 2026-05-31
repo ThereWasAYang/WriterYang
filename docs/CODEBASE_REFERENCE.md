@@ -110,7 +110,8 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 启动静态页面和 API。
 - 读取默认端口或 CLI 传入端口。
 - 端口冲突时给清晰错误。
-- 对 HTML/API 响应发送 no-cache headers，避免浏览器继续显示旧版 Web UI。
+- 从 `web_static/` 安全读取 `index.html`、`app.css`、`app.js`，并通过 `/static/...` 提供静态资源。
+- 对 HTML、静态资源和 API 响应发送 no-cache headers，避免浏览器继续显示旧版 Web UI。
 - 不包含业务逻辑。
 
 ### `src/novel/web_api.py`
@@ -154,7 +155,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 ### `src/novel/web_static/index.html`
 
-无构建 vanilla HTML/JS 前端。包含：
+无构建 vanilla 前端的页面结构。只保留 DOM、页面分区和表单控件，通过 `/static/app.css` 和 `/static/app.js` 引入样式与交互逻辑。包含：
 
 - 顶部主导航：主页、创作工作台、小说状态管理、模型与检索配置、运行日志 / 项目文件。
 - 主页：项目路径输入、打开/刷新、项目检查、新建项目、项目初始引导、项目状态、章节列表和下一步提示。
@@ -162,17 +163,31 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 小说状态管理：canon 摘要、状态/时间线、项目管家和后台管理动态。
 - 模型与检索配置：Agent 模型配置、FTS / embedding 状态和索引刷新。
 - 运行日志 / 项目文件：安全文件树、只读文件预览、运行日志和章节文件查看。
-- 初始化、inspiration、canon suggest/apply、生成/写作/润色/审核/export/session API 调用。
 - 项目初始引导面板支持保存默认 API、可选 embedding API、推荐并保存 Web 端口，以及打开当前 Web UI 地址。
-- 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入主页状态、顶部检查摘要、调试页文件查看和下一步提示。
 - Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、按 Audit/用户意见修订、认可和归档。
 - 项目管家面板支持生成 memory repair proposal、确认 apply，并显示后台管理动态。
 - 检索索引面板显示 FTS / embedding 状态，支持本地刷新关键词索引，也支持显式刷新真实 embedding 向量索引。
+
+### `src/novel/web_static/app.css`
+
+Web UI 样式文件。包含顶栏、主导航、页面网格、面板、表单、章节预览、文件树、状态标签、时间线卡片和移动端单列布局。修改视觉布局时优先改这里，不要把新样式重新塞回 `index.html`。
+
+### `src/novel/web_static/app.js`
+
+Web UI 交互脚本。负责：
+
+- 通用 `$()`、`apiGet()`、`apiPost()`、`setMessage()` 等工具函数。
+- 主页面切换、页内 tab 切换和状态保持。
+- 项目打开、刷新、初始化和项目检查。
+- Session 创建、修改大纲、批准、运行、修订、认可、归档和打回记录展示。
+- 章节对照、编辑器、audit evidence 定位、diff、文件树读取。
+- Provider / embedding 配置、索引刷新、状态/时间线、项目管家和运行日志 API 调用。
 - Agent 模型配置页用表单编辑 `provider`、`model`、`thinking.type`、`temperature`、`max_tokens` 等非密钥字段，并保留高级 JSON 折叠区；真实 API Key 仍只通过 `.env` / 初始引导管理。
+- 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入主页状态、顶部检查摘要、调试页文件查看和下一步提示。
 - 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
 - `renderNextStep()`：根据项目状态、validation 结果和 session 状态显示下一步操作建议。
 
-前端只调用 Web API；不要把业务规则复制进 JS。
+`app.js` 只做前端状态和 API 调用，不应复制 core 业务逻辑。新增 Web 能力时，后端逻辑仍应放在 `web_api.py` / `core/`，前端只负责收集输入和展示结果。
 
 ## 5. Core 基础设施模块
 

@@ -12,7 +12,7 @@ from novel.core.schemas import AuditReport, CreationSession, SessionRewriteEvent
 from novel.core.session import SessionResult
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import handle_api_request
-from novel.web_server import WebServerError, index_html, run_web_server
+from novel.web_server import WebServerError, index_html, run_web_server, static_asset_bytes
 
 
 def test_api_status_endpoint(tmp_path: Path) -> None:
@@ -693,10 +693,17 @@ def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -
 
 def test_frontend_basic_render() -> None:
     html = index_html()
+    app_css = (static_asset_bytes("/static/app.css") or (b"", ""))[0].decode("utf-8")
+    app_js = (static_asset_bytes("/static/app.js") or (b"", ""))[0].decode("utf-8")
+    frontend = f"{html}\n{app_css}\n{app_js}"
 
     assert 'id="projectPath"' in html
     assert 'id="runtimePanel"' in html
-    assert "runtime-panel" in html
+    assert '<link rel="stylesheet" href="/static/app.css">' in html
+    assert '<script src="/static/app.js"></script>' in html
+    assert "<style>" not in html
+    assert "<script>\n" not in html
+    assert "runtime-panel" in frontend
     assert 'id="currentProjectSummary"' in html
     assert 'id="currentValidationSummary"' in html
     assert 'data-page="homePage"' in html
@@ -782,41 +789,57 @@ def test_frontend_basic_render() -> None:
     assert 'id="polishChapter"' in html
     assert 'id="auditChapter"' in html
     assert 'id="exportMarkdown"' in html
-    assert "/api/save-chapter-file" in html
-    assert "/api/audit-annotations" in html
-    assert "/api/init-project" in html
-    assert "/api/setup/default-provider" in html
-    assert "/api/setup/embedding" in html
-    assert "/api/setup/recommend-port" in html
-    assert "/api/setup/web-port" in html
-    assert "/api/setup/open-web" in html
-    assert "/api/inspire" in html
-    assert "/api/canon/suggest" in html
-    assert "/api/validate" in html
-    assert "/api/runtime" in html
-    assert "/api/session/revise-outline" in html
-    assert "/api/session/revise-content" in html
-    assert "/api/session/revise-audit" in html
-    assert "/api/session/retry-rewrite" in html
-    assert "/api/session/undo-rewrite" in html
-    assert "/api/session/rewrite-events" in html
-    assert "/api/orchestrator/memory-repair/suggest" in html
-    assert "/api/orchestrator/memory-repair/apply" in html
-    assert "/api/management-events" in html
-    assert "/api/search-status" in html
-    assert "/api/index/refresh" in html
+    assert "/api/save-chapter-file" in app_js
+    assert "/api/audit-annotations" in app_js
+    assert "/api/init-project" in app_js
+    assert "/api/setup/default-provider" in app_js
+    assert "/api/setup/embedding" in app_js
+    assert "/api/setup/recommend-port" in app_js
+    assert "/api/setup/web-port" in app_js
+    assert "/api/setup/open-web" in app_js
+    assert "/api/inspire" in app_js
+    assert "/api/canon/suggest" in app_js
+    assert "/api/validate" in app_js
+    assert "/api/runtime" in app_js
+    assert "/api/session/revise-outline" in app_js
+    assert "/api/session/revise-content" in app_js
+    assert "/api/session/revise-audit" in app_js
+    assert "/api/session/retry-rewrite" in app_js
+    assert "/api/session/undo-rewrite" in app_js
+    assert "/api/session/rewrite-events" in app_js
+    assert "/api/orchestrator/memory-repair/suggest" in app_js
+    assert "/api/orchestrator/memory-repair/apply" in app_js
+    assert "/api/management-events" in app_js
+    assert "/api/search-status" in app_js
+    assert "/api/index/refresh" in app_js
     assert "纠正 Audit 理解并重新审核" in html
     assert "撤回本次打回" in html
-    assert "查看被打回原文" in html
-    assert "from_audit" in html
-    assert "renderNextStep" in html
-    assert "refreshAll({ silent: true })" in html
-    assert "includeSessionId: false" in html
-    assert "write_json: false" in html
-    assert "use_vector_context" in html
-    assert "当前无法使用基于 embedding 的语义检索" in html
-    assert "fetch(" in html
-    assert "loadRuntime" in html
+    assert "查看被打回原文" in app_js
+    assert "from_audit" in app_js
+    assert "renderNextStep" in app_js
+    assert "refreshAll({ silent: true })" in app_js
+    assert "includeSessionId: false" in app_js
+    assert "write_json: false" in app_js
+    assert "use_vector_context" in app_js
+    assert "当前无法使用基于 embedding 的语义检索" in app_js
+    assert "fetch(" in app_js
+    assert "loadRuntime" in app_js
+
+
+def test_static_assets_are_served_from_web_static() -> None:
+    css = static_asset_bytes("/static/app.css")
+    js = static_asset_bytes("/static/app.js")
+    missing = static_asset_bytes("/static/missing.js")
+    traversal = static_asset_bytes("/static/../web_server.py")
+
+    assert css is not None
+    assert css[1] == "text/css; charset=utf-8"
+    assert ".app-header" in css[0].decode("utf-8")
+    assert js is not None
+    assert js[1] == "application/javascript; charset=utf-8"
+    assert "loadRuntime" in js[0].decode("utf-8")
+    assert missing is None
+    assert traversal is None
 
 
 def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(

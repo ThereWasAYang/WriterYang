@@ -27,6 +27,8 @@ def test_codebase_reference_covers_python_entrypoints_and_core_modules() -> None
         "src/novel/web_api.py",
         "src/novel/web_server.py",
         "src/novel/web_static/index.html",
+        "src/novel/web_static/app.css",
+        "src/novel/web_static/app.js",
         *[
             str(path)
             for path in sorted(Path("src/novel/core").glob("*.py"))

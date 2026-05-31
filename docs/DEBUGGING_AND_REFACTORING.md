@@ -188,7 +188,7 @@ runs/agent_output_violations/{request_id}.json
 
 - `web_api.py`
 - `web_server.py`
-- `web_static/index.html`
+- `web_static/index.html` / `app.css` / `app.js`
 - `tests/test_web.py`
 - `tests/test_web_e2e.py`
 

@@ -1,0 +1,1142 @@
+    const $ = (id) => document.getElementById(id);
+    const chapterFileTypes = ["plan", "draft", "polished", "audit"];
+    const providerAgentNames = [
+      "orchestrator", "inspiration", "canon", "plot", "writer",
+      "polish", "audit", "state_update", "revision",
+    ];
+    const providerFormFieldIds = [
+      "providerProviderField", "providerModelField", "providerBaseUrlEnvField",
+      "providerApiKeyEnvField", "providerThinkingTypeField", "providerReasoningField",
+      "providerTemperatureField", "providerMaxTokensField", "providerMaxContextTokensField",
+      "providerTimeoutSecondsField", "providerMaxRetriesField",
+    ];
+    let editorLoadedContent = "";
+    let editorSourceFile = "";
+    let providerConfigCache = null;
+
+    function projectPath() {
+      return $("projectPath").value.trim() || ".";
+    }
+
+    function chapterNumber() {
+      return Number($("chapterNumber").value || "1");
+    }
+
+    function setMessage(text, isError = false) {
+      $("message").textContent = text;
+      $("message").className = isError ? "message error" : "message";
+    }
+
+    function showMainPage(pageId) {
+      document.querySelectorAll(".app-page").forEach((page) => page.classList.remove("active"));
+      document.querySelectorAll(".nav-button").forEach((button) => button.classList.remove("active"));
+      const page = $(pageId);
+      const button = document.querySelector(`[data-page="${pageId}"]`);
+      if (!page || !button) return;
+      page.classList.add("active");
+      button.classList.add("active");
+      if (pageId === "workbenchPage" && ["chapterCompare", "chapterEditor", "auditLocate"].every((id) => $(id).classList.contains("hidden"))) {
+        showTab("chapterCompare");
+      }
+      if (pageId === "logsPage" && ["projectFiles", "runLogs", "singleFileView"].every((id) => $(id).classList.contains("hidden"))) {
+        showTab("projectFiles");
+      }
+      if (pageId === "memoryPage") loadStateTimeline();
+      if (pageId === "configPage") loadProviderConfig();
+      if (pageId === "logsPage") loadRuns();
+    }
+
+    function setSetupStatus(text, isError = false) {
+      $("setupGuideStatus").textContent = text;
+      $("setupGuideStatus").className = isError ? "message error" : "message";
+    }
+
+    function showSetupGuide(show = true) {
+      $("setupGuidePanel").classList.toggle("hidden", !show);
+    }
+
+    function setProjectInitVisible(show = true) {
+      $("projectInitPanel").classList.toggle("hidden", !show);
+      $("toggleProjectInit").textContent = show ? "隐藏新建项目选项" : "显示新建项目选项";
+    }
+
+    function toggleProjectInit() {
+      setProjectInitVisible($("projectInitPanel").classList.contains("hidden"));
+    }
+
+    async function openProject() {
+      await refreshAll({ hideProjectInitOnSuccess: true, hideSetupGuideOnSuccess: true });
+    }
+
+    async function loadRuntime() {
+      try {
+        const data = await apiGet("/api/runtime", {});
+        renderRuntime(data.runtime || {});
+      } catch (error) {
+        $("runtimePanel").innerHTML = `<b>运行环境</b><div class="status-bad">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    function renderRuntime(runtime) {
+      const ok = Boolean(runtime.managed_install);
+      $("runtimePanel").className = `metric runtime-panel ${ok ? "status-ok" : "status-warn"}`;
+      $("runtimePanel").innerHTML = `
+        <b>运行环境：${escapeHtml(runtime.environment || "未知")}</b>
+        <div>版本：${escapeHtml(runtime.version || "")}</div>
+        <div>Python：${escapeHtml(runtime.python || "")}</div>
+        ${runtime.warning ? `<div class="status-bad">${escapeHtml(runtime.warning)}</div>` : "<div>已使用 WriterYang 专用环境。</div>"}
+      `;
+    }
+
+    async function apiGet(path, params) {
+      const query = new URLSearchParams(params);
+      const response = await fetch(`${path}?${query}`);
+      const payload = await response.json();
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error?.message || "API request failed");
+      }
+      return payload.data || {};
+    }
+
+    async function apiPost(path, payload) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error?.message || "API request failed");
+      }
+      return data.data || {};
+    }
+
+    async function refreshAll(options = {}) {
+      try {
+        const path = projectPath();
+        const [status, canon, chapters, files, management, searchStatus] = await Promise.all([
+          apiGet("/api/project/status", { path }),
+          apiGet("/api/canon", { path }),
+          apiGet("/api/chapters", { path }),
+          apiGet("/api/file-tree", { path }),
+          apiGet("/api/management-events", { path, limit: 10 }),
+          apiGet("/api/search-status", { path }),
+        ]);
+        renderStatus(status.status);
+        $("canonPanel").textContent = canon.summary || "无";
+        renderChapters(chapters.chapters || []);
+        renderFileTree(files.files || []);
+        renderManagementEvents(management.events || []);
+        renderSearchStatus(searchStatus.search || {});
+        renderNextStep({ status: status.status, chapters: chapters.chapters || [] });
+        if (options.hideProjectInitOnSuccess) setProjectInitVisible(false);
+        if (options.hideSetupGuideOnSuccess) showSetupGuide(false);
+        if (!options.silent) setMessage("项目已刷新");
+      } catch (error) {
+        if (!options.silent) setMessage(error.message, true);
+        if (options.silent) throw error;
+      }
+    }
+
+    function renderStatus(status) {
+      $("currentProjectSummary").textContent = status.title
+        ? `当前项目：${status.title} · ${projectPath()} · 最新章节 ${status.latest_chapter ?? 0}`
+        : `当前项目：${projectPath()}`;
+      const rows = [
+        ["标题", status.title],
+        ["最新章节", status.latest_chapter],
+        ["灵感", status.inspiration_exists ? "存在" : "缺失"],
+        ["角色", status.character_count],
+        ["地点", status.location_count],
+        ["物品", status.item_count],
+        ["时间线事件", status.timeline_event_count],
+        ["最近 run", status.latest_run_summary || "无"],
+      ];
+      $("statusPanel").innerHTML = rows.map(([label, value]) =>
+        `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value ?? "")}</b></div>`
+      ).join("");
+    }
+
+    function renderManagementEvents(events) {
+      const panel = $("managementEventsPanel");
+      if (!panel) return;
+      if (!events.length) {
+        panel.innerHTML = "后台管理动态：暂无";
+        return;
+      }
+      panel.innerHTML = `
+        <b>后台管理动态</b>
+        ${events.map((event) => `
+          <div style="margin-top: 6px;">
+            [${escapeHtml(event.status || "")}/${escapeHtml(event.event_type || "")}]
+            ${escapeHtml(event.message || "")}
+            ${(event.target_files || []).length ? `<div>files: ${escapeHtml((event.target_files || []).join(", "))}</div>` : ""}
+          </div>
+        `).join("")}
+      `;
+    }
+
+    function renderSearchStatus(search) {
+      const ftsClass = search.fts_status === "indexed" ? "status-ok" : (search.fts_status === "stale" ? "status-warn" : "status-bad");
+      const embeddingOk = search.embedding_status === "indexed";
+      const embeddingWarn = search.embedding_status === "stale" || search.embedding_status === "missing";
+      const embeddingClass = embeddingOk ? "status-ok" : (embeddingWarn ? "status-warn" : "status-bad");
+      const envText = (search.embedding_env_missing || []).length
+        ? `<div>缺少环境变量：${escapeHtml((search.embedding_env_missing || []).join(", "))}</div>`
+        : "";
+      const embeddingHelp = embeddingOk
+        ? "embedding 语义检索可用。"
+        : "当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用。";
+      $("searchStatusPanel").innerHTML = `
+        <b>检索状态</b>
+        <div>FTS：<span class="${ftsClass}">${escapeHtml(search.fts_status || "unknown")}</span></div>
+        <div>Embedding：<span class="${embeddingClass}">${escapeHtml(search.embedding_status || "unknown")}</span></div>
+        <div>文档数：${escapeHtml(search.document_count ?? 0)}</div>
+        <div>Provider：${escapeHtml(search.embedding_provider || "未配置")} / ${escapeHtml(search.embedding_model || "未配置")}</div>
+        ${envText}
+        <div class="${embeddingOk ? "status-ok" : "status-bad"}">${escapeHtml(embeddingHelp)}</div>
+      `;
+    }
+
+    function renderChapters(chapters) {
+      if (!chapters.length) {
+        $("chapterList").textContent = "暂无章节";
+        return;
+      }
+      const body = chapters.map((chapter) => `
+        <tr>
+          <td>${chapter.chapter_number}</td>
+          <td>${escapeHtml(chapter.title || "")}</td>
+          <td>${escapeHtml(chapter.status || "")}</td>
+          <td>${chapter.has_plan ? "plan " : ""}${chapter.has_draft ? "draft " : ""}${chapter.has_polished ? "polished " : ""}${chapter.has_audit ? "audit" : ""}</td>
+          <td>${escapeHtml(chapter.audit_status || "")}</td>
+          <td><button data-chapter="${chapter.chapter_number}" class="select-chapter">选择</button></td>
+        </tr>
+      `).join("");
+      $("chapterList").innerHTML = `<table><thead><tr><th>#</th><th>标题</th><th>状态</th><th>文件</th><th>审核</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
+      document.querySelectorAll(".select-chapter").forEach((button) => {
+        button.addEventListener("click", () => {
+          $("chapterNumber").value = button.dataset.chapter;
+          showMainPage("workbenchPage");
+          showTab("chapterCompare");
+          loadCompare();
+        });
+      });
+    }
+
+    function renderFileTree(files) {
+      if (!files.length) {
+        $("fileTree").textContent = "暂无文件";
+        return;
+      }
+      $("fileTree").innerHTML = files.map((file) => {
+        const indent = "&nbsp;".repeat(Math.max(file.path.split("/").length - 1, 0) * 2);
+        const icon = file.type === "directory" ? "▸" : "·";
+        return `<button class="file-row" data-path="${escapeAttr(file.path)}">${indent}${icon} ${escapeHtml(file.path)}</button>`;
+      }).join("");
+      document.querySelectorAll(".file-row").forEach((button) => {
+        button.addEventListener("click", () => readWorkspaceFile(button.dataset.path));
+      });
+    }
+
+    async function readWorkspaceFile(relPath) {
+      try {
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        showMainPage("logsPage");
+        showTab("projectFiles");
+        $("projectFileCurrent").textContent = `当前文件：${data.path || relPath}`;
+        $("projectFileViewer").textContent = data.content || "";
+        setMessage(`已读取 ${data.path}，内容显示在“运行日志 / 项目文件”的“项目文件”页`);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function runAction(endpoint, label) {
+      return withBusy(label, async () => {
+        const payload = {
+          path: projectPath(),
+          chapter_number: chapterNumber(),
+          instruction: $("instruction").value.trim(),
+          provider: $("provider").value,
+          force: $("forceWrites").checked,
+          use_search_context: $("useSearchContext").checked,
+          use_vector_context: $("useVectorContext").checked,
+        };
+        const data = await apiPost(endpoint, payload);
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage(label, data));
+      });
+    }
+
+    async function runSessionAction(endpoint, payload, label) {
+      return withBusy(label, async () => {
+        const shouldPollRewriteEvents = endpoint === "/api/session/run";
+        let rewritePoller = null;
+        if (shouldPollRewriteEvents) rewritePoller = startRewriteEventPolling();
+        try {
+          const data = await apiPost(endpoint, payload);
+          const session = data.session || {};
+          if (session.session_id) $("sessionId").value = session.session_id;
+          renderSessionSummary(data);
+          $("fileViewer").textContent = JSON.stringify(data, null, 2);
+          await refreshAll({ silent: true });
+          renderSessionSummary(data);
+          renderNextStep(data);
+          setMessage(actionMessage(label, data));
+        } finally {
+          if (rewritePoller) window.clearInterval(rewritePoller);
+        }
+      });
+    }
+
+    function sessionPayload(options = {}) {
+        const payload = {
+          path: projectPath(),
+          intent: $("instruction").value.trim(),
+          instruction: $("instruction").value.trim(),
+          chapters: $("sessionChapters").value.trim(),
+          provider: $("provider").value,
+          force: $("forceWrites").checked,
+          use_search_context: $("useSearchContext").checked,
+          use_vector_context: $("useVectorContext").checked,
+        };
+      if (options.includeSessionId !== false) payload.session_id = $("sessionId").value.trim();
+      if (options.fromAudit) payload.from_audit = true;
+      return payload;
+    }
+
+    function rewriteControlPayload(options = {}) {
+      const payload = sessionPayload(options);
+      payload.event_id = $("rewriteEventId").value.trim();
+      return payload;
+    }
+
+    async function initProject() {
+      return withBusy("初始化项目", async () => {
+        const data = await apiPost("/api/init-project", {
+          path: projectPath(),
+          title: $("projectTitle").value.trim() || "未命名小说",
+          genre: $("projectGenre").value.trim(),
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        setProjectInitVisible(false);
+        showSetupGuide(true);
+        await recommendSetupPort();
+        await refreshAll({ silent: true });
+        setMessage("项目已初始化。请完成项目初始引导，配置默认 API、可选 embedding 和 Web UI 端口。");
+      });
+    }
+
+    async function recommendSetupPort() {
+      try {
+        const data = await apiGet("/api/setup/recommend-port", { start_port: $("setupWebPort").value || "8765" });
+        $("setupWebPort").value = data.selected_port || 8765;
+        setSetupStatus(`推荐可用端口：${data.selected_port}，地址：${data.url}`);
+        return data;
+      } catch (error) {
+        setSetupStatus(error.message, true);
+        throw error;
+      }
+    }
+
+    async function setupDefaultProvider() {
+      return withBusy("保存默认 API", async () => {
+        const data = await apiPost("/api/setup/default-provider", {
+          path: projectPath(),
+          provider: "openai_compatible",
+          base_url: $("setupBaseUrl").value.trim(),
+          api_key: $("setupApiKey").value,
+          model: $("setupModel").value.trim(),
+          ping: true,
+        });
+        $("setupApiKey").value = "";
+        setSetupStatus(data.message || "默认 API 已保存。");
+        await loadProviderConfig();
+        await refreshAll({ silent: true });
+        setMessage("默认 API 连通性测试通过，已作为所有 Agent 的缺省配置。");
+      });
+    }
+
+    function setupSkipProvider() {
+      setSetupStatus("已暂时跳过默认 API 配置。真实创作前需要配置默认 API，否则 Agent 调用会失败。", true);
+    }
+
+    async function setupEmbedding() {
+      return withBusy("保存 embedding API", async () => {
+        if (!$("setupEmbeddingEnabled").checked) {
+          const skipped = await apiPost("/api/setup/embedding", { path: projectPath(), skip: true });
+          setSetupStatus(skipped.message || "已跳过 embedding API 配置。");
+          return;
+        }
+        const data = await apiPost("/api/setup/embedding", {
+          path: projectPath(),
+          provider: "openai_compatible",
+          provider_name: "configured",
+          base_url: $("setupEmbeddingBaseUrl").value.trim(),
+          api_key: $("setupEmbeddingApiKey").value,
+          model: $("setupEmbeddingModel").value.trim(),
+          ping: true,
+        });
+        $("setupEmbeddingApiKey").value = "";
+        setSetupStatus(`Embedding API 连通性测试通过：${data.provider} / ${data.model}`);
+        await refreshAll({ silent: true });
+      });
+    }
+
+    async function setupSavePort() {
+      return withBusy("保存 Web UI 端口", async () => {
+        const data = await apiPost("/api/setup/web-port", {
+          path: projectPath(),
+          port: Number($("setupWebPort").value || "8765"),
+        });
+        $("setupWebPort").value = data.selected_port;
+        setSetupStatus(`Web UI 端口已保存：${data.url}`);
+        await refreshAll({ silent: true });
+      });
+    }
+
+    async function setupOpenWeb() {
+      try {
+        const data = await apiPost("/api/setup/open-web", {
+          path: projectPath(),
+          port: Number($("setupWebPort").value || "8765"),
+        });
+        window.open(data.url, "_blank", "noopener");
+        setSetupStatus(`已打开 Web UI：${data.url}`);
+      } catch (error) {
+        setSetupStatus(error.message, true);
+      }
+    }
+
+    async function inspireProject() {
+      return withBusy("生成灵感", async () => {
+        const data = await apiPost("/api/inspire", {
+          path: projectPath(),
+          text: $("instruction").value.trim(),
+          provider: $("provider").value,
+          force: $("forceWrites").checked,
+          write_json: false,
+          use_search_context: $("useSearchContext").checked,
+          use_vector_context: $("useVectorContext").checked,
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("生成灵感", data));
+      });
+    }
+
+    async function canonSuggest() {
+      return withBusy("Canon 建议", async () => {
+        const data = await apiPost("/api/canon/suggest", {
+          path: projectPath(),
+          provider: $("provider").value,
+          use_search_context: $("useSearchContext").checked,
+          use_vector_context: $("useVectorContext").checked,
+        });
+        if (data.relative_path) $("canonProposalPath").value = data.relative_path;
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("Canon 建议", data));
+      });
+    }
+
+    async function canonApply() {
+      return withBusy("应用 Canon proposal", async () => {
+        const data = await apiPost("/api/canon/apply", {
+          path: projectPath(),
+          proposal_file: $("canonProposalPath").value.trim(),
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("应用 Canon proposal", data));
+      });
+    }
+
+    async function refreshIndex(withEmbeddings) {
+      return withBusy(withEmbeddings ? "刷新语义向量索引" : "刷新关键词索引", async () => {
+        const data = await apiPost("/api/index/refresh", {
+          path: projectPath(),
+          with_embeddings: withEmbeddings,
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderSearchStatus(data.search || {});
+        await refreshAll({ silent: true });
+        setMessage(actionMessage(withEmbeddings ? "刷新语义向量索引" : "刷新关键词索引", data));
+      });
+    }
+
+    async function memoryRepairSuggest() {
+      return withBusy("项目管家生成修复建议", async () => {
+        const data = await apiPost("/api/orchestrator/memory-repair/suggest", {
+          path: projectPath(),
+          request: $("memoryRepairInstruction").value.trim() || $("instruction").value.trim(),
+        });
+        if (data.proposal_relative_path) $("memoryRepairProposalPath").value = data.proposal_relative_path;
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderManagementEvents(data.management_events || []);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("项目管家修复建议", data));
+      });
+    }
+
+    async function memoryRepairApply() {
+      return withBusy("项目管家应用修复建议", async () => {
+        const data = await apiPost("/api/orchestrator/memory-repair/apply", {
+          path: projectPath(),
+          proposal_path: $("memoryRepairProposalPath").value.trim(),
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderManagementEvents(data.management_events || []);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("项目管家应用修复建议", data));
+      });
+    }
+
+    async function validateProject() {
+      return withBusy("项目检查", async () => {
+        const data = await apiGet("/api/validate", { path: projectPath() });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderValidationStatus(data);
+        renderNextStep({ validation: data });
+        setMessage(`项目检查完成：${data.error_count || 0} 个错误，${data.warning_count || 0} 个警告`);
+      });
+    }
+
+    async function viewFile() {
+      try {
+        const data = await apiGet("/api/chapter-file", {
+          path: projectPath(),
+          chapter: chapterNumber(),
+          file: $("fileType").value,
+        });
+        $("fileViewer").textContent = data.exists ? data.content : `${data.relative_path || data.path} 不存在`;
+        setMessage("文件已加载");
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadCompare() {
+      await Promise.all(chapterFileTypes.map(async (type) => {
+        const target = $(`${type}Viewer`);
+        try {
+          const data = await apiGet("/api/chapter-file", {
+            path: projectPath(),
+            chapter: chapterNumber(),
+            file: type,
+          });
+          target.textContent = data.exists ? data.content : `${data.relative_path} 不存在`;
+        } catch (error) {
+          target.textContent = error.message;
+        }
+      }));
+      setMessage("章节对照已加载");
+    }
+
+    async function loadEditorFile() {
+      try {
+        const target = $("editorTarget").value;
+        const source = $("editorSource").value.trim() || `${target}.md`;
+        const relPath = `memory/chapters/${String(chapterNumber()).padStart(3, "0")}/${source}`;
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        editorLoadedContent = data.content || "";
+        editorSourceFile = source;
+        $("chapterEditorText").value = editorLoadedContent;
+        $("editorSource").value = source;
+        $("editorDirty").textContent = "已加载";
+        $("editorSavedPath").textContent = relPath;
+        setMessage(`已加载 ${relPath}`);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function saveEditorVersion() {
+      try {
+        const target = $("editorTarget").value;
+        const data = await apiPost("/api/save-chapter-file", {
+          path: projectPath(),
+          chapter_number: chapterNumber(),
+          target,
+          source_file: editorSourceFile || `${target}.md`,
+          content: $("chapterEditorText").value,
+          instruction: "Web editor save",
+        });
+        editorLoadedContent = $("chapterEditorText").value;
+        $("editorDirty").textContent = "已保存";
+        $("editorSavedPath").textContent = data.relative_path || data.output_path || "";
+        $("diffLeft").value = `memory/chapters/${String(chapterNumber()).padStart(3, "0")}/${editorSourceFile || `${target}.md`}`;
+        $("diffRight").value = data.relative_path || "";
+        await refreshAll({ silent: true });
+        setMessage(`已保存 ${data.relative_path}`);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadAuditAnnotations() {
+      try {
+        const auditedFile = $("auditLocateFile").value;
+        const [annotations, fileData] = await Promise.all([
+          apiGet("/api/audit-annotations", { path: projectPath(), chapter: chapterNumber(), file: auditedFile }),
+          apiGet("/api/read-file", {
+            path: projectPath(),
+            file: `memory/chapters/${String(chapterNumber()).padStart(3, "0")}/${auditedFile}`,
+          }),
+        ]);
+        $("auditTextViewer").value = fileData.content || "";
+        renderAuditIssues(annotations.issues || []);
+        setMessage("Audit issue 定位已加载");
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    function renderAuditIssues(issues) {
+      if (!issues.length) {
+        $("auditIssueList").textContent = "无 issue";
+        return;
+      }
+      $("auditIssueList").innerHTML = issues.map((issue, index) => {
+        const first = (issue.matches || [])[0] || {};
+        const loc = first.matched ? `line ${first.line}, col ${first.column}` : "无法定位";
+        return `<button class="issue-button" data-index="${index}"><b>${escapeHtml(issue.id)}</b> <span class="badge">${escapeHtml(issue.severity || "")}</span><br>${escapeHtml(issue.description || "")}<br><small>${escapeHtml(loc)}</small></button>`;
+      }).join("");
+      document.querySelectorAll(".issue-button").forEach((button) => {
+        button.addEventListener("click", () => {
+          const issue = issues[Number(button.dataset.index)];
+          const match = (issue.matches || []).find((item) => item.matched);
+          if (!match) {
+            setMessage("该 issue 的 evidence 无法定位到正文", true);
+            return;
+          }
+          const viewer = $("auditTextViewer");
+          viewer.focus();
+          viewer.setSelectionRange(match.start_offset, match.end_offset);
+          const lineHeight = 20;
+          viewer.scrollTop = Math.max(0, (match.line - 3) * lineHeight);
+          setMessage(`已定位 ${issue.id}`);
+        });
+      });
+    }
+
+    async function loadRuns() {
+      try {
+        const data = await apiGet("/api/runs", { path: projectPath() });
+        const runRows = (data.run_logs || []).map((run) => `
+          <tr><td>${escapeHtml(run.run_id || "")}</td><td>${escapeHtml(run.task || "")}</td><td>${escapeHtml(run.status || "")}</td><td>${escapeHtml(run.started_at || "")}</td><td>${escapeHtml(run.path || "")}</td></tr>
+        `).join("");
+        const callRows = (data.provider_calls || []).map((call) => `
+          <tr><td>${escapeHtml(call.provider || "")}</td><td>${escapeHtml(call.model || "")}</td><td>${escapeHtml(call.status || "")}</td><td>${escapeHtml(call.started_at || "")}</td><td>${escapeHtml(call.error_type || "")}</td><td>${escapeHtml(call.model_io_path || "")}</td></tr>
+        `).join("");
+        const ioRows = (data.model_io_logs || []).map((log) => `
+          <tr><td>${escapeHtml(log.agent_name || "")}</td><td>${escapeHtml(log.provider || "")}</td><td>${escapeHtml(log.model || "")}</td><td>${escapeHtml(log.status || "")}</td><td>${escapeHtml(log.started_at || "")}</td><td>${escapeHtml(log.model_io_path || "")}</td></tr>
+        `).join("");
+        $("runLogPanel").innerHTML = `
+          <h3>Run logs</h3><table><thead><tr><th>run_id</th><th>task</th><th>status</th><th>started_at</th><th>path</th></tr></thead><tbody>${runRows || "<tr><td colspan='5'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Provider calls</h3><table><thead><tr><th>provider</th><th>model</th><th>status</th><th>started_at</th><th>error</th><th>model_io</th></tr></thead><tbody>${callRows || "<tr><td colspan='6'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Model I/O</h3><table><thead><tr><th>agent</th><th>provider</th><th>model</th><th>status</th><th>started_at</th><th>path</th></tr></thead><tbody>${ioRows || "<tr><td colspan='6'>无</td></tr>"}</tbody></table>
+        `;
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadProviderConfig() {
+      try {
+        const data = await apiGet("/api/provider-config", { path: projectPath() });
+        providerConfigCache = data.agents?.content || null;
+        const warnings = data.agents?.warnings || [];
+        $("providerConfigWarnings").innerHTML = warnings.length
+          ? `<span style="color:#b91c1c;">${warnings.map(escapeHtml).join("<br>")}</span>`
+          : "Agent API 配置正常。";
+        $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
+        renderProviderEditor(providerConfigCache);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    function renderProviderEditor(config) {
+      const agents = config?.agents || {};
+      const names = ["default", ...Array.from(new Set([...providerAgentNames, ...Object.keys(agents)]))];
+      const previousName = $("providerAgentSelect").value;
+      $("providerAgentSelect").innerHTML = names.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join("");
+      if (names.length) {
+        $("providerAgentSelect").value = names.includes(previousName) ? previousName : names[0];
+        renderProviderAgentFields();
+      } else {
+        $("providerFieldEditor").value = "";
+      }
+    }
+
+    function renderProviderAgentFields() {
+      const name = $("providerAgentSelect").value;
+      const agent = name === "default" ? providerConfigCache?.default || {} : providerConfigCache?.agents?.[name] || {};
+      $("providerProviderField").value = agent.provider || "";
+      $("providerModelField").value = agent.model || "";
+      $("providerBaseUrlEnvField").value = agent.base_url_env || "";
+      $("providerApiKeyEnvField").value = agent.api_key_env || "";
+      $("providerThinkingTypeField").value = agent.thinking?.type || "";
+      $("providerReasoningField").value = agent.reasoning || "";
+      $("providerTemperatureField").value = agent.temperature ?? "";
+      $("providerMaxTokensField").value = agent.max_tokens ?? "";
+      $("providerMaxContextTokensField").value = agent.max_context_tokens ?? "";
+      $("providerTimeoutSecondsField").value = agent.timeout_seconds ?? "";
+      $("providerMaxRetriesField").value = agent.max_retries ?? "";
+      $("providerFieldEditor").value = JSON.stringify(providerEditablePatch(agent), null, 2);
+    }
+
+    function providerEditablePatch(agent) {
+      const editable = {};
+      [
+        "provider", "model", "base_url_env", "api_key_env", "reasoning",
+        "max_context_tokens", "max_tokens", "temperature", "timeout_seconds", "max_retries",
+      ].forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(agent, key)) editable[key] = agent[key];
+      });
+      if (agent.thinking?.type) editable.thinking = { type: agent.thinking.type };
+      return editable;
+    }
+
+    function buildProviderPatchFromForm() {
+      const patch = {};
+      [
+        ["provider", "providerProviderField"],
+        ["model", "providerModelField"],
+        ["base_url_env", "providerBaseUrlEnvField"],
+        ["api_key_env", "providerApiKeyEnvField"],
+        ["reasoning", "providerReasoningField"],
+      ].forEach(([key, id]) => {
+        const value = $(id).value.trim();
+        if (value) patch[key] = value;
+      });
+      const thinkingType = $("providerThinkingTypeField").value.trim();
+      if (thinkingType) patch.thinking = { type: thinkingType };
+      [
+        ["temperature", "providerTemperatureField"],
+        ["max_tokens", "providerMaxTokensField"],
+        ["max_context_tokens", "providerMaxContextTokensField"],
+        ["timeout_seconds", "providerTimeoutSecondsField"],
+        ["max_retries", "providerMaxRetriesField"],
+      ].forEach(([key, id]) => {
+        const raw = $(id).value.trim();
+        if (!raw) return;
+        const value = Number(raw);
+        if (Number.isNaN(value)) throw new Error(`${key} 必须是数字`);
+        patch[key] = key === "temperature" || key === "timeout_seconds" ? value : Math.trunc(value);
+      });
+      return patch;
+    }
+
+    function providerPatchFromEditorAndForm() {
+      const raw = $("providerFieldEditor").value.trim();
+      let advanced = {};
+      if (raw) {
+        advanced = JSON.parse(raw);
+        if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) {
+          throw new Error("高级 JSON 必须是对象");
+        }
+      }
+      return { ...advanced, ...buildProviderPatchFromForm() };
+    }
+
+    function syncProviderFormToAdvancedJson() {
+      try {
+        const raw = $("providerFieldEditor").value.trim();
+        const advanced = raw ? JSON.parse(raw) : {};
+        if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) return;
+        $("providerFieldEditor").value = JSON.stringify({ ...advanced, ...buildProviderPatchFromForm() }, null, 2);
+      } catch {
+        // Keep the user's JSON untouched until save surfaces the parse error.
+      }
+    }
+
+    async function saveProviderConfig() {
+      try {
+        const agentName = $("providerAgentSelect").value;
+        const patch = providerPatchFromEditorAndForm();
+        const payload = {
+          path: projectPath(),
+          agents: {},
+        };
+        if (agentName === "default") {
+          payload.default = patch;
+        } else {
+          payload.agents = { [agentName]: patch };
+        }
+        const data = await apiPost("/api/provider-config", payload);
+        $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
+        await loadProviderConfig();
+        setMessage("Agent 模型配置已保存并备份");
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadStateTimeline() {
+      try {
+        const data = await apiGet("/api/state-timeline", { path: projectPath() });
+        const visual = data.visual || {};
+        const events = visual.timeline_events || [];
+        const eventRows = events.map((event) => `
+          <tr><td>${escapeHtml(event.id || "")}</td><td>${escapeHtml(event.chapter || "")}</td><td>${escapeHtml(event.summary || "")}</td><td>${escapeHtml(event.location_name || event.location_id || "")}</td><td>${escapeHtml((event.participant_names || []).join(", "))}</td></tr>
+        `).join("");
+        const itemRows = (visual.items || []).map((item) => `
+          <tr><td>${escapeHtml(item.name || item.id || "")}</td><td>${escapeHtml(item.holder_name || item.holder_id || "")}</td><td>${escapeHtml(item.location_name || item.location_id || "")}</td><td>${escapeHtml(item.condition || "")}</td></tr>
+        `).join("");
+        const characterRows = (visual.characters || []).map((character) => `
+          <tr><td>${escapeHtml(character.name || character.id || "")}</td><td>${escapeHtml(character.location_name || character.location_id || "")}</td><td>${escapeHtml(character.health || "")}</td><td>${escapeHtml((character.possessions || []).join(", "))}</td></tr>
+        `).join("");
+        const chapterCards = Object.entries(visual.timeline_by_chapter || {}).map(([chapter, chapterEvents]) => `
+          <div class="timeline-card"><b>第 ${escapeHtml(chapter)} 章</b>${chapterEvents.map((event) => `<div>${escapeHtml(event.id || "")}: ${escapeHtml(event.summary || "")}</div>`).join("")}</div>
+        `).join("");
+        const conflicts = (visual.conflicts || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+        $("stateTimelinePanel").innerHTML = `
+          <pre>${escapeHtml(JSON.stringify(data.summary || {}, null, 2))}</pre>
+          <h3 style="margin-top: 16px;">Timeline by chapter</h3>
+          <div class="timeline-lane">${chapterCards || "<span>无</span>"}</div>
+          <h3 style="margin-top: 16px;">Characters</h3>
+          <table><thead><tr><th>角色</th><th>地点</th><th>状态</th><th>持有物</th></tr></thead><tbody>${characterRows || "<tr><td colspan='4'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Items</h3>
+          <table><thead><tr><th>物品</th><th>持有人</th><th>地点</th><th>状态</th></tr></thead><tbody>${itemRows || "<tr><td colspan='4'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Timeline</h3>
+          <table><thead><tr><th>id</th><th>chapter</th><th>summary</th><th>location</th><th>participants</th></tr></thead><tbody>${eventRows || "<tr><td colspan='5'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Conflicts</h3>
+          <ul>${conflicts || "<li>无</li>"}</ul>
+        `;
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function loadDiff() {
+      try {
+        const data = await apiGet("/api/diff", {
+          path: projectPath(),
+          left: $("diffLeft").value.trim(),
+          right: $("diffRight").value.trim(),
+        });
+        $("diffViewer").textContent = data.diff || "两个文件没有差异。";
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    function showTab(tabId) {
+      document.querySelectorAll(".tabPanel").forEach((panel) => panel.classList.add("hidden"));
+      document.querySelectorAll(".tab").forEach((button) => button.classList.remove("active"));
+      const panel = $(tabId);
+      const button = document.querySelector(`[data-tab="${tabId}"]`);
+      if (!panel || !button) return;
+      panel.classList.remove("hidden");
+      button.classList.add("active");
+      if (tabId === "runLogs") loadRuns();
+      if (tabId === "chapterEditor" && !$("chapterEditorText").value) loadEditorFile();
+      if (tabId === "auditLocate") loadAuditAnnotations();
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[char]));
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/`/g, "&#96;");
+    }
+
+    async function withBusy(label, fn) {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      buttons.forEach((button) => { button.disabled = true; });
+      setMessage(`${label}执行中，真实 API 可能需要较长时间...`);
+      try {
+        return await fn();
+      } catch (error) {
+        setMessage(error.message, true);
+      } finally {
+        buttons.forEach((button) => { button.disabled = false; });
+      }
+    }
+
+    function actionMessage(label, data) {
+      const parts = [`${label}完成`];
+      if (data.message) parts.push(data.message);
+      if (data.session) {
+        parts.push(`session=${data.session.session_id}`);
+        parts.push(`status=${data.session.status}/${data.session.content_status}`);
+      }
+      if (Array.isArray(data.audit_summary)) {
+        const blocking = data.audit_summary.reduce((count, item) => count + (item.blocking_issue_count || 0), 0);
+        if (blocking) parts.push(`blocking issues=${blocking}`);
+      }
+      if (Array.isArray(data.rewrite_events) && data.rewrite_events.length) {
+        parts.push(`auto rewrites=${data.rewrite_events.length}`);
+      }
+      if (Array.isArray(data.management_events) && data.management_events.length) {
+        parts.push(`management events=${data.management_events.length}`);
+      }
+      if (data.proposal?.repair_id) parts.push(`repair=${data.proposal.repair_id}`);
+      if (data.overall_status) parts.push(`audit=${data.overall_status}`);
+      if (Array.isArray(data.warnings) && data.warnings.length) {
+        parts.push(`warnings=${data.warnings.length}`);
+      }
+      return parts.join("；");
+    }
+
+    function renderSessionSummary(data) {
+      const session = data.session || {};
+      if (!session.session_id) {
+        $("sessionPanel").textContent = "未加载 Session";
+        renderRewriteEvents([]);
+        return;
+      }
+      $("sessionPanel").innerHTML = `
+        <span>Session</span>
+        <b>${escapeHtml(session.session_id)}</b>
+        <div>status: ${escapeHtml(session.status || "")}</div>
+        <div>outline: ${escapeHtml(session.outline_status || "")}</div>
+        <div>content: ${escapeHtml(session.content_status || "")}</div>
+        <div>chapters: ${escapeHtml((session.chapter_range || []).join(", "))}</div>
+        <div>${escapeHtml(data.message || "")}</div>
+        ${renderSessionAuditSummary(data.audit_summary || [])}
+      `;
+      renderRewriteEvents(data.rewrite_events || []);
+      renderManagementEvents(data.management_events || []);
+    }
+
+    function startRewriteEventPolling() {
+      const sessionId = $("sessionId").value.trim();
+      if (!sessionId) return null;
+      const poll = async () => {
+        try {
+          const data = await apiGet("/api/session/rewrite-events", { path: projectPath(), session_id: sessionId });
+          renderRewriteEvents(data.rewrite_events || []);
+        } catch (error) {
+          // Keep long-running session actions quiet; the final request will surface blocking errors.
+        }
+      };
+      poll();
+      return window.setInterval(poll, 3000);
+    }
+
+    function renderNextStep(data = {}) {
+      const session = data.session || {};
+      const validation = data.validation || null;
+      const status = data.status || {};
+      let text = "下一步：打开或初始化一个小说项目。";
+      if (validation) {
+        if ((validation.error_count || 0) > 0) {
+          text = `下一步：项目检查发现 ${validation.error_count} 个错误，请先查看“运行日志 / 项目文件”的详情并修复。`;
+        } else if ((validation.warning_count || 0) > 0) {
+          text = `下一步：项目检查通过，但有 ${validation.warning_count} 个警告。长篇创作前建议查看并处理。`;
+        } else {
+          text = "下一步：项目检查通过。可以继续创建 Session、写作或导出。";
+        }
+      } else if (session.session_id) {
+        if (session.status === "outline_proposed" || session.outline_status === "proposed") {
+          text = "下一步：查看大纲。不满意就在聊天 / 指令框写修改意见并点击“修改大纲”；满意后点击“批准大纲”。";
+        } else if (session.status === "outline_approved" || session.outline_status === "approved" && session.content_status === "not_started") {
+          text = "下一步：点击“开始写作”，系统会自动完成写作、润色、审核和状态更新 proposal。";
+        } else if (session.content_status === "needs_revision" || session.status === "needs_revision") {
+          text = "下一步：查看 Audit 摘要。硬伤优先点击“按 Audit 修订内容”；主观意见写入聊天 / 指令框后点击“按用户意见修订内容”。";
+        } else if (session.content_status === "needs_user_review" || session.status === "needs_user_review") {
+          text = "下一步：查看 polished/audit。满意后点击“认可本次创作”，再点击“归档”。";
+        } else if (session.status === "accepted") {
+          text = "下一步：点击“归档”冻结本次创作；之后可以导出 Markdown。";
+        } else if (session.status === "archived") {
+          text = "下一步：本次创作已归档。可以继续新建 Session 或导出 Markdown。";
+        }
+      } else if (status.title) {
+        if (!status.inspiration_exists) {
+          text = "下一步：在聊天 / 指令框输入故事灵感，点击“生成灵感”。";
+        } else if ((status.character_count || 0) === 0 && (status.location_count || 0) === 0) {
+          text = "下一步：点击“Canon 建议”，确认 proposal 后点击“应用 Canon proposal”。";
+        } else {
+          text = "下一步：填写章节范围和创作意图，点击“创建大纲”开始一次 Session。";
+        }
+      }
+      $("nextStepPanel").textContent = text;
+      $("workbenchNextStepPanel").textContent = text;
+    }
+
+    function renderValidationStatus(validation) {
+      const errorCount = validation.error_count || 0;
+      const warningCount = validation.warning_count || 0;
+      const panel = $("validationStatusPanel");
+      const stateClass = errorCount > 0 ? "status-bad" : (warningCount > 0 ? "status-warn" : "status-ok");
+      const details = [...(validation.errors || []), ...(validation.warnings || [])].slice(0, 5);
+      const detailHtml = details.length
+        ? details.map((item) => `
+          <div style="margin-top: 4px;">
+            <b>${escapeHtml(item.level || "")}</b>
+            ${escapeHtml(item.path || "")}: ${escapeHtml(item.message || "")}
+          </div>
+        `).join("")
+        : "<div>未发现错误或警告。</div>";
+      panel.className = `metric ${stateClass}`;
+      panel.innerHTML = `
+        <b>项目检查结果：${errorCount} 个错误，${warningCount} 个警告</b>
+        ${detailHtml}
+        ${details.length < ((validation.errors || []).length + (validation.warnings || []).length) ? "<div>更多详情见“运行日志 / 项目文件”的“章节文件查看”。</div>" : ""}
+      `;
+      $("currentValidationSummary").textContent = `项目检查：${errorCount} 个错误，${warningCount} 个警告`;
+    }
+
+    function renderSessionAuditSummary(auditSummary) {
+      if (!auditSummary.length) return "<div style=\"margin-top: 8px;\">audit: 未生成</div>";
+      return auditSummary.map((item) => {
+        const issues = item.issues || [];
+        const issueRows = issues.length
+          ? issues.map((issue) => `
+              <div style="margin-top: 4px;">
+                <b>${escapeHtml(issue.id || "")}</b>
+                [${escapeHtml(issue.severity || "")}/${escapeHtml(issue.type || "")}]
+                ${escapeHtml(issue.description || "")}
+                ${issue.suggested_fix ? `<div>fix: ${escapeHtml(issue.suggested_fix)}</div>` : ""}
+              </div>
+            `).join("")
+          : "<div>无 issue</div>";
+        return `
+          <div style="margin-top: 8px;">
+            <b>第 ${escapeHtml(item.chapter_number)} 章 audit</b>:
+            ${escapeHtml(item.overall_status || (item.exists ? "读取失败" : "未生成"))}
+            ，blocking=${escapeHtml(item.blocking_issue_count || 0)}
+            ${item.error ? `<div class="message error">${escapeHtml(item.error)}</div>` : ""}
+            <div>${issueRows}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderRewriteEvents(events) {
+      const panel = $("rewriteEventsPanel");
+      if (!events.length) {
+        panel.innerHTML = "自动打回重写记录：暂无";
+        return;
+      }
+      panel.innerHTML = `
+        <b>自动打回重写记录</b>
+        ${events.map((event) => {
+          const actionText = event.action === "plot_replan" ? "重写大纲" : "修正文";
+          const issueRows = (event.blocking_issues || []).map((issue) => `
+            <div style="margin-top: 4px;">
+              <b>${escapeHtml(issue.id || "")}</b>
+              [${escapeHtml(issue.severity || "")}/${escapeHtml(issue.type || "")}]
+              ${escapeHtml(issue.description || "")}
+              ${issue.suggested_fix ? `<div>fix: ${escapeHtml(issue.suggested_fix)}</div>` : ""}
+            </div>
+          `).join("") || "<div>无阻断 issue</div>";
+          const snapshotButton = event.rejected_text_snapshot_path
+            ? `<button class="view-rejected-text" data-path="${escapeAttr(event.rejected_text_snapshot_path)}">查看被打回原文</button>`
+            : "";
+          const selectButton = `<button class="select-rewrite-event" data-event-id="${escapeAttr(event.event_id)}">选择该打回记录</button>`;
+          const auditRevisions = (event.audit_revision_history || []).length
+            ? `<div>audit 复审次数：${escapeHtml((event.audit_revision_history || []).length)}</div>`
+            : "";
+          return `
+            <div style="margin-top: 8px;">
+              <div>第 ${escapeHtml(event.chapter_number)} 章第 ${escapeHtml(event.round_number)} 轮被 Audit 打回：${escapeHtml(actionText)}，status=${escapeHtml(event.status || "")}</div>
+              <div>event: ${escapeHtml(event.event_id || "")}</div>
+              <div>undo: ${escapeHtml(event.undo_status || "not_requested")}</div>
+              <div>audit: ${escapeHtml(event.trigger_audit_path || "")}</div>
+              ${selectButton} ${snapshotButton}
+              ${auditRevisions}
+              <div>${issueRows}</div>
+            </div>
+          `;
+        }).join("")}
+      `;
+      document.querySelectorAll(".select-rewrite-event").forEach((button) => {
+        button.addEventListener("click", () => {
+          $("rewriteEventId").value = button.dataset.eventId || "";
+          setMessage(`已选择打回记录：${button.dataset.eventId || ""}`);
+        });
+      });
+      document.querySelectorAll(".view-rejected-text").forEach((button) => {
+        button.addEventListener("click", () => loadRejectedText(button.dataset.path));
+      });
+    }
+
+    async function loadRejectedText(relPath) {
+      if (!relPath) return;
+      try {
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        $("rejectedTextViewer").value = data.content || "";
+        setMessage(`已读取被打回原文：${data.path}`);
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    $("openProject").addEventListener("click", openProject);
+    $("refreshProject").addEventListener("click", refreshAll);
+    $("refreshProjectFiles").addEventListener("click", refreshAll);
+    $("validateProject").addEventListener("click", validateProject);
+    $("toggleProjectInit").addEventListener("click", toggleProjectInit);
+    $("initProject").addEventListener("click", initProject);
+    $("setupDefaultProvider").addEventListener("click", setupDefaultProvider);
+    $("setupSkipProvider").addEventListener("click", setupSkipProvider);
+    $("setupEmbedding").addEventListener("click", setupEmbedding);
+    $("setupRecommendPort").addEventListener("click", recommendSetupPort);
+    $("setupSavePort").addEventListener("click", setupSavePort);
+    $("setupOpenWeb").addEventListener("click", setupOpenWeb);
+    $("planChapter").addEventListener("click", () => runAction("/api/plan-chapter", "生成计划"));
+    $("writeChapter").addEventListener("click", () => runAction("/api/write-chapter", "写章节"));
+    $("polishChapter").addEventListener("click", () => runAction("/api/polish-chapter", "润色"));
+    $("auditChapter").addEventListener("click", () => runAction("/api/audit-chapter", "审核"));
+    $("inspireProject").addEventListener("click", inspireProject);
+    $("canonSuggest").addEventListener("click", canonSuggest);
+    $("canonApply").addEventListener("click", canonApply);
+    $("refreshFtsIndex").addEventListener("click", () => refreshIndex(false));
+    $("refreshEmbeddingIndex").addEventListener("click", () => refreshIndex(true));
+    $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
+    $("memoryRepairApply").addEventListener("click", memoryRepairApply);
+    $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));
+    $("sessionStart").addEventListener("click", () => {
+      $("sessionId").value = "";
+      runSessionAction("/api/session/start", sessionPayload({ includeSessionId: false }), "创建 Session 大纲");
+    });
+    $("sessionReviseOutline").addEventListener("click", () => runSessionAction("/api/session/revise-outline", sessionPayload(), "修改 Session 大纲"));
+    $("sessionApprove").addEventListener("click", () => runSessionAction("/api/session/approve-outline", sessionPayload(), "批准 Session 大纲"));
+    $("sessionRun").addEventListener("click", () => runSessionAction("/api/session/run", sessionPayload(), "Session 写作"));
+    $("sessionAccept").addEventListener("click", () => runSessionAction("/api/session/accept", sessionPayload(), "认可 Session"));
+    $("sessionArchive").addEventListener("click", () => runSessionAction("/api/session/archive", sessionPayload(), "归档 Session"));
+    $("sessionReviseAuditContent").addEventListener("click", () => runSessionAction("/api/session/revise-content", sessionPayload({ fromAudit: true }), "按 Audit 修订内容"));
+    $("sessionReviseInstruction").addEventListener("click", () => runSessionAction("/api/session/revise-content", sessionPayload(), "按用户意见修订内容"));
+    $("sessionReviseAudit").addEventListener("click", () => runSessionAction("/api/session/revise-audit", rewriteControlPayload(), "纠正 Audit 理解并重新审核"));
+    $("sessionRetryRewrite").addEventListener("click", () => runSessionAction("/api/session/retry-rewrite", rewriteControlPayload(), "根据新审核重新打回"));
+    $("sessionUndoRewrite").addEventListener("click", () => runSessionAction("/api/session/undo-rewrite", rewriteControlPayload(), "撤回本次打回"));
+    $("viewFile").addEventListener("click", viewFile);
+    $("loadCompare").addEventListener("click", loadCompare);
+    $("loadEditorFile").addEventListener("click", loadEditorFile);
+    $("saveEditorVersion").addEventListener("click", saveEditorVersion);
+    $("chapterEditorText").addEventListener("input", () => {
+      $("editorDirty").textContent = $("chapterEditorText").value === editorLoadedContent ? "未修改" : "有未保存修改";
+    });
+    $("loadAuditAnnotations").addEventListener("click", loadAuditAnnotations);
+    $("loadRuns").addEventListener("click", loadRuns);
+    $("loadProviderConfig").addEventListener("click", loadProviderConfig);
+    $("providerAgentSelect").addEventListener("change", renderProviderAgentFields);
+    providerFormFieldIds.forEach((id) => {
+      $(id).addEventListener("input", syncProviderFormToAdvancedJson);
+      $(id).addEventListener("change", syncProviderFormToAdvancedJson);
+    });
+    $("saveProviderConfig").addEventListener("click", saveProviderConfig);
+    $("loadStateTimeline").addEventListener("click", loadStateTimeline);
+    $("loadDiff").addEventListener("click", loadDiff);
+    document.querySelectorAll(".nav-button").forEach((button) => {
+      button.addEventListener("click", () => showMainPage(button.dataset.page));
+    });
+    $("goWorkbench").addEventListener("click", () => showMainPage("workbenchPage"));
+    $("homeGoWorkbench").addEventListener("click", () => showMainPage("workbenchPage"));
+    $("goMemoryPage").addEventListener("click", () => showMainPage("memoryPage"));
+    $("homeGoConfig").addEventListener("click", () => showMainPage("configPage"));
+    document.querySelectorAll(".tab").forEach((button) => {
+      button.addEventListener("click", () => showTab(button.dataset.tab));
+    });
+    $("projectPath").value = localStorage.getItem("writeryang.projectPath") || "";
+    $("projectPath").addEventListener("change", () => localStorage.setItem("writeryang.projectPath", $("projectPath").value));
+    loadRuntime();

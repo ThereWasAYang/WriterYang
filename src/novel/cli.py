@@ -167,6 +167,7 @@ ERROR_CODES = {
     "project_read_error": "Project data could not be read.",
     "revision_error": "Chapter revision failed.",
     "search_error": "Search index or query failed.",
+    "session_error": "Creation session operation failed.",
     "setup_guide_error": "Project initial setup guide failed.",
     "state_update_error": "State/timeline update failed.",
     "usage_error": "Provider usage statistics could not be read.",

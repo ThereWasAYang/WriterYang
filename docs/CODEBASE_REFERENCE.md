@@ -37,6 +37,7 @@
 - `src/novel/cli.py`
 - `src/novel/web_api.py`
 - `src/novel/web_server.py`
+- `src/novel/core/__init__.py`
 - `src/novel/core/agent_output.py`
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
@@ -120,6 +121,13 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `handle_api_request()`：路由分发入口。
 - `_success()` / `_failure()`：统一响应结构。
 - `_locked_write()`：Web 写操作项目锁。
+- `_runtime_summary()`：返回 Web server 当前 Python 路径、环境名和包版本，帮助确认 Web UI 是否运行在安装器创建的新环境。
+- `_list_projects()`：列出给定根目录下可打开的小说项目，不读取 `.env*`。
+- `get_project_status()` / `format_canon()` / `_list_chapters()`：分别支持项目状态、canon 摘要和章节列表 API。
+- `summarize_provider_usage()`：为 Web usage 面板返回 provider 调用和 token 统计。
+- `_init_project()`：Web 端初始化小说项目，调用 `init_workspace()`，不复制 workspace 创建逻辑。
+- `_inspire()`：Web 端生成 inspiration，调用 Inspiration service。
+- `_canon_suggest()` / `_canon_apply()`：Web 端 canon proposal 和 apply，调用 Canon service 并保持 proposal/apply 分离。
 - `_validate_project()` / `_validation_message_payload()`：只读项目检查 API，复用 `validate_project()`，返回 errors/warnings 摘要供 Web UI 显示。
 - `_plan_chapter()`、`_write_chapter()`、`_polish_chapter()`、`_audit_chapter()`、`_generate_chapter()`：调用对应 core service。
 - `_export_markdown()`：调用 Markdown export。
@@ -164,16 +172,20 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 ## 5. Core 基础设施模块
 
+### `core/__init__.py`
+
+Core 包标记文件。当前不导出业务 API；调用方应从具体 service 模块导入函数，避免形成隐式公共接口。
+
 ### `core/schemas.py`
 
 所有 Pydantic schema 的集中定义。主要类型：
 
-- 配置：`ProjectConfig`、`AgentConfig`、`AgentsConfig`、`EmbeddingProviderConfig`、`EmbeddingsConfig`、`ThinkingConfig`。
-- canon：`Character`、`Location`、`Item`、`WorldRule`、`HiddenTruth`、`ForeshadowingThread` 及对应 file model。
+- 配置：`ProjectConfig`、`AgentConfig`、`AgentConfigPatch`、`AgentsConfig`、`EmbeddingProviderConfig`、`EmbeddingsConfig`、`ThinkingConfig`。
+- inspiration/canon：`InspirationBrief`、`CanonProposal`、`Character`、`Location`、`Item`、`WorldRule`、`HiddenTruth`、`ForeshadowingThread` 及对应 file model。
 - state/timeline：`EntityState`、`CharacterState`、`ItemState`、`LocationState`、`TimelineEvent`、`TimelineNarrativePosition`、`TimelineStoryPosition`、`TimelineFile`。`narrative_position` 表示正文呈现顺序，`story_position` 表示故事世界顺序。
 - chapter：`ChapterPlan`、`ChapterScene`、`RequiredContext`、`ChapterMetadata`。
 - audit：`AuditReport`、`AuditIssue`、`AuditEvidence`。
-- workflow/session/export：`AgentRunLog`、`AgentRunStep`、`CreationSession`、`CreationOutline`、`CreationArchiveManifest`、`ExportManifest`。
+- workflow/session/export：`AgentRunLog`、`AgentRunStep`、`CreationSession`、`CreationOutline`、`CreationArchiveManifest`、`ExportSourceChapter`、`ExportRecord`、`ExportManifest`。
 - revision/context：`RevisionLog`、`RevisionRecord`、`ContextBundle`、`ContextItem`、`ContextExclusion`。
 - state update：`StateUpdateProposal`、`StateChange`、`StateUpdateApplyLog`。
 - session/memory management：`SessionRewriteEvent`、`SessionRewriteEvents`、`MemoryRepairProposal`、`MemoryRepairOperation`、`MemoryRepairApplyLog`、`ManagementEvent`。
@@ -618,6 +630,7 @@ Provider 用量统计：
 | --- | --- |
 | `tests/test_workspace.py` | `novel init` 和默认 workspace 文件。 |
 | `tests/test_cli.py` / `test_integration_cli.py` | CLI 参数、JSON/quiet/project、doctor、lock。 |
+| `tests/test_agent_output.py` | Agent 输出契约守卫、内部任务反问拦截和 violation log。 |
 | `tests/test_provider_config.py` / `test_providers.py` | provider 配置、真实 provider fake HTTP、日志、脱敏、stream。 |
 | `tests/test_real_api.py` | 真实 API 标记测试。 |
 | `tests/test_embeddings.py` / `test_real_embeddings.py` | embedding provider、真实 embedding 标记测试。 |
@@ -629,8 +642,10 @@ Provider 用量统计：
 | `tests/test_auditing.py` | AuditReport、deterministic precheck、output guard。 |
 | `tests/test_state_update.py` | State proposal/apply/accept、回滚、冲突。 |
 | `tests/test_workflow.py` | `generate-chapter` 流水线和 run log。 |
+| `tests/test_workflow_tools.py` | 工作流 skill 和工具脚本的渐进式加载、确定性脚本边界。 |
 | `tests/test_session.py` | Creation Session 状态机、归档、安全。 |
 | `tests/test_orchestrator.py` | `novel ask` 和 handoff trace。 |
+| `tests/test_memory_repair.py` | 项目管家 memory repair proposal/apply 和白名单 patch。 |
 | `tests/test_search.py` | search index、ContextBundle、hidden truth visibility。 |
 | `tests/test_exporting.py` | Markdown/DOCX export 和 manifest。 |
 | `tests/test_validation.py` | 全项目 validation 和一致性闭环。 |
@@ -640,6 +655,11 @@ Provider 用量统计：
 | `tests/test_web.py` / `test_web_e2e.py` | Web API、前端、E2E marker。 |
 | `tests/test_prompts.py` | prompt 关键约束。 |
 | `tests/test_packaging.py` | version、examples、README/CI/release。 |
+| `tests/test_install_script.py` | 一键安装脚本、环境命名、Web UI 启动器和子 shell 行为。 |
+| `tests/test_setup_guide.py` | 项目初始引导、默认 API/embedding/端口配置和脱敏。 |
+| `tests/test_revision.py` | 章节修订、修订版本文件、revision log 和 session 修订路径。 |
+| `tests/test_v01_polish.py` | v0.1 稳定性、CLI/文件安全/文档一致性回归。 |
+| `tests/test_developer_docs.py` | 开发者文档覆盖范围、prompt 文档和命令一致性。 |
 
 测试 helper：
 

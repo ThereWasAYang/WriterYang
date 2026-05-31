@@ -49,49 +49,51 @@ scripts/                # 本地质量门禁、smoke、排障、provider ping �
 
 ```text
 project.yaml
-.env                 # 本地私密 API 配置，git/Web 文件树/导出/日志都必须排除
+.env                 # [引导后] 本地私密 API 配置；git/Web 文件树/导出/日志都必须排除
 config/
-  agents.yaml
-  embeddings.yaml
+  agents.yaml        # Agent 默认 API 和各 Agent 覆盖参数；只保存 env 名
+  embeddings.yaml    # embedding provider 配置；只保存 env 名
 memory/
-  inspiration.md
-  inspiration.json
-  style_guide.md
+  inspiration.md     # init 创建空文件；inspire 后写入弱总纲
+  inspiration.json   # [可选] inspire 结构化输出；并非所有流程都会生成
+  style_guide.md     # init 创建空文件；作者可手动维护文风规则
   canon/
-    characters.json
-    locations.json
-    items.json
-    world.json
-    hidden_truths.json
-    foreshadowing.json
+    characters.json  # init 创建空列表；canon apply 或作者确认后更新
+    locations.json   # init 创建空列表；canon apply 或作者确认后更新
+    items.json       # init 创建空列表；canon apply 或作者确认后更新
+    world.json       # init 创建空列表；canon apply 或作者确认后更新
+    hidden_truths.json      # init 创建空列表；作者内部信息，不进读者可见摘要
+    foreshadowing.json      # init 创建空列表；伏笔和 payoff 关系
   state/
-    current_state.json
-    timeline.json
+    current_state.json      # init 创建空状态；state proposal apply 后更新
+    timeline.json           # init 创建空时间线；使用 narrative/story 双轨
   chapters/
     001/
-      plan.json
-      plan.md
-      draft.md
-      polished.md
-      audit.json
-      state_update_proposal.json
-      state_update_apply_log.json
-      revision_log.json
-      metadata.json
-      context_report*.json
-  sessions/
-  archive/
+      plan.json             # [运行时] plan-chapter/session outline approval 后生成
+      plan.md               # [运行时] 面向作者阅读的章节计划
+      draft.md              # [运行时] write-chapter/session run 后生成
+      polished.md           # [运行时] polish/revision 后生成，export 默认使用
+      audit.json            # [运行时] audit-chapter/session run 后生成
+      state_update_proposal.json     # [运行时] propose-state-update/session accept 前生成
+      state_update_apply_log.json    # [运行时] apply-state-update/session accept 后生成
+      revision_log.json     # [运行时] revise/edit 保存版本后生成
+      metadata.json         # [运行时] accept 后记录章节状态
+      context_report*.json  # [运行时] 开启检索上下文后生成
+  sessions/                 # [运行时] session start 后生成会话目录
+  archive/                  # [运行时] session archive 后生成不可原地篡改归档
 runs/
-  run_*.json
-  provider_calls.jsonl
-  provider_usage.json
-  model_io/
-  agent_output_violations/
+  run_*.json                # [运行时] generate/session 工作流日志
+  provider_calls.jsonl      # [运行时] provider 调用元数据，不含 API Key
+  provider_usage.json       # [运行时] token 汇总缓存
+  model_io/                 # [运行时] 完整模型 I/O，本地调试用，不提交
+  agent_output_violations/  # [运行时] 输出契约违规日志
 exports/
-  novel.md
-  novel.docx
-  export_manifest.json
+  novel.md                  # [运行时] export markdown 后生成
+  novel.docx                # [运行时] export docx 后生成
+  export_manifest.json      # [运行时] export 后记录源章节 hash 和导出记录
 ```
+
+标注 `[运行时]` 的文件/目录不是空项目必须立刻存在的内容，而是在相应 workflow 第一次执行后创建。开发文档把它们列出，是为了说明稳定位置和文件保护规则。
 
 开发时要区分三类文件：
 

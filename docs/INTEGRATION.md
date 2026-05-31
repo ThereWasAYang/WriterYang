@@ -26,8 +26,16 @@ novel status --project ./rain-station --json --quiet
 ```bash
 novel init "雨夜旧车站" --project ./rain-station --json --quiet
 novel validate --project ./rain-station --json --quiet
+novel migrate --project ./rain-station --json --quiet
+novel schema export --project ./rain-station --output ./schemas --json --quiet
 novel status --project ./rain-station --json --quiet
+novel usage --project ./rain-station --json --quiet
 novel doctor --project ./rain-station --json --quiet
+novel show characters --project ./rain-station --json --quiet
+novel show timeline --project ./rain-station --json --quiet
+novel show state --project ./rain-station --json --quiet
+novel show canon --project ./rain-station --json --quiet
+novel web --project ./rain-station --host 127.0.0.1 --port 8765
 ```
 
 生成流程：
@@ -36,11 +44,13 @@ novel doctor --project ./rain-station --json --quiet
 novel inspire "雨夜旧车站里传来广播声" --project ./rain-station --provider config --json --quiet --overwrite
 novel canon suggest --project ./rain-station --provider config --json --quiet --output canon-proposal.json
 novel canon apply canon-proposal.json --project ./rain-station --json --quiet
+novel canon validate --project ./rain-station --json --quiet
 novel canon show --project ./rain-station --json --quiet
 novel plan-chapter 1 --project ./rain-station --provider config --json --quiet
 novel write-chapter 1 --project ./rain-station --provider config --json --quiet
 novel polish-chapter 1 --project ./rain-station --provider config --json --quiet
 novel audit-chapter 1 --project ./rain-station --provider config --json --quiet
+novel revise-chapter 1 --project ./rain-station --provider config --target polished --from-audit --json --quiet
 novel generate-chapter 1 --project ./rain-station --provider config --json --quiet
 ```
 
@@ -55,9 +65,28 @@ novel export docx --project ./rain-station --include-unaccepted --json --quiet
 novel ask "请为第1章生成章节计划" --project ./rain-station --provider config --json --quiet
 novel ask "第2章 event_x 其实是回忆，不是当前行动" --project ./rain-station --json --quiet
 novel ask "确认应用 repair_20260530_010101_000001" --project ./rain-station --json --quiet
+novel session start "写第1章" --chapters 1 --project ./rain-station --provider config --json --quiet
+novel session show <session_id> --project ./rain-station --json --quiet
+novel session revise-outline <session_id> --project ./rain-station --provider config --instruction "降低伏笔暴露强度" --json --quiet
+novel session approve-outline <session_id> --project ./rain-station --json --quiet
+novel session run <session_id> --project ./rain-station --provider config --json --quiet
+novel session revise-content <session_id> --project ./rain-station --provider config --from-audit --json --quiet
 novel session revise-audit <session_id> <event_id> --project ./rain-station --provider config --instruction "这是回忆段落" --json --quiet
 novel session retry-rewrite <session_id> <event_id> --project ./rain-station --provider config --json --quiet
 novel session undo-rewrite <session_id> <event_id> --project ./rain-station --provider config --json --quiet
+novel session accept <session_id> --project ./rain-station --provider config --json --quiet
+novel session archive <session_id> --project ./rain-station --json --quiet
+```
+
+搜索索引和记忆检索：
+
+```bash
+novel index status --project ./rain-station --json --quiet
+novel index refresh --project ./rain-station --json --quiet
+novel index rebuild --project ./rain-station --json --quiet
+novel index refresh --project ./rain-station --with-embeddings --embedding-provider dashscope --json --quiet
+novel search "车站广播" --project ./rain-station --type all --limit 10 --json --quiet
+novel search "角色是否知道旧案真相" --project ./rain-station --use-vector --embedding-provider dashscope --json --quiet
 ```
 
 ## JSON 输出格式
@@ -113,6 +142,8 @@ novel session undo-rewrite <session_id> <event_id> --project ./rain-station --pr
 - `project_read_error`
 - `revision_error`
 - `search_error`
+- `session_error`
+- `setup_guide_error`
 - `state_update_error`
 - `usage_error`
 - `validation_failed`

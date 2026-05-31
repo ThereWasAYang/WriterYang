@@ -198,6 +198,33 @@ def test_api_setup_embedding_can_be_skipped_or_saved(tmp_path: Path) -> None:
     assert "WRITERYANG_EMBEDDING_API_KEY" in (root / "config" / "embeddings.yaml").read_text(encoding="utf-8")
 
 
+def test_api_setup_embedding_requires_complete_config(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    cases = [
+        ("base_url", "", "base_url is required"),
+        ("api_key", "", "api_key is required"),
+        ("model", "", "model is required"),
+    ]
+
+    for field, value, message in cases:
+        request = {
+            "path": str(root),
+            "provider": "openai_compatible",
+            "base_url": "https://embed.example.test/v1",
+            "api_key": "embedding-secret",
+            "model": "embedding-model",
+            "ping": False,
+        }
+        request[field] = value
+        status, payload = handle_api_request("POST", "/api/setup/embedding", "", json.dumps(request))
+
+        assert status == 400
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "invalid_request"  # type: ignore[index]
+        assert message in payload["error"]["message"]  # type: ignore[index]
+        assert "embedding-secret" not in json.dumps(payload, ensure_ascii=False)
+
+
 def test_api_setup_recommend_and_save_port(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     monkeypatch.setattr("novel.web_api.find_available_port", lambda start, host="127.0.0.1": int(start))
@@ -785,6 +812,12 @@ def test_frontend_basic_render() -> None:
     assert 'id="memoryRepairApply"' in html
     assert 'id="memoryRepairProposalPath"' in html
     assert 'id="managementEventsPanel"' in html
+    assert 'id="embeddingConfigPanel"' in html
+    assert 'id="configEmbeddingBaseUrl"' in html
+    assert 'id="configEmbeddingApiKey"' in html
+    assert 'id="configEmbeddingModel"' in html
+    assert 'id="saveEmbeddingConfig"' in html
+    assert 'id="embeddingConfigStatus"' in html
     assert 'id="searchStatusPanel"' in html
     assert 'id="refreshFtsIndex"' in html
     assert 'id="refreshEmbeddingIndex"' in html
@@ -829,6 +862,12 @@ def test_frontend_basic_render() -> None:
     assert "write_json: false" in app_js
     assert "resizeTextareaToContent" in app_js
     assert 'window.addEventListener("resize"' in app_js
+    assert "saveEmbeddingConfig" in app_js
+    assert "configEmbeddingBaseUrl" in app_js
+    assert '$("configEmbeddingBaseUrl").value = ""' in app_js
+    assert '$("configEmbeddingModel").value = ""' in app_js
+    assert "with_embeddings: true" in app_js
+    assert "Embedding API 已保存，但语义向量索引刷新失败" in app_js
     assert "use_vector_context" in app_js
     assert "当前无法使用基于 embedding 的语义检索" in app_js
     assert "fetch(" in app_js

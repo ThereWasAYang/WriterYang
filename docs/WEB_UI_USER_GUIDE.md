@@ -62,7 +62,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 
 真实项目需要在 `config/agents.yaml` 配置顶层 `default` API；没有单独配置 API 的 Agent 会自动继承这个缺省配置。默认情况下，初始引导会帮你完成这一步。如果 Web UI 标红提示“default API config is missing”或环境变量不存在，说明项目还没有配置缺省 API，只能做 mock 测试，不能稳定进行真实创作。
 
-“模型与检索配置”页会显示检索索引状态。关键词检索是默认可用能力；如果 embedding API 没有配置好，页面会用红色提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。工具只会在两种情况下调用外部 embedding API：你明确点击“刷新语义向量索引”，或你启用“使用 embedding 语义检索”且当前语义向量缺失或过期。未启用 embedding 的普通关键词/FTS 检索不会调用外部 embedding API。
+“模型与检索配置”页可以在项目初始化后重新配置 embedding API。填写新的 Embedding Base URL、API Key 和模型名后点击“测试并保存 embedding API”，工具会先做连通性测试，成功后把 API Key 写入项目 `.env`、把模型名等非密钥配置写入 `config/embeddings.yaml`，清空输入框，随后自动刷新语义向量索引。关键词检索是默认可用能力；如果 embedding API 没有配置好，页面会用红色提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。工具只会在三种情况下调用外部 embedding API：你保存 embedding API 后的自动刷新、你明确点击“刷新语义向量索引”，或你启用“使用 embedding 语义检索”且当前语义向量缺失或过期。未启用 embedding 的普通关键词/FTS 检索不会调用外部 embedding API。
 
 ## Web UI 界面元素速查
 
@@ -133,6 +133,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 区域 | 用途 | 使用方法 |
 | --- | --- | --- |
 | Agent 模型配置 | 查看和编辑各 Agent 的非密钥模型配置。 | 用表单修改 provider、model、base_url_env、api_key_env、temperature、thinking、max_tokens 等字段；长模型名会在更宽的 model 输入区自动换行并自动增高；高级 JSON 折叠区可编辑少见字段；不会显示或保存真实 API Key。 |
+| Embedding API 配置 | 重新测试并保存语义检索 API。 | 每次保存都需要填写 Base URL、API Key 和模型名；保存成功后会清空输入框并自动刷新语义向量索引。API Key 只写入 `.env`。 |
 | 检索状态 | 显示 FTS 和 embedding 是否可用。 | 红色 embedding 提示表示语义检索不可用，但关键词检索仍可用。 |
 | 刷新关键词索引 | 增量刷新 FTS。 | 本地操作，不调用外部 API。 |
 | 刷新语义向量索引 | 手动增量刷新 embedding 向量。 | 会调用外部 embedding API；启用语义检索时也会自动刷新过期向量。 |

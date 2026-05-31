@@ -475,7 +475,7 @@ novel search "旧物修复师" --path ./rain-station --use-vector --embedding-pr
 - freshness manifest：每个文档记录 `sha256`、`mtime`、索引时间和 FTS / embedding 状态。普通 `novel search` 会在 FTS 缺失或过期时自动刷新关键词索引；显式启用 `--use-vector` / `--use-vector-context` 时，会先刷新缺失或过期的真实 embedding 向量。
 - 向量表：SQLite 中可选保存真实 embedding 向量。真实 embedding 只在用户显式刷新向量索引或显式启用 vector 检索时调用，不会作为普通 FTS 搜索的隐式成本。
 
-默认可靠路径是关键词 + SQLite FTS。`local_hash` 只用于测试和离线开发 fixture，不作为真实创作的语义检索 fallback。没有配置真实 embedding API 时，`--use-vector` 会给出清晰错误；Web UI 状态栏会标红提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。
+默认可靠路径是关键词 + SQLite FTS。`local_hash` 只用于测试和离线开发 fixture，不作为真实创作的语义检索 fallback。没有配置真实 embedding API 时，`--use-vector` 会给出清晰错误；Web UI 状态栏会标红提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。项目初始化后，也可以在 Web UI 的“模型与检索配置”页重新填写 Embedding Base URL、API Key 和模型名；保存成功会清空输入框并自动刷新语义向量索引。
 
 Embedding 配置位于 `config/embeddings.yaml`，格式示例：
 
@@ -594,7 +594,7 @@ web:
 - 主页：初始化项目、打开项目、项目初始引导、项目检查、项目摘要、章节列表和下一步提示。
 - 创作工作台：生成灵感、Canon 建议、Session 大纲协商、正文生成、审核修订、认可归档、章节对照、章节编辑器、Audit 定位和 Revision diff。
 - 小说状态管理：Canon 摘要、状态 / 时间线、项目管家和后台管理动态。
-- 模型与检索配置：Agent 模型配置、embedding 状态、FTS / embedding 索引刷新。
+- 模型与检索配置：Agent 模型配置、Embedding API 重新配置、embedding 状态、FTS / embedding 索引刷新。
 - 运行日志 / 项目文件：安全文件树、只读文件预览、章节文件查看、运行日志和 model I/O 摘要。
 - Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。Web UI 灵感默认走 Markdown 弱总纲，不为 Inspiration 强制开启 provider JSON mode；需要 `inspiration.json` 时可用 CLI 的 `--json` 或后续工具派生。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
@@ -603,6 +603,7 @@ web:
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
 - Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；长模型名和环境变量字段使用更宽输入区，model 支持换行并按内容自动增高；高级 JSON 折叠区保留给少见字段。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
+- Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。每次保存都需要重填 Base URL、API Key 和模型名；API Key 只写入项目 `.env`，保存成功后清空输入框并自动刷新语义向量索引。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
 - 自动打回重写记录：当 Audit 把正文打回重写时，显示第几章第几轮、打回原因、系统动作和“查看被打回原文”按钮；如果你认为打回不合理，应检查对应 `audit.json`、`memory/state/timeline.json`、`current_state.json` 和 canon 文件。

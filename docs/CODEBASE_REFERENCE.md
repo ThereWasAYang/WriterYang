@@ -183,6 +183,7 @@ Web UI 交互脚本。负责：
 - 章节对照、编辑器、audit evidence 定位、diff、文件树读取。
 - Provider / embedding 配置、索引刷新、状态/时间线、项目管家和运行日志 API 调用。
 - Agent 模型配置页用表单编辑 `provider`、`model`、`base_url_env`、`api_key_env`、`thinking.type`、`temperature`、`max_tokens` 等非密钥字段。配置页使用专用两栏布局，Agent 配置面板比检索索引面板更宽；`model`、`base_url_env`、`api_key_env` 占满表单宽度，其中 `model` 使用紧凑 textarea，并在输入和窗口 resize 时按内容高度重新计算，避免长模型名在窄屏裁切。高级 JSON 折叠区保留给少见字段；真实 API Key 仍只通过 `.env` / 初始引导管理。
+- Embedding API 配置页块复用 `/api/setup/embedding`，要求用户每次重填 Base URL、API Key 和模型名；保存成功后清空输入框，并自动调用 `/api/index/refresh` 刷新语义向量索引。
 - 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入主页状态、顶部检查摘要、调试页文件查看和下一步提示。
 - 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
 - `renderNextStep()`：根据项目状态、validation 结果和 session 状态显示下一步操作建议。

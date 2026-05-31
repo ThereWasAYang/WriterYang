@@ -51,6 +51,11 @@
       $("setupGuideStatus").className = isError ? "message error" : "message";
     }
 
+    function setEmbeddingConfigStatus(text, isError = false) {
+      $("embeddingConfigStatus").textContent = text;
+      $("embeddingConfigStatus").className = isError ? "message error" : "message";
+    }
+
     function showSetupGuide(show = true) {
       $("setupGuidePanel").classList.toggle("hidden", !show);
     }
@@ -382,6 +387,47 @@
         $("setupEmbeddingApiKey").value = "";
         setSetupStatus(`Embedding API 连通性测试通过：${data.provider} / ${data.model}`);
         await refreshAll({ silent: true });
+      });
+    }
+
+    async function saveEmbeddingConfig() {
+      return withBusy("保存 embedding API", async () => {
+        const baseUrl = $("configEmbeddingBaseUrl").value.trim();
+        const apiKey = $("configEmbeddingApiKey").value;
+        const model = $("configEmbeddingModel").value.trim();
+        if (!baseUrl || !apiKey || !model) {
+          setEmbeddingConfigStatus("Embedding Base URL、API Key 和模型名都必须填写。", true);
+          throw new Error("Embedding Base URL、API Key 和模型名都必须填写。");
+        }
+        const setup = await apiPost("/api/setup/embedding", {
+          path: projectPath(),
+          provider: "openai_compatible",
+          provider_name: "configured",
+          base_url: baseUrl,
+          api_key: apiKey,
+          model,
+          ping: true,
+        });
+        $("configEmbeddingBaseUrl").value = "";
+        $("configEmbeddingApiKey").value = "";
+        $("configEmbeddingModel").value = "";
+        setEmbeddingConfigStatus(`Embedding API 已保存：${setup.provider} / ${setup.model}。正在刷新语义向量索引...`);
+        try {
+          const refresh = await apiPost("/api/index/refresh", {
+            path: projectPath(),
+            with_embeddings: true,
+          });
+          $("fileViewer").textContent = JSON.stringify({ embedding_setup: setup, index_refresh: refresh }, null, 2);
+          renderSearchStatus(refresh.search || {});
+          try { await refreshAll({ silent: true }); } catch {}
+          setEmbeddingConfigStatus("Embedding API 已保存，语义向量索引已刷新。");
+          setMessage(actionMessage("保存 embedding API 并刷新语义向量索引", refresh));
+        } catch (error) {
+          $("fileViewer").textContent = JSON.stringify({ embedding_setup: setup, index_refresh_error: error.message }, null, 2);
+          try { await refreshAll({ silent: true }); } catch {}
+          setEmbeddingConfigStatus(`Embedding API 已保存，但语义向量索引刷新失败：${error.message}`, true);
+          setMessage(`Embedding API 已保存，但语义向量索引刷新失败：${error.message}`, true);
+        }
       });
     }
 
@@ -1101,6 +1147,7 @@
     $("canonApply").addEventListener("click", canonApply);
     $("refreshFtsIndex").addEventListener("click", () => refreshIndex(false));
     $("refreshEmbeddingIndex").addEventListener("click", () => refreshIndex(true));
+    $("saveEmbeddingConfig").addEventListener("click", saveEmbeddingConfig);
     $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
     $("memoryRepairApply").addEventListener("click", memoryRepairApply);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));

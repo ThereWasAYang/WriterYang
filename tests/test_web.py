@@ -707,6 +707,8 @@ def test_frontend_basic_render() -> None:
     assert 'id="validateProject"' in html
     assert 'id="validationStatusPanel"' in html
     assert 'id="nextStepPanel"' in html
+    assert 'id="toggleProjectInit"' in html
+    assert 'id="projectInitPanel"' in html
     assert 'id="initProject"' in html
     assert 'id="setupGuidePanel"' in html
     assert 'id="setupDefaultProvider"' in html

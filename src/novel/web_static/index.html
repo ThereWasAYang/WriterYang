@@ -78,11 +78,15 @@
       </div>
       <button id="validateProject" style="width: 100%; margin-top: 8px;">项目检查</button>
       <div id="validationStatusPanel" class="metric" style="margin-top: 8px;">项目检查结果：未运行</div>
-      <label for="projectTitle">新项目标题</label>
-      <input id="projectTitle" placeholder="用于初始化新小说项目">
-      <label for="projectGenre">类型标签</label>
-      <input id="projectGenre" placeholder="武侠, 悬疑">
-      <button id="initProject" style="width: 100%; margin-top: 8px;">初始化项目</button>
+      <button id="toggleProjectInit" style="width: 100%; margin-top: 8px;">隐藏新建项目选项</button>
+      <div id="projectInitPanel" class="panel" style="margin-top: 8px;">
+        <h2 style="margin-top: 0;">新建项目</h2>
+        <label for="projectTitle">新项目标题</label>
+        <input id="projectTitle" placeholder="用于初始化新小说项目">
+        <label for="projectGenre">类型标签</label>
+        <input id="projectGenre" placeholder="武侠, 悬疑">
+        <button id="initProject" style="width: 100%; margin-top: 8px;">初始化项目</button>
+      </div>
       <div id="setupGuidePanel" class="panel hidden" style="margin-top: 12px;">
         <h2 style="margin-top: 0;">项目初始引导</h2>
         <div class="message">默认 API 使用 OpenAI-compatible 格式。API Key 会保存到项目 `.env`，不会写入 YAML、日志或文件树。</div>
@@ -378,6 +382,19 @@
       $("setupGuidePanel").classList.toggle("hidden", !show);
     }
 
+    function setProjectInitVisible(show = true) {
+      $("projectInitPanel").classList.toggle("hidden", !show);
+      $("toggleProjectInit").textContent = show ? "隐藏新建项目选项" : "显示新建项目选项";
+    }
+
+    function toggleProjectInit() {
+      setProjectInitVisible($("projectInitPanel").classList.contains("hidden"));
+    }
+
+    async function openProject() {
+      await refreshAll({ hideProjectInitOnSuccess: true, hideSetupGuideOnSuccess: true });
+    }
+
     async function loadRuntime() {
       try {
         const data = await apiGet("/api/runtime", {});
@@ -439,6 +456,8 @@
         renderManagementEvents(management.events || []);
         renderSearchStatus(searchStatus.search || {});
         renderNextStep({ status: status.status, chapters: chapters.chapters || [] });
+        if (options.hideProjectInitOnSuccess) setProjectInitVisible(false);
+        if (options.hideSetupGuideOnSuccess) showSetupGuide(false);
         if (!options.silent) setMessage("项目已刷新");
       } catch (error) {
         if (!options.silent) setMessage(error.message, true);
@@ -621,6 +640,7 @@
           genre: $("projectGenre").value.trim(),
         });
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        setProjectInitVisible(false);
         showSetupGuide(true);
         await recommendSetupPort();
         await refreshAll({ silent: true });
@@ -1297,9 +1317,10 @@
       }
     }
 
-    $("openProject").addEventListener("click", refreshAll);
+    $("openProject").addEventListener("click", openProject);
     $("refreshProject").addEventListener("click", refreshAll);
     $("validateProject").addEventListener("click", validateProject);
+    $("toggleProjectInit").addEventListener("click", toggleProjectInit);
     $("initProject").addEventListener("click", initProject);
     $("setupDefaultProvider").addEventListener("click", setupDefaultProvider);
     $("setupSkipProvider").addEventListener("click", setupSkipProvider);

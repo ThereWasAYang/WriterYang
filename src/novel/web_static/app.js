@@ -550,6 +550,7 @@
         const data = await apiPost("/api/orchestrator/memory-repair/suggest", {
           path: projectPath(),
           request: $("memoryRepairInstruction").value.trim() || $("instruction").value.trim(),
+          provider: $("provider").value,
         });
         if (data.proposal_relative_path) $("memoryRepairProposalPath").value = data.proposal_relative_path;
         $("fileViewer").textContent = JSON.stringify(data, null, 2);

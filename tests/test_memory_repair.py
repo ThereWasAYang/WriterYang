@@ -36,12 +36,14 @@ def test_ask_memory_repair_creates_proposal_without_modifying_timeline(tmp_path:
     assert len(proposals) == 1
     proposal = load_json_model(proposals[0], MemoryRepairProposal)
     assert proposal.created_by == "orchestrator"
+    assert proposal.needs_user_confirmation is True
+    assert proposal.confidence > 0
     assert proposal.operations[0].file == "memory/state/timeline.json"
     assert proposal.operations[0].value == "flashback"
     assert (root / "memory" / "management_events.jsonl").is_file()
 
 
-def test_ask_memory_repair_apply_updates_timeline_and_writes_event(tmp_path: Path) -> None:
+def test_ask_memory_repair_apply_refuses_fallback_natural_language_apply(tmp_path: Path) -> None:
     root = _workspace_with_timeline_event(tmp_path)
     code, _, _ = _run_cli(
         [
@@ -64,6 +66,36 @@ def test_ask_memory_repair_apply_updates_timeline_and_writes_event(tmp_path: Pat
             str(root),
             "--provider",
             "mock",
+        ]
+    )
+
+    assert apply_code == 1
+    assert stdout == ""
+    assert "memory-repair apply" in stderr
+
+
+def test_memory_repair_apply_command_updates_timeline_and_writes_event(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    code, _, _ = _run_cli(
+        [
+            "ask",
+            "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+        ]
+    )
+    assert code == 0
+    proposal = load_json_model(next((root / "memory" / "repairs").glob("repair_*/proposal.json")), MemoryRepairProposal)
+
+    apply_code, stdout, stderr = _run_cli(
+        [
+            "memory-repair",
+            "apply",
+            proposal.repair_id,
+            "--path",
+            str(root),
         ]
     )
 

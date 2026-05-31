@@ -628,45 +628,41 @@ def _normalize_provider_issue_severities(report_data: dict[str, object]) -> None
 
 
 def _is_subjective_nonblocking_issue(issue: dict[str, object]) -> bool:
-    text = _issue_text(issue)
-    uncertain_markers = (
-        "可能",
-        "风险",
-        "依据不足",
-        "缺乏明确",
-        "不够明确",
-        "不够清楚",
-        "略",
-        "有待",
-        "过强",
-        "过早推断",
-        "读者质疑",
-    )
-    if not any(marker in text for marker in uncertain_markers):
+    if issue.get("is_hard_blocker") is True:
         return False
-    hard_markers = (
-        "holder_id",
-        "location_id",
-        "chapter_number",
-        "current_state",
-        "timeline",
-        "plan.json",
-        "scene=",
-        "超出",
-        "不存在",
-        "缺失",
-        "不匹配",
-        "同时有",
-        "多持有人",
-        "知道了不该知道",
-        "尚未获得的信息",
-        "直接写出",
-        "直接说出",
-        "直接揭示",
-        "明确揭示",
-        "已死亡",
-    )
-    return not any(marker in text for marker in hard_markers)
+    source_layer = str(issue.get("source_layer") or "").strip().lower()
+    if source_layer in {"plan", "state", "timeline", "canon"}:
+        return False
+    evidence_strength = str(issue.get("evidence_strength") or "").strip().lower()
+    if evidence_strength == "strong":
+        return False
+    confidence_value = issue.get("confidence")
+    try:
+        confidence = float(confidence_value) if confidence_value is not None else None
+    except (TypeError, ValueError):
+        confidence = None
+    has_specific_evidence = _has_specific_audit_evidence(issue)
+    if issue.get("is_hard_blocker") is False:
+        return not has_specific_evidence
+    if evidence_strength == "weak":
+        return not has_specific_evidence
+    if confidence is not None and confidence < 0.55:
+        return not has_specific_evidence
+    return False
+
+
+def _has_specific_audit_evidence(issue: dict[str, object]) -> bool:
+    evidence = issue.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return False
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "").strip()
+        quote = str(item.get("quote") or "").strip()
+        if source and quote:
+            return True
+    return False
 
 
 def _issue_text(issue: dict[str, object]) -> str:

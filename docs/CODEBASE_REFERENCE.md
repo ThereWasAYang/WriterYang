@@ -498,7 +498,7 @@ Embedding provider：
 - `approve_outline()`：冻结 approved outline。
 - `run_session()`：生成正文、润色、审核、自动修复、state proposal。
 - `revise_content()`：按用户意见或 audit issue 修订内容。用户意见先调用 Orchestrator 路由；剧情级修改回到 Plot 重写 plan，写作实现级修改走 Writer/Polish 重写正文，局部表达修改才走 Revision 版本补丁。之后统一提升/重审/重建 state proposal。
-- `_resolve_content_revision_route()` / `_audit_driven_revision_route()`：把用户反馈或 audit issue 转为 `RevisionRouteDecision`。
+- `_resolve_content_revision_route()` / `_audit_driven_revision_route()`：把用户反馈或 audit issue 转为 `RevisionRouteDecision`；audit 驱动路径依赖结构化 audit repair route，不再扫描自然语言关键词决定是否重写大纲。
 - `_replan_and_rewrite_chapter()`：剧情级反馈路径，重写本章 `plan.json` 并重新生成正文。
 - `_rewrite_chapter_with_writer()`：写作实现级反馈路径，保留 plan，重写 `draft.md` / `polished.md`。
 - `revise_audit()`：读取 rewrite event 的 rejected snapshot，把用户纠正意见传给 Audit Agent，重写 `audit.json` 并记录 `audit_revision_history`。
@@ -510,7 +510,7 @@ Embedding provider：
 - `_generate_chapter_content()`：单章 writer/polish/audit 调度。
 - `_auto_repair_chapter()`：正文层 medium/high/critical 自动修复，生成 `polished.vN.md`。
 - `_promote_revision_to_polished()`：把修订版本提升为当前 `polished.md` 后再重跑 audit。
-- `_auto_replan_chapter()` / `_should_replan_chapter()`：连续修复仍失败或计划层问题时回退 Plot Agent 重写本章计划。
+- `_auto_replan_chapter()` / `_should_replan_chapter()`：连续修复仍失败或结构化证据明确指向计划层问题时回退 Plot Agent 重写本章计划；`_should_replan_chapter()` 只检查 `source_layer=plan` 或 `evidence.source=plan.json`，不扫描 issue 文本。
 - `_start_rewrite_event()` / `_update_rewrite_event()`：自动打回前保存原文快照、记录打回原因，并在复审后更新 completed/unresolved/failed 状态。
 - `_has_hard_issues()`：判定阻断 issue。
 - `_session_instruction()`：把 session intent 转为内部 Agent instruction。
@@ -529,10 +529,11 @@ orchestrator 项目管家修复 proposal：
 
 - `MemoryRepairError`：proposal/apply 失败。
 - `MemoryRepairSuggestResult` / `MemoryRepairApplyResult`：service 返回结构。
-- `suggest_memory_repair()`：根据用户自然语言和当前项目文件生成 `MemoryRepairProposal`、Markdown 摘要和 diff 预览；默认不修改正式 memory。
+- `suggest_memory_repair()`：根据结构化 `MemoryRepairDecision` 和当前项目文件生成 `MemoryRepairProposal`、Markdown 摘要和 diff 预览；默认不修改正式 memory。
+- `generate_memory_repair_decision()` / `parse_memory_repair_decision()`：调用 Orchestrator/Memory Manager provider 输出 target files、JSON Pointer operations、confidence 和 assumptions。信息不足时返回空 operations，不用关键词硬猜正式 patch。
 - `apply_memory_repair()`：校验 proposal，限制白名单文件，按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
 - `render_memory_repair_markdown()`：把 proposal 渲染为用户可读说明。
-- `_infer_target_files()` / `_infer_operations()`：MVP 级安全推断。当前只做低风险 timeline event role 修复；复杂修复应让用户编辑 proposal。
+- `_mock_infer_target_files()` / `_mock_infer_operations()`：仅用于 mock 测试 fixture，不作为真实业务推断路径。
 - `_apply_operations_to_data()` / `_apply_operation()` / `_resolve_pointer_parent()`：JSON Pointer patch 执行器。
 - `_validate_file_model()`：用对应 schema 校验修改后的白名单文件。
 - `_restore_backups()`：apply 失败后恢复已备份文件。
@@ -554,9 +555,11 @@ orchestrator 项目管家修复 proposal：
 
 - `OrchestratorPlan` / `OrchestratorOptions` / `OrchestratorResult` / `HandoffTraceEntry`。
 - `orchestrate()`：执行或 dry-run。
-- `plan_orchestration()`：根据自然语言请求生成计划。
-- `classify_request()`：关键词任务分类。
+- `decide_ask_intent()` / `parse_ask_intent_decision()`：调用 Orchestrator provider 输出 `AskIntentDecision`，作为 `novel ask` 非 dry-run 主路径。
+- `plan_orchestration()`：根据已分类任务生成受控执行计划，主要用于 dry-run 和内部 orchestration。
+- `classify_request()`：低风险 fallback 任务分类；不能作为高风险 apply/accept/archive/state/timeline 写入的主依据。
 - `route_revision_request()`：调用 Orchestrator provider 输出 `RevisionRouteDecision`，用于把用户修订意见分为 `plot_replan`、`writer_rewrite`、`revision_patch`。
+- `route_audit_repair()` / `parse_audit_repair_route_decision()`：调用 Orchestrator provider 或结构化确定性规则输出 `AuditRepairRouteDecision`，用于 Audit 后自动打回分流。
 - `parse_revision_route_decision()`：解析和归一化路由 JSON；失败时由 `route_revision_request()` repair retry 一次，仍失败则保守 fallback。
 - `load_orchestrator_provider()`：读取 `orchestrator` agent 配置，创建带 model I/O 日志的 provider。
 - `build_revision_route_user_prompt()`：组装修订路由判定 prompt。

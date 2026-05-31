@@ -42,6 +42,11 @@ CreationOutlineStatus = Literal["draft", "proposed", "approved"]
 CreationContentStatus = Literal["not_started", "generating", "needs_revision", "needs_user_review", "accepted", "archived"]
 RevisionRoute = Literal["plot_replan", "writer_rewrite", "revision_patch"]
 RevisionRouteRiskLevel = Literal["low", "medium", "high"]
+AskIntentTask = Literal["session_start", "memory_repair_suggest", "memory_repair_apply", "export", "status", "show", "unknown"]
+DecisionSource = Literal["model", "fallback", "mock", "deterministic"]
+AuditIssueSourceLayer = Literal["plan", "draft", "polished", "state", "timeline", "canon", "style", "unknown"]
+AuditEvidenceStrength = Literal["weak", "medium", "strong"]
+AuditRepairRoute = Literal["plot_replan", "writer_rewrite", "revision_rewrite", "manual_review"]
 
 
 class FlexibleModel(BaseModel):
@@ -599,6 +604,32 @@ class RevisionRouteDecision(SchemaVersionedModel):
         return self
 
 
+class AskIntentDecision(SchemaVersionedModel):
+    task: AskIntentTask
+    reason: str = Field(min_length=1)
+    chapter_range: list[int] = Field(default_factory=list)
+    repair_id: str | None = None
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    user_message: str | None = None
+    source: DecisionSource = "model"
+
+    @model_validator(mode="after")
+    def validate_apply_has_repair_id(self) -> "AskIntentDecision":
+        if self.task == "memory_repair_apply" and not _has_text(self.repair_id):
+            raise ValueError("memory_repair_apply requires repair_id")
+        return self
+
+
+class AuditRepairRouteDecision(SchemaVersionedModel):
+    route: AuditRepairRoute
+    reason: str = Field(min_length=1)
+    chapter_number: int = Field(ge=1)
+    issue_ids: list[str] = Field(default_factory=list)
+    source_layer: AuditIssueSourceLayer | None = None
+    risk_level: RevisionRouteRiskLevel = "medium"
+    source: DecisionSource = "model"
+
+
 class RevisionRouteRecord(FlexibleModel):
     created_at: datetime
     user_instruction: str
@@ -794,6 +825,11 @@ class AuditIssue(FlexibleModel):
     description: str = Field(min_length=1)
     evidence: list[AuditEvidence] = Field(default_factory=list)
     suggested_fix: str | None = None
+    source_layer: AuditIssueSourceLayer | None = None
+    blocking_reason: str | None = None
+    evidence_strength: AuditEvidenceStrength | None = None
+    is_hard_blocker: bool | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
 
 
 class AuditReport(SchemaVersionedModel):
@@ -868,6 +904,16 @@ class MemoryRepairOperation(FlexibleModel):
     reason: str = Field(min_length=1)
 
 
+class MemoryRepairDecision(SchemaVersionedModel):
+    target_files: list[str] = Field(default_factory=list)
+    operations: list[MemoryRepairOperation] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    assumptions: list[str] = Field(default_factory=list)
+    needs_user_confirmation: bool = True
+    notes: list[str] = Field(default_factory=list)
+    source: DecisionSource = "model"
+
+
 class MemoryRepairProposal(SchemaVersionedModel):
     repair_id: str = Field(min_length=1, pattern=r"^repair_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
     created_by: Literal["orchestrator"] = "orchestrator"
@@ -875,6 +921,9 @@ class MemoryRepairProposal(SchemaVersionedModel):
     target_files: list[str] = Field(default_factory=list)
     operations: list[MemoryRepairOperation] = Field(default_factory=list)
     risk_level: MemoryRepairRiskLevel = "medium"
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    assumptions: list[str] = Field(default_factory=list)
+    needs_user_confirmation: bool = True
     validation_before: dict[str, object] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
     created_at: datetime

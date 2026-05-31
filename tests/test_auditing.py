@@ -401,7 +401,7 @@ def test_parse_audit_report_normalizes_audited_file_aliases() -> None:
     assert report.audited_file == "polished.md"
 
 
-def test_parse_audit_report_downgrades_subjective_medium_to_low() -> None:
+def test_parse_audit_report_does_not_downgrade_subjective_words_alone() -> None:
     payload = {
         "chapter_number": 2,
         "audited_file": "polished.md",
@@ -415,6 +415,35 @@ def test_parse_audit_report_downgrades_subjective_medium_to_low() -> None:
                 "description": "角色认出对方的依据不足，可能造成知识冲突。",
                 "evidence": [{"source": "polished.md", "quote": "她觉得这个背影有些熟"}],
                 "suggested_fix": "补一句依据，或改成不确定判断。",
+            }
+        ],
+        "passed_checks": [],
+        "created_at": "2026-05-22T00:00:00Z",
+    }
+
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+
+    assert report.overall_status == "needs_revision"
+    assert report.issues[0].severity == "medium"
+
+
+def test_parse_audit_report_downgrades_weak_low_confidence_issue_to_low() -> None:
+    payload = {
+        "chapter_number": 2,
+        "audited_file": "polished.md",
+        "overall_status": "needs_revision",
+        "summary": "模型把低确定性建议标成 medium。",
+        "issues": [
+            {
+                "id": "audit_subjective_medium",
+                "severity": "medium",
+                "type": "character_voice_issue",
+                "description": "角色语气可能略显跳脱。",
+                "evidence": [],
+                "suggested_fix": "用户可按偏好微调。",
+                "evidence_strength": "weak",
+                "confidence": 0.4,
+                "is_hard_blocker": False,
             }
         ],
         "passed_checks": [],

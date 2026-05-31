@@ -28,7 +28,15 @@ from novel.core.prompts import load_prompt_template
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
-from novel.core.schemas import AgentRunLog, AgentRunStep, RevisionRouteDecision
+from novel.core.schemas import (
+    AgentRunLog,
+    AgentRunStep,
+    AskIntentDecision,
+    AskIntentTask,
+    AuditRepairRouteDecision,
+    AuditReport,
+    RevisionRouteDecision,
+)
 from novel.core.state_update import (
     StateUpdateProposeOptions,
     load_state_update_provider,
@@ -301,6 +309,210 @@ def load_orchestrator_provider(
     )
 
 
+def decide_ask_intent(
+    root: Path,
+    request: str,
+    *,
+    provider_name: str = "config",
+    provider: ModelProvider | None = None,
+) -> AskIntentDecision:
+    instruction = request.strip()
+    if not instruction:
+        raise OrchestratorError("ask intent requires a non-empty request")
+    if provider is None and provider_name.lower() == "mock":
+        return _fallback_ask_intent_decision(instruction)
+    route_provider = provider or load_orchestrator_provider(root, provider_name)
+    user_prompt = build_ask_intent_user_prompt(instruction)
+    try:
+        content = generate_with_output_guard(
+            route_provider,
+            ModelRequest(
+                system_prompt=load_prompt_template("orchestrator_ask_intent_system"),
+                user_prompt=user_prompt,
+                json_schema_name="AskIntentDecision",
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="orchestrator",
+                interaction_mode="internal_task",
+                task="ask_intent",
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="AskIntentDecision",
+                json_schema_name="AskIntentDecision",
+                allow_user_questions=False,
+            ),
+        )
+    except AgentOutputContractError:
+        fallback = _fallback_ask_intent_decision(instruction)
+        return fallback.model_copy(update={"reason": f"provider intent output contract failed; fallback used. {fallback.reason}"})
+    try:
+        return parse_ask_intent_decision(content, fallback_request=instruction)
+    except OrchestratorError as first_error:
+        try:
+            repair_content = generate_with_output_guard(
+                route_provider,
+                ModelRequest(
+                    system_prompt=load_prompt_template("orchestrator_ask_intent_system"),
+                    user_prompt=_ask_intent_repair_prompt(
+                        original_prompt=user_prompt,
+                        invalid_output=content,
+                        error=str(first_error),
+                    ),
+                    json_schema_name="AskIntentDecision",
+                ),
+                root=root,
+                invocation=AgentInvocationContext(
+                    agent_name="orchestrator",
+                    caller="orchestrator",
+                    interaction_mode="internal_task",
+                    task="ask_intent_repair",
+                ),
+                contract=AgentOutputContract(
+                    output_kind="json",
+                    target_name="AskIntentDecision",
+                    json_schema_name="AskIntentDecision",
+                    allow_user_questions=False,
+                ),
+            )
+        except AgentOutputContractError:
+            fallback = _fallback_ask_intent_decision(instruction)
+            return fallback.model_copy(update={"reason": f"provider intent repair contract failed; fallback used. {fallback.reason}"})
+        try:
+            return parse_ask_intent_decision(repair_content, fallback_request=instruction)
+        except OrchestratorError:
+            fallback = _fallback_ask_intent_decision(instruction)
+            return fallback.model_copy(update={"reason": f"provider intent parse failed; fallback used. {fallback.reason}"})
+
+
+def build_ask_intent_user_prompt(request: str) -> str:
+    return (
+        "请把下面用户请求分类为 AskIntentDecision JSON。\n"
+        "注意：用户可能口语化、有错别字或混合中英文，请根据整体意图判断，不要只看关键词。\n"
+        "如果用户请求应用 repair，请必须识别 repair_id；否则不要输出 memory_repair_apply。\n\n"
+        f"用户请求：\n{request.strip()}\n"
+    )
+
+
+def parse_ask_intent_decision(content: str, *, fallback_request: str) -> AskIntentDecision:
+    raw = _extract_json_object(content)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise OrchestratorError(f"provider returned invalid AskIntentDecision JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise OrchestratorError("provider returned AskIntentDecision as a non-object JSON value")
+    data = _normalize_ask_intent_payload(data, fallback_request=fallback_request)
+    try:
+        return AskIntentDecision.model_validate(data)
+    except ValidationError as exc:
+        raise OrchestratorError(f"provider returned invalid AskIntentDecision: {exc}") from exc
+
+
+def _normalize_ask_intent_payload(data: dict[str, object], *, fallback_request: str) -> dict[str, object]:
+    normalized = dict(data)
+    task = str(normalized.get("task") or "").strip().lower()
+    aliases: dict[str, AskIntentTask] = {
+        "start_session": "session_start",
+        "create_session": "session_start",
+        "session": "session_start",
+        "memory_repair": "memory_repair_suggest",
+        "repair": "memory_repair_suggest",
+        "repair_suggest": "memory_repair_suggest",
+        "apply_repair": "memory_repair_apply",
+        "memory_apply": "memory_repair_apply",
+        "export_markdown": "export",
+        "markdown_export": "export",
+        "project_status": "status",
+        "display": "show",
+    }
+    allowed: set[AskIntentTask] = {
+        "session_start",
+        "memory_repair_suggest",
+        "memory_repair_apply",
+        "export",
+        "status",
+        "show",
+        "unknown",
+    }
+    task = aliases.get(task, task)  # type: ignore[assignment]
+    if task not in allowed:
+        task = "unknown"
+    normalized["task"] = task
+    normalized["reason"] = str(normalized.get("reason") or "orchestrator ask intent decision")
+    normalized["chapter_range"] = _normalize_chapter_numbers(normalized.get("chapter_range"), list(_chapters_from_request(fallback_request)))
+    repair_id = str(normalized.get("repair_id") or "").strip()
+    normalized["repair_id"] = repair_id or None
+    try:
+        confidence = float(normalized.get("confidence") or 0.5)
+    except (TypeError, ValueError):
+        confidence = 0.5
+    normalized["confidence"] = min(1.0, max(0.0, confidence))
+    normalized["source"] = "model"
+    if normalized["task"] == "memory_repair_apply" and not normalized["repair_id"]:
+        raise OrchestratorError("memory_repair_apply decision is missing repair_id")
+    if normalized.get("user_message") is not None:
+        normalized["user_message"] = str(normalized["user_message"])
+    return normalized
+
+
+def _ask_intent_repair_prompt(*, original_prompt: str, invalid_output: str, error: str) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        "上一次输出不能被解析为 AskIntentDecision。\n"
+        f"错误：{error}\n\n"
+        "请重新只输出一个 JSON object，不要 Markdown 或解释。"
+        "task 只能是 session_start / memory_repair_suggest / memory_repair_apply / export / status / show / unknown。\n"
+        f"上一次输出：\n{invalid_output[:3000]}\n"
+    )
+
+
+def _fallback_ask_intent_decision(request: str) -> AskIntentDecision:
+    text = request.lower()
+    if _contains_any(text, ("status", "项目状态", "当前状态", "状态面板")):
+        return AskIntentDecision(task="status", reason="fallback recognized read-only status request", confidence=0.4, source="fallback")
+    if _contains_any(text, ("show", "查看", "显示", "列出")):
+        return AskIntentDecision(task="show", reason="fallback recognized read-only show request", confidence=0.35, source="fallback")
+    task = classify_request(request)
+    if task == "memory_repair":
+        repair_id = _extract_repair_id(request)
+        if repair_id:
+            return AskIntentDecision(
+                task="unknown",
+                reason="fallback refused to infer memory repair apply intent from natural language",
+                repair_id=repair_id,
+                confidence=0.2,
+                user_message=f"请使用显式命令应用 repair：novel memory-repair apply {repair_id}",
+                source="fallback",
+            )
+        return AskIntentDecision(
+            task="memory_repair_suggest",
+            reason="fallback recognized a memory repair request; proposal only, no apply",
+            chapter_range=list(_chapters_from_request(request)),
+            confidence=0.35,
+            source="fallback",
+        )
+    if task == "export_markdown":
+        return AskIntentDecision(task="export", reason="fallback recognized export request", confidence=0.4, source="fallback")
+    if task in {"plan", "write", "polish", "audit", "revision", "inspiration", "canon", "state_update"}:
+        return AskIntentDecision(
+            task="session_start",
+            reason=f"fallback maps {task} request to creation session",
+            chapter_range=list(_chapters_from_request(request)),
+            confidence=0.3,
+            source="fallback",
+        )
+    return AskIntentDecision(
+        task="unknown",
+        reason="fallback could not safely classify request",
+        confidence=0.1,
+        user_message="无法安全判断请求类型，请补充要创作、修复记忆、导出还是查看状态。",
+        source="fallback",
+    )
+
+
 def route_revision_request(
     root: Path,
     user_instruction: str,
@@ -393,6 +605,216 @@ def route_revision_request(
             pass
         fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
         return fallback.model_copy(update={"reason": f"provider route parse failed; fallback used. {fallback.reason}"})
+
+
+def route_audit_repair(
+    root: Path,
+    audit_report: AuditReport,
+    *,
+    provider_name: str = "config",
+    provider: ModelProvider | None = None,
+    plan_summary: str | None = None,
+    state_summary: str | None = None,
+) -> AuditRepairRouteDecision:
+    blocking = [issue for issue in audit_report.issues if issue.severity in {"medium", "high", "critical"}]
+    if not blocking:
+        return AuditRepairRouteDecision(
+            route="manual_review",
+            reason="audit has no blocking issues",
+            chapter_number=audit_report.chapter_number,
+            issue_ids=[],
+            risk_level="low",
+            source="deterministic",
+        )
+    deterministic = _deterministic_audit_repair_route(audit_report)
+    if provider is None and provider_name.lower() == "mock":
+        return deterministic
+    route_provider = provider or load_orchestrator_provider(root, provider_name)
+    user_prompt = build_audit_repair_route_user_prompt(
+        audit_report,
+        plan_summary=plan_summary,
+        state_summary=state_summary,
+    )
+    try:
+        content = generate_with_output_guard(
+            route_provider,
+            ModelRequest(
+                system_prompt=load_prompt_template("audit_repair_route_system"),
+                user_prompt=user_prompt,
+                json_schema_name="AuditRepairRouteDecision",
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="session",
+                interaction_mode="internal_task",
+                task="audit_repair_route",
+                chapter_number=audit_report.chapter_number,
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="AuditRepairRouteDecision",
+                json_schema_name="AuditRepairRouteDecision",
+                allow_user_questions=False,
+            ),
+        )
+    except AgentOutputContractError:
+        return deterministic.model_copy(update={"reason": f"provider audit route contract failed; {deterministic.reason}"})
+    try:
+        return parse_audit_repair_route_decision(content, audit_report=audit_report)
+    except OrchestratorError as first_error:
+        try:
+            repair_content = generate_with_output_guard(
+                route_provider,
+                ModelRequest(
+                    system_prompt=load_prompt_template("audit_repair_route_system"),
+                    user_prompt=_audit_repair_route_repair_prompt(
+                        original_prompt=user_prompt,
+                        invalid_output=content,
+                        error=str(first_error),
+                    ),
+                    json_schema_name="AuditRepairRouteDecision",
+                ),
+                root=root,
+                invocation=AgentInvocationContext(
+                    agent_name="orchestrator",
+                    caller="session",
+                    interaction_mode="internal_task",
+                    task="audit_repair_route_repair",
+                    chapter_number=audit_report.chapter_number,
+                ),
+                contract=AgentOutputContract(
+                    output_kind="json",
+                    target_name="AuditRepairRouteDecision",
+                    json_schema_name="AuditRepairRouteDecision",
+                    allow_user_questions=False,
+                ),
+            )
+        except AgentOutputContractError:
+            return deterministic.model_copy(update={"reason": f"provider audit route repair contract failed; {deterministic.reason}"})
+        try:
+            return parse_audit_repair_route_decision(repair_content, audit_report=audit_report)
+        except OrchestratorError:
+            return deterministic.model_copy(update={"reason": f"provider audit route parse failed; {deterministic.reason}"})
+
+
+def build_audit_repair_route_user_prompt(
+    audit_report: AuditReport,
+    *,
+    plan_summary: str | None = None,
+    state_summary: str | None = None,
+) -> str:
+    blocking = [
+        issue.model_dump(mode="json")
+        for issue in audit_report.issues
+        if issue.severity in {"medium", "high", "critical"}
+    ]
+    return (
+        "请根据 AuditReport 的阻断问题，判断自动修复应回退到哪个工作流节点。\n"
+        "不要根据单个自然语言关键词机械判断；优先使用 source_layer、evidence.source、issue 类型和上下文。\n\n"
+        f"chapter_number: {audit_report.chapter_number}\n"
+        f"audited_file: {audit_report.audited_file}\n"
+        f"overall_status: {audit_report.overall_status}\n"
+        f"blocking_issues JSON:\n{json.dumps(blocking, ensure_ascii=False, indent=2)}\n\n"
+        f"plan_summary:\n{plan_summary or '未提供'}\n\n"
+        f"state_summary:\n{state_summary or '未提供'}\n"
+    )
+
+
+def parse_audit_repair_route_decision(
+    content: str,
+    *,
+    audit_report: AuditReport,
+) -> AuditRepairRouteDecision:
+    raw = _extract_json_object(content)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise OrchestratorError(f"provider returned invalid AuditRepairRouteDecision JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise OrchestratorError("provider returned AuditRepairRouteDecision as a non-object JSON value")
+    normalized = _normalize_audit_repair_route_payload(data, audit_report=audit_report)
+    try:
+        return AuditRepairRouteDecision.model_validate(normalized)
+    except ValidationError as exc:
+        raise OrchestratorError(f"provider returned invalid AuditRepairRouteDecision: {exc}") from exc
+
+
+def _normalize_audit_repair_route_payload(data: dict[str, object], *, audit_report: AuditReport) -> dict[str, object]:
+    normalized = dict(data)
+    route = str(normalized.get("route") or "").strip().lower()
+    aliases = {
+        "replan": "plot_replan",
+        "plot": "plot_replan",
+        "writer": "writer_rewrite",
+        "rewrite": "writer_rewrite",
+        "revision": "revision_rewrite",
+        "revise": "revision_rewrite",
+        "manual": "manual_review",
+    }
+    route = aliases.get(route, route)
+    if route not in {"plot_replan", "writer_rewrite", "revision_rewrite", "manual_review"}:
+        raise OrchestratorError(f"unknown audit repair route: {route or '<empty>'}")
+    normalized["route"] = route
+    normalized["reason"] = str(normalized.get("reason") or "audit repair route decision")
+    normalized["chapter_number"] = int(normalized.get("chapter_number") or audit_report.chapter_number)
+    issue_ids = normalized.get("issue_ids")
+    if not isinstance(issue_ids, list) or not issue_ids:
+        normalized["issue_ids"] = [issue.id for issue in audit_report.issues if issue.severity in {"medium", "high", "critical"}]
+    source_layer = str(normalized.get("source_layer") or "").strip().lower()
+    normalized["source_layer"] = source_layer if source_layer in {"plan", "draft", "polished", "state", "timeline", "canon", "style", "unknown"} else None
+    risk = str(normalized.get("risk_level") or "").strip().lower()
+    normalized["risk_level"] = risk if risk in {"low", "medium", "high"} else "medium"
+    normalized["source"] = "model"
+    return normalized
+
+
+def _audit_repair_route_repair_prompt(*, original_prompt: str, invalid_output: str, error: str) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        "上一次输出不能被解析为 AuditRepairRouteDecision。\n"
+        f"错误：{error}\n\n"
+        "请重新只输出 JSON object。route 只能是 plot_replan / writer_rewrite / revision_rewrite / manual_review。\n"
+        f"上一次输出：\n{invalid_output[:3000]}\n"
+    )
+
+
+def _deterministic_audit_repair_route(audit_report: AuditReport) -> AuditRepairRouteDecision:
+    blocking = [issue for issue in audit_report.issues if issue.severity in {"medium", "high", "critical"}]
+    issue_ids = [issue.id for issue in blocking]
+    layers = {issue.source_layer for issue in blocking if issue.source_layer}
+    evidence_sources = {item.source for issue in blocking for item in issue.evidence}
+    if "plan" in layers or any(Path(source).name == "plan.json" for source in evidence_sources):
+        return AuditRepairRouteDecision(
+            route="plot_replan",
+            reason="structured audit evidence points to plan-level conflict",
+            chapter_number=audit_report.chapter_number,
+            issue_ids=issue_ids,
+            source_layer="plan",
+            risk_level="high",
+            source="deterministic",
+        )
+    if layers & {"draft", "polished", "style"} or any(
+        Path(source).name in {"draft.md", "polished.md"} for source in evidence_sources
+    ):
+        return AuditRepairRouteDecision(
+            route="revision_rewrite",
+            reason="structured audit evidence points to generated text",
+            chapter_number=audit_report.chapter_number,
+            issue_ids=issue_ids,
+            source_layer=next(iter(layers & {"draft", "polished", "style"}), "polished"),
+            risk_level="medium",
+            source="deterministic",
+        )
+    return AuditRepairRouteDecision(
+        route="manual_review",
+        reason="blocking audit issues do not provide enough structured routing evidence",
+        chapter_number=audit_report.chapter_number,
+        issue_ids=issue_ids,
+        source_layer=next(iter(layers), "unknown") if layers else "unknown",
+        risk_level="medium",
+        source="deterministic",
+    )
 
 
 def build_revision_route_user_prompt(
@@ -791,7 +1213,7 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
         )
         return [_rel(root, result.output_path), _rel(root, result.manifest_path)]
     if plan.task == "memory_repair":
-        result = suggest_memory_repair(root, plan.instruction)
+        result = suggest_memory_repair(root, plan.instruction, provider_name=provider_name)
         return [_rel(root, result.proposal_path), _rel(root, result.markdown_path)]
     raise OrchestratorError(f"unsupported orchestrator task: {plan.task}")
 
@@ -858,6 +1280,11 @@ def _is_revision_feedback_request(request: str) -> bool:
 def _chapters_from_request(request: str) -> tuple[int, ...]:
     chapter = _extract_chapter_number(request)
     return (chapter,) if chapter else ()
+
+
+def _extract_repair_id(text: str) -> str | None:
+    match = re.search(r"\brepair_[0-9]{8}_[0-9]{6}_[0-9]{6}\b", text)
+    return match.group(0) if match else None
 
 
 def _extract_chapter_number(request: str) -> int | None:

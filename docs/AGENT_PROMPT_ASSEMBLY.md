@@ -294,8 +294,11 @@ Prompt 组装：
 ## 10. Orchestrator
 
 - Service：`core/orchestrator.py`
-- System prompt：`prompts/orchestrator_revision_route_system.txt`（仅用于用户修订意见路由）。
-- 入口函数：`orchestrate()`、`plan_orchestration()`、`route_revision_request()`。
+- System prompt：
+  - `prompts/orchestrator_ask_intent_system.txt`：`novel ask` 的用户意图结构化分类。
+  - `prompts/orchestrator_revision_route_system.txt`：用户修订意见路由。
+  - `prompts/audit_repair_route_system.txt`：Audit 阻断问题的自动修复分流。
+- 入口函数：`orchestrate()`、`plan_orchestration()`、`decide_ask_intent()`、`route_revision_request()`、`route_audit_repair()`。
 - CLI：`novel ask`
 
 输入来源：
@@ -305,15 +308,15 @@ Prompt 组装：
 
 行为：
 
-- `classify_request()` 用关键词和章节号识别任务。
-- 关键词分类只能作为低风险入口识别或 fallback。用户自然语言可能随意且包含错别字，高风险决策必须走结构化 Orchestrator/model decision、schema 校验和保守 fallback，不能只靠硬编码关键词。
+- `decide_ask_intent()` 调用 Orchestrator provider 输出 `AskIntentDecision`。`classify_request()` 只保留为 dry-run/mock/provider 不可用时的 fallback。
+- 关键词分类只能作为低风险 fallback。用户自然语言可能随意且包含错别字，高风险决策必须走结构化 Orchestrator/model decision、schema 校验和保守 fallback，不能只靠硬编码关键词。fallback 不得执行 memory repair apply、accept/archive、state/timeline/canon 写入等高风险动作。
 - `HANDOFF_RULES` 限制允许的 agent handoff。
 - dry-run 只输出计划，不写文件。
 - 非 dry-run 调用对应底层 service。
 - 用户对已生成内容提出修改意见时，`route_revision_request()` 调用 Orchestrator provider 输出 `RevisionRouteDecision` JSON；路由只能是 `plot_replan`、`writer_rewrite`、`revision_patch`。
 - 路由输出解析或 Pydantic 校验失败时会 repair retry 一次；仍失败则保守 fallback 为 `writer_rewrite`，只有明确局部语句替换才 fallback 为 `revision_patch`。
 - route decision 会写入 session 的 `revision_route_history`，并通过 Web UI/CLI 展示。
-- 当请求被识别为 `memory_repair` 时，orchestrator 作为项目管家调用 `core/memory_repair.py`：只生成 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后再 apply。
+- 当请求被识别为 memory repair 时，orchestrator 作为项目管家调用 `core/memory_repair.py`：先生成 `MemoryRepairDecision`，再写 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后通过显式 `memory-repair apply` 或结构化 `memory_repair_apply` 决策再 apply。
 - memory repair 不是创意生成。它只读取项目文件、生成白名单 JSON Pointer operations、写 proposal/apply log，并通过 `management_events.jsonl` 通知用户后台记忆刷新。
 
 注意：

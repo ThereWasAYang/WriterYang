@@ -125,7 +125,7 @@ from novel.core.migration import MigrationError, migrate_project
 from novel.core.orchestrator import (
     OrchestratorError,
     OrchestratorOptions,
-    classify_request,
+    decide_ask_intent,
     format_orchestrator_plan,
     handoff_rules_text,
     orchestrate,
@@ -507,9 +507,11 @@ def _extract_repair_id(text: str) -> str | None:
     return match.group(0) if match else None
 
 
-def _contains_apply_intent(text: str) -> bool:
-    lowered = text.lower()
-    return any(token in lowered for token in ("apply", "应用", "确认", "执行", "采纳"))
+def _resolve_memory_repair_proposal_arg(value: str) -> Path:
+    repair_id = _extract_repair_id(value)
+    if repair_id and value.strip() == repair_id:
+        return Path("memory") / "repairs" / repair_id / "proposal.json"
+    return Path(value)
 
 
 def _print_dry_run_provider(
@@ -1262,6 +1264,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print allowed handoff rules before the plan.",
     )
     _add_search_context_args(ask_parser, default_enabled=True)
+
+    memory_repair_parser = subparsers.add_parser("memory-repair", help="Suggest or apply project memory repair proposals")
+    memory_repair_subparsers = memory_repair_parser.add_subparsers(dest="memory_repair_command", required=True)
+    memory_repair_suggest = memory_repair_subparsers.add_parser("suggest", help="Create a memory repair proposal")
+    memory_repair_suggest.add_argument("request", help="Natural language description of the memory problem")
+    memory_repair_suggest.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    memory_repair_suggest.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for structured repair proposal generation.",
+    )
+    memory_repair_suggest.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
+    memory_repair_suggest.add_argument("--quiet", action="store_true", help="Suppress normal output.")
+    memory_repair_apply = memory_repair_subparsers.add_parser("apply", help="Apply a memory repair proposal explicitly")
+    memory_repair_apply.add_argument("proposal", help="repair_id or path to memory/repairs/{repair_id}/proposal.json")
+    memory_repair_apply.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    memory_repair_apply.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
+    memory_repair_apply.add_argument("--quiet", action="store_true", help="Suppress normal output.")
 
     session_parser = subparsers.add_parser("session", help="Manage collaborative creation sessions")
     session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
@@ -2342,6 +2363,54 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   excerpt: {result.highlighted_excerpt if args.highlight else result.excerpt}")
         return 0
 
+    if args.command == "memory-repair":
+        root = Path(args.path)
+        try:
+            with _command_lock(args, root, f"memory-repair {args.memory_repair_command}"):
+                if args.memory_repair_command == "suggest":
+                    repair_result = suggest_memory_repair(root, args.request, provider_name=args.provider)
+                    payload = {
+                        "command": "memory-repair suggest",
+                        "repair_id": repair_result.proposal.repair_id,
+                        "proposal_path": str(repair_result.proposal_path),
+                        "markdown_path": str(repair_result.markdown_path),
+                        "target_files": repair_result.proposal.target_files,
+                        "operation_count": len(repair_result.proposal.operations),
+                        "confidence": repair_result.proposal.confidence,
+                        "management_events": _management_event_payload(root),
+                    }
+                    return _success(
+                        args,
+                        payload,
+                        [
+                            f"Memory repair proposal: {repair_result.proposal_path}",
+                            f"Targets: {', '.join(repair_result.proposal.target_files) or 'none'}",
+                            f"Operations: {len(repair_result.proposal.operations)}",
+                            *_management_event_lines(root),
+                        ],
+                    )
+                apply_result = apply_memory_repair(root, _resolve_memory_repair_proposal_arg(args.proposal))
+                payload = {
+                    "command": "memory-repair apply",
+                    "repair_id": apply_result.proposal.repair_id,
+                    "apply_log_path": str(apply_result.apply_log_path),
+                    "status": apply_result.apply_log.status,
+                    "management_events": _management_event_payload(root),
+                }
+                return _success(
+                    args,
+                    payload,
+                    [
+                        f"Applied memory repair: {apply_result.proposal.repair_id}",
+                        f"Apply log: {apply_result.apply_log_path}",
+                        *_management_event_lines(root),
+                    ],
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
+        except MemoryRepairError as exc:
+            return _failure(args, str(exc), error_type="memory_repair_error")
+
     if args.command == "ask":
         try:
             with _command_lock(args, Path(args.path), "ask", enabled=not args.dry_run):
@@ -2385,35 +2454,38 @@ def main(argv: list[str] | None = None) -> int:
                         print(format_orchestrator_plan(result.plan))
                         print(result.message)
                     return 0
-                task = classify_request(args.request)
-                if task == "memory_repair":
-                    repair_id = _extract_repair_id(args.request)
-                    if repair_id and _contains_apply_intent(args.request):
-                        apply_result = apply_memory_repair(
-                            Path(args.path),
-                            Path("memory") / "repairs" / repair_id / "proposal.json",
-                        )
-                        payload = {
-                            "command": "ask",
-                            "task": "memory_repair_apply",
-                            "repair_id": apply_result.proposal.repair_id,
-                            "apply_log_path": str(apply_result.apply_log_path),
-                            "status": apply_result.apply_log.status,
-                            "management_events": _management_event_payload(Path(args.path)),
-                        }
-                        return _success(
-                            args,
-                            payload,
-                            [
-                                f"Applied memory repair: {apply_result.proposal.repair_id}",
-                                f"Apply log: {apply_result.apply_log_path}",
-                                *_management_event_lines(Path(args.path)),
-                            ],
-                        )
-                    repair_result = suggest_memory_repair(Path(args.path), args.request)
+                intent = decide_ask_intent(Path(args.path), args.request, provider_name=args.provider)
+                if intent.task == "memory_repair_apply":
+                    if intent.source != "model" or not intent.repair_id:
+                        raise OrchestratorError("memory repair apply requires a structured model decision; use novel memory-repair apply <repair_id>")
+                    apply_result = apply_memory_repair(
+                        Path(args.path),
+                        Path("memory") / "repairs" / intent.repair_id / "proposal.json",
+                    )
                     payload = {
                         "command": "ask",
-                        "task": "memory_repair",
+                        "task": "memory_repair_apply",
+                        "ask_intent": intent.model_dump(mode="json"),
+                        "repair_id": apply_result.proposal.repair_id,
+                        "apply_log_path": str(apply_result.apply_log_path),
+                        "status": apply_result.apply_log.status,
+                        "management_events": _management_event_payload(Path(args.path)),
+                    }
+                    return _success(
+                        args,
+                        payload,
+                        [
+                            f"Applied memory repair: {apply_result.proposal.repair_id}",
+                            f"Apply log: {apply_result.apply_log_path}",
+                            *_management_event_lines(Path(args.path)),
+                        ],
+                    )
+                if intent.task == "memory_repair_suggest":
+                    repair_result = suggest_memory_repair(Path(args.path), args.request, provider_name=args.provider)
+                    payload = {
+                        "command": "ask",
+                        "task": "memory_repair_suggest",
+                        "ask_intent": intent.model_dump(mode="json"),
                         "repair_id": repair_result.proposal.repair_id,
                         "proposal_path": str(repair_result.proposal_path),
                         "markdown_path": str(repair_result.markdown_path),
@@ -2430,12 +2502,34 @@ def main(argv: list[str] | None = None) -> int:
                             *_management_event_lines(Path(args.path)),
                         ],
                     )
-                chapter = _extract_chapter_from_text(args.request) or 1
+                if intent.task == "export":
+                    export_result = export_markdown(MarkdownExportOptions(root=Path(args.path), force=args.force))
+                    payload = {
+                        "command": "ask",
+                        "task": "export",
+                        "ask_intent": intent.model_dump(mode="json"),
+                        "output_path": str(export_result.output_path),
+                        "manifest_path": str(export_result.manifest_path),
+                    }
+                    return _success(args, payload, [f"Exported Markdown: {export_result.output_path}"])
+                if intent.task in {"status", "show"}:
+                    status = get_project_status(Path(args.path))
+                    payload = {
+                        "command": "ask",
+                        "task": intent.task,
+                        "ask_intent": intent.model_dump(mode="json"),
+                        "status": status.model_dump(mode="json"),
+                    }
+                    return _success(args, payload, format_status(status).splitlines())
+                if intent.task == "unknown":
+                    raise OrchestratorError(intent.user_message or intent.reason)
+                fallback_chapter = _extract_chapter_from_text(args.request)
+                chapter_numbers = tuple(intent.chapter_range or ([fallback_chapter] if fallback_chapter else []) or [1])
                 session_result = start_session(
                     SessionStartOptions(
                         root=Path(args.path),
                         user_intent=args.request,
-                        chapter_range=(chapter,),
+                        chapter_range=chapter_numbers,
                         provider_name=args.provider,
                         force=args.force,
                         use_search_context=args.use_search_context,
@@ -2451,7 +2545,9 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "command": "ask",
             "task": "creation_session",
+            "ask_intent": intent.model_dump(mode="json"),
             "chapter_number": session_result.session.chapter_range[0],
+            "chapter_range": session_result.session.chapter_range,
             "session_id": session_result.session.session_id,
             "message": session_result.message,
             "session_path": str(session_result.session_path),

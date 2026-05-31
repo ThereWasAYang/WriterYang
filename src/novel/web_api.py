@@ -765,7 +765,8 @@ def _memory_repair_suggest(data: dict[str, object]) -> dict[str, object]:
     request = _optional_string(data.get("request")) or _optional_string(data.get("instruction"))
     if not request:
         raise WebAPIError("invalid_request", "request is required", status=400)
-    result = suggest_memory_repair(root, request)
+    provider = _optional_string(data.get("provider")) or "config"
+    result = suggest_memory_repair(root, request, provider_name=provider)
     return {
         "proposal": result.proposal.model_dump(mode="json"),
         "proposal_path": str(result.proposal_path),

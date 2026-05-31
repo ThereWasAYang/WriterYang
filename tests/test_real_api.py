@@ -7,10 +7,10 @@ import pytest
 import yaml
 
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.orchestrator import route_revision_request
+from novel.core.orchestrator import decide_ask_intent, route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, plan_chapter
 from novel.core.providers import ModelRequest, ProviderFactory
-from novel.core.schemas import AgentConfig
+from novel.core.schemas import AgentConfig, AuditIssue, AuditReport
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -118,6 +118,56 @@ def test_real_deepseek_revision_route_decision(tmp_path: Path, instruction: str,
     assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
         path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
     )
+
+
+@pytest.mark.parametrize(
+    ("user_request", "expected_task"),
+    [
+        ("帮我搞下第2章，先整一章氛围压抑一点", "session_start"),
+        ("第2章 event_wrong_current 其实是回忆，不是现在发生的，帮我修下记忆", "memory_repair_suggest"),
+        ("把前两章导出成 markdown 看看", "export"),
+    ],
+)
+def test_real_deepseek_ask_intent_decision(tmp_path: Path, user_request: str, expected_task: str) -> None:
+    env = _real_env_or_skip()
+    if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
+        pytest.skip("DeepSeek ask intent smoke requires DeepSeek env in .env.real")
+    root = _real_project(tmp_path, env)
+
+    decision = decide_ask_intent(root, user_request, provider_name="config")
+
+    assert decision.task == expected_task
+    assert decision.source == "model"
+
+
+def test_real_deepseek_audit_repair_route_manual_review_for_unstructured_issue(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
+        pytest.skip("DeepSeek audit repair route smoke requires DeepSeek env in .env.real")
+    root = _real_project(tmp_path, env)
+    report = AuditReport(
+        chapter_number=1,
+        audited_file="polished.md",
+        overall_status="needs_revision",
+        summary="存在一个证据不足的问题。",
+        issues=[
+            AuditIssue(
+                id="issue_unstructured",
+                severity="medium",
+                type="continuity_issue",
+                description="可能有伏笔处理风险，但没有结构化证据。",
+                evidence=[],
+                suggested_fix="人工确认是否确实需要重写。",
+            )
+        ],
+        passed_checks=[],
+        created_at="2026-05-22T00:00:00Z",
+    )
+
+    decision = route_audit_repair(root, report, provider_name="config")
+
+    assert decision.route in {"manual_review", "writer_rewrite", "revision_rewrite", "plot_replan"}
+    assert decision.source == "model"
 
 
 def _real_env_or_skip() -> dict[str, str]:

@@ -7,8 +7,9 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.orchestrator import route_revision_request
+from novel.core.orchestrator import decide_ask_intent, route_audit_repair, route_revision_request
 from novel.core.providers import MockProvider
+from novel.core.schemas import AuditIssue, AuditReport
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -175,6 +176,98 @@ def test_revision_route_fallback_avoids_free_revision(tmp_path: Path) -> None:
     assert "fallback" in decision.reason
 
 
+def test_ask_intent_decision_handles_noisy_session_request(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    provider = MockProvider(
+        fake_response=json.dumps(
+            {
+                "task": "session_start",
+                "reason": "用户想写第二章。",
+                "chapter_range": [2],
+                "confidence": 0.86,
+                "source": "model",
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    decision = decide_ask_intent(root, "帮我搞下第2章，先整一点氛围", provider=provider)
+
+    assert decision.task == "session_start"
+    assert decision.chapter_range == [2]
+
+
+def test_ask_intent_decision_repair_retry(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    provider = MockProvider(
+        fake_response=[
+            "需要再确认。",
+            json.dumps(
+                {
+                    "task": "memory_repair_suggest",
+                    "reason": "用户指出时间线事件类型错误。",
+                    "chapter_range": [],
+                    "confidence": 0.78,
+                    "source": "model",
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+
+    decision = decide_ask_intent(root, "第2章这个事件其实是回忆", provider=provider)
+
+    assert decision.task == "memory_repair_suggest"
+    assert len(provider.requests) == 2
+
+
+def test_ask_intent_fallback_does_not_apply_repair(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+
+    decision = decide_ask_intent(root, "确认应用 repair_20260530_010101_000001", provider_name="mock")
+
+    assert decision.task == "unknown"
+    assert decision.repair_id == "repair_20260530_010101_000001"
+    assert "memory-repair apply" in (decision.user_message or "")
+
+
+def test_audit_repair_route_uses_structured_plan_source(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    report = _audit_report(
+        issue=AuditIssue(
+            id="issue_plan",
+            severity="high",
+            type="plot_logic_issue",
+            description="计划层矛盾。",
+            evidence=[],
+            suggested_fix="重写计划。",
+            source_layer="plan",
+        )
+    )
+
+    decision = route_audit_repair(root, report, provider_name="mock")
+
+    assert decision.route == "plot_replan"
+
+
+def test_audit_repair_route_does_not_replan_from_natural_language_only(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    report = _audit_report(
+        issue=AuditIssue(
+            id="issue_text_only",
+            severity="high",
+            type="continuity_issue",
+            description="这里提到了真相和伏笔，但没有结构化来源。",
+            evidence=[],
+            suggested_fix="人工检查。",
+        )
+    )
+
+    decision = route_audit_repair(root, report, provider_name="mock")
+
+    assert decision.route == "manual_review"
+
+
 def _workspace_ready(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
@@ -186,6 +279,18 @@ def _workspace_ready(tmp_path: Path) -> Path:
     proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
     assert apply_canon_proposal(root, proposal_path).validation_report.ok
     return root
+
+
+def _audit_report(*, issue: AuditIssue) -> AuditReport:
+    return AuditReport(
+        chapter_number=1,
+        audited_file="polished.md",
+        overall_status="needs_revision",
+        summary="blocked",
+        issues=[issue],
+        passed_checks=[],
+        created_at="2026-05-22T00:00:00Z",
+    )
 
 
 def _run_cli(args: list[str]) -> tuple[int, str, str]:

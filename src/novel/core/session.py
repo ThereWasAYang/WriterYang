@@ -11,7 +11,7 @@ from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_p
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model
 from novel.core.management import record_management_event
-from novel.core.orchestrator import route_revision_request
+from novel.core.orchestrator import route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.polishing import read_markdown_with_front_matter
@@ -239,7 +239,14 @@ def run_session(options: SessionRunOptions) -> SessionResult:
         while _has_hard_issues(audit_report) and round_number < max_rounds:
             round_number += 1
             after_output_path: Path | None = None
-            if _should_replan_chapter(audit_report, round_number):
+            repair_route = route_audit_repair(
+                root,
+                audit_report,
+                provider_name=options.provider_name,
+            )
+            if repair_route.route == "manual_review":
+                break
+            if repair_route.route == "plot_replan":
                 rewrite_event = _start_rewrite_event(
                     root,
                     session,
@@ -517,7 +524,8 @@ def _audit_driven_revision_route(
     reports = [_load_audit(root, chapter_number) for chapter_number in session.chapter_range]
     issue_summary = "\n".join(_blocking_issue_summary(report) for report in reports).strip() or "当前 audit issues"
     user_note = f"\n用户补充意见：{instruction.strip()}" if instruction and instruction.strip() else ""
-    if any(_should_replan_chapter(report, round_number=2) for report in reports):
+    routes = [route_audit_repair(root, report, provider_name="mock") for report in reports]
+    if any(route.route == "plot_replan" for route in routes):
         return RevisionRouteDecision(
             route="plot_replan",
             reason="audit issues point to plan/outline-level conflicts",
@@ -1313,24 +1321,12 @@ def _retire_state_update_proposal(root: Path, chapter_number: int) -> None:
 def _should_replan_chapter(report: AuditReport, round_number: int) -> bool:
     if round_number <= 1:
         return False
-    plan_issue_types = {
-        "plot_logic_issue",
-        "continuity_issue",
-        "knowledge_conflict",
-        "premature_reveal",
-        "foreshadowing_overexposure",
-    }
     for issue in report.issues:
         if issue.severity not in {"medium", "high", "critical"}:
             continue
-        evidence_text = " ".join(f"{item.source} {item.quote}" for item in issue.evidence).lower()
-        issue_text = f"{issue.type} {issue.description} {issue.suggested_fix} {evidence_text}".lower()
-        if "plan.json" in issue_text or "chapterplan" in issue_text or "大纲" in issue_text:
+        if issue.source_layer == "plan":
             return True
-        if issue.type in plan_issue_types and any(
-            marker in issue_text
-            for marker in ("知道", "姓名", "隐藏", "真相", "伏笔", "揭示", "reveal", "foreshadow")
-        ):
+        if any(Path(item.source).name == "plan.json" for item in issue.evidence):
             return True
     return False
 

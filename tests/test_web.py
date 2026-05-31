@@ -748,12 +748,13 @@ def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -
         "/api/orchestrator/memory-repair/suggest",
         "",
         json.dumps(
-            {
-                "path": str(root),
-                "request": "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
-            }
-        ),
-    )
+                {
+                    "path": str(root),
+                    "request": "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
+                    "provider": "mock",
+                }
+            ),
+        )
     proposal_path = suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
     apply_status, apply_payload = handle_api_request(
         "POST",

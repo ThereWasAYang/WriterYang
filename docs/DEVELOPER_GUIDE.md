@@ -163,13 +163,17 @@ Agent 级技能也放在 `skills/`，每个 Agent 单独保存、按需加载：
 inspire -> canon suggest/apply -> session start -> approve-outline -> session run -> user review -> session accept/archive -> export
 ```
 
-用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能只靠硬编码关键词判断。可以保留关键词启发式作为兼容或 fallback，但主路径应使用 Orchestrator 的结构化决策、schema 校验、明确错误提示和保守 fallback，并为这些路径添加测试。
+用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能只靠硬编码关键词判断。可以保留关键词启发式作为兼容或 fallback，但 fallback 不得执行 apply、archive、accepted、state/timeline/canon 写入等高风险动作。主路径应使用 Orchestrator 的结构化决策、schema 校验、明确错误提示和保守 fallback，并为这些路径添加测试。
+
+`novel ask` 的非 dry-run 主路径应先调用 Orchestrator 输出 `AskIntentDecision`，再根据结构化 task 执行：创建 Session、生成 memory repair proposal、导出或查看状态。自然语言中的“确认/应用 repair”只有在模型结构化决策明确为 `memory_repair_apply` 且带有 `repair_id` 时才允许执行；provider 不可用或 fallback 场景必须提示用户使用显式命令 `novel memory-repair apply <repair_id>`。
 
 `session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 Orchestrator 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“生成/提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
 
 Audit 打回后的人工控制有三个入口：`session revise-audit` 用用户纠正意见重新审核被打回原文；`session retry-rewrite` 基于最新 audit 再次发起打回；`session undo-rewrite` 恢复 rewrite event 的 rejected snapshot 并重跑 audit。三者都只能作用于未归档 session，且必须更新 `rewrite_events.json`、`audit_history` 和 session 状态。
 
-orchestrator 同时承担项目管家职责。自然语言 memory 修复请求必须先生成 `MemoryRepairProposal`，保存到 `memory/repairs/{repair_id}/proposal.json`，由用户确认后再 apply。apply 必须限制白名单文件、使用 JSON Pointer 操作、备份目标文件、atomic write、validate，失败时写 `apply_log.json` 并尽量回滚。
+orchestrator 同时承担项目管家职责。自然语言 memory 修复请求必须先由 Orchestrator / Memory Manager 输出结构化 `MemoryRepairDecision`，再生成 `MemoryRepairProposal`，保存到 `memory/repairs/{repair_id}/proposal.json`，由用户确认后再 apply。Memory repair 不得用关键词硬猜目标文件和 JSON Pointer；如果缺少 ID 或定位不安全，proposal 应为空操作并提示用户补充。apply 必须限制白名单文件、使用 JSON Pointer 操作、备份目标文件、atomic write、validate，失败时写 `apply_log.json` 并尽量回滚。
+
+Audit 自动打回也必须走结构化分流：`route_audit_repair()` 根据 `AuditReport` 中的 `source_layer`、`evidence.source`、issue 类型和上下文输出 `AuditRepairRouteDecision`。只有明确指向 plan 层的问题才回退 Plot；正文实现问题走 Writer/Revision；信息不足时返回 manual review，不允许仅因为描述里出现“真相/伏笔/大纲”等词就自动重写大纲。
 
 Web UI 面向普通作者时，Session 面板必须保留完整协商链路：创建大纲、修改大纲、批准大纲、开始写作、自动打回重写记录、Audit 复审/重试打回/撤回、按 Audit/用户意见修订、认可和归档。只读项目检查走 `/api/validate`，复用 `validate_project()`，不应在前端实现校验规则。后台状态、时间线和记忆管理变更必须写 `memory/management_events.jsonl`，Web UI 和 CLI 都要显示最近事件摘要。
 
@@ -190,6 +194,7 @@ novel session revise-audit <session_id> <event_id> --path <project> --instructio
 novel session retry-rewrite <session_id> <event_id> --path <project>
 novel session undo-rewrite <session_id> <event_id> --path <project>
 novel ask "第2章 event_x 其实是回忆，不是当前行动" --path <project>
+novel memory-repair apply <repair_id> --path <project>
 novel plan-chapter 1 --path <project>
 novel write-chapter 1 --path <project>
 novel polish-chapter 1 --path <project>

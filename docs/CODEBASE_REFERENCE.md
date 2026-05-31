@@ -497,7 +497,10 @@ Embedding provider：
 - `revise_outline()`：按用户意见重新生成 outline proposal。
 - `approve_outline()`：冻结 approved outline。
 - `run_session()`：生成正文、润色、审核、自动修复、state proposal。
-- `revise_content()`：按用户意见或 audit issue 生成修订版本，提升为当前 `polished.md`，重跑 audit，并在通过后重建 state proposal。
+- `revise_content()`：按用户意见或 audit issue 修订内容。用户意见先调用 Orchestrator 路由；剧情级修改回到 Plot 重写 plan，写作实现级修改走 Writer/Polish 重写正文，局部表达修改才走 Revision 版本补丁。之后统一提升/重审/重建 state proposal。
+- `_resolve_content_revision_route()` / `_audit_driven_revision_route()`：把用户反馈或 audit issue 转为 `RevisionRouteDecision`。
+- `_replan_and_rewrite_chapter()`：剧情级反馈路径，重写本章 `plan.json` 并重新生成正文。
+- `_rewrite_chapter_with_writer()`：写作实现级反馈路径，保留 plan，重写 `draft.md` / `polished.md`。
 - `revise_audit()`：读取 rewrite event 的 rejected snapshot，把用户纠正意见传给 Audit Agent，重写 `audit.json` 并记录 `audit_revision_history`。
 - `retry_rewrite()`：基于最新 audit issue 再次执行 revision rewrite 或 plot replan，提升当前稿并重跑 audit。
 - `undo_rewrite()`：恢复 rewrite event 的 rejected snapshot，备份当前稿，重跑 audit，并更新 undo 状态。
@@ -553,6 +556,10 @@ orchestrator 项目管家修复 proposal：
 - `orchestrate()`：执行或 dry-run。
 - `plan_orchestration()`：根据自然语言请求生成计划。
 - `classify_request()`：关键词任务分类。
+- `route_revision_request()`：调用 Orchestrator provider 输出 `RevisionRouteDecision`，用于把用户修订意见分为 `plot_replan`、`writer_rewrite`、`revision_patch`。
+- `parse_revision_route_decision()`：解析和归一化路由 JSON；失败时由 `route_revision_request()` repair retry 一次，仍失败则保守 fallback。
+- `load_orchestrator_provider()`：读取 `orchestrator` agent 配置，创建带 model I/O 日志的 provider。
+- `build_revision_route_user_prompt()`：组装修订路由判定 prompt。
 - `handoff_rules_text()`：可见 handoff 规则。
 - `_execute_plan()` / `_execute_task()`：调用对应 core service。
 - `_validate_handoff_trace()` / `_check_limits()`：安全限制。

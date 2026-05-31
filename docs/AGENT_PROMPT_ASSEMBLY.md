@@ -264,6 +264,7 @@ Prompt 组装：
 - System prompt：`prompts/revision_system.txt`
 - Provider loader：`load_revision_provider()`
 - 入口函数：`revise_chapter()`
+- 适用范围：低风险局部表达补丁。剧情结构变化应回到 Plot；人物刻画、铺垫、节奏、风格等写作实现问题应回到 Writer/Polish。
 - 输出：
   - `draft.vN.md` 或 `polished.vN.md`
   - `revision_log.json`
@@ -293,8 +294,8 @@ Prompt 组装：
 ## 10. Orchestrator
 
 - Service：`core/orchestrator.py`
-- 当前不是 LLM Agent，而是规则式受控编排器。
-- 入口函数：`orchestrate()`、`plan_orchestration()`。
+- System prompt：`prompts/orchestrator_revision_route_system.txt`（仅用于用户修订意见路由）。
+- 入口函数：`orchestrate()`、`plan_orchestration()`、`route_revision_request()`。
 - CLI：`novel ask`
 
 输入来源：
@@ -308,13 +309,16 @@ Prompt 组装：
 - `HANDOFF_RULES` 限制允许的 agent handoff。
 - dry-run 只输出计划，不写文件。
 - 非 dry-run 调用对应底层 service。
+- 用户对已生成内容提出修改意见时，`route_revision_request()` 调用 Orchestrator provider 输出 `RevisionRouteDecision` JSON；路由只能是 `plot_replan`、`writer_rewrite`、`revision_patch`。
+- 路由输出解析或 Pydantic 校验失败时会 repair retry 一次；仍失败则保守 fallback 为 `writer_rewrite`，只有明确局部语句替换才 fallback 为 `revision_patch`。
+- route decision 会写入 session 的 `revision_route_history`，并通过 Web UI/CLI 展示。
 - 当请求被识别为 `memory_repair` 时，orchestrator 作为项目管家调用 `core/memory_repair.py`：只生成 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后再 apply。
 - memory repair 不是创意生成。它只读取项目文件、生成白名单 JSON Pointer operations、写 proposal/apply log，并通过 `management_events.jsonl` 通知用户后台记忆刷新。
 
 注意：
 
 - 当前推荐作者入口是 session；`ask` 主要用于创建或引导协作流程。
-- 如果未来改成真实 LLM orchestrator，必须显式区分 user-facing 对话和 internal task 调度。
+- Orchestrator 只有在修订路由等受控决策点调用模型；仍必须显式区分 user-facing 对话和 internal task 调度。
 
 ## 11. Creation Session
 
@@ -336,7 +340,7 @@ Prompt 组装：
 4. `run_session()` 调用 Writer、Polish、Audit；medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
 5. `revise_audit()` 用用户纠正意见重新审核被打回原文，写入 `audit_revision_history`。
 6. `retry_rewrite()` 基于最新 audit 再次执行正文修订或重写计划；`undo_rewrite()` 恢复被打回快照并重审。
-7. `revise_content()` 处理作者反馈或 audit issue，生成版本稿、提升当前稿、重跑 audit；audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
+7. `revise_content()` 处理作者反馈或 audit issue。用户反馈先由 Orchestrator 判定：剧情级修改重写 plan 并重新 writer/polish/audit；写作实现级修改保留 plan、重写 draft/polished/audit；局部表达修改才调用 Revision Agent 生成版本稿并提升当前稿。audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
 8. `accept_session()` 应用 state update 并标记 accepted。
 9. `archive_session()` 复制本次创作文件并写 sha256 manifest。
 

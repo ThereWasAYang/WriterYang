@@ -966,6 +966,7 @@ def _session_result_payload(result) -> dict[str, object]:
         "message": result.message,
         "audit_summary": _session_audit_summary(root, result.session),
         "rewrite_events": _session_rewrite_event_summary(root, result.session),
+        "revision_route": _session_latest_revision_route(result.session),
         "management_events": _management_event_summary(root),
     }
 
@@ -975,6 +976,13 @@ def _session_root_from_result_path(session_path: Path) -> Path:
         if (parent / "project.yaml").exists():
             return parent
     return session_path.parents[3]
+
+
+def _session_latest_revision_route(session: CreationSession) -> dict[str, object] | None:
+    if not session.revision_route_history:
+        return None
+    record = session.revision_route_history[-1]
+    return record.model_dump(mode="json")
 
 
 def _session_audit_summary(root: Path, session: CreationSession) -> list[dict[str, object]]:

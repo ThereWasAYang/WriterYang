@@ -358,6 +358,7 @@ def _session_payload(command: str, result: SessionResult, root: Path) -> dict[st
         "session_path": str(result.session_path),
         "message": result.message,
         "rewrite_events": _session_rewrite_payload(root, result.session),
+        "revision_route": _session_latest_revision_route_payload(result.session),
         "management_events": _management_event_payload(root),
     }
 
@@ -449,6 +450,27 @@ def _session_rewrite_lines(root: Path, session: CreationSession) -> list[str]:
             if issue.suggested_fix:
                 lines.append(f"  suggested_fix: {issue.suggested_fix}")
     return lines
+
+
+def _session_latest_revision_route_payload(session: CreationSession) -> dict[str, object] | None:
+    if not session.revision_route_history:
+        return None
+    return session.revision_route_history[-1].model_dump(mode="json")
+
+
+def _session_revision_route_lines(session: CreationSession) -> list[str]:
+    record = _session_latest_revision_route_payload(session)
+    if not record:
+        return []
+    decision = record.get("decision", {}) if isinstance(record, dict) else {}
+    if not isinstance(decision, dict) or not decision.get("route"):
+        return []
+    return [
+        "Revision route:",
+        f"- route: {decision.get('route')}",
+        f"- reason: {decision.get('reason')}",
+        f"- risk: {decision.get('risk_level')}",
+    ]
 
 
 def _management_event_payload(root: Path) -> list[dict[str, object]]:
@@ -2349,6 +2371,9 @@ def main(argv: list[str] | None = None) -> int:
                         "message": result.message,
                         "run_log_path": str(result.run_log_path) if result.run_log_path else None,
                         "handoff_trace": [entry.as_dict() for entry in result.plan.handoff_trace],
+                        "revision_route": result.plan.revision_route.model_dump(mode="json")
+                        if result.plan.revision_route
+                        else None,
                     }
                     if _wants_json(args):
                         _print_json({"ok": True, **payload})
@@ -2458,6 +2483,7 @@ def main(argv: list[str] | None = None) -> int:
             result.message,
             f"Status: {result.session.status}",
             f"Session file: {result.session_path}",
+            *_session_revision_route_lines(result.session),
             *_session_rewrite_lines(root, result.session),
             *_management_event_lines(root),
             *_session_low_issue_lines(root, result.session.audit_history),

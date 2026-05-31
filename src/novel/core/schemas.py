@@ -40,6 +40,8 @@ CreationSessionStatus = Literal[
 ]
 CreationOutlineStatus = Literal["draft", "proposed", "approved"]
 CreationContentStatus = Literal["not_started", "generating", "needs_revision", "needs_user_review", "accepted", "archived"]
+RevisionRoute = Literal["plot_replan", "writer_rewrite", "revision_patch"]
+RevisionRouteRiskLevel = Literal["low", "medium", "high"]
 
 
 class FlexibleModel(BaseModel):
@@ -537,6 +539,7 @@ class CreationSession(SchemaVersionedModel):
     final_output_paths: list[str] = Field(default_factory=list)
     audit_history: list[str] = Field(default_factory=list)
     revision_history: list[str] = Field(default_factory=list)
+    revision_route_history: list["RevisionRouteRecord"] = Field(default_factory=list)
     archive_paths: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -574,6 +577,33 @@ class CreationArchiveManifest(SchemaVersionedModel):
     session_id: str = Field(min_length=1)
     created_at: datetime
     entries: list[CreationArchiveEntry] = Field(default_factory=list)
+
+
+class RevisionRouteDecision(SchemaVersionedModel):
+    route: RevisionRoute
+    reason: str = Field(min_length=1)
+    chapter_numbers: list[int] = Field(default_factory=list)
+    instruction_for_plot: str | None = None
+    instruction_for_writer: str | None = None
+    instruction_for_revision: str | None = None
+    risk_level: RevisionRouteRiskLevel = "medium"
+
+    @model_validator(mode="after")
+    def require_matching_instruction(self) -> RevisionRouteDecision:
+        if self.route == "plot_replan" and not _has_text(self.instruction_for_plot):
+            raise ValueError("plot_replan requires instruction_for_plot")
+        if self.route == "writer_rewrite" and not _has_text(self.instruction_for_writer):
+            raise ValueError("writer_rewrite requires instruction_for_writer")
+        if self.route == "revision_patch" and not _has_text(self.instruction_for_revision):
+            raise ValueError("revision_patch requires instruction_for_revision")
+        return self
+
+
+class RevisionRouteRecord(FlexibleModel):
+    created_at: datetime
+    user_instruction: str
+    from_audit: bool = False
+    decision: RevisionRouteDecision
 
 
 class AgentRunStep(FlexibleModel):
@@ -879,6 +909,10 @@ def _require_unique_values(values: list[str], label: str) -> None:
         seen.add(value)
     if duplicates:
         raise ValueError(f"duplicate {label}: {', '.join(sorted(duplicates))}")
+
+
+def _has_text(value: str | None) -> bool:
+    return bool(value and value.strip())
 
 
 def json_dumps_compact(value: object) -> str:

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.orchestrator import route_revision_request
+from novel.core.providers import MockProvider
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -94,6 +96,83 @@ def test_ask_no_longer_writes_run_log_for_session_start(tmp_path: Path) -> None:
     assert code == 0
     assert stderr == ""
     assert not list((root / "runs").glob("run_*.json"))
+
+
+def test_revision_route_decision_classifies_plot_replan(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    provider = MockProvider(
+        fake_response=json.dumps(
+            {
+                "route": "plot_replan",
+                "reason": "改变结尾和人物选择，属于剧情结构变化。",
+                "chapter_numbers": [1],
+                "instruction_for_plot": "把结尾改成主角主动背叛师门。",
+                "instruction_for_writer": None,
+                "instruction_for_revision": None,
+                "risk_level": "high",
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    decision = route_revision_request(
+        root,
+        "把结尾改成主角主动背叛师门",
+        provider_name="mock",
+        provider=provider,
+        chapter_numbers=[1],
+    )
+
+    assert decision.route == "plot_replan"
+    assert decision.instruction_for_plot
+
+
+def test_revision_route_decision_repair_retry(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    provider = MockProvider(
+        fake_response=[
+            "这需要再确认一下。",
+            json.dumps(
+                {
+                    "route": "writer_rewrite",
+                    "reason": "只影响压迫感和铺垫方式。",
+                    "chapter_numbers": [1],
+                    "instruction_for_plot": None,
+                    "instruction_for_writer": "加强压迫感，增加铺垫，减少解释。",
+                    "instruction_for_revision": None,
+                    "risk_level": "medium",
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+
+    decision = route_revision_request(
+        root,
+        "人物压迫感不够，增加铺垫，减少解释",
+        provider_name="mock",
+        provider=provider,
+        chapter_numbers=[1],
+    )
+
+    assert decision.route == "writer_rewrite"
+    assert len(provider.requests) == 2
+
+
+def test_revision_route_fallback_avoids_free_revision(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    provider = MockProvider(fake_response="{bad json")
+
+    decision = route_revision_request(
+        root,
+        "人物压迫感不够，增加铺垫，减少解释",
+        provider_name="mock",
+        provider=provider,
+        chapter_numbers=[1],
+    )
+
+    assert decision.route == "writer_rewrite"
+    assert "fallback" in decision.reason
 
 
 def _workspace_ready(tmp_path: Path) -> Path:

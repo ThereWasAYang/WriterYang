@@ -8,7 +8,14 @@ from pathlib import Path
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import atomic_write_model_json, load_json_model
-from novel.core.schemas import AuditReport, CreationArchiveManifest, CreationSession, SessionRewriteEvent, SessionRewriteEvents
+from novel.core.schemas import (
+    AuditReport,
+    CreationArchiveManifest,
+    CreationSession,
+    RevisionRouteDecision,
+    SessionRewriteEvent,
+    SessionRewriteEvents,
+)
 from novel.core.session import (
     SessionInstructionOptions,
     SessionRewriteControlOptions,
@@ -463,6 +470,129 @@ def test_session_revise_content_keeps_needs_revision_when_reaudit_blocks(tmp_pat
     assert result.session.content_status == "needs_revision"
     assert result.session.final_output_paths[-1].endswith("polished.md")
     assert result.session.revision_history[-1].endswith("polished.v2.md")
+
+
+def test_session_revise_content_routes_writer_rewrite(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
+    chapter_dir = root / "memory" / "chapters" / "001"
+    seen: dict[str, str] = {}
+
+    monkeypatch.setattr(
+        session_module,
+        "route_revision_request",
+        lambda *args, **kwargs: RevisionRouteDecision(
+            route="writer_rewrite",
+            reason="写作实现层修改。",
+            chapter_numbers=[1],
+            instruction_for_writer="加强压迫感，增加铺垫。",
+            risk_level="medium",
+        ),
+    )
+
+    def fake_rewrite(*args: object, **kwargs: object) -> Path:
+        seen["instruction"] = str(args[3])
+        path = chapter_dir / "polished.md"
+        path.write_text(
+            "---\nchapter_number: 1\ntitle: 测试\nstatus: polished\n---\n\n重写正文\n",
+            encoding="utf-8",
+        )
+        return path
+
+    monkeypatch.setattr(session_module, "_rewrite_chapter_with_writer", fake_rewrite)
+    monkeypatch.setattr(session_module, "_audit_chapter_content", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        session_module,
+        "_load_audit",
+        lambda *args: AuditReport.model_validate(
+            {
+                "chapter_number": 1,
+                "audited_file": "polished.md",
+                "overall_status": "passed",
+                "summary": "通过。",
+                "issues": [],
+                "created_at": "2026-05-22T00:00:00Z",
+            }
+        ),
+    )
+    monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
+
+    result = session_module.revise_content(
+        SessionInstructionOptions(
+            root=root,
+            session_id=session.session_id,
+            instruction="人物压迫感不够，增加铺垫。",
+            provider_name="mock",
+        )
+    )
+
+    assert result.session.status == "needs_user_review"
+    assert "加强压迫感" in seen["instruction"]
+    assert result.session.revision_route_history[-1].decision.route == "writer_rewrite"
+    assert result.session.final_output_paths[-1].endswith("polished.md")
+
+
+def test_session_revise_content_routes_plot_replan(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
+    chapter_dir = root / "memory" / "chapters" / "001"
+
+    monkeypatch.setattr(
+        session_module,
+        "route_revision_request",
+        lambda *args, **kwargs: RevisionRouteDecision(
+            route="plot_replan",
+            reason="改变结尾。",
+            chapter_numbers=[1],
+            instruction_for_plot="把结尾改成主角主动背叛师门。",
+            risk_level="high",
+        ),
+    )
+
+    def fake_replan(*args: object, **kwargs: object) -> Path:
+        path = chapter_dir / "polished.md"
+        path.write_text(
+            "---\nchapter_number: 1\ntitle: 测试\nstatus: polished\n---\n\n重写大纲后的正文\n",
+            encoding="utf-8",
+        )
+        return path
+
+    monkeypatch.setattr(session_module, "_replan_and_rewrite_chapter", fake_replan)
+    monkeypatch.setattr(session_module, "_audit_chapter_content", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        session_module,
+        "_load_audit",
+        lambda *args: AuditReport.model_validate(
+            {
+                "chapter_number": 1,
+                "audited_file": "polished.md",
+                "overall_status": "passed",
+                "summary": "通过。",
+                "issues": [],
+                "created_at": "2026-05-22T00:00:00Z",
+            }
+        ),
+    )
+    monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
+
+    result = session_module.revise_content(
+        SessionInstructionOptions(
+            root=root,
+            session_id=session.session_id,
+            instruction="把结尾改成主角主动背叛师门。",
+            provider_name="mock",
+        )
+    )
+
+    assert result.session.status == "needs_user_review"
+    assert result.session.revision_route_history[-1].decision.route == "plot_replan"
+    assert "重写大纲后的正文" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
 
 
 def test_session_undo_rewrite_restores_snapshot_and_reaudits(tmp_path: Path, monkeypatch) -> None:

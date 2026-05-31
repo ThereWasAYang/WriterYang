@@ -850,6 +850,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="sessionPanel"' in html
     assert 'id="workbenchNextStepPanel"' in html
     assert 'id="rewriteEventsPanel"' in html
+    assert "本次修改路由" in app_js
     assert 'id="rejectedTextViewer"' in html
     assert 'id="sessionReviseAudit"' in html
     assert 'id="sessionReviseInstruction"' in html

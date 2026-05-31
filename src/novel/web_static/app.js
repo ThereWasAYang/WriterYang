@@ -1133,10 +1133,29 @@
         <div>content: ${escapeHtml(session.content_status || "")}</div>
         <div>chapters: ${escapeHtml((session.chapter_range || []).join(", "))}</div>
         <div>${escapeHtml(data.message || "")}</div>
+        ${renderRevisionRouteSummary(data.revision_route || (session.revision_route_history || []).slice(-1)[0])}
         ${renderSessionAuditSummary(data.audit_summary || [])}
       `;
       renderRewriteEvents(data.rewrite_events || []);
       renderManagementEvents(data.management_events || []);
+    }
+
+    function renderRevisionRouteSummary(record) {
+      if (!record) return "";
+      const decision = record.decision || record;
+      if (!decision.route) return "";
+      const labelMap = {
+        plot_replan: "重写大纲",
+        writer_rewrite: "重写正文",
+        revision_patch: "局部修订",
+      };
+      return `
+        <div class="metric status-warn" style="margin-top: 8px;">
+          <b>本次修改路由：${escapeHtml(labelMap[decision.route] || decision.route)}</b>
+          <div>原因：${escapeHtml(decision.reason || "")}</div>
+          <div>风险：${escapeHtml(decision.risk_level || "")}</div>
+        </div>
+      `;
     }
 
     function startRewriteEventPolling() {

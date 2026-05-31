@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.orchestrator import route_revision_request
 from novel.core.planning import ChapterPlanningOptions, plan_chapter
 from novel.core.providers import ModelRequest, ProviderFactory
 from novel.core.schemas import AgentConfig
@@ -89,6 +90,36 @@ def test_real_plan_chapter_smoke(tmp_path: Path) -> None:
     assert result.plan_markdown_path.is_file()
 
 
+@pytest.mark.parametrize(
+    ("instruction", "expected_route"),
+    [
+        ("把第1章结尾改成主角主动背叛师门，并改变后续动机。", "plot_replan"),
+        ("第1章人物压迫感不够，增加铺垫，减少解释性文字。", "writer_rewrite"),
+        ("把第1章第三段“他走得很快”改成“他走得像逃”。", "revision_patch"),
+    ],
+)
+def test_real_deepseek_revision_route_decision(tmp_path: Path, instruction: str, expected_route: str) -> None:
+    env = _real_env_or_skip()
+    if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
+        pytest.skip("DeepSeek revision route smoke requires DeepSeek env in .env.real")
+    root = _real_project(tmp_path, env)
+
+    decision = route_revision_request(
+        root,
+        instruction,
+        provider_name="config",
+        chapter_numbers=[1],
+        session_summary="真实 API 路由测试：只有一章极短测试上下文，不包含真实用户项目内容。",
+    )
+
+    assert decision.route == expected_route
+    assert decision.chapter_numbers == [1]
+    assert (root / "runs" / "model_io").is_dir()
+    assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
+
+
 def _real_env_or_skip() -> dict[str, str]:
     env = dict(os.environ)
     env.update(_read_env_file(ROOT / ".env.real"))
@@ -135,23 +166,41 @@ def _real_project(tmp_path: Path, env: dict[str, str]) -> Path:
     proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
     assert apply_canon_proposal(root, proposal_path).validation_report.ok
     _write_real_agents_config(root / "config" / "agents.yaml", env)
+    (root / ".env").write_text(
+        "\n".join(
+            [
+                f"WRITERYANG_REAL_BASE_URL={env['WRITERYANG_REAL_BASE_URL']}",
+                f"WRITERYANG_REAL_API_KEY={env['WRITERYANG_REAL_API_KEY']}",
+                f"WRITERYANG_REAL_MODEL={env['WRITERYANG_REAL_MODEL']}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     return root
 
 
 def _write_real_agents_config(path: Path, env: dict[str, str]) -> None:
+    default_config = {
+        "provider": env.get("WRITERYANG_REAL_PROVIDER", "openai_compatible"),
+        "base_url_env": "WRITERYANG_REAL_BASE_URL",
+        "api_key_env": "WRITERYANG_REAL_API_KEY",
+        "model": env["WRITERYANG_REAL_MODEL"],
+        "reasoning": "low",
+        "thinking": {"type": "disabled"},
+        "max_context_tokens": 64000,
+        "temperature": 0,
+        "timeout_seconds": 120,
+        "max_retries": 1,
+    }
     data = {
+        "default": default_config,
         "agents": {
             "plot": {
-                "provider": env.get("WRITERYANG_REAL_PROVIDER", "openai_compatible"),
-                "base_url_env": "WRITERYANG_REAL_BASE_URL",
-                "api_key_env": "WRITERYANG_REAL_API_KEY",
-                "model": env["WRITERYANG_REAL_MODEL"],
-                "reasoning": "low",
-                "thinking": {"type": "disabled"},
-                "max_context_tokens": 64000,
                 "temperature": 0.2,
-                "timeout_seconds": 120,
-                "max_retries": 1,
+            },
+            "orchestrator": {
+                "temperature": 0,
             }
         }
     }

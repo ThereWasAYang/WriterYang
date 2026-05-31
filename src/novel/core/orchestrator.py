@@ -2,10 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import re
 from typing import Literal
 
+from pydantic import ValidationError
+
+from novel.core.agent_output import (
+    AgentInvocationContext,
+    AgentOutputContract,
+    AgentOutputContractError,
+    generate_with_output_guard,
+)
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import CanonSuggestOptions, load_canon_provider, suggest_canon
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
@@ -15,8 +24,11 @@ from novel.core.io import atomic_write_model_json
 from novel.core.memory_repair import suggest_memory_repair
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
+from novel.core.prompts import load_prompt_template
+from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
+from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
-from novel.core.schemas import AgentRunLog, AgentRunStep
+from novel.core.schemas import AgentRunLog, AgentRunStep, RevisionRouteDecision
 from novel.core.state_update import (
     StateUpdateProposeOptions,
     load_state_update_provider,
@@ -32,6 +44,9 @@ OrchestratorTask = Literal[
     "polish",
     "audit",
     "revision",
+    "plot_replan",
+    "writer_rewrite",
+    "revision_patch",
     "state_update",
     "export_markdown",
     "memory_repair",
@@ -49,6 +64,7 @@ ALLOWED_HANDOFFS: dict[str, tuple[str, ...]] = {
         "state_update",
         "export",
         "memory",
+        "revision",
     ),
     "inspiration": ("canon", "plot"),
     "canon": ("plot",),
@@ -69,6 +85,9 @@ TASK_TO_AGENT: dict[OrchestratorTask, str] = {
     "polish": "polish",
     "audit": "audit",
     "revision": "revision",
+    "plot_replan": "plot",
+    "writer_rewrite": "writer",
+    "revision_patch": "revision",
     "state_update": "state_update",
     "export_markdown": "export",
     "memory_repair": "memory",
@@ -101,6 +120,7 @@ class OrchestratorPlan:
     chapter_number: int | None
     instruction: str
     handoff_trace: tuple[HandoffTraceEntry, ...]
+    revision_route: RevisionRouteDecision | None = None
 
 
 @dataclass(frozen=True)
@@ -132,7 +152,19 @@ def orchestrate(options: OrchestratorOptions) -> OrchestratorResult:
         raise OrchestratorError("request must not be empty")
     _check_limits(options)
 
-    plan = plan_orchestration(request)
+    revision_route = None
+    if _is_revision_feedback_request(request):
+        revision_route = (
+            _fallback_revision_route_decision(request, chapter_numbers=_chapters_from_request(request))
+            if options.dry_run
+            else route_revision_request(
+                root,
+                request,
+                provider_name=options.provider_name,
+                chapter_numbers=_chapters_from_request(request),
+            )
+        )
+    plan = plan_orchestration(request, revision_route=revision_route)
     if len(plan.handoff_trace) > options.max_steps:
         raise OrchestratorError(
             f"orchestration requires {len(plan.handoff_trace)} step(s), exceeds max_steps={options.max_steps}"
@@ -176,18 +208,31 @@ def orchestrate(options: OrchestratorOptions) -> OrchestratorResult:
     )
 
 
-def plan_orchestration(request: str) -> OrchestratorPlan:
+def plan_orchestration(
+    request: str,
+    *,
+    revision_route: RevisionRouteDecision | None = None,
+) -> OrchestratorPlan:
     task = classify_request(request)
     chapter_number = _extract_chapter_number(request)
+    if task == "revision" and revision_route is not None:
+        task = revision_route.route
+        if revision_route.chapter_numbers:
+            chapter_number = revision_route.chapter_numbers[0]
     if task in {"plan", "write", "polish", "audit", "revision", "state_update"}:
         chapter_number = chapter_number or 1
+    if task in {"plot_replan", "writer_rewrite", "revision_patch"}:
+        chapter_number = chapter_number or 1
     target = TASK_TO_AGENT[task]
+    reason = f"request classified as {task}"
+    if revision_route is not None and task in {"plot_replan", "writer_rewrite", "revision_patch"}:
+        reason = f"revision feedback routed as {revision_route.route}: {revision_route.reason}"
     trace = (
         HandoffTraceEntry(
             step=1,
             source="orchestrator",
             target=target,
-            reason=f"request classified as {task}",
+            reason=reason,
         ),
     )
     _validate_handoff_trace(trace)
@@ -196,6 +241,7 @@ def plan_orchestration(request: str) -> OrchestratorPlan:
         chapter_number=chapter_number,
         instruction=request,
         handoff_trace=trace,
+        revision_route=revision_route,
     )
 
 
@@ -240,6 +286,276 @@ def classify_request(request: str) -> OrchestratorTask:
     return "plan"
 
 
+def load_orchestrator_provider(
+    root: Path,
+    provider_name: str,
+    *,
+    agent_config_path: Path | None = None,
+    model_name: str | None = None,
+) -> ModelProvider:
+    return create_agent_provider(
+        agent_config_path or default_agent_config_path(root),
+        "orchestrator",
+        overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
+        mock_response=default_mock_revision_route_decision_json(),
+    )
+
+
+def route_revision_request(
+    root: Path,
+    user_instruction: str,
+    *,
+    provider_name: str = "config",
+    chapter_numbers: tuple[int, ...] | list[int] | None = None,
+    session_summary: str | None = None,
+    provider: ModelProvider | None = None,
+) -> RevisionRouteDecision:
+    instruction = user_instruction.strip()
+    if not instruction:
+        raise OrchestratorError("revision routing requires a non-empty instruction")
+    chapters = list(chapter_numbers or _chapters_from_request(instruction))
+    if not chapters:
+        chapters = [1]
+    if provider is None and provider_name.lower() == "mock":
+        return _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
+    route_provider = provider or load_orchestrator_provider(root, provider_name)
+    user_prompt = build_revision_route_user_prompt(
+        instruction,
+        chapter_numbers=chapters,
+        session_summary=session_summary,
+    )
+    try:
+        content = generate_with_output_guard(
+            route_provider,
+            ModelRequest(
+                system_prompt=load_prompt_template("orchestrator_revision_route_system"),
+                user_prompt=user_prompt,
+                context=session_summary,
+                json_schema_name="RevisionRouteDecision",
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="orchestrator",
+                interaction_mode="internal_task",
+                task="revision_route",
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="RevisionRouteDecision",
+                json_schema_name="RevisionRouteDecision",
+                allow_user_questions=False,
+            ),
+        )
+    except AgentOutputContractError:
+        fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
+        return fallback.model_copy(update={"reason": f"provider route output contract failed; fallback used. {fallback.reason}"})
+    try:
+        return parse_revision_route_decision(content, fallback_instruction=instruction, chapter_numbers=chapters)
+    except OrchestratorError as first_error:
+        try:
+            repair_content = generate_with_output_guard(
+                route_provider,
+                ModelRequest(
+                    system_prompt=load_prompt_template("orchestrator_revision_route_system"),
+                    user_prompt=_revision_route_repair_prompt(
+                        original_prompt=user_prompt,
+                        invalid_output=content,
+                        error=str(first_error),
+                    ),
+                    context=session_summary,
+                    json_schema_name="RevisionRouteDecision",
+                ),
+                root=root,
+                invocation=AgentInvocationContext(
+                    agent_name="orchestrator",
+                    caller="orchestrator",
+                    interaction_mode="internal_task",
+                    task="revision_route_repair",
+                ),
+                contract=AgentOutputContract(
+                    output_kind="json",
+                    target_name="RevisionRouteDecision",
+                    json_schema_name="RevisionRouteDecision",
+                    allow_user_questions=False,
+                ),
+            )
+        except AgentOutputContractError:
+            fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
+            return fallback.model_copy(update={"reason": f"provider route repair contract failed; fallback used. {fallback.reason}"})
+        try:
+            return parse_revision_route_decision(
+                repair_content,
+                fallback_instruction=instruction,
+                chapter_numbers=chapters,
+            )
+        except OrchestratorError:
+            pass
+        fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
+        return fallback.model_copy(update={"reason": f"provider route parse failed; fallback used. {fallback.reason}"})
+
+
+def build_revision_route_user_prompt(
+    user_instruction: str,
+    *,
+    chapter_numbers: list[int],
+    session_summary: str | None = None,
+) -> str:
+    return (
+        "请判断用户这次对已生成内容的修改意见应该由哪条工作流处理。\n"
+        "只能三选一：\n"
+        "1. plot_replan：核心剧情、章节目标、场景结构、人物动机、关键设定揭示发生变化。\n"
+        "2. writer_rewrite：不改核心剧情，但涉及人物刻画、铺垫、详略取舍、叙事风格、节奏、对白、描写。\n"
+        "3. revision_patch：只改指定局部语句或表达，不影响剧情、canon、state、timeline。\n\n"
+        "请输出 JSON，字段必须包含：route, reason, chapter_numbers, "
+        "instruction_for_plot, instruction_for_writer, instruction_for_revision, risk_level。\n"
+        "只填写被选 route 对应的 instruction 字段，其他 instruction 字段可为 null。\n"
+        "risk_level 只能是 low/medium/high。\n\n"
+        f"涉及章节：{chapter_numbers}\n"
+        f"Session 摘要：\n{session_summary or '无'}\n\n"
+        f"用户修改意见：\n{user_instruction.strip()}\n"
+    )
+
+
+def parse_revision_route_decision(
+    content: str,
+    *,
+    fallback_instruction: str,
+    chapter_numbers: list[int],
+) -> RevisionRouteDecision:
+    raw = _extract_json_object(content)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise OrchestratorError(f"provider returned invalid RevisionRouteDecision JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise OrchestratorError("provider returned RevisionRouteDecision as a non-object JSON value")
+    data = _normalize_revision_route_payload(data, fallback_instruction=fallback_instruction, chapter_numbers=chapter_numbers)
+    try:
+        return RevisionRouteDecision.model_validate(data)
+    except ValidationError as exc:
+        raise OrchestratorError(f"provider returned invalid RevisionRouteDecision: {exc}") from exc
+
+
+def _revision_route_repair_prompt(*, original_prompt: str, invalid_output: str, error: str) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        "上一次输出不能被解析为 RevisionRouteDecision。\n"
+        f"错误：{error}\n\n"
+        "请重新只输出一个 JSON object，不要 Markdown 或解释。"
+        "route 只能是 plot_replan / writer_rewrite / revision_patch；"
+        "必须填写被选 route 对应的 instruction 字段。\n"
+        f"上一次输出：\n{invalid_output[:3000]}\n"
+    )
+
+
+def default_mock_revision_route_decision_json(route: str = "revision_patch") -> str:
+    instruction_key = {
+        "plot_replan": "instruction_for_plot",
+        "writer_rewrite": "instruction_for_writer",
+        "revision_patch": "instruction_for_revision",
+    }.get(route, "instruction_for_revision")
+    payload: dict[str, object] = {
+        "route": route,
+        "reason": "mock route decision",
+        "chapter_numbers": [1],
+        "instruction_for_plot": None,
+        "instruction_for_writer": None,
+        "instruction_for_revision": None,
+        "risk_level": "low" if route == "revision_patch" else "medium",
+    }
+    payload[instruction_key] = "按用户要求修订。"
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _normalize_revision_route_payload(
+    data: dict[str, object],
+    *,
+    fallback_instruction: str,
+    chapter_numbers: list[int],
+) -> dict[str, object]:
+    route = str(data.get("route") or "").strip().lower()
+    aliases = {
+        "plot": "plot_replan",
+        "replan": "plot_replan",
+        "outline": "plot_replan",
+        "writer": "writer_rewrite",
+        "rewrite": "writer_rewrite",
+        "polish": "writer_rewrite",
+        "revision": "revision_patch",
+        "patch": "revision_patch",
+        "local_patch": "revision_patch",
+    }
+    route = aliases.get(route, route)
+    if route not in {"plot_replan", "writer_rewrite", "revision_patch"}:
+        raise OrchestratorError(f"unknown revision route: {route or '<empty>'}")
+    normalized = dict(data)
+    normalized["route"] = route
+    normalized["reason"] = str(normalized.get("reason") or "orchestrator route decision")
+    normalized["chapter_numbers"] = _normalize_chapter_numbers(normalized.get("chapter_numbers"), chapter_numbers)
+    risk = str(normalized.get("risk_level") or "").strip().lower()
+    normalized["risk_level"] = risk if risk in {"low", "medium", "high"} else ("low" if route == "revision_patch" else "medium")
+    instruction_key = {
+        "plot_replan": "instruction_for_plot",
+        "writer_rewrite": "instruction_for_writer",
+        "revision_patch": "instruction_for_revision",
+    }[route]
+    if not str(normalized.get(instruction_key) or "").strip():
+        normalized[instruction_key] = fallback_instruction
+    for key in ("instruction_for_plot", "instruction_for_writer", "instruction_for_revision"):
+        if key != instruction_key and normalized.get(key) == "":
+            normalized[key] = None
+    return normalized
+
+
+def _fallback_revision_route_decision(
+    user_instruction: str,
+    *,
+    chapter_numbers: tuple[int, ...] | list[int] | None = None,
+) -> RevisionRouteDecision:
+    text = user_instruction.lower()
+    chapters = list(chapter_numbers or _chapters_from_request(user_instruction) or (1,))
+    if _looks_like_local_expression_patch(text):
+        return RevisionRouteDecision(
+            route="revision_patch",
+            reason="fallback: request looks like a local wording replacement",
+            chapter_numbers=chapters,
+            instruction_for_revision=user_instruction.strip(),
+            risk_level="low",
+        )
+    if _contains_any(
+        text,
+        (
+            "核心剧情",
+            "剧情走向",
+            "结尾",
+            "大纲",
+            "场景结构",
+            "人物动机",
+            "背叛",
+            "死亡",
+            "真相",
+            "身份",
+            "揭示",
+            "改成主角",
+        ),
+    ):
+        return RevisionRouteDecision(
+            route="plot_replan",
+            reason="fallback: request appears to change plot structure or core story facts",
+            chapter_numbers=chapters,
+            instruction_for_plot=user_instruction.strip(),
+            risk_level="high",
+        )
+    return RevisionRouteDecision(
+        route="writer_rewrite",
+        reason="fallback: request affects execution, prose, pacing, characterization, or emphasis",
+        chapter_numbers=chapters,
+        instruction_for_writer=user_instruction.strip(),
+        risk_level="medium",
+    )
+
+
 def handoff_rules_text() -> str:
     lines = ["Allowed handoffs:"]
     for source, targets in ALLOWED_HANDOFFS.items():
@@ -255,6 +571,15 @@ def format_orchestrator_plan(plan: OrchestratorPlan) -> str:
     ]
     for entry in plan.handoff_trace:
         lines.append(f"- {entry.step}: {entry.source} -> {entry.target} ({entry.reason})")
+    if plan.revision_route is not None:
+        lines.extend(
+            [
+                "Revision route:",
+                f"- route: {plan.revision_route.route}",
+                f"- reason: {plan.revision_route.reason}",
+                f"- risk: {plan.revision_route.risk_level}",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -397,6 +722,54 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             provider_name=provider_name,
         )
         return [_rel(root, result.output_path), _rel(root, result.revision_log_path)]
+    if plan.task == "plot_replan":
+        assert chapter is not None
+        provider = load_planning_provider(root, provider_name, chapter_number=chapter)
+        result = plan_chapter(
+            ChapterPlanningOptions(
+                root=root,
+                chapter_number=chapter,
+                instruction=plan.revision_route.instruction_for_plot if plan.revision_route else plan.instruction,
+                force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
+            ),
+            provider,
+        )
+        return [_rel(root, result.plan_json_path), _rel(root, result.plan_markdown_path)]
+    if plan.task == "writer_rewrite":
+        assert chapter is not None
+        provider = load_drafting_provider(root, provider_name)
+        draft = write_chapter_draft(
+            ChapterDraftingOptions(
+                root=root,
+                chapter_number=chapter,
+                instruction=plan.revision_route.instruction_for_writer if plan.revision_route else plan.instruction,
+                force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
+            ),
+            provider,
+        )
+        return [_rel(root, draft.draft_path)]
+    if plan.task == "revision_patch":
+        assert chapter is not None
+        provider = load_revision_provider(root, provider_name, target="polished")
+        result = revise_chapter(
+            ChapterRevisionOptions(
+                root=root,
+                chapter_number=chapter,
+                instruction=plan.revision_route.instruction_for_revision if plan.revision_route else plan.instruction,
+                from_audit=False,
+                target="polished",
+                force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
+            ),
+            provider,
+            provider_name=provider_name,
+        )
+        return [_rel(root, result.output_path), _rel(root, result.revision_log_path)]
     if plan.task == "state_update":
         assert chapter is not None
         provider = load_state_update_provider(root, provider_name, chapter_number=chapter)
@@ -467,6 +840,7 @@ def _write_run_log(path: Path, run_log: AgentRunLog, plan: OrchestratorPlan) -> 
         update={
             "handoff_trace": [entry.as_dict() for entry in plan.handoff_trace],
             "orchestrator_task": plan.task,
+            "revision_route": plan.revision_route.model_dump(mode="json") if plan.revision_route else None,
             "execution_plan": format_orchestrator_plan(plan),
         }
     )
@@ -475,6 +849,15 @@ def _write_run_log(path: Path, run_log: AgentRunLog, plan: OrchestratorPlan) -> 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
     return any(needle in text for needle in needles)
+
+
+def _is_revision_feedback_request(request: str) -> bool:
+    return classify_request(request) == "revision"
+
+
+def _chapters_from_request(request: str) -> tuple[int, ...]:
+    chapter = _extract_chapter_number(request)
+    return (chapter,) if chapter else ()
 
 
 def _extract_chapter_number(request: str) -> int | None:
@@ -489,6 +872,62 @@ def _extract_chapter_number(request: str) -> int | None:
         if match:
             return int(match.group(1))
     return None
+
+
+def _normalize_chapter_numbers(value: object, fallback: list[int]) -> list[int]:
+    values: list[int] = []
+    raw_values = value if isinstance(value, list) else [value] if value is not None else fallback
+    for item in raw_values:
+        try:
+            number = int(item)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if number > 0 and number not in values:
+            values.append(number)
+    return values or fallback or [1]
+
+
+def _looks_like_local_expression_patch(text: str) -> bool:
+    has_local_marker = _contains_any(
+        text,
+        (
+            "这句",
+            "这句话",
+            "这段话",
+            "第三段",
+            "第二段",
+            "第一段",
+            "某一句",
+            "个别语句",
+            "局部",
+            "表达方式",
+        ),
+    )
+    has_replace_marker = _contains_any(text, ("改成", "改为", "替换", "换成", "用", "改写为"))
+    has_quote = any(marker in text for marker in ("“", "”", "\"", "'", "「", "」"))
+    plot_markers = (
+        "核心剧情",
+        "剧情走向",
+        "大纲",
+        "人物动机",
+        "场景结构",
+        "真相",
+        "身份",
+        "伏笔",
+    )
+    return (has_local_marker or has_quote) and has_replace_marker and not _contains_any(text, plot_markers)
+
+
+def _extract_json_object(content: str) -> str:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise OrchestratorError("provider response did not contain a JSON object")
+    return stripped[start : end + 1]
 
 
 def _unique_outputs(steps: list[AgentRunStep]) -> list[str]:

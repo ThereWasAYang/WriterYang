@@ -11,12 +11,14 @@ from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_p
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model
 from novel.core.management import record_management_event
+from novel.core.orchestrator import route_revision_request
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.polishing import read_markdown_with_front_matter
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
 from novel.core.schemas import (
     AuditReport,
+    ChapterPlan,
     CreationArchiveEntry,
     CreationArchiveManifest,
     CreationOutline,
@@ -25,6 +27,8 @@ from novel.core.schemas import (
     CreationSession,
     SessionRewriteAction,
     SessionAuditRevision,
+    RevisionRouteDecision,
+    RevisionRouteRecord,
     SessionRewriteEvent,
     SessionRewriteEvents,
     SessionRewriteIssue,
@@ -364,29 +368,51 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
         raise CreationSessionError("content can be revised only after generation has produced reviewable content")
     if not options.from_audit and not (options.instruction and options.instruction.strip()):
         raise CreationSessionError("content revision requires --instruction or --from-audit")
+    route_record = _resolve_content_revision_route(root, session, options)
+    route = route_record.decision
     revisions: list[str] = []
     audits: list[str] = []
     final_outputs: list[str] = []
     hard_issue_chapters: list[int] = []
     for chapter_number in session.chapter_range:
-        provider = load_revision_provider(root, options.provider_name, target="polished")
-        result = revise_chapter(
-            ChapterRevisionOptions(
-                root=root,
-                chapter_number=chapter_number,
-                instruction=options.instruction,
-                from_audit=options.from_audit,
-                target="polished",
-                force=options.force,
+        if route.route == "plot_replan":
+            output_path = _replan_and_rewrite_chapter(
+                root,
+                chapter_number,
+                session,
+                options.provider_name,
+                route.instruction_for_plot or options.instruction or "",
                 use_search_context=options.use_search_context,
                 use_vector_context=options.use_vector_context,
-            ),
-            provider,
-            provider_name=options.provider_name,
-        )
-        revisions.append(_rel(root, result.output_path))
-        promoted_path = _promote_revision_to_polished(root, chapter_number, result.output_path)
-        final_outputs.append(_rel(root, promoted_path))
+            )
+        elif route.route == "writer_rewrite":
+            output_path = _rewrite_chapter_with_writer(
+                root,
+                chapter_number,
+                options.provider_name,
+                route.instruction_for_writer or options.instruction or "",
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
+            )
+        else:
+            provider = load_revision_provider(root, options.provider_name, target="polished")
+            result = revise_chapter(
+                ChapterRevisionOptions(
+                    root=root,
+                    chapter_number=chapter_number,
+                    instruction=route.instruction_for_revision or options.instruction,
+                    from_audit=options.from_audit,
+                    target="polished",
+                    force=options.force,
+                    use_search_context=options.use_search_context,
+                    use_vector_context=options.use_vector_context,
+                ),
+                provider,
+                provider_name=options.provider_name,
+            )
+            revisions.append(_rel(root, result.output_path))
+            output_path = _promote_revision_to_polished(root, chapter_number, result.output_path)
+        final_outputs.append(_rel(root, output_path))
         _retire_state_update_proposal(root, chapter_number)
         _audit_chapter_content(
             root,
@@ -408,6 +434,7 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
                 "status": "needs_revision",
                 "content_status": "needs_revision",
                 "revision_history": [*session.revision_history, *revisions],
+                "revision_route_history": [*session.revision_route_history, route_record],
                 "audit_history": [*session.audit_history, *audits],
                 "final_output_paths": final_outputs,
                 "updated_at": _utc_now(),
@@ -437,6 +464,7 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
             "status": "needs_user_review",
             "content_status": "needs_user_review",
             "revision_history": [*session.revision_history, *revisions],
+            "revision_route_history": [*session.revision_route_history, route_record],
             "audit_history": [*session.audit_history, *audits],
             "final_output_paths": final_outputs,
             "updated_at": _utc_now(),
@@ -446,8 +474,182 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
     return SessionResult(
         session=session,
         session_path=_session_path(root, session.session_id),
-        message="Content revised, audited, and ready for user review.",
+        message=f"Content revised, audited, and ready for user review. Route: {route.route}.",
     )
+
+
+def _resolve_content_revision_route(
+    root: Path,
+    session: CreationSession,
+    options: SessionInstructionOptions,
+) -> RevisionRouteRecord:
+    if session.scope_type == "segments":
+        decision = RevisionRouteDecision(
+            route="revision_patch",
+            reason="segment sessions are constrained to local text patches",
+            chapter_numbers=session.chapter_range,
+            instruction_for_revision=options.instruction or "按当前 session 的段落范围进行局部修订。",
+            risk_level="low",
+        )
+    elif options.from_audit:
+        decision = _audit_driven_revision_route(root, session, options.instruction)
+    else:
+        decision = route_revision_request(
+            root,
+            options.instruction or "",
+            provider_name=options.provider_name,
+            chapter_numbers=session.chapter_range,
+            session_summary=_session_route_summary(root, session),
+        )
+    return RevisionRouteRecord(
+        created_at=_utc_now(),
+        user_instruction=options.instruction or ("from current audit issues" if options.from_audit else ""),
+        from_audit=options.from_audit,
+        decision=decision,
+    )
+
+
+def _audit_driven_revision_route(
+    root: Path,
+    session: CreationSession,
+    instruction: str | None,
+) -> RevisionRouteDecision:
+    reports = [_load_audit(root, chapter_number) for chapter_number in session.chapter_range]
+    issue_summary = "\n".join(_blocking_issue_summary(report) for report in reports).strip() or "当前 audit issues"
+    user_note = f"\n用户补充意见：{instruction.strip()}" if instruction and instruction.strip() else ""
+    if any(_should_replan_chapter(report, round_number=2) for report in reports):
+        return RevisionRouteDecision(
+            route="plot_replan",
+            reason="audit issues point to plan/outline-level conflicts",
+            chapter_numbers=session.chapter_range,
+            instruction_for_plot=f"根据 audit 修订大纲或章节计划，解决以下问题：\n{issue_summary}{user_note}",
+            risk_level="high",
+        )
+    return RevisionRouteDecision(
+        route="revision_patch",
+        reason="audit-driven revision can be handled as a focused content patch",
+        chapter_numbers=session.chapter_range,
+        instruction_for_revision=f"根据 audit 修订当前正文，解决以下问题：\n{issue_summary}{user_note}",
+        risk_level="medium",
+    )
+
+
+def _session_route_summary(root: Path, session: CreationSession) -> str:
+    final_outputs = "\n".join(f"- {path}" for path in session.final_output_paths) or "无"
+    latest_audits = "\n".join(f"- {path}" for path in session.audit_history[-5:]) or "无"
+    return (
+        f"session_id: {session.session_id}\n"
+        f"scope_type: {session.scope_type}\n"
+        f"chapter_range: {session.chapter_range}\n"
+        f"status: {session.status}/{session.content_status}\n"
+        f"user_intent: {session.user_intent}\n"
+        f"final_outputs:\n{final_outputs}\n"
+        f"recent_audits:\n{latest_audits}\n"
+        f"workspace: {_rel(root, root)}"
+    )
+
+
+def _replan_and_rewrite_chapter(
+    root: Path,
+    chapter_number: int,
+    session: CreationSession,
+    provider_name: str,
+    instruction: str,
+    *,
+    use_search_context: bool,
+    use_vector_context: bool,
+) -> Path:
+    planning_provider = load_planning_provider(root, provider_name, chapter_number=chapter_number)
+    plan_chapter(
+        ChapterPlanningOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=f"{_session_instruction(session)}\n\n用户剧情级修改意见：{instruction}",
+            force=True,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
+        ),
+        planning_provider,
+    )
+    _refresh_session_outline_from_plans(root, session)
+    return _rewrite_chapter_with_writer(
+        root,
+        chapter_number,
+        provider_name,
+        f"{_session_instruction(session)}\n\n基于重写后的 ChapterPlan 写作。用户剧情级修改意见：{instruction}",
+        use_search_context=use_search_context,
+        use_vector_context=use_vector_context,
+    )
+
+
+def _rewrite_chapter_with_writer(
+    root: Path,
+    chapter_number: int,
+    provider_name: str,
+    instruction: str,
+    *,
+    use_search_context: bool,
+    use_vector_context: bool,
+) -> Path:
+    draft_provider = load_drafting_provider(root, provider_name)
+    write_chapter_draft(
+        ChapterDraftingOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=instruction,
+            force=True,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
+        ),
+        draft_provider,
+    )
+    polish_provider = load_polishing_provider(root, provider_name)
+    polish_chapter(
+        ChapterPolishingOptions(
+            root=root,
+            chapter_number=chapter_number,
+            instruction=instruction,
+            force=True,
+            use_search_context=use_search_context,
+            use_vector_context=use_vector_context,
+        ),
+        polish_provider,
+    )
+    return _chapter_dir(root, chapter_number) / "polished.md"
+
+
+def _refresh_session_outline_from_plans(root: Path, session: CreationSession) -> None:
+    chapters: list[CreationOutlineChapter] = []
+    for chapter_number in session.chapter_range:
+        plan_path = _chapter_dir(root, chapter_number) / "plan.json"
+        plan = load_json_model(plan_path, ChapterPlan)
+        chapters.append(
+            CreationOutlineChapter(
+                chapter_number=chapter_number,
+                title=plan.title,
+                plan_path=_rel(root, plan_path),
+                summary=plan.summary,
+            )
+        )
+    outline = CreationOutline(
+        session_id=session.session_id,
+        user_intent=session.user_intent,
+        chapters=chapters,
+        created_at=_utc_now(),
+    )
+    session_dir = _session_dir(root, session.session_id)
+    targets = [
+        session_dir / "outline_proposal.json",
+        session_dir / "outline_proposal.md",
+        session_dir / "approved_outline.json",
+        session_dir / "approved_outline.md",
+    ]
+    for path in targets:
+        backup_if_exists(path, reason="revision_route_replan")
+    atomic_write_model_json(session_dir / "outline_proposal.json", outline)
+    atomic_write_text(session_dir / "outline_proposal.md", _render_outline_markdown(outline))
+    atomic_write_model_json(session_dir / "approved_outline.json", outline)
+    atomic_write_text(session_dir / "approved_outline.md", _render_outline_markdown(outline))
 
 
 def accept_session(options: SessionActionOptions) -> SessionResult:

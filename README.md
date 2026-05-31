@@ -602,7 +602,7 @@ web:
 - Audit 定位：读取 `audit.json` 的 evidence quote，定位到正文中的行列位置；找不到时显示无法定位。
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
-- Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；长模型名和环境变量字段使用更宽输入区，model 支持换行显示；高级 JSON 折叠区保留给少见字段。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
+- Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；长模型名和环境变量字段使用更宽输入区，model 支持换行并按内容自动增高；高级 JSON 折叠区保留给少见字段。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
 - 自动打回重写记录：当 Audit 把正文打回重写时，显示第几章第几轮、打回原因、系统动作和“查看被打回原文”按钮；如果你认为打回不合理，应检查对应 `audit.json`、`memory/state/timeline.json`、`current_state.json` 和 canon 文件。

@@ -36,7 +36,7 @@
       background: #fff; color: #20242a; font: inherit;
     }
     textarea { min-height: 94px; resize: vertical; }
-    .compact-textarea { min-height: 64px; height: 64px; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
+    .compact-textarea { min-height: 64px; height: auto; line-height: 1.35; overflow: hidden; overflow-wrap: anywhere; word-break: break-word; }
     button {
       border: 1px solid #aeb8c3; border-radius: 6px; background: #fff; color: #20242a;
       padding: 8px 10px; font: inherit; cursor: pointer;

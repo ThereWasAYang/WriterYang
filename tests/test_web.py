@@ -827,6 +827,8 @@ def test_frontend_basic_render() -> None:
     assert "refreshAll({ silent: true })" in app_js
     assert "includeSessionId: false" in app_js
     assert "write_json: false" in app_js
+    assert "resizeTextareaToContent" in app_js
+    assert 'window.addEventListener("resize"' in app_js
     assert "use_vector_context" in app_js
     assert "当前无法使用基于 embedding 的语义检索" in app_js
     assert "fetch(" in app_js

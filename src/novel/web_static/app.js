@@ -677,6 +677,7 @@
       const agent = name === "default" ? providerConfigCache?.default || {} : providerConfigCache?.agents?.[name] || {};
       $("providerProviderField").value = agent.provider || "";
       $("providerModelField").value = agent.model || "";
+      resizeTextareaToContent("providerModelField");
       $("providerBaseUrlEnvField").value = agent.base_url_env || "";
       $("providerApiKeyEnvField").value = agent.api_key_env || "";
       $("providerThinkingTypeField").value = agent.thinking?.type || "";
@@ -687,6 +688,13 @@
       $("providerTimeoutSecondsField").value = agent.timeout_seconds ?? "";
       $("providerMaxRetriesField").value = agent.max_retries ?? "";
       $("providerFieldEditor").value = JSON.stringify(providerEditablePatch(agent), null, 2);
+    }
+
+    function resizeTextareaToContent(id) {
+      const field = $(id);
+      if (!field || field.tagName !== "TEXTAREA") return;
+      field.style.height = "auto";
+      field.style.height = `${Math.max(64, field.scrollHeight)}px`;
     }
 
     function providerEditablePatch(agent) {
@@ -745,6 +753,7 @@
 
     function syncProviderFormToAdvancedJson() {
       try {
+        resizeTextareaToContent("providerModelField");
         const raw = $("providerFieldEditor").value.trim();
         const advanced = raw ? JSON.parse(raw) : {};
         if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) return;
@@ -1125,6 +1134,7 @@
       $(id).addEventListener("change", syncProviderFormToAdvancedJson);
     });
     $("saveProviderConfig").addEventListener("click", saveProviderConfig);
+    window.addEventListener("resize", () => resizeTextareaToContent("providerModelField"));
     $("loadStateTimeline").addEventListener("click", loadStateTimeline);
     $("loadDiff").addEventListener("click", loadDiff);
     document.querySelectorAll(".nav-button").forEach((button) => {

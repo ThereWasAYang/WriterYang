@@ -704,6 +704,8 @@ def test_frontend_basic_render() -> None:
     assert "<style>" not in html
     assert "<script>\n" not in html
     assert "runtime-panel" in frontend
+    assert ".config-layout" in frontend
+    assert ".provider-form-grid" in frontend
     assert 'id="currentProjectSummary"' in html
     assert 'id="currentValidationSummary"' in html
     assert 'data-page="homePage"' in html
@@ -734,6 +736,11 @@ def test_frontend_basic_render() -> None:
     assert 'id="auditIssueList"' in html
     assert 'id="runLogs"' in html
     assert 'id="providerConfig"' in html
+    assert "config-layout" in html
+    assert "provider-config-grid" in html
+    assert "provider-form-grid" in html
+    assert "provider-field-wide" in html
+    assert "compact-textarea" in html
     assert "Agent 模型配置" in html
     assert 'id="providerProviderField"' in html
     assert 'id="providerModelField"' in html

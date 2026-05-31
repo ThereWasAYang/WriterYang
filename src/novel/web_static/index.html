@@ -339,15 +339,15 @@
           <p class="page-note">管理默认模型、各 Agent 覆盖配置、embedding 状态和搜索索引。</p>
         </div>
       </div>
-      <div class="dashboard-grid">
+      <div class="dashboard-grid config-layout">
         <div id="providerConfig" class="panel">
           <div class="row"><h2 style="margin: 0;">Agent 模型配置</h2><button id="loadProviderConfig">刷新配置</button></div>
           <div id="providerConfigWarnings" class="muted" style="margin-top: 8px;"></div>
-          <div class="grid" style="margin-top: 10px;">
+          <div class="grid provider-config-grid" style="margin-top: 10px;">
             <div>
               <label for="providerAgentSelect">Agent</label>
               <select id="providerAgentSelect"></select>
-              <div class="form-grid" style="margin-top: 10px;">
+              <div class="form-grid provider-form-grid" style="margin-top: 10px;">
                 <div>
                   <label for="providerProviderField">provider</label>
                   <select id="providerProviderField">
@@ -359,15 +359,15 @@
                     <option value="mock">mock（仅测试）</option>
                   </select>
                 </div>
-                <div>
+                <div class="provider-field-wide">
                   <label for="providerModelField">model</label>
-                  <input id="providerModelField" placeholder="模型名">
+                  <textarea id="providerModelField" class="compact-textarea" rows="2" placeholder="模型名"></textarea>
                 </div>
-                <div>
+                <div class="provider-field-wide">
                   <label for="providerBaseUrlEnvField">base_url_env</label>
                   <input id="providerBaseUrlEnvField" placeholder="BASE_URL 环境变量名">
                 </div>
-                <div>
+                <div class="provider-field-wide">
                   <label for="providerApiKeyEnvField">api_key_env</label>
                   <input id="providerApiKeyEnvField" placeholder="API_KEY 环境变量名">
                 </div>

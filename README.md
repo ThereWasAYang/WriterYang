@@ -720,6 +720,6 @@ pytest -m real_api
 
 ## License
 
-Copyright 2026 WriterYang.
+Copyright 2026 ThereWasAYang.
 
 本项目基于 [Apache License 2.0](LICENSE) 开源。该协议适用于整个仓库，包括代码、文档、schemas、skills 和示例项目。

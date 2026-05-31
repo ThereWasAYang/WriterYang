@@ -237,9 +237,11 @@ def test_packaging_metadata_version_matches_package() -> None:
 
 def test_project_license_metadata_is_declared() -> None:
     license_path = Path("LICENSE")
+    readme = Path("README.md").read_text(encoding="utf-8")
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
     assert license_path.exists()
+    assert "Copyright 2026 ThereWasAYang." in readme
     assert pyproject["project"]["license"] == "Apache-2.0"
     assert pyproject["project"]["license-files"] == ["LICENSE"]
 

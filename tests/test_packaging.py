@@ -64,14 +64,35 @@ def test_example_agent_configs_include_real_and_mock_templates() -> None:
 
     default = real_config["default"]
     writer = real_config["agents"]["writer"]
+    revision = real_config["agents"]["revision"]
     assert default["provider"] == "deepseek"
     assert default["thinking"]["type"] == "disabled"
     assert default["base_url_env"] == "WRITERYANG_REAL_BASE_URL"
     assert default["api_key_env"] == "WRITERYANG_REAL_API_KEY"
     assert writer["temperature"] == 0.9
     assert "provider" not in writer
+    assert revision["temperature"] == 0.6
+    assert "provider" not in revision
 
     assert mock_config["agents"]["writer"]["provider"] == "mock"
+    assert mock_config["agents"]["revision"]["provider"] == "mock"
+
+
+def test_readme_documents_all_agent_model_roles() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    for agent_name in (
+        "orchestrator",
+        "inspiration",
+        "canon",
+        "plot",
+        "writer",
+        "polish",
+        "audit",
+        "revision",
+        "state_update",
+    ):
+        assert f"| `{agent_name}` |" in readme
 
 
 def test_readme_core_commands_match_cli() -> None:

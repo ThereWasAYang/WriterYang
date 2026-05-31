@@ -206,6 +206,7 @@ def _agents_yaml() -> str:
         "writer": ("high", 128000, 24000, 0.9, 120, 1),
         "polish": ("medium", 128000, 24000, 0.7, 90, 1),
         "audit": ("low", 64000, 8192, 0.2, 60, 1),
+        "revision": ("medium", 128000, 24000, 0.6, 120, 1),
         "state_update": ("low", 64000, 8192, 0.2, 60, 1),
     }
     lines = [

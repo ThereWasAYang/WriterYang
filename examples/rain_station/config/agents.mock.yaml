@@ -28,6 +28,10 @@ agents:
     provider: "mock"
     api_key_env: "AUDIT_API_KEY"
     model: "mock-model"
+  revision:
+    provider: "mock"
+    api_key_env: "REVISION_API_KEY"
+    model: "mock-model"
   state_update:
     provider: "mock"
     api_key_env: "STATE_UPDATE_API_KEY"

@@ -76,6 +76,15 @@ agents: # 每个 Agent 只写差异字段；provider/model/env 默认继承 defa
     temperature: 0.2 # 审核建议低温。
     timeout_seconds: 60 # 超时时间。
     max_retries: 1 # 重试次数。
+  revision: # 修订 Agent：根据用户意见或 audit issues 生成版本稿。
+    reasoning: "medium" # 修订需要理解原文、审核证据和用户意见。
+    thinking: # thinking 配置。
+      type: "disabled" # 修订正文建议关闭 thinking。
+    max_context_tokens: 128000 # 修订需要读取正文、plan、audit 和设定。
+    max_tokens: 24000 # 修订稿输出长度。
+    temperature: 0.6 # 中低温，保留事实同时改善表达。
+    timeout_seconds: 120 # 长文修订超时应更高。
+    max_retries: 1 # 重试次数。
   state_update: # 状态更新 Agent：提取状态变化和时间线事件。
     reasoning: "low" # 信息抽取任务不需要过度发散。
     thinking: # thinking 配置。

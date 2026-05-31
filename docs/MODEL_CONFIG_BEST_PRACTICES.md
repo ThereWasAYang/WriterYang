@@ -66,6 +66,7 @@ thinking:
 | `writer` | 生成初稿。 | 中文长文、角色声音、叙事节奏。 | `temperature: 0.7-1.0`，`max_tokens: 16000-32000`，`timeout_seconds: 120-180`。 |
 | `polish` | 润色初稿。 | 文风、节奏、事实保持。 | `temperature: 0.5-0.8`，`max_tokens: 16000-32000`。 |
 | `audit` | 一致性审核。 | 低幻觉、细节比对、JSON 输出。 | `temperature: 0-0.3`，复杂项目可 `thinking.type: enabled`。 |
+| `revision` | 根据用户意见或 audit issues 修订版本稿。 | 事实保持、定向修复、中文表达。 | `temperature: 0.4-0.7`，`reasoning: medium-high`，`max_tokens: 16000-32000`。 |
 | `state_update` | 提取状态和时间线变化。 | 信息抽取、引用一致性。 | `temperature: 0-0.3`，`reasoning: low-medium`。 |
 
 ## 参数解释
@@ -84,7 +85,7 @@ thinking:
 ## 推荐落地策略
 
 1. 先配置顶层 `default` 真实 API，并用 `novel doctor --project <project>` 检查环境变量是否存在。
-2. Agent 默认继承 `default`；只给 `writer`、`plot`、`audit` 等重点 Agent 覆盖差异参数。
+2. Agent 默认继承 `default`；只给 `writer`、`plot`、`revision`、`audit` 等重点 Agent 覆盖差异参数。
 3. JSON 输出类 Agent 先低温测试，确认 schema 稳定。
 4. 正文类 Agent 再调温度和 `max_tokens`。
 5. 如需离线熟悉流程，显式传 `--provider mock`，不要把 mock 写成真实项目 default。

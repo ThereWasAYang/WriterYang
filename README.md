@@ -335,16 +335,17 @@ novel write-chapter 1 --path ./rain-station --model temporary-model --dry-run-pr
 | `writer` | 根据章节计划生成初稿 `draft.md`。 | 中文长文生成、风格保持、角色声音、长上下文。 | `reasoning: high`，`thinking.type: disabled`，`temperature: 0.7-1.0`，`max_context_tokens: 128000`，`timeout_seconds: 120-180`。 | 正文需要更高语言多样性，温度可高一些；但一般不建议开启思考输出模式，避免影响小说正文纯净度。 |
 | `polish` | 根据初稿、计划和风格要求生成润色稿 `polished.md`。 | 中文文学表达、节奏控制、保留事实不漂移。 | `reasoning: medium`，`thinking.type: disabled`，`temperature: 0.5-0.8`，`max_context_tokens: 128000`。 | 润色要改善语言但不能改剧情事实，温度不宜过高。 |
 | `audit` | 审核章节与 canon、state、timeline、plan、style 是否冲突，输出 `audit.json`。 | 严格指令遵守、结构化 JSON、细节比对、低幻觉。 | `reasoning: low-medium`，复杂项目可 `high`；`thinking.type: disabled` 或 `enabled`；`temperature: 0-0.3`，`max_context_tokens: 64000-128000`。 | 审核是判定类任务，应降低随机性；复杂长篇可提高 reasoning 或开启 thinking 来增强一致性检查。 |
+| `revision` | 根据用户意见或 audit issues 修订 `draft.md` / `polished.md`，生成 `draft.vN.md` / `polished.vN.md` 并记录 `revision_log.json`。 | 保留核心剧情事实、按指令定向修复、避免引入新冲突。 | `reasoning: medium-high`，`thinking.type: disabled`，`temperature: 0.4-0.7`，`max_context_tokens: 128000`，`timeout_seconds: 90-150`。 | 修订需要理解原文、audit 证据和用户意见，但输出仍是可直接使用的正文，建议中低温并关闭 thinking。 |
 | `state_update` | 从通过审核的章节中提取状态变化和时间线事件。 | 信息抽取、结构化 JSON、引用一致性。 | `reasoning: low-medium`，`thinking.type: disabled`，`temperature: 0-0.3`，`max_context_tokens: 64000`。 | 状态更新不应创造正文中没有发生的事件，低温更稳定。 |
 
 通用建议：
 
 - `thinking.type` 默认用 `disabled`。只有在 `plot`、`audit` 这类复杂推理/一致性检查任务明显不稳定时，再为对应 agent 单独改成 `enabled`。
-- `writer` 和 `polish` 通常不建议开启思考模式。它们的输出要直接写入 Markdown 文件，模型额外的分析性内容会增加清洗风险。
+- `writer`、`polish` 和 `revision` 通常不建议开启思考模式。它们的输出要直接写入 Markdown 文件，模型额外的分析性内容会增加清洗风险。
 - `temperature` 越高，语言和创意越发散；越低，结构化输出和一致性越稳定。JSON 输出类 agent 建议低温，正文类 agent 可以中高温。
-- `max_context_tokens` 对 `plot`、`writer`、`polish`、`audit` 更重要，因为这些步骤会读取 plan、canon、state、timeline 和正文。
-- `max_tokens` 控制单次输出长度。`writer` / `polish` 建议更高，结构化 JSON 类 agent 建议较低。
-- `timeout_seconds` 对 `writer`、`polish` 建议更高。长章节生成本身耗时更长，过短会导致真实 API 测试和实际写作中断。
+- `max_context_tokens` 对 `plot`、`writer`、`polish`、`revision`、`audit` 更重要，因为这些步骤会读取 plan、canon、state、timeline 和正文。
+- `max_tokens` 控制单次输出长度。`writer` / `polish` / `revision` 建议更高，结构化 JSON 类 agent 建议较低。
+- `timeout_seconds` 对 `writer`、`polish`、`revision` 建议更高。长章节生成或修订本身耗时更长，过短会导致真实 API 测试和实际写作中断。
 
 ## 生成灵感
 

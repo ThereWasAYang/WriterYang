@@ -697,7 +697,24 @@ def test_frontend_basic_render() -> None:
     assert 'id="projectPath"' in html
     assert 'id="runtimePanel"' in html
     assert "runtime-panel" in html
+    assert 'id="currentProjectSummary"' in html
+    assert 'id="currentValidationSummary"' in html
+    assert 'data-page="homePage"' in html
+    assert 'data-page="workbenchPage"' in html
+    assert 'data-page="memoryPage"' in html
+    assert 'data-page="configPage"' in html
+    assert 'data-page="logsPage"' in html
+    assert 'id="homePage"' in html
+    assert 'id="workbenchPage"' in html
+    assert 'id="memoryPage"' in html
+    assert 'id="configPage"' in html
+    assert 'id="logsPage"' in html
+    assert "创作工作台" in html
+    assert "小说状态管理" in html
+    assert "模型与检索配置" in html
+    assert "运行日志 / 项目文件" in html
     assert 'id="instruction"' in html
+    assert 'id="memoryRepairInstruction"' in html
     assert 'id="fileTree"' in html
     assert 'id="projectFiles"' in html
     assert 'id="projectFileCurrent"' in html
@@ -730,6 +747,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="sessionStart"' in html
     assert 'id="sessionRun"' in html
     assert 'id="sessionPanel"' in html
+    assert 'id="workbenchNextStepPanel"' in html
     assert 'id="rewriteEventsPanel"' in html
     assert 'id="rejectedTextViewer"' in html
     assert 'id="sessionReviseAudit"' in html

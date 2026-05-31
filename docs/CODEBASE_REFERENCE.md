@@ -156,13 +156,15 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 无构建 vanilla HTML/JS 前端。包含：
 
-- 项目路径输入。
-- 状态面板。
-- 右侧“项目文件”tab 内的安全文件树和只读文件预览；左侧不常驻文件树，避免挤占主操作区。
-- 章节对照、编辑器、audit 定位、运行日志、Agent 模型配置、状态/时间线 tabs。
+- 顶部主导航：主页、创作工作台、小说状态管理、模型与检索配置、运行日志 / 项目文件。
+- 主页：项目路径输入、打开/刷新、项目检查、新建项目、项目初始引导、项目状态、章节列表和下一步提示。
+- 创作工作台：创作输入、Session 主流程、自动打回记录、章节对照、章节编辑器、audit 定位和 revision diff。
+- 小说状态管理：canon 摘要、状态/时间线、项目管家和后台管理动态。
+- 模型与检索配置：Agent 模型配置、FTS / embedding 状态和索引刷新。
+- 运行日志 / 项目文件：安全文件树、只读文件预览、运行日志和章节文件查看。
 - 初始化、inspiration、canon suggest/apply、生成/写作/润色/审核/export/session API 调用。
 - 项目初始引导面板支持保存默认 API、可选 embedding API、推荐并保存 Web 端口，以及打开当前 Web UI 地址。
-- 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入文件查看区和下一步提示。
+- 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入主页状态、顶部检查摘要、调试页文件查看和下一步提示。
 - Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、按 Audit/用户意见修订、认可和归档。
 - 项目管家面板支持生成 memory repair proposal、确认 apply，并显示后台管理动态。
 - 检索索引面板显示 FTS / embedding 状态，支持本地刷新关键词索引，也支持显式刷新真实 embedding 向量索引。

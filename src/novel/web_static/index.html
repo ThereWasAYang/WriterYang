@@ -12,10 +12,27 @@
       color: #20242a;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; }
-    main { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 100vh; }
-    aside { background: #fff; border-right: 1px solid #dfe3e8; padding: 18px; overflow: auto; }
-    section { padding: 18px 22px; min-width: 0; overflow: auto; }
+    body { margin: 0; min-height: 100vh; }
+    .app-header {
+      position: sticky; top: 0; z-index: 10; background: #fff;
+      border-bottom: 1px solid #dfe3e8; padding: 12px 18px;
+      display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) minmax(260px, 420px);
+      gap: 14px; align-items: center;
+    }
+    .brand h1 { margin: 0 0 4px; }
+    .project-context { font-size: 12px; color: #5b6673; overflow-wrap: anywhere; }
+    .main-nav { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .nav-button.active { background: #20242a; color: #fff; border-color: #20242a; }
+    .header-status { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+    main { min-height: calc(100vh - 96px); padding: 18px 22px; }
+    .app-page { display: none; }
+    .app-page.active { display: block; }
+    .page-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 14px; }
+    .page-heading h2 { margin: 0 0 6px; font-size: 20px; }
+    .page-note { margin: 0; color: #5b6673; font-size: 13px; }
+    .dashboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .workspace-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .stack { display: grid; gap: 14px; }
     h1 { font-size: 22px; margin: 0 0 18px; }
     h2 { font-size: 15px; margin: 22px 0 10px; }
     h3 { font-size: 13px; margin: 0 0 8px; color: #46515f; }
@@ -67,287 +84,347 @@
     .status-warn { color: #b54708; }
     .status-bad { color: #b42318; }
     .hidden { display: none; }
+    @media (max-width: 980px) {
+      .app-header { grid-template-columns: 1fr; }
+      .dashboard-grid, .workspace-grid, .grid, .four { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <aside>
+  <header class="app-header">
+    <div class="brand">
       <h1>WriterYang</h1>
-      <div id="runtimePanel" class="metric runtime-panel status-warn" style="margin-bottom: 12px;">运行环境：检测中</div>
-      <label for="projectPath">项目路径</label>
-      <input id="projectPath" placeholder="/path/to/novel-workspace">
-      <div class="row" style="margin-top: 8px;">
-        <button id="openProject" class="primary">打开</button>
-        <button id="refreshProject">刷新</button>
-      </div>
-      <button id="validateProject" style="width: 100%; margin-top: 8px;">项目检查</button>
-      <div id="validationStatusPanel" class="metric" style="margin-top: 8px;">项目检查结果：未运行</div>
-      <button id="toggleProjectInit" style="width: 100%; margin-top: 8px;">隐藏新建项目选项</button>
-      <div id="projectInitPanel" class="panel" style="margin-top: 8px;">
-        <h2 style="margin-top: 0;">新建项目</h2>
-        <label for="projectTitle">新项目标题</label>
-        <input id="projectTitle" placeholder="用于初始化新小说项目">
-        <label for="projectGenre">类型标签</label>
-        <input id="projectGenre" placeholder="武侠, 悬疑">
-        <button id="initProject" style="width: 100%; margin-top: 8px;">初始化项目</button>
-      </div>
-      <div id="setupGuidePanel" class="panel hidden" style="margin-top: 12px;">
-        <h2 style="margin-top: 0;">项目初始引导</h2>
-        <div class="message">默认 API 使用 OpenAI-compatible 格式。API Key 会保存到项目 `.env`，不会写入 YAML、日志或文件树。</div>
-        <label for="setupBaseUrl">默认 API Base URL</label>
-        <input id="setupBaseUrl" placeholder="https://api.openai.com/v1">
-        <label for="setupApiKey">默认 API Key</label>
-        <input id="setupApiKey" type="password" placeholder="只保存在项目 .env">
-        <label for="setupModel">默认模型名</label>
-        <input id="setupModel" placeholder="例如 deepseek-chat">
-        <div class="row" style="margin-top: 8px;">
-          <button id="setupDefaultProvider" class="primary">测试并保存默认 API</button>
-          <button id="setupSkipProvider">暂时跳过</button>
-        </div>
-        <label class="row" style="justify-content: flex-start; gap: 8px;">
-          <input id="setupEmbeddingEnabled" type="checkbox" style="width: auto;">
-          <span>配置 embedding API（可跳过）</span>
-        </label>
-        <label for="setupEmbeddingBaseUrl">Embedding Base URL</label>
-        <input id="setupEmbeddingBaseUrl" placeholder="https://.../v1">
-        <label for="setupEmbeddingApiKey">Embedding API Key</label>
-        <input id="setupEmbeddingApiKey" type="password" placeholder="只保存在项目 .env">
-        <label for="setupEmbeddingModel">Embedding 模型名</label>
-        <input id="setupEmbeddingModel" placeholder="例如 text-embedding-v4">
-        <button id="setupEmbedding" style="width: 100%; margin-top: 8px;">测试并保存 embedding API / 跳过</button>
-        <label for="setupWebPort">Web UI 端口</label>
-        <input id="setupWebPort" type="number" min="1" max="65535" placeholder="8765">
-        <div class="row" style="margin-top: 8px;">
-          <button id="setupRecommendPort">推荐可用端口</button>
-          <button id="setupSavePort">保存端口</button>
-        </div>
-        <button id="setupOpenWeb" style="width: 100%; margin-top: 8px;">打开 Web UI（默认）</button>
-        <div id="setupGuideStatus" class="message">初始化项目后会自动进入这里。</div>
-      </div>
-
-      <label for="chapterNumber">章节号</label>
-      <input id="chapterNumber" type="number" min="1" value="1">
-
-      <label for="instruction">聊天 / 指令</label>
-      <textarea id="instruction" placeholder="给本章的额外要求"></textarea>
-
-      <label for="provider">Provider</label>
-      <select id="provider">
-        <option value="config">config</option>
-        <option value="mock">mock（仅测试）</option>
-      </select>
-      <label class="row" style="justify-content: flex-start; gap: 8px;">
-        <input id="useSearchContext" type="checkbox" style="width: auto;" checked>
-        <span>使用搜索上下文</span>
-      </label>
-      <label class="row" style="justify-content: flex-start; gap: 8px;">
-        <input id="useVectorContext" type="checkbox" style="width: auto;">
-        <span>使用 embedding 语义检索</span>
-      </label>
-      <label class="row" style="justify-content: flex-start; gap: 8px;">
-        <input id="forceWrites" type="checkbox" style="width: auto;">
-        <span>允许覆盖已有产物</span>
-      </label>
-
-      <div class="actions">
-        <button id="planChapter">生成计划</button>
-        <button id="writeChapter">写章节</button>
-        <button id="polishChapter">润色</button>
-        <button id="auditChapter">审核</button>
-      </div>
-      <div class="actions">
-        <button id="inspireProject">生成灵感</button>
-        <button id="canonSuggest">Canon 建议</button>
-      </div>
-      <label for="canonProposalPath">Canon proposal</label>
-      <input id="canonProposalPath" placeholder="runs/canon_proposal_....json">
-      <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
-      <button id="exportMarkdown" style="width: 100%; margin-top: 8px;">导出 Markdown</button>
-      <h2>检索索引</h2>
-      <div id="searchStatusPanel" class="metric">检索状态：未加载</div>
-      <div class="actions">
-        <button id="refreshFtsIndex">刷新关键词索引</button>
-        <button id="refreshEmbeddingIndex">刷新语义向量索引</button>
-      </div>
-
-      <h2>项目管家</h2>
-      <button id="memoryRepairSuggest" style="width: 100%; margin-top: 8px;">生成记忆修复建议</button>
-      <label for="memoryRepairProposalPath">Repair proposal</label>
-      <input id="memoryRepairProposalPath" placeholder="memory/repairs/repair_.../proposal.json">
-      <button id="memoryRepairApply" style="width: 100%; margin-top: 8px;">确认应用修复建议</button>
-      <div id="managementEventsPanel" class="metric" style="margin-top: 10px;">后台管理动态：暂无</div>
-
-      <h2>本次创作 Session</h2>
-      <label for="sessionChapters">章节范围</label>
-      <input id="sessionChapters" placeholder="1 或 1-2" value="1">
-      <label for="sessionId">Session ID</label>
-      <input id="sessionId" placeholder="session_...">
-      <div class="actions">
-        <button id="sessionStart">创建大纲</button>
-        <button id="sessionReviseOutline">修改大纲</button>
-        <button id="sessionApprove">批准大纲</button>
-        <button id="sessionRun">开始写作</button>
-        <button id="sessionArchive">归档</button>
-      </div>
-      <button id="sessionAccept" style="width: 100%; margin-top: 8px;">认可本次创作</button>
-      <div class="actions" style="margin-top: 8px;">
-        <button id="sessionReviseAuditContent">按 Audit 修订内容</button>
-        <button id="sessionReviseInstruction">按用户意见修订内容</button>
-      </div>
-      <label for="rewriteEventId">Rewrite Event ID</label>
-      <input id="rewriteEventId" placeholder="rewrite_...">
-      <div class="actions" style="margin-top: 8px;">
-        <button id="sessionReviseAudit">纠正 Audit 理解并重新审核</button>
-        <button id="sessionRetryRewrite">根据新审核重新打回</button>
-        <button id="sessionUndoRewrite">撤回本次打回</button>
-      </div>
-      <div id="sessionPanel" class="metric" style="margin-top: 10px;">未加载 Session</div>
-      <div id="nextStepPanel" class="metric" style="margin-top: 10px;">下一步：打开或初始化一个小说项目。</div>
-      <div id="rewriteEventsPanel" class="metric" style="margin-top: 10px;">自动打回重写记录：暂无</div>
-      <textarea id="rejectedTextViewer" class="editor" readonly placeholder="点击“查看被打回原文”后显示快照"></textarea>
+      <div id="currentProjectSummary" class="project-context">当前项目：未打开</div>
+      <div id="currentValidationSummary" class="project-context">项目检查：未运行</div>
+    </div>
+    <nav class="main-nav" aria-label="主导航">
+      <button class="nav-button active" data-page="homePage">主页</button>
+      <button class="nav-button" data-page="workbenchPage">创作工作台</button>
+      <button class="nav-button" data-page="memoryPage">小说状态管理</button>
+      <button class="nav-button" data-page="configPage">模型与检索配置</button>
+      <button class="nav-button" data-page="logsPage">运行日志 / 项目文件</button>
+    </nav>
+    <div class="header-status">
+      <div id="runtimePanel" class="metric runtime-panel status-warn">运行环境：检测中</div>
       <div id="message" class="message"></div>
-    </aside>
+    </div>
+  </header>
 
-    <section>
-      <div class="grid">
+  <main>
+    <section id="homePage" class="app-page active">
+      <div class="page-heading">
+        <div>
+          <h2>主页</h2>
+          <p class="page-note">打开项目、检查健康状态，并查看下一步建议。</p>
+        </div>
+        <div class="row" style="max-width: 520px;">
+          <button id="goWorkbench" class="primary">进入创作工作台</button>
+          <button id="goMemoryPage">查看小说状态</button>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <div class="panel">
+          <h2 style="margin-top: 0;">项目入口</h2>
+          <label for="projectPath">项目路径</label>
+          <input id="projectPath" placeholder="/path/to/novel-workspace">
+          <div class="row" style="margin-top: 8px;">
+            <button id="openProject" class="primary">打开</button>
+            <button id="refreshProject">刷新</button>
+          </div>
+          <button id="validateProject" style="width: 100%; margin-top: 8px;">项目检查</button>
+          <div id="validationStatusPanel" class="metric" style="margin-top: 8px;">项目检查结果：未运行</div>
+          <button id="toggleProjectInit" style="width: 100%; margin-top: 8px;">隐藏新建项目选项</button>
+          <div id="projectInitPanel" class="panel" style="margin-top: 8px;">
+            <h2 style="margin-top: 0;">新建项目</h2>
+            <label for="projectTitle">新项目标题</label>
+            <input id="projectTitle" placeholder="用于初始化新小说项目">
+            <label for="projectGenre">类型标签</label>
+            <input id="projectGenre" placeholder="武侠, 悬疑">
+            <button id="initProject" style="width: 100%; margin-top: 8px;">初始化项目</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2 style="margin-top: 0;">下一步</h2>
+          <div id="nextStepPanel" class="metric">下一步：打开或初始化一个小说项目。</div>
+          <div class="actions">
+            <button id="homeGoWorkbench">开始 / 继续创作</button>
+            <button id="homeGoConfig">检查模型配置</button>
+          </div>
+          <button id="exportMarkdown" style="width: 100%; margin-top: 8px;">导出 Markdown</button>
+        </div>
+
         <div class="panel">
           <h2>项目状态</h2>
           <div id="statusPanel" class="status-list"></div>
         </div>
+
         <div class="panel">
-          <h2>Canon 摘要</h2>
+          <h2>章节列表</h2>
+          <div id="chapterList">未加载</div>
+        </div>
+      </div>
+
+      <div id="setupGuidePanel" class="panel hidden" style="margin-top: 14px;">
+        <h2 style="margin-top: 0;">项目初始引导</h2>
+        <div class="message">默认 API 使用 OpenAI-compatible 格式。API Key 会保存到项目 `.env`，不会写入 YAML、日志或文件树。</div>
+        <div class="grid">
+          <div>
+            <label for="setupBaseUrl">默认 API Base URL</label>
+            <input id="setupBaseUrl" placeholder="https://api.openai.com/v1">
+            <label for="setupApiKey">默认 API Key</label>
+            <input id="setupApiKey" type="password" placeholder="只保存在项目 .env">
+            <label for="setupModel">默认模型名</label>
+            <input id="setupModel" placeholder="例如 deepseek-chat">
+            <div class="row" style="margin-top: 8px;">
+              <button id="setupDefaultProvider" class="primary">测试并保存默认 API</button>
+              <button id="setupSkipProvider">暂时跳过</button>
+            </div>
+          </div>
+          <div>
+            <label class="row" style="justify-content: flex-start; gap: 8px;">
+              <input id="setupEmbeddingEnabled" type="checkbox" style="width: auto;">
+              <span>配置 embedding API（可跳过）</span>
+            </label>
+            <label for="setupEmbeddingBaseUrl">Embedding Base URL</label>
+            <input id="setupEmbeddingBaseUrl" placeholder="https://.../v1">
+            <label for="setupEmbeddingApiKey">Embedding API Key</label>
+            <input id="setupEmbeddingApiKey" type="password" placeholder="只保存在项目 .env">
+            <label for="setupEmbeddingModel">Embedding 模型名</label>
+            <input id="setupEmbeddingModel" placeholder="例如 text-embedding-v4">
+            <button id="setupEmbedding" style="width: 100%; margin-top: 8px;">测试并保存 embedding API / 跳过</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 8px;">
+          <div>
+            <label for="setupWebPort">Web UI 端口</label>
+            <input id="setupWebPort" type="number" min="1" max="65535" placeholder="8765">
+          </div>
+          <button id="setupRecommendPort">推荐可用端口</button>
+          <button id="setupSavePort">保存端口</button>
+          <button id="setupOpenWeb">打开 Web UI（默认）</button>
+        </div>
+        <div id="setupGuideStatus" class="message">初始化项目后会自动进入这里。</div>
+      </div>
+    </section>
+
+    <section id="workbenchPage" class="app-page">
+      <div class="page-heading">
+        <div>
+          <h2>创作工作台</h2>
+          <p class="page-note">围绕一次 Session 协商大纲、生成正文、审核修订并归档。</p>
+        </div>
+      </div>
+
+      <div class="workspace-grid">
+        <div class="stack">
+          <div class="panel">
+            <h2 style="margin-top: 0;">创作输入</h2>
+            <label for="chapterNumber">章节号</label>
+            <input id="chapterNumber" type="number" min="1" value="1">
+            <label for="instruction">聊天 / 指令</label>
+            <textarea id="instruction" placeholder="本次创作意图、大纲修改意见、写作要求、Audit 纠正意见或记忆修复说明"></textarea>
+            <label for="provider">Provider</label>
+            <select id="provider">
+              <option value="config">config</option>
+              <option value="mock">mock（仅测试）</option>
+            </select>
+            <label class="row" style="justify-content: flex-start; gap: 8px;">
+              <input id="useSearchContext" type="checkbox" style="width: auto;" checked>
+              <span>使用搜索上下文</span>
+            </label>
+            <label class="row" style="justify-content: flex-start; gap: 8px;">
+              <input id="useVectorContext" type="checkbox" style="width: auto;">
+              <span>使用 embedding 语义检索</span>
+            </label>
+            <details style="margin-top: 10px;">
+              <summary>危险 / 调试选项</summary>
+              <label class="row" style="justify-content: flex-start; gap: 8px;">
+                <input id="forceWrites" type="checkbox" style="width: auto;">
+                <span>允许覆盖已有产物</span>
+              </label>
+              <div class="actions">
+                <button id="planChapter">生成计划</button>
+                <button id="writeChapter">写章节</button>
+                <button id="polishChapter">润色</button>
+                <button id="auditChapter">审核</button>
+              </div>
+            </details>
+          </div>
+
+          <div class="panel">
+            <h2 style="margin-top: 0;">项目准备</h2>
+            <div class="actions">
+              <button id="inspireProject">生成灵感</button>
+              <button id="canonSuggest">Canon 建议</button>
+            </div>
+            <label for="canonProposalPath">Canon proposal</label>
+            <input id="canonProposalPath" placeholder="runs/canon_proposal_....json">
+            <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
+          </div>
+
+          <div class="panel">
+            <h2 style="margin-top: 0;">Session 主流程</h2>
+            <label for="sessionChapters">章节范围</label>
+            <input id="sessionChapters" placeholder="1 或 1-2" value="1">
+            <label for="sessionId">Session ID</label>
+            <input id="sessionId" placeholder="session_...">
+            <h3>大纲协商</h3>
+            <div class="actions">
+              <button id="sessionStart">创建大纲</button>
+              <button id="sessionReviseOutline">修改大纲</button>
+              <button id="sessionApprove">批准大纲</button>
+            </div>
+            <h3 style="margin-top: 12px;">正文生成</h3>
+            <button id="sessionRun" class="primary" style="width: 100%;">开始写作</button>
+            <h3 style="margin-top: 12px;">审核与修订</h3>
+            <div class="actions">
+              <button id="sessionReviseAuditContent">按 Audit 修订内容</button>
+              <button id="sessionReviseInstruction">按用户意见修订内容</button>
+            </div>
+            <label for="rewriteEventId">Rewrite Event ID</label>
+            <input id="rewriteEventId" placeholder="rewrite_...">
+            <div class="actions" style="margin-top: 8px;">
+              <button id="sessionReviseAudit">纠正 Audit 理解并重新审核</button>
+              <button id="sessionRetryRewrite">根据新审核重新打回</button>
+              <button id="sessionUndoRewrite">撤回本次打回</button>
+            </div>
+            <h3 style="margin-top: 12px;">认可归档</h3>
+            <div class="actions">
+              <button id="sessionAccept">认可本次创作</button>
+              <button id="sessionArchive">归档</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="panel">
+            <h2 style="margin-top: 0;">Session 状态</h2>
+            <div id="workbenchNextStepPanel" class="metric">下一步：打开或初始化一个小说项目。</div>
+            <div id="sessionPanel" class="metric">未加载 Session</div>
+            <div id="rewriteEventsPanel" class="metric" style="margin-top: 10px;">自动打回重写记录：暂无</div>
+            <textarea id="rejectedTextViewer" class="editor" readonly placeholder="点击“查看被打回原文”后显示快照"></textarea>
+          </div>
+
+          <div class="panel">
+            <div class="row">
+              <button class="tab active" data-tab="chapterCompare">章节对照</button>
+              <button class="tab" data-tab="chapterEditor">章节编辑器</button>
+              <button class="tab" data-tab="auditLocate">Audit 定位</button>
+            </div>
+          </div>
+
+          <div id="chapterCompare" class="tabPanel">
+            <div class="panel">
+              <div class="row">
+                <h2 style="margin: 0;">plan / draft / polished / audit 对照</h2>
+                <button id="loadCompare">加载对照</button>
+              </div>
+              <div id="compareGrid" class="four">
+                <div><h3>plan.json</h3><pre id="planViewer" class="chapter-pre">未加载</pre></div>
+                <div><h3>draft.md</h3><pre id="draftViewer" class="chapter-pre">未加载</pre></div>
+                <div><h3>polished.md</h3><pre id="polishedViewer" class="chapter-pre">未加载</pre></div>
+                <div><h3>audit.json</h3><pre id="auditViewer" class="chapter-pre">未加载</pre></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h2>Revision Diff</h2>
+              <div class="row">
+                <input id="diffLeft" placeholder="memory/chapters/001/polished.md">
+                <input id="diffRight" placeholder="memory/chapters/001/polished.v2.md">
+                <button id="loadDiff">查看 Diff</button>
+              </div>
+              <pre id="diffViewer" style="margin-top: 10px;">选择两个工作区文件后查看 unified diff。</pre>
+            </div>
+          </div>
+
+          <div id="chapterEditor" class="tabPanel hidden">
+            <div class="panel">
+              <div class="row">
+                <h2 style="margin: 0;">可保存章节编辑器</h2>
+                <select id="editorTarget">
+                  <option value="draft">draft.md</option>
+                  <option value="polished">polished.md</option>
+                </select>
+                <input id="editorSource" placeholder="draft.md 或 polished.v2.md">
+                <button id="loadEditorFile">加载</button>
+                <button id="saveEditorVersion" class="primary">保存新版本</button>
+              </div>
+              <div class="row" style="margin: 8px 0;">
+                <span id="editorDirty" class="badge">未加载</span>
+                <span id="editorSavedPath" class="badge">未保存</span>
+              </div>
+              <textarea id="chapterEditorText" class="editor" placeholder="加载 draft/polished 后编辑。保存时会写入 v2/v3... 版本文件，不覆盖原稿。"></textarea>
+            </div>
+          </div>
+
+          <div id="auditLocate" class="tabPanel hidden">
+            <div class="panel">
+              <div class="row">
+                <h2 style="margin: 0;">Audit issue 正文定位</h2>
+                <select id="auditLocateFile">
+                  <option value="polished.md">polished.md</option>
+                  <option value="draft.md">draft.md</option>
+                </select>
+                <button id="loadAuditAnnotations">加载定位</button>
+              </div>
+              <div class="grid" style="margin-top: 10px;">
+                <div>
+                  <h3>Issues</h3>
+                  <div id="auditIssueList">未加载</div>
+                </div>
+                <div>
+                  <h3>正文</h3>
+                  <textarea id="auditTextViewer" class="editor" readonly></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="memoryPage" class="app-page">
+      <div class="page-heading">
+        <div>
+          <h2>小说状态管理</h2>
+          <p class="page-note">集中查看 canon、状态、时间线、后台管理动态，并通过项目管家修复记忆文件。</p>
+        </div>
+      </div>
+      <div class="dashboard-grid">
+        <div class="panel">
+          <h2 style="margin-top: 0;">Canon 摘要</h2>
           <pre id="canonPanel">未加载</pre>
         </div>
-      </div>
-
-      <div class="panel">
-        <h2>章节列表</h2>
-        <div id="chapterList">未加载</div>
-      </div>
-
-      <div class="panel">
-        <div class="row">
-          <button class="tab active" data-tab="chapterCompare">章节对照</button>
-          <button class="tab" data-tab="projectFiles">项目文件</button>
-          <button class="tab" data-tab="chapterEditor">章节编辑器</button>
-          <button class="tab" data-tab="auditLocate">Audit 定位</button>
-          <button class="tab" data-tab="runLogs">运行日志</button>
-          <button class="tab" data-tab="providerConfig">Agent 模型配置</button>
-          <button class="tab" data-tab="stateTimeline">状态 / 时间线</button>
+        <div class="panel">
+          <h2 style="margin-top: 0;">项目管家</h2>
+          <p class="page-note">说明 timeline/state/canon 的问题，生成可审查 proposal，确认后再应用。</p>
+          <label for="memoryRepairInstruction">记忆修复说明</label>
+          <textarea id="memoryRepairInstruction" placeholder="例如：第2章这个事件其实是回忆，不是当前行动。"></textarea>
+          <button id="memoryRepairSuggest" style="width: 100%; margin-top: 8px;">生成记忆修复建议</button>
+          <label for="memoryRepairProposalPath">Repair proposal</label>
+          <input id="memoryRepairProposalPath" placeholder="memory/repairs/repair_.../proposal.json">
+          <button id="memoryRepairApply" style="width: 100%; margin-top: 8px;">确认应用修复建议</button>
+          <div id="managementEventsPanel" class="metric" style="margin-top: 10px;">后台管理动态：暂无</div>
         </div>
       </div>
+      <div id="stateTimeline" class="panel">
+        <div class="row"><h2 style="margin: 0;">状态和时间线</h2><button id="loadStateTimeline">刷新状态</button></div>
+        <div id="stateTimelinePanel">未加载</div>
+      </div>
+    </section>
 
-      <div id="projectFiles" class="tabPanel hidden">
-        <div class="panel">
-          <div class="row">
-            <h2 style="margin: 0;">项目文件</h2>
-            <button id="refreshProjectFiles">刷新文件树</button>
-          </div>
-          <div class="grid" style="margin-top: 10px;">
-            <div>
-              <h3>项目文件树</h3>
-              <div id="fileTree" class="file-tree">未加载</div>
-            </div>
-            <div>
-              <h3>文件预览</h3>
-              <div id="projectFileCurrent" class="badge">当前文件：未读取</div>
-              <pre id="projectFileViewer" class="chapter-pre" style="margin-top: 8px;">点击文件树中的文件名后在这里预览。读取只是把文件内容加载到 Web UI，不会修改文件。</pre>
-            </div>
-          </div>
+    <section id="configPage" class="app-page">
+      <div class="page-heading">
+        <div>
+          <h2>模型与检索配置</h2>
+          <p class="page-note">管理默认模型、各 Agent 覆盖配置、embedding 状态和搜索索引。</p>
         </div>
       </div>
-
-      <div id="chapterCompare" class="tabPanel">
-        <div class="panel">
-          <div class="row">
-            <h2 style="margin: 0;">plan / draft / polished / audit 对照</h2>
-            <button id="loadCompare">加载对照</button>
-          </div>
-          <div id="compareGrid" class="four">
-            <div><h3>plan.json</h3><pre id="planViewer" class="chapter-pre">未加载</pre></div>
-            <div><h3>draft.md</h3><pre id="draftViewer" class="chapter-pre">未加载</pre></div>
-            <div><h3>polished.md</h3><pre id="polishedViewer" class="chapter-pre">未加载</pre></div>
-            <div><h3>audit.json</h3><pre id="auditViewer" class="chapter-pre">未加载</pre></div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="row">
-            <h2 style="margin: 0;">文件查看</h2>
-            <select id="fileType">
-              <option value="plan">plan.json</option>
-              <option value="draft">draft.md</option>
-              <option value="polished">polished.md</option>
-              <option value="audit">audit.json</option>
-            </select>
-            <button id="viewFile">查看</button>
-          </div>
-          <pre id="fileViewer">选择章节文件后查看。</pre>
-        </div>
-
-        <div class="panel">
-          <h2>Revision Diff</h2>
-          <div class="row">
-            <input id="diffLeft" placeholder="memory/chapters/001/polished.md">
-            <input id="diffRight" placeholder="memory/chapters/001/polished.v2.md">
-            <button id="loadDiff">查看 Diff</button>
-          </div>
-          <pre id="diffViewer" style="margin-top: 10px;">选择两个工作区文件后查看 unified diff。</pre>
-        </div>
-      </div>
-
-      <div id="chapterEditor" class="tabPanel hidden">
-        <div class="panel">
-          <div class="row">
-            <h2 style="margin: 0;">可保存章节编辑器</h2>
-            <select id="editorTarget">
-              <option value="draft">draft.md</option>
-              <option value="polished">polished.md</option>
-            </select>
-            <input id="editorSource" placeholder="draft.md 或 polished.v2.md">
-            <button id="loadEditorFile">加载</button>
-            <button id="saveEditorVersion" class="primary">保存新版本</button>
-          </div>
-          <div class="row" style="margin: 8px 0;">
-            <span id="editorDirty" class="badge">未加载</span>
-            <span id="editorSavedPath" class="badge">未保存</span>
-          </div>
-          <textarea id="chapterEditorText" class="editor" placeholder="加载 draft/polished 后编辑。保存时会写入 v2/v3... 版本文件，不覆盖原稿。"></textarea>
-        </div>
-      </div>
-
-      <div id="auditLocate" class="tabPanel hidden">
-        <div class="panel">
-          <div class="row">
-            <h2 style="margin: 0;">Audit issue 正文定位</h2>
-            <select id="auditLocateFile">
-              <option value="polished.md">polished.md</option>
-              <option value="draft.md">draft.md</option>
-            </select>
-            <button id="loadAuditAnnotations">加载定位</button>
-          </div>
-          <div class="grid" style="margin-top: 10px;">
-            <div>
-              <h3>Issues</h3>
-              <div id="auditIssueList">未加载</div>
-            </div>
-            <div>
-              <h3>正文</h3>
-              <textarea id="auditTextViewer" class="editor" readonly></textarea>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div id="runLogs" class="tabPanel hidden">
-        <div class="panel">
-          <div class="row"><h2 style="margin: 0;">运行日志</h2><button id="loadRuns">刷新日志</button></div>
-          <div id="runLogPanel">未加载</div>
-        </div>
-      </div>
-
-      <div id="providerConfig" class="tabPanel hidden">
-        <div class="panel">
+      <div class="dashboard-grid">
+        <div id="providerConfig" class="panel">
           <div class="row"><h2 style="margin: 0;">Agent 模型配置</h2><button id="loadProviderConfig">刷新配置</button></div>
           <div id="providerConfigWarnings" class="muted" style="margin-top: 8px;"></div>
           <div class="grid" style="margin-top: 10px;">
@@ -424,12 +501,73 @@
             </div>
           </div>
         </div>
+
+        <div class="panel">
+          <h2 style="margin-top: 0;">检索索引</h2>
+          <div id="searchStatusPanel" class="metric">检索状态：未加载</div>
+          <div class="actions">
+            <button id="refreshFtsIndex">刷新关键词索引</button>
+            <button id="refreshEmbeddingIndex">刷新语义向量索引</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="logsPage" class="app-page">
+      <div class="page-heading">
+        <div>
+          <h2>运行日志 / 项目文件</h2>
+          <p class="page-note">调试页。普通创作不必频繁打开；排查问题时查看项目文件、运行日志和原始 API 返回摘要。</p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="row">
+          <button class="tab active" data-tab="projectFiles">项目文件</button>
+          <button class="tab" data-tab="runLogs">运行日志</button>
+          <button class="tab" data-tab="singleFileView">章节文件查看</button>
+        </div>
       </div>
 
-      <div id="stateTimeline" class="tabPanel hidden">
+      <div id="projectFiles" class="tabPanel">
         <div class="panel">
-          <div class="row"><h2 style="margin: 0;">状态和时间线</h2><button id="loadStateTimeline">刷新状态</button></div>
-          <div id="stateTimelinePanel">未加载</div>
+          <div class="row">
+            <h2 style="margin: 0;">项目文件</h2>
+            <button id="refreshProjectFiles">刷新文件树</button>
+          </div>
+          <div class="grid" style="margin-top: 10px;">
+            <div>
+              <h3>项目文件树</h3>
+              <div id="fileTree" class="file-tree">未加载</div>
+            </div>
+            <div>
+              <h3>文件预览</h3>
+              <div id="projectFileCurrent" class="badge">当前文件：未读取</div>
+              <pre id="projectFileViewer" class="chapter-pre" style="margin-top: 8px;">点击文件树中的文件名后在这里预览。读取只是把文件内容加载到 Web UI，不会修改文件。</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="runLogs" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row"><h2 style="margin: 0;">运行日志</h2><button id="loadRuns">刷新日志</button></div>
+          <div id="runLogPanel">未加载</div>
+        </div>
+      </div>
+
+      <div id="singleFileView" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row">
+            <h2 style="margin: 0;">章节文件查看</h2>
+            <select id="fileType">
+              <option value="plan">plan.json</option>
+              <option value="draft">draft.md</option>
+              <option value="polished">polished.md</option>
+              <option value="audit">audit.json</option>
+            </select>
+            <button id="viewFile">查看</button>
+          </div>
+          <pre id="fileViewer">选择章节文件后查看。项目检查、生成、修订等操作的结构化结果也会写到这里。</pre>
         </div>
       </div>
     </section>
@@ -463,6 +601,25 @@
     function setMessage(text, isError = false) {
       $("message").textContent = text;
       $("message").className = isError ? "message error" : "message";
+    }
+
+    function showMainPage(pageId) {
+      document.querySelectorAll(".app-page").forEach((page) => page.classList.remove("active"));
+      document.querySelectorAll(".nav-button").forEach((button) => button.classList.remove("active"));
+      const page = $(pageId);
+      const button = document.querySelector(`[data-page="${pageId}"]`);
+      if (!page || !button) return;
+      page.classList.add("active");
+      button.classList.add("active");
+      if (pageId === "workbenchPage" && ["chapterCompare", "chapterEditor", "auditLocate"].every((id) => $(id).classList.contains("hidden"))) {
+        showTab("chapterCompare");
+      }
+      if (pageId === "logsPage" && ["projectFiles", "runLogs", "singleFileView"].every((id) => $(id).classList.contains("hidden"))) {
+        showTab("projectFiles");
+      }
+      if (pageId === "memoryPage") loadStateTimeline();
+      if (pageId === "configPage") loadProviderConfig();
+      if (pageId === "logsPage") loadRuns();
     }
 
     function setSetupStatus(text, isError = false) {
@@ -558,6 +715,9 @@
     }
 
     function renderStatus(status) {
+      $("currentProjectSummary").textContent = status.title
+        ? `当前项目：${status.title} · ${projectPath()} · 最新章节 ${status.latest_chapter ?? 0}`
+        : `当前项目：${projectPath()}`;
       const rows = [
         ["标题", status.title],
         ["最新章节", status.latest_chapter],
@@ -633,6 +793,8 @@
       document.querySelectorAll(".select-chapter").forEach((button) => {
         button.addEventListener("click", () => {
           $("chapterNumber").value = button.dataset.chapter;
+          showMainPage("workbenchPage");
+          showTab("chapterCompare");
           loadCompare();
         });
       });
@@ -656,10 +818,11 @@
     async function readWorkspaceFile(relPath) {
       try {
         const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        showMainPage("logsPage");
         showTab("projectFiles");
         $("projectFileCurrent").textContent = `当前文件：${data.path || relPath}`;
         $("projectFileViewer").textContent = data.content || "";
-        setMessage(`已读取 ${data.path}，内容显示在右侧“项目文件”页`);
+        setMessage(`已读取 ${data.path}，内容显示在“运行日志 / 项目文件”的“项目文件”页`);
       } catch (error) {
         setMessage(error.message, true);
       }
@@ -884,7 +1047,7 @@
       return withBusy("项目管家生成修复建议", async () => {
         const data = await apiPost("/api/orchestrator/memory-repair/suggest", {
           path: projectPath(),
-          request: $("instruction").value.trim(),
+          request: $("memoryRepairInstruction").value.trim() || $("instruction").value.trim(),
         });
         if (data.proposal_relative_path) $("memoryRepairProposalPath").value = data.proposal_relative_path;
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
@@ -1241,11 +1404,12 @@
     function showTab(tabId) {
       document.querySelectorAll(".tabPanel").forEach((panel) => panel.classList.add("hidden"));
       document.querySelectorAll(".tab").forEach((button) => button.classList.remove("active"));
-      $(tabId).classList.remove("hidden");
-      document.querySelector(`[data-tab="${tabId}"]`).classList.add("active");
+      const panel = $(tabId);
+      const button = document.querySelector(`[data-tab="${tabId}"]`);
+      if (!panel || !button) return;
+      panel.classList.remove("hidden");
+      button.classList.add("active");
       if (tabId === "runLogs") loadRuns();
-      if (tabId === "providerConfig") loadProviderConfig();
-      if (tabId === "stateTimeline") loadStateTimeline();
       if (tabId === "chapterEditor" && !$("chapterEditorText").value) loadEditorFile();
       if (tabId === "auditLocate") loadAuditAnnotations();
     }
@@ -1341,7 +1505,7 @@
       let text = "下一步：打开或初始化一个小说项目。";
       if (validation) {
         if ((validation.error_count || 0) > 0) {
-          text = `下一步：项目检查发现 ${validation.error_count} 个错误，请先查看右侧详情并修复。`;
+          text = `下一步：项目检查发现 ${validation.error_count} 个错误，请先查看“运行日志 / 项目文件”的详情并修复。`;
         } else if ((validation.warning_count || 0) > 0) {
           text = `下一步：项目检查通过，但有 ${validation.warning_count} 个警告。长篇创作前建议查看并处理。`;
         } else {
@@ -1371,6 +1535,7 @@
         }
       }
       $("nextStepPanel").textContent = text;
+      $("workbenchNextStepPanel").textContent = text;
     }
 
     function renderValidationStatus(validation) {
@@ -1391,8 +1556,9 @@
       panel.innerHTML = `
         <b>项目检查结果：${errorCount} 个错误，${warningCount} 个警告</b>
         ${detailHtml}
-        ${details.length < ((validation.errors || []).length + (validation.warnings || []).length) ? "<div>更多详情见右侧“文件查看”。</div>" : ""}
+        ${details.length < ((validation.errors || []).length + (validation.warnings || []).length) ? "<div>更多详情见“运行日志 / 项目文件”的“章节文件查看”。</div>" : ""}
       `;
+      $("currentValidationSummary").textContent = `项目检查：${errorCount} 个错误，${warningCount} 个警告`;
     }
 
     function renderSessionAuditSummary(auditSummary) {
@@ -1537,6 +1703,13 @@
     $("saveProviderConfig").addEventListener("click", saveProviderConfig);
     $("loadStateTimeline").addEventListener("click", loadStateTimeline);
     $("loadDiff").addEventListener("click", loadDiff);
+    document.querySelectorAll(".nav-button").forEach((button) => {
+      button.addEventListener("click", () => showMainPage(button.dataset.page));
+    });
+    $("goWorkbench").addEventListener("click", () => showMainPage("workbenchPage"));
+    $("homeGoWorkbench").addEventListener("click", () => showMainPage("workbenchPage"));
+    $("goMemoryPage").addEventListener("click", () => showMainPage("memoryPage"));
+    $("homeGoConfig").addEventListener("click", () => showMainPage("configPage"));
     document.querySelectorAll(".tab").forEach((button) => {
       button.addEventListener("click", () => showTab(button.dataset.tab));
     });

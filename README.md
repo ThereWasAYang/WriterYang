@@ -577,17 +577,18 @@ web:
 
 如果没有配置，默认使用 `8765`。命令行 `--port` 会覆盖项目配置。端口被占用时，命令会给出清晰错误提示并退出，例如建议改用 `novel web --port 8766`。
 
-打开 `http://127.0.0.1:8765`。Web UI 可以输入项目路径，查看状态和 canon，列出章节，触发计划、写作、润色、审核、Markdown 导出，并查看生成文件。Web API 调用同一套 core service，不返回真实 API Key。长任务执行时按钮会临时禁用并显示执行中状态；完成后会保留真实返回消息和 Session 状态，不会被自动刷新覆盖。
+打开 `http://127.0.0.1:8765`。Web UI 顶部有 5 个主页面：主页、创作工作台、小说状态管理、模型与检索配置、运行日志 / 项目文件。Web API 调用同一套 core service，不返回真实 API Key。长任务执行时按钮会临时禁用并显示执行中状态；完成后会保留真实返回消息和 Session 状态，不会被自动刷新覆盖。
 
-面向非技术作者的浏览器操作流程见：[Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)。日常创作推荐使用 Web UI 的 Session 面板：创建大纲 -> 修改/批准大纲 -> 开始写作 -> 按 Audit 或用户意见修订 -> 认可 -> 归档 -> 导出。
+面向非技术作者的浏览器操作流程见：[Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)。日常创作推荐使用“创作工作台”：创建大纲 -> 修改/批准大纲 -> 开始写作 -> 按 Audit 或用户意见修订 -> 认可 -> 归档 -> 导出。
 
 当前 Web 工作台还支持：
 
-- 初始化项目：在本地路径创建最小小说工作区。
-- 项目初始引导：初始化后配置默认 API、可选 embedding API 和 Web UI 端口；真实 key 只写项目 `.env`，配置页只显示环境变量名和是否存在。
-- 项目检查：在 Web UI 中运行 validate，查看 errors / warnings 摘要，不必切换到命令行。
+- 主页：初始化项目、打开项目、项目初始引导、项目检查、项目摘要、章节列表和下一步提示。
+- 创作工作台：生成灵感、Canon 建议、Session 大纲协商、正文生成、审核修订、认可归档、章节对照、章节编辑器、Audit 定位和 Revision diff。
+- 小说状态管理：Canon 摘要、状态 / 时间线、项目管家和后台管理动态。
+- 模型与检索配置：Agent 模型配置、embedding 状态、FTS / embedding 索引刷新。
+- 运行日志 / 项目文件：安全文件树、只读文件预览、章节文件查看、运行日志和 model I/O 摘要。
 - Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。Web UI 灵感默认走 Markdown 弱总纲，不为 Inspiration 强制开启 provider JSON mode；需要 `inspiration.json` 时可用 CLI 的 `--json` 或后续工具派生。
-- 项目文件：右侧 tab 中显示安全文件树和只读预览；点击文件名后，内容显示在“项目文件”页的文件预览区，不会修改文件。文件树排除 `.env*`、search index、备份和缓存。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
 - 章节编辑器：可编辑 `draft.md` / `polished.md`，保存时默认创建 `draft.v2.md` / `polished.v2.md` 等版本文件，并记录 `revision_log.json`，不原地覆盖旧稿。
 - Audit 定位：读取 `audit.json` 的 evidence quote，定位到正文中的行列位置；找不到时显示无法定位。

@@ -59,12 +59,13 @@
       if (pageId === "workbenchPage" && ["chapterCompare", "chapterEditor", "auditLocate"].every((id) => $(id).classList.contains("hidden"))) {
         showTab("chapterCompare");
       }
-      if (pageId === "logsPage" && ["projectFiles", "runLogs", "singleFileView"].every((id) => $(id).classList.contains("hidden"))) {
-        showTab("projectFiles");
+      if (pageId === "logsPage" && ["projectSearch", "projectFiles", "runLogs", "usageStats", "singleFileView"].every((id) => $(id).classList.contains("hidden"))) {
+        showTab("projectSearch");
       }
       if (pageId === "memoryPage") loadStateTimeline();
       if (pageId === "configPage") loadProviderConfig();
-      if (pageId === "logsPage") loadRuns();
+      if (pageId === "logsPage" && !$("usageStats").classList.contains("hidden")) loadUsage();
+      if (pageId === "logsPage" && !$("runLogs").classList.contains("hidden")) loadRuns();
     }
 
     function setSetupStatus(text, isError = false) {
@@ -579,7 +580,46 @@
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         renderValidationStatus(data);
         renderNextStep({ validation: data });
+        await checkMigrationStatus();
         setMessage(`项目检查完成：${data.error_count || 0} 个错误，${data.warning_count || 0} 个警告`);
+      });
+    }
+
+    async function checkMigrationStatus() {
+      try {
+        const data = await apiGet("/api/migration-status", { path: projectPath() });
+        renderMigrationStatus(data);
+        return data;
+      } catch (error) {
+        $("migrationStatusPanel").className = "metric status-bad";
+        $("migrationStatusPanel").textContent = `项目迁移检查失败：${error.message}`;
+        $("runMigration").classList.add("hidden");
+        throw error;
+      }
+    }
+
+    function renderMigrationStatus(data) {
+      const changed = Boolean(data.changed);
+      $("migrationStatusPanel").className = `metric ${changed ? "status-warn" : "status-ok"}`;
+      $("migrationStatusPanel").innerHTML = `
+        <b>项目迁移：${changed ? "需要迁移" : "无需迁移"}</b>
+        <div>schema: ${escapeHtml(data.from_version ?? "unknown")} -> ${escapeHtml(data.to_version ?? "unknown")}</div>
+        ${(data.updated_files || []).length ? `<div>涉及文件：${escapeHtml((data.updated_files || []).join(", "))}</div>` : ""}
+      `;
+      $("runMigration").classList.toggle("hidden", !changed);
+    }
+
+    async function runMigration() {
+      return withBusy("项目迁移", async () => {
+        const data = await apiPost("/api/migrate", { path: projectPath() });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderMigrationStatus(data);
+        if (data.validation) {
+          renderValidationStatus(data.validation);
+          renderNextStep({ validation: data.validation });
+        }
+        await refreshAll({ silent: true });
+        setMessage(`项目迁移完成：${(data.updated_files || []).length} 个文件已更新`);
       });
     }
 
@@ -721,6 +761,102 @@
       } catch (error) {
         setMessage(error.message, true);
       }
+    }
+
+    async function searchProjectContent() {
+      try {
+        const query = $("searchQuery").value.trim();
+        if (!query) {
+          setMessage("请输入搜索内容", true);
+          return;
+        }
+        const params = {
+          path: projectPath(),
+          query,
+          type: $("searchType").value,
+          limit: $("searchLimit").value || "10",
+          highlight: $("searchHighlight").checked ? "1" : "0",
+          use_vector: $("searchUseVector").checked ? "1" : "0",
+        };
+        const chapter = $("searchChapter").value.trim();
+        if (chapter) params.chapter = chapter;
+        const data = await apiGet("/api/search", params);
+        renderSearchResults(data);
+        setMessage(`搜索完成：${(data.results || []).length} 条结果`);
+      } catch (error) {
+        $("searchResults").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
+        setMessage(error.message, true);
+      }
+    }
+
+    function renderSearchResults(data) {
+      const results = data.results || [];
+      if (!results.length) {
+        $("searchResults").innerHTML = "未找到结果。";
+        return;
+      }
+      $("searchResults").innerHTML = `
+        <table>
+          <thead><tr><th>类型</th><th>标题</th><th>score</th><th>来源</th><th>摘要</th></tr></thead>
+          <tbody>
+            ${results.map((result) => `
+              <tr>
+                <td>${escapeHtml(result.type || "")}</td>
+                <td>${escapeHtml(result.title || result.id || "")}</td>
+                <td>${escapeHtml(result.score ?? "")}</td>
+                <td><button class="search-open-file" data-path="${escapeAttr(result.path || "")}">${escapeHtml(result.path || "")}</button></td>
+                <td>${safeHighlightedExcerpt(result.highlighted_excerpt || result.excerpt || "")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+      document.querySelectorAll(".search-open-file").forEach((button) => {
+        button.addEventListener("click", () => readWorkspaceFile(button.dataset.path));
+      });
+    }
+
+    async function loadUsage() {
+      try {
+        const data = await apiGet("/api/usage", { path: projectPath() });
+        renderUsage(data.usage || {});
+      } catch (error) {
+        $("usagePanel").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
+        setMessage(error.message, true);
+      }
+    }
+
+    function renderUsage(usage) {
+      const total = usage.total || {};
+      const byAgent = usage.by_agent || {};
+      const byProvider = usage.by_provider || {};
+      const byModel = usage.by_model || {};
+      const tableFromObject = (items, firstHeader) => {
+        const rows = Object.entries(items || {}).map(([name, item]) => `
+          <tr>
+            <td>${escapeHtml(name)}</td>
+            <td>${escapeHtml(item.call_count ?? item.calls ?? 0)}</td>
+            <td>${escapeHtml(item.success_count ?? item.successes ?? 0)}</td>
+            <td>${escapeHtml(item.failed_count ?? item.failures ?? item.failure_count ?? 0)}</td>
+            <td>${escapeHtml(item.prompt_tokens ?? "")}</td>
+            <td>${escapeHtml(item.completion_tokens ?? "")}</td>
+            <td>${escapeHtml(item.total_tokens ?? "")}</td>
+          </tr>
+        `).join("");
+        return `<table><thead><tr><th>${firstHeader}</th><th>calls</th><th>success</th><th>failed</th><th>prompt</th><th>completion</th><th>total</th></tr></thead><tbody>${rows || "<tr><td colspan='7'>无</td></tr>"}</tbody></table>`;
+      };
+      $("usagePanel").innerHTML = `
+        <div class="metric">
+          <b>总用量</b>
+          <div>calls: ${escapeHtml(total.call_count ?? total.calls ?? usage.total_calls ?? 0)}</div>
+          <div>success: ${escapeHtml(total.success_count ?? total.successes ?? usage.success_count ?? 0)} / failed: ${escapeHtml(total.failed_count ?? total.failures ?? usage.failure_count ?? 0)}</div>
+          <div>tokens: prompt=${escapeHtml(total.prompt_tokens ?? "")} completion=${escapeHtml(total.completion_tokens ?? "")} total=${escapeHtml(total.total_tokens ?? usage.total_tokens ?? "")}</div>
+        </div>
+        <h3>按 Agent</h3>${tableFromObject(byAgent, "agent")}
+        <h3 style="margin-top: 16px;">按 Provider</h3>${tableFromObject(byProvider, "provider")}
+        <h3 style="margin-top: 16px;">按 Model</h3>${tableFromObject(byModel, "model")}
+        <details style="margin-top: 12px;"><summary>完整用量 JSON</summary><pre>${escapeHtml(JSON.stringify(usage, null, 2))}</pre></details>
+      `;
     }
 
     async function loadProviderConfig() {
@@ -1067,6 +1203,7 @@
       panel.classList.remove("hidden");
       button.classList.add("active");
       if (tabId === "runLogs") loadRuns();
+      if (tabId === "usageStats") loadUsage();
       if (tabId === "chapterEditor" && !$("chapterEditorText").value) loadEditorFile();
       if (tabId === "auditLocate") loadAuditAnnotations();
     }
@@ -1079,6 +1216,12 @@
 
     function escapeAttr(value) {
       return escapeHtml(value).replace(/`/g, "&#96;");
+    }
+
+    function safeHighlightedExcerpt(value) {
+      return escapeHtml(value)
+        .replace(/&lt;mark&gt;/g, "<mark>")
+        .replace(/&lt;\/mark&gt;/g, "</mark>");
     }
 
     async function withBusy(label, fn) {
@@ -1327,6 +1470,7 @@
     $("refreshProject").addEventListener("click", refreshAll);
     $("refreshProjectFiles").addEventListener("click", refreshAll);
     $("validateProject").addEventListener("click", validateProject);
+    $("runMigration").addEventListener("click", runMigration);
     $("toggleProjectInit").addEventListener("click", toggleProjectInit);
     $("initProject").addEventListener("click", initProject);
     $("setupDefaultProvider").addEventListener("click", setupDefaultProvider);
@@ -1371,6 +1515,11 @@
     });
     $("loadAuditAnnotations").addEventListener("click", loadAuditAnnotations);
     $("loadRuns").addEventListener("click", loadRuns);
+    $("searchProjectContent").addEventListener("click", searchProjectContent);
+    $("searchQuery").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") searchProjectContent();
+    });
+    $("loadUsage").addEventListener("click", loadUsage);
     $("loadProviderConfig").addEventListener("click", loadProviderConfig);
     $("providerAgentSelect").addEventListener("change", renderProviderAgentFields);
     providerFormFieldIds.forEach((id) => {

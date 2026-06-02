@@ -25,9 +25,10 @@ from novel.core.io import atomic_write_model_json, atomic_write_text, atomic_wri
 from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.management import load_management_events
 from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair
+from novel.core.migration import MigrationError, migrate_project
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
-from novel.core.search import refresh_search_index, search_index_status
+from novel.core.search import SearchError, refresh_search_index, search_index_status, search_project
 from novel.core.setup_guide import (
     SetupGuideError,
     configure_default_provider,
@@ -122,132 +123,16 @@ def handle_api_request(
     request_id = _request_id()
     query = {key: values[-1] for key, values in parse_qs(query_string).items()}
     try:
-        if method == "GET" and path == "/api/runtime":
-            return _success({"runtime": _runtime_summary()})
-        if method == "GET" and path == "/api/projects":
-            return _success({"projects": _list_projects(Path(query.get("root", ".")))})
-        if method == "GET" and path == "/api/project/status":
-            root = _root_from_query(query)
-            status = get_project_status(root)
-            payload = asdict(status)
-            payload["latest_run_log"] = str(status.latest_run_log) if status.latest_run_log else None
-            return _success({"status": payload})
-        if method == "GET" and path == "/api/validate":
-            return _success(_validate_project(_root_from_query(query)))
-        if method == "GET" and path == "/api/canon":
-            return _success({"summary": format_canon(_root_from_query(query))})
-        if method == "GET" and path == "/api/chapters":
-            return _success({"chapters": _list_chapters(_root_from_query(query))})
-        if method == "GET" and path == "/api/chapter-file":
-            return _success(_read_chapter_file(_root_from_query(query), query))
-        if method == "GET" and path == "/api/file-tree":
-            return _success({"files": _file_tree(_root_from_query(query))})
-        if method == "GET" and path == "/api/read-file":
-            return _success(_read_workspace_file(_root_from_query(query), query.get("file") or ""))
-        if method == "GET" and path == "/api/runs":
-            return _success(_runs_summary(_root_from_query(query)))
-        if method == "GET" and path == "/api/usage":
-            return _success({"usage": summarize_provider_usage(_root_from_query(query)).as_dict()})
-        if method == "GET" and path == "/api/search-status":
-            return _success({"search": search_index_status(_root_from_query(query)).as_dict()})
-        if method == "GET" and path == "/api/setup/recommend-port":
-            return _success(_setup_recommend_port(query))
-        if method == "GET" and path == "/api/provider-config":
-            return _success(_provider_config_summary(_root_from_query(query)))
-        if method == "GET" and path == "/api/state-timeline":
-            return _success(_state_timeline_summary(_root_from_query(query)))
-        if method == "GET" and path == "/api/management-events":
-            return _success(_management_events(_root_from_query(query), _optional_int(query.get("limit")) or 20))
-        if method == "GET" and path == "/api/audit-annotations":
-            return _success(_audit_annotations(_root_from_query(query), query))
-        if method == "GET" and path == "/api/session":
-            root = _root_from_query(query)
-            session = load_session(root, query.get("session_id") or "")
-            return _success(
-                {
-                    "session": session.model_dump(mode="json"),
-                    "audit_summary": _session_audit_summary(root, session),
-                    "rewrite_events": _session_rewrite_event_summary(root, session),
-                    "management_events": _management_event_summary(root),
-                }
-            )
-        if method == "GET" and path == "/api/session/rewrite-events":
-            root = _root_from_query(query)
-            session = load_session(root, query.get("session_id") or "")
-            return _success(
-                {
-                    "session_id": session.session_id,
-                    "rewrite_events": _session_rewrite_event_summary(root, session),
-                }
-            )
-        if method == "GET" and path == "/api/diff":
-            return _success(
-                _workspace_diff(
-                    _root_from_query(query),
-                    query.get("left") or "",
-                    query.get("right") or "",
-                )
-            )
-
-        data = _json_body(body)
-        if method == "POST" and path == "/api/plan-chapter":
-            return _success(_locked_write(data, "web plan-chapter", _plan_chapter))
-        if method == "POST" and path == "/api/write-chapter":
-            return _success(_locked_write(data, "web write-chapter", _write_chapter))
-        if method == "POST" and path == "/api/polish-chapter":
-            return _success(_locked_write(data, "web polish-chapter", _polish_chapter))
-        if method == "POST" and path == "/api/audit-chapter":
-            return _success(_locked_write(data, "web audit-chapter", _audit_chapter))
-        if method == "POST" and path == "/api/export/markdown":
-            return _success(_locked_write(data, "web export markdown", _export_markdown))
-        if method == "POST" and path == "/api/generate-chapter":
-            return _success(_locked_write(data, "web generate-chapter", _generate_chapter))
-        if method == "POST" and path == "/api/save-chapter-file":
-            return _success(_locked_write(data, "web save chapter file", _save_chapter_file))
-        if method == "POST" and path == "/api/provider-config":
-            return _success(_locked_write(data, "web provider config", _save_provider_config))
-        if method == "POST" and path == "/api/index/refresh":
-            return _success(_locked_write(data, "web index refresh", _index_refresh))
-        if method == "POST" and path == "/api/init-project":
-            return _success(_locked_write(data, "web init project", _init_project))
-        if method == "POST" and path == "/api/setup/default-provider":
-            return _success(_locked_write(data, "web setup default provider", _setup_default_provider))
-        if method == "POST" and path == "/api/setup/embedding":
-            return _success(_locked_write(data, "web setup embedding", _setup_embedding))
-        if method == "POST" and path == "/api/setup/web-port":
-            return _success(_locked_write(data, "web setup web port", _setup_web_port))
-        if method == "POST" and path == "/api/setup/open-web":
-            return _success(_setup_open_web(data))
-        if method == "POST" and path == "/api/inspire":
-            return _success(_locked_write(data, "web inspire", _inspire))
-        if method == "POST" and path == "/api/canon/suggest":
-            return _success(_locked_write(data, "web canon suggest", _canon_suggest))
-        if method == "POST" and path == "/api/canon/apply":
-            return _success(_locked_write(data, "web canon apply", _canon_apply))
-        if method == "POST" and path == "/api/orchestrator/memory-repair/suggest":
-            return _success(_locked_write(data, "web memory repair suggest", _memory_repair_suggest))
-        if method == "POST" and path == "/api/orchestrator/memory-repair/apply":
-            return _success(_locked_write(data, "web memory repair apply", _memory_repair_apply))
-        if method == "POST" and path == "/api/session/start":
-            return _success(_locked_write(data, "web session start", _session_start))
-        if method == "POST" and path == "/api/session/revise-outline":
-            return _success(_locked_write(data, "web session revise-outline", _session_revise_outline))
-        if method == "POST" and path == "/api/session/approve-outline":
-            return _success(_locked_write(data, "web session approve-outline", _session_approve_outline))
-        if method == "POST" and path == "/api/session/run":
-            return _success(_locked_write(data, "web session run", _session_run))
-        if method == "POST" and path == "/api/session/revise-content":
-            return _success(_locked_write(data, "web session revise-content", _session_revise_content))
-        if method == "POST" and path == "/api/session/revise-audit":
-            return _success(_locked_write(data, "web session revise-audit", _session_revise_audit))
-        if method == "POST" and path == "/api/session/retry-rewrite":
-            return _success(_locked_write(data, "web session retry-rewrite", _session_retry_rewrite))
-        if method == "POST" and path == "/api/session/undo-rewrite":
-            return _success(_locked_write(data, "web session undo-rewrite", _session_undo_rewrite))
-        if method == "POST" and path == "/api/session/accept":
-            return _success(_locked_write(data, "web session accept", _session_accept))
-        if method == "POST" and path == "/api/session/archive":
-            return _success(_locked_write(data, "web session archive", _session_archive))
+        if method == "GET":
+            handler = _get_routes().get(path)
+            if handler:
+                return _success(handler(query))
+        elif method == "POST":
+            data = _json_body(body)
+            route = _post_routes().get(path)
+            if route:
+                task, handler, locked = route
+                return _success(_locked_write(data, task, handler) if locked else handler(data))
     except WebAPIError as exc:
         return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
     except ProjectLockError as exc:
@@ -262,11 +147,81 @@ def handle_api_request(
         return _failure(400, "memory_repair_error", str(exc), request_id=request_id)
     except SetupGuideError as exc:
         return _failure(400, "setup_guide_error", str(exc), request_id=request_id)
+    except MigrationError as exc:
+        return _failure(400, "migration_error", str(exc), request_id=request_id)
+    except SearchError as exc:
+        return _failure(400, "search_error", str(exc), request_id=request_id)
     except ValueError as exc:
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
     except Exception as exc:
         return _failure(400, "operation_failed", str(exc), request_id=request_id)
     return _failure(404, "not_found", "not found", request_id=request_id)
+
+
+def _get_routes():
+    return {
+        "/api/runtime": lambda query: {"runtime": _runtime_summary()},
+        "/api/projects": lambda query: {"projects": _list_projects(Path(query.get("root", ".")))},
+        "/api/project/status": _project_status_api,
+        "/api/validate": lambda query: _validate_project(_root_from_query(query)),
+        "/api/migration-status": lambda query: _migration_status(_root_from_query(query)),
+        "/api/canon": lambda query: {"summary": format_canon(_root_from_query(query))},
+        "/api/chapters": lambda query: {"chapters": _list_chapters(_root_from_query(query))},
+        "/api/chapter-file": lambda query: _read_chapter_file(_root_from_query(query), query),
+        "/api/file-tree": lambda query: {"files": _file_tree(_root_from_query(query))},
+        "/api/read-file": lambda query: _read_workspace_file(_root_from_query(query), query.get("file") or ""),
+        "/api/runs": lambda query: _runs_summary(_root_from_query(query)),
+        "/api/usage": lambda query: {"usage": summarize_provider_usage(_root_from_query(query)).as_dict()},
+        "/api/search": _search_api,
+        "/api/search-status": lambda query: {"search": search_index_status(_root_from_query(query)).as_dict()},
+        "/api/setup/recommend-port": _setup_recommend_port,
+        "/api/provider-config": lambda query: _provider_config_summary(_root_from_query(query)),
+        "/api/state-timeline": lambda query: _state_timeline_summary(_root_from_query(query)),
+        "/api/management-events": lambda query: _management_events(_root_from_query(query), _optional_int(query.get("limit")) or 20),
+        "/api/audit-annotations": lambda query: _audit_annotations(_root_from_query(query), query),
+        "/api/session": _session_api,
+        "/api/session/rewrite-events": _session_rewrite_events_api,
+        "/api/diff": lambda query: _workspace_diff(
+            _root_from_query(query),
+            query.get("left") or "",
+            query.get("right") or "",
+        ),
+    }
+
+
+def _post_routes():
+    return {
+        "/api/plan-chapter": ("web plan-chapter", _plan_chapter, True),
+        "/api/write-chapter": ("web write-chapter", _write_chapter, True),
+        "/api/polish-chapter": ("web polish-chapter", _polish_chapter, True),
+        "/api/audit-chapter": ("web audit-chapter", _audit_chapter, True),
+        "/api/export/markdown": ("web export markdown", _export_markdown, True),
+        "/api/generate-chapter": ("web generate-chapter", _generate_chapter, True),
+        "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, True),
+        "/api/provider-config": ("web provider config", _save_provider_config, True),
+        "/api/index/refresh": ("web index refresh", _index_refresh, True),
+        "/api/migrate": ("web migrate", _migrate_project_api, True),
+        "/api/init-project": ("web init project", _init_project, True),
+        "/api/setup/default-provider": ("web setup default provider", _setup_default_provider, True),
+        "/api/setup/embedding": ("web setup embedding", _setup_embedding, True),
+        "/api/setup/web-port": ("web setup web port", _setup_web_port, True),
+        "/api/setup/open-web": ("web setup open web", _setup_open_web, False),
+        "/api/inspire": ("web inspire", _inspire, True),
+        "/api/canon/suggest": ("web canon suggest", _canon_suggest, True),
+        "/api/canon/apply": ("web canon apply", _canon_apply, True),
+        "/api/orchestrator/memory-repair/suggest": ("web memory repair suggest", _memory_repair_suggest, True),
+        "/api/orchestrator/memory-repair/apply": ("web memory repair apply", _memory_repair_apply, True),
+        "/api/session/start": ("web session start", _session_start, True),
+        "/api/session/revise-outline": ("web session revise-outline", _session_revise_outline, True),
+        "/api/session/approve-outline": ("web session approve-outline", _session_approve_outline, True),
+        "/api/session/run": ("web session run", _session_run, True),
+        "/api/session/revise-content": ("web session revise-content", _session_revise_content, True),
+        "/api/session/revise-audit": ("web session revise-audit", _session_revise_audit, True),
+        "/api/session/retry-rewrite": ("web session retry-rewrite", _session_retry_rewrite, True),
+        "/api/session/undo-rewrite": ("web session undo-rewrite", _session_undo_rewrite, True),
+        "/api/session/accept": ("web session accept", _session_accept, True),
+        "/api/session/archive": ("web session archive", _session_archive, True),
+    }
 
 
 def _locked_write(data: dict[str, object], task: str, handler) -> dict[str, object]:
@@ -948,6 +903,100 @@ def _validate_project(root: Path) -> dict[str, object]:
         "errors": [_validation_message_payload(root, message) for message in report.errors],
         "warnings": [_validation_message_payload(root, message) for message in report.warnings],
         "messages": [_validation_message_payload(root, message) for message in report.messages],
+    }
+
+
+def _project_status_api(query: dict[str, str]) -> dict[str, object]:
+    root = _root_from_query(query)
+    status = get_project_status(root)
+    payload = asdict(status)
+    payload["latest_run_log"] = str(status.latest_run_log) if status.latest_run_log else None
+    return {"status": payload}
+
+
+def _search_api(query: dict[str, str]) -> dict[str, object]:
+    root = _root_from_query(query)
+    search_query = _required_string(query.get("query") or query.get("q"), "query")
+    search_type = _optional_string(query.get("type")) or "all"
+    if search_type not in {"character", "location", "item", "event", "chapter", "all"}:
+        raise WebAPIError("invalid_request", "type must be character/location/item/event/chapter/all", status=400)
+    limit = _optional_int(query.get("limit")) or 10
+    chapter = _optional_int(query.get("chapter"))
+    use_vector = _truthy(query.get("use_vector"))
+    results = search_project(
+        root,
+        search_query,
+        search_type=search_type,  # type: ignore[arg-type]
+        limit=limit,
+        chapter_number=chapter,
+        highlight=_truthy(query.get("highlight")),
+        use_vector=use_vector,
+        embedding_provider_name=_optional_string(query.get("embedding_provider")) or "config",
+    )
+    return {
+        "query": search_query,
+        "type": search_type,
+        "chapter": chapter,
+        "limit": limit,
+        "use_vector": use_vector,
+        "results": [
+            {
+                "id": result.id,
+                "type": result.type,
+                "path": result.path,
+                "title": result.title,
+                "score": result.score,
+                "matched_terms": list(result.matched_terms),
+                "excerpt": result.excerpt,
+                "highlighted_excerpt": result.highlighted_excerpt,
+                "metadata": result.metadata,
+            }
+            for result in results
+        ],
+    }
+
+
+def _migration_status(root: Path) -> dict[str, object]:
+    _require_workspace(root)
+    result = migrate_project(root, dry_run=True)
+    return _migration_payload(root, result)
+
+
+def _migrate_project_api(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    _require_workspace(root)
+    result = migrate_project(root, dry_run=False)
+    payload = _migration_payload(root, result)
+    payload["validation"] = _validate_project(root)
+    return payload
+
+
+def _migration_payload(root: Path, result) -> dict[str, object]:
+    return {
+        "changed": result.changed,
+        "from_version": result.from_version,
+        "to_version": result.to_version,
+        "updated_files": [_relative(root, path) for path in result.updated_files],
+    }
+
+
+def _session_api(query: dict[str, str]) -> dict[str, object]:
+    root = _root_from_query(query)
+    session = load_session(root, query.get("session_id") or "")
+    return {
+        "session": session.model_dump(mode="json"),
+        "audit_summary": _session_audit_summary(root, session),
+        "rewrite_events": _session_rewrite_event_summary(root, session),
+        "management_events": _management_event_summary(root),
+    }
+
+
+def _session_rewrite_events_api(query: dict[str, str]) -> dict[str, object]:
+    root = _root_from_query(query)
+    session = load_session(root, query.get("session_id") or "")
+    return {
+        "session_id": session.session_id,
+        "rewrite_events": _session_rewrite_event_summary(root, session),
     }
 
 
@@ -1910,6 +1959,14 @@ def _optional_float(value: object, default: float) -> float:
     if value in (None, ""):
         return default
     return float(value)
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _required_string(value: object, field_name: str) -> str:

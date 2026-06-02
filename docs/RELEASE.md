@@ -32,9 +32,10 @@ python -m pip install -e ".[dev]"
 pytest
 ruff check .
 mypy src
+pytest -m web_e2e -q
 ```
 
-测试不能依赖真实 API Key。
+测试不能依赖真实 API Key。当前 `mypy src` 会真实运行并输出类型错误，但在 CI / Release workflow 中暂时是 informational 非阻断步骤；发布前应查看输出，不能把它理解为已经建立阻断式类型门禁。
 
 ## 3. API Key 安全
 
@@ -99,7 +100,7 @@ novel validate --path /tmp/writeryang-smoke
 
 1. 确认 `CHANGELOG.md` 中对应版本条目完整。
 2. 确认 `pyproject.toml` 和 `src/novel/__init__.py` 版本一致。
-3. 本地运行测试、lint、type check、build 和 `twine check`。
+3. 本地运行测试、Web E2E、lint、type check、build 和 `twine check`。
 4. 创建 tag：
 
 ```bash
@@ -107,6 +108,6 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-5. GitHub Actions 的 `Release` workflow 会重新运行 secret scan、测试、lint、type check、build，并把 `dist/*` 上传到 GitHub Release。
+5. GitHub Actions 的 `Release` workflow 会重新运行 secret scan、非真实 API 测试、Web E2E、lint、informational type check、build，并把 `dist/*` 上传到 GitHub Release。
 
 本仓库暂不配置 PyPI token 或 Trusted Publishing。需要 PyPI 发布时，再单独增加发布目标和平台侧授权。

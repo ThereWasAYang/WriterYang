@@ -134,7 +134,10 @@ python -m build
 ```bash
 python scripts/check_local.py --skip-build
 python scripts/check_local.py
+python scripts/check_local.py --strict-mypy
 ```
+
+`mypy src` 现在会真实输出类型问题，但默认仍是 informational 非阻断检查；`scripts/check_local.py --strict-mypy` 才会让 mypy 失败影响本地门禁结果。GitHub Actions 会阻断 pytest、ruff、secret scan、build 和 Web E2E；mypy 暂时保留为真实但非阻断信号，避免在一次版本中混入大规模类型修复。
 
 工作流和排障脚本：
 
@@ -592,17 +595,20 @@ web:
 
 当前 Web 工作台还支持：
 
-- 主页：初始化项目、打开项目、项目初始引导、项目检查、项目摘要、章节列表和下一步提示。
+- 主页：初始化项目、打开项目、项目初始引导、项目检查、项目迁移提示、项目摘要、章节列表和下一步提示。
 - 创作工作台：生成灵感、Canon 建议、Session 大纲协商、正文生成、审核修订、认可归档、章节对照、章节编辑器、Audit 定位和 Revision diff。
 - 小说状态管理：Canon 摘要、状态 / 时间线、项目管家和后台管理动态。
 - 模型与检索配置：Agent 模型配置、Embedding API 重新配置、embedding 状态、FTS / embedding 索引刷新。
-- 运行日志 / 项目文件：安全文件树、只读文件预览、章节文件查看、运行日志和 model I/O 摘要。
+- 运行日志 / 项目文件：项目搜索、安全文件树、只读文件预览、章节文件查看、运行日志、用量统计和 model I/O 摘要。
 - Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。Web UI 灵感默认走 Markdown 弱总纲，不为 Inspiration 强制开启 provider JSON mode；需要 `inspiration.json` 时可用 CLI 的 `--json` 或后续工具派生。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
 - 章节编辑器：可编辑 `draft.md` / `polished.md`，保存时默认创建 `draft.v2.md` / `polished.v2.md` 等版本文件，并记录 `revision_log.json`，不原地覆盖旧稿。
 - Audit 定位：读取 `audit.json` 的 evidence quote，定位到正文中的行列位置；找不到时显示无法定位。
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
+- 项目搜索：在 Web UI 中搜索角色、地点、物品、时间线事件和章节文本。默认使用 FTS；只有勾选“使用 embedding 语义检索”时才会调用真实 embedding。
+- 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Agent / Provider / Model 的统计。
+- 项目迁移：项目检查后会 dry-run 检查 schema 是否需要迁移；如需迁移，主页会显示“一键迁移项目 Schema”按钮，执行时使用项目锁、备份和现有迁移逻辑。
 - Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。“恢复继承 default”会删除该 Agent 在 `config/agents.yaml` 中的覆盖配置。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，只显示“Embedding API 已配置”和当前模型名；点击“修改配置”后重新填写 Base URL、API Key 和模型名。API Key 只写入项目 `.env`，保存成功后清空输入框并自动刷新语义向量索引。
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。

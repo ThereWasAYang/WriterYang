@@ -34,29 +34,32 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
             page.goto(f"http://127.0.0.1:{port}/")
             page.fill("#projectPath", str(root))
             page.click("#openProject")
-            page.wait_for_selector("#fileTree .file-row")
+            page.wait_for_function("() => document.querySelector('#statusPanel')?.textContent?.includes('雨夜旧车站')")
             assert "雨夜旧车站" in page.locator("#statusPanel").inner_text()
+            page.click("button[data-page='logsPage']")
+            page.click("button[data-tab='projectFiles']")
+            page.wait_for_selector("#fileTree .file-row")
             assert "project.yaml" in page.locator("#fileTree").inner_text()
 
-            page.click("button[data-tab='providerConfig']")
+            page.click("button[data-page='configPage']")
             page.wait_for_function(
                 "() => document.querySelector('#providerConfigPanel')?.textContent?.includes('api_key_env')"
             )
-            assert "api_key_env" in page.locator("#providerConfigPanel").inner_text()
+            assert "api_key_env" in (page.locator("#providerConfigPanel").text_content() or "")
             page.select_option("#providerAgentSelect", "writer")
-            page.fill(
-                "#providerFieldEditor",
-                '{"provider":"mock","model":"web-e2e-writer","thinking":{"type":"disabled"}}',
-            )
+            page.select_option("#providerProviderField", "mock")
+            page.fill("#providerModelField", "web-e2e-writer")
+            page.select_option("#providerThinkingTypeField", "disabled")
             page.click("#saveProviderConfig")
-            page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('Provider 配置已保存')")
+            page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('Agent 模型配置已保存')")
 
-            page.click("button[data-tab='runLogs']")
+            page.click("button[data-page='workbenchPage']")
+            page.select_option("#provider", "mock")
+            page.click("#workbenchPage details summary")
             page.click("#planChapter")
             page.wait_for_function(
                 "() => document.querySelector('#chapterList')?.textContent?.includes('plan')"
             )
-            page.click("#refreshProject")
             page.click("button[data-tab='chapterCompare']")
             page.click("#loadCompare")
             page.wait_for_function(
@@ -65,6 +68,7 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
             assert "旧车站" in page.locator("#planViewer").inner_text()
 
             page.click("button[data-tab='chapterEditor']")
+            page.select_option("#editorTarget", "polished")
             page.fill("#editorSource", "polished.md")
             page.click("#loadEditorFile")
             page.wait_for_function("() => document.querySelector('#chapterEditorText')?.value?.includes('原始正文')")
@@ -78,7 +82,7 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
             page.click(".issue-button")
             page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('已定位')")
 
-            page.click("button[data-tab='stateTimeline']")
+            page.click("button[data-page='memoryPage']")
             page.wait_for_function("() => document.querySelector('#stateTimelinePanel')?.textContent?.includes('Timeline by chapter')")
             browser.close()
     except Exception as exc:

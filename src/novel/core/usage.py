@@ -58,6 +58,7 @@ class UsageSummary:
     log_path: Path
     generated_at: str
     total: UsageBucket = field(default_factory=UsageBucket)
+    by_agent: dict[str, UsageBucket] = field(default_factory=dict)
     by_provider: dict[str, UsageBucket] = field(default_factory=dict)
     by_model: dict[str, UsageBucket] = field(default_factory=dict)
     by_status: dict[str, UsageBucket] = field(default_factory=dict)
@@ -69,6 +70,7 @@ class UsageSummary:
             "generated_at": self.generated_at,
             "log_path": str(self.log_path),
             "total": self.total.as_dict(),
+            "by_agent": {key: bucket.as_dict() for key, bucket in sorted(self.by_agent.items())},
             "by_provider": {key: bucket.as_dict() for key, bucket in sorted(self.by_provider.items())},
             "by_model": {key: bucket.as_dict() for key, bucket in sorted(self.by_model.items())},
             "by_status": {key: bucket.as_dict() for key, bucket in sorted(self.by_status.items())},
@@ -133,9 +135,11 @@ def refresh_provider_usage_summary_for_log(log_path: Path) -> Path:
 
 def _add_entry(summary: UsageSummary, entry: dict[str, Any]) -> None:
     summary.total.add(entry)
+    agent = str(entry.get("agent_name") or "unknown")
     provider = str(entry.get("provider") or "unknown")
     model = str(entry.get("model") or "unknown")
     status = str(entry.get("status") or "unknown")
+    summary.by_agent.setdefault(agent, UsageBucket()).add(entry)
     summary.by_provider.setdefault(provider, UsageBucket()).add(entry)
     summary.by_model.setdefault(model, UsageBucket()).add(entry)
     summary.by_status.setdefault(status, UsageBucket()).add(entry)

@@ -599,6 +599,49 @@ def test_api_search_status_and_refresh_do_not_leak_env_values(tmp_path: Path, mo
     assert "DASHSCOPE_API_KEY" in serialized
 
 
+def test_api_search_endpoint_uses_fts_and_returns_results(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "GET",
+        "/api/search",
+        f"path={root}&query=Weak&type=all&limit=5&highlight=1",
+        None,
+    )
+
+    assert status == 200
+    data = payload["data"]
+    assert data["query"] == "Weak"  # type: ignore[index]
+    assert data["use_vector"] is False  # type: ignore[index]
+    assert data["results"]  # type: ignore[index]
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert "api_key" not in serialized.lower()
+
+
+def test_api_migration_status_and_apply_endpoint(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    project_path = root / "project.yaml"
+    project_yaml = load_yaml(project_path)
+    project_yaml.pop("schema_version", None)
+    project_path.write_text(json.dumps(project_yaml, ensure_ascii=False), encoding="utf-8")
+
+    dry_status, dry_payload = handle_api_request("GET", "/api/migration-status", f"path={root}", None)
+    apply_status, apply_payload = handle_api_request(
+        "POST",
+        "/api/migrate",
+        "",
+        json.dumps({"path": str(root)}),
+    )
+
+    assert dry_status == 200
+    assert dry_payload["data"]["changed"] is True  # type: ignore[index]
+    assert "project.yaml" in dry_payload["data"]["updated_files"]  # type: ignore[operator]
+    assert apply_status == 200
+    assert apply_payload["data"]["changed"] is True  # type: ignore[index]
+    assert apply_payload["data"]["validation"]["error_count"] == 0  # type: ignore[index]
+    assert "schema_version" in project_path.read_text(encoding="utf-8")
+
+
 def test_api_session_revise_outline_keeps_session_id(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     start_status, start_payload = handle_api_request(
@@ -819,6 +862,15 @@ def test_frontend_basic_render() -> None:
     assert 'id="auditLocate"' in html
     assert 'id="auditIssueList"' in html
     assert 'id="runLogs"' in html
+    assert 'id="projectSearch"' in html
+    assert 'id="searchQuery"' in html
+    assert 'id="searchProjectContent"' in html
+    assert 'id="searchUseVector"' in html
+    assert 'id="usageStats"' in html
+    assert 'id="loadUsage"' in html
+    assert 'id="usagePanel"' in html
+    assert 'id="migrationStatusPanel"' in html
+    assert 'id="runMigration"' in html
     assert 'id="providerConfig"' in html
     assert "config-layout" in html
     assert "provider-config-grid" in html
@@ -905,6 +957,10 @@ def test_frontend_basic_render() -> None:
     assert "/api/canon/suggest" in app_js
     assert "/api/validate" in app_js
     assert "/api/runtime" in app_js
+    assert "/api/search" in app_js
+    assert "/api/migration-status" in app_js
+    assert "/api/migrate" in app_js
+    assert "/api/usage" in app_js
     assert "/api/session/revise-outline" in app_js
     assert "/api/session/revise-content" in app_js
     assert "/api/session/revise-audit" in app_js

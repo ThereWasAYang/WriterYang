@@ -12,7 +12,7 @@
 | `README.md` | 用户入口文档。 | 新命令、新工作流、新配置说明。 |
 | `CHANGELOG.md` | 版本变更记录。 | 每轮可见能力变化。 |
 | `CONTRIBUTING.md` | 贡献指南。 | 协作规范、测试命令、安全要求。 |
-| `.github/workflows/tests.yml` | CI：pytest、build、secret scan、ruff、mypy。 | 改 CI 阶段或 Python 版本。 |
+| `.github/workflows/tests.yml` | CI：pytest、build、secret scan、ruff、informational mypy、Web E2E。 | 改 CI 阶段或 Python 版本。 |
 | `.github/workflows/release.yml` | tag 触发 GitHub Release 构建。 | 发布流程调整。 |
 | `schemas/*.schema.json` | 从 Pydantic models 导出的 JSON Schema。 | schema 变化后重新导出。 |
 | `examples/rain_station/` | 雨夜旧车站示例项目。 | README smoke、真实 provider 配置模板。 |
@@ -120,7 +120,8 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 - `WebErrorPayload` / `WebResponsePayload`：统一 `{ok,data,error}` 形态。
 - `WebAPIError`：带稳定 code、HTTP status、details 的 API 异常。
-- `handle_api_request()`：路由分发入口。
+- `handle_api_request()`：统一 API 入口；先解析 method/path/body，再通过 `_get_routes()` / `_post_routes()` 路由表分发到 handler。
+- `_get_routes()` / `_post_routes()`：Web API 顶层路由表。新增 endpoint 时优先在这里登记，避免继续扩大 `if method/path` 链；写操作通过路由元数据进入 `_locked_write()`。
 - `_success()` / `_failure()`：统一响应结构。
 - `_locked_write()`：Web 写操作项目锁。
 - `_runtime_summary()`：返回 Web server 当前 Python 路径、环境名和包版本，帮助确认 Web UI 是否运行在安装器创建的新环境。
@@ -131,6 +132,8 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_inspire()`：Web 端生成 inspiration，调用 Inspiration service。
 - `_canon_suggest()` / `_canon_apply()`：Web 端 canon proposal 和 apply，调用 Canon service 并保持 proposal/apply 分离。
 - `_validate_project()` / `_validation_message_payload()`：只读项目检查 API，复用 `validate_project()`，返回 errors/warnings 摘要供 Web UI 显示。
+- `_migration_status()` / `_migrate_project_api()`：Web 端 schema migration dry-run 和执行入口；执行迁移时走项目锁、备份和 `migrate_project()`。
+- `_search_api()`：Web 项目搜索入口，复用 `search_project()`；默认 FTS，只有 `use_vector=1` 才会触发真实 embedding 检索和必要的向量刷新。
 - `_plan_chapter()`、`_write_chapter()`、`_polish_chapter()`、`_audit_chapter()`、`_generate_chapter()`：调用对应 core service。
 - `_export_markdown()`：调用 Markdown export。
 - `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
@@ -148,6 +151,8 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_runs_summary()` / `_provider_call_summary()` / `_model_io_summary()`：运行和模型日志摘要。
 - `_provider_config_summary()` / `_sanitize_config()` / `_collect_env_names()`：脱敏展示 agent/embedding 配置。
 - `/api/search-status` 对应 `search_index_status()`；只返回 env 名称和是否缺失，不返回真实 env 值。
+- `/api/usage` 对应 `summarize_provider_usage()`；Web 用量统计页展示总调用、成功/失败、token，以及按 Agent / Provider / Model 的摘要。
+- `/api/projects`、`/api/session`、`/api/generate-chapter` 保留为兼容、外部集成或高级调试入口；普通 Web 创作路径优先使用主页、创作工作台和 Session API。
 - `_state_timeline_summary()` / `_state_timeline_visual_summary()`：状态和时间线可视化摘要。
 - `_audit_annotations()` / `_locate_quote()`：audit evidence 定位正文。
 - `_workspace_diff()`：版本 diff。
@@ -612,7 +617,7 @@ orchestrator 项目管家修复 proposal：
 Provider 用量统计：
 
 - `UsageBucket` / `UsageSummary`。
-- `summarize_provider_call_log()`：读取 `provider_calls.jsonl`。
+- `summarize_provider_call_log()`：读取 `provider_calls.jsonl`，汇总 total、by_agent、by_provider、by_model 和 by_status。
 - `refresh_provider_usage_summary()` / `refresh_provider_usage_summary_for_log()`：刷新 `provider_usage.json`。
 - `provider_usage_path()` / `provider_call_log_path()`：默认路径。
 

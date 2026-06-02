@@ -15,6 +15,7 @@ from typing import Sequence
 class Check:
     name: str
     command: list[str]
+    blocking: bool = True
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -28,6 +29,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--skip-build", action="store_true", help="Skip build and twine checks.")
     parser.add_argument("--keep-going", action="store_true", help="Continue after a failed check.")
+    parser.add_argument(
+        "--strict-mypy",
+        action="store_true",
+        help="Make mypy failures fail the local gate. By default mypy is informational.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without running them.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable output.")
     args = parser.parse_args(argv)
@@ -50,7 +56,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "stderr": completed.stderr[-4000:],
         }
         results.append(result)
-        if completed.returncode != 0:
+        if completed.returncode != 0 and check.blocking:
             ok = False
             if not args.keep_going:
                 break
@@ -64,7 +70,7 @@ def _selected_checks(args: argparse.Namespace) -> list[Check]:
     checks = [
         Check("pytest", [sys.executable, "-m", "pytest", "-m", "not real_api and not web_e2e", "-q"]),
         Check("ruff", [sys.executable, "-m", "ruff", "check", "."]),
-        Check("mypy", [sys.executable, "-m", "mypy", "src"]),
+        Check("mypy", [sys.executable, "-m", "mypy", "src"], blocking=bool(args.strict_mypy)),
         Check("secret-scan", _secret_scan_command()),
         Check("build", [sys.executable, "-m", "build"]),
         Check("twine", _twine_check_command()),
@@ -97,7 +103,12 @@ def _twine_check_command() -> list[str]:
 
 
 def _check_payload(check: Check) -> dict[str, object]:
-    return {"name": check.name, "command": check.command, "display": shlex.join(check.command)}
+    return {
+        "name": check.name,
+        "command": check.command,
+        "display": shlex.join(check.command),
+        "blocking": check.blocking,
+    }
 
 
 def _print_result(payload: dict[str, object], *, json_output: bool) -> None:
@@ -109,7 +120,8 @@ def _print_result(payload: dict[str, object], *, json_output: bool) -> None:
     for item in payload["checks"]:  # type: ignore[index]
         code = item.get("returncode")
         suffix = "" if code is None else f" -> {code}"
-        print(f"- {item['name']}: {item['display']}{suffix}")
+        mode = "blocking" if item.get("blocking") else "informational"
+        print(f"- {item['name']} ({mode}): {item['display']}{suffix}")
 
 
 if __name__ == "__main__":

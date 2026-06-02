@@ -50,6 +50,8 @@
           </div>
           <button id="validateProject" style="width: 100%; margin-top: 8px;">项目检查</button>
           <div id="validationStatusPanel" class="metric" style="margin-top: 8px;">项目检查结果：未运行</div>
+          <div id="migrationStatusPanel" class="metric" style="margin-top: 8px;">项目迁移：未检查</div>
+          <button id="runMigration" class="hidden" style="width: 100%; margin-top: 8px;">一键迁移项目 Schema</button>
           <button id="toggleProjectInit" style="width: 100%; margin-top: 8px;">隐藏新建项目选项</button>
           <div id="projectInitPanel" class="panel" style="margin-top: 8px;">
             <h2 style="margin-top: 0;">新建项目</h2>
@@ -463,13 +465,46 @@
       </div>
       <div class="panel">
         <div class="row">
-          <button class="tab active" data-tab="projectFiles">项目文件</button>
+          <button class="tab active" data-tab="projectSearch">项目搜索</button>
+          <button class="tab" data-tab="projectFiles">项目文件</button>
           <button class="tab" data-tab="runLogs">运行日志</button>
+          <button class="tab" data-tab="usageStats">用量统计</button>
           <button class="tab" data-tab="singleFileView">章节文件查看</button>
         </div>
       </div>
 
-      <div id="projectFiles" class="tabPanel">
+      <div id="projectSearch" class="tabPanel">
+        <div class="panel">
+          <div class="row">
+            <h2 style="margin: 0;">项目搜索</h2>
+            <input id="searchQuery" placeholder="搜索角色、地点、物品、时间线或章节正文">
+            <select id="searchType">
+              <option value="all">全部</option>
+              <option value="character">角色</option>
+              <option value="location">地点</option>
+              <option value="item">物品</option>
+              <option value="event">时间线事件</option>
+              <option value="chapter">章节正文</option>
+            </select>
+            <input id="searchChapter" type="number" min="1" placeholder="章节">
+            <input id="searchLimit" type="number" min="1" max="50" value="10" placeholder="limit">
+          </div>
+          <div class="row" style="margin-top: 8px; justify-content: flex-start;">
+            <label class="row" style="justify-content: flex-start; gap: 8px;">
+              <input id="searchHighlight" type="checkbox" style="width: auto;" checked>
+              <span>高亮匹配</span>
+            </label>
+            <label class="row" style="justify-content: flex-start; gap: 8px;">
+              <input id="searchUseVector" type="checkbox" style="width: auto;">
+              <span>使用 embedding 语义检索</span>
+            </label>
+            <button id="searchProjectContent" class="primary">搜索</button>
+          </div>
+          <div id="searchResults" style="margin-top: 12px;">输入关键词后搜索。默认使用 FTS；勾选语义检索才会调用 embedding。</div>
+        </div>
+      </div>
+
+      <div id="projectFiles" class="tabPanel hidden">
         <div class="panel">
           <div class="row">
             <h2 style="margin: 0;">项目文件</h2>
@@ -493,6 +528,13 @@
         <div class="panel">
           <div class="row"><h2 style="margin: 0;">运行日志</h2><button id="loadRuns">刷新日志</button></div>
           <div id="runLogPanel">未加载</div>
+        </div>
+      </div>
+
+      <div id="usageStats" class="tabPanel hidden">
+        <div class="panel">
+          <div class="row"><h2 style="margin: 0;">用量统计</h2><button id="loadUsage">刷新用量</button></div>
+          <div id="usagePanel">未加载</div>
         </div>
       </div>
 

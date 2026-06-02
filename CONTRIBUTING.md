@@ -23,6 +23,12 @@ python -m build
 python -m twine check dist/*
 ```
 
+当前 `mypy src` 会真实输出类型问题，但 CI 中暂时是 informational 非阻断检查；本地一键检查默认也不因 mypy 失败而失败。需要把 mypy 作为本地硬门禁时，运行：
+
+```bash
+python scripts/check_local.py --strict-mypy
+```
+
 真实 API 测试必须显式标记为 `real_api`，不能作为普通测试的依赖。
 
 ## 代码原则
@@ -44,6 +50,6 @@ python -m twine check dist/*
 提交 PR 前请确认：
 
 - 已运行非真实 API 测试。
-- 已运行 lint/type check。
+- 已运行 lint/type check；注意 mypy 当前为真实但非阻断检查。
 - 没有提交本地密钥、缓存、构建产物或项目锁。
 - README、docs、examples 与实际 CLI 命令一致。

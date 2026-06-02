@@ -147,7 +147,7 @@ Agent 级技能也放在 `skills/`，每个 Agent 单独保存、按需加载：
 确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑：
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装工具，确保源码更新后重启 Web UI 即可生效。
-- `check_local.py`：本地复现 CI 质量门禁。
+- `check_local.py`：本地复现 CI 质量门禁。默认会真实运行 mypy 但把失败标记为 informational；需要 mypy 失败返回非零时使用 `--strict-mypy`。
 - `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke。
 - `debug_bundle.py`：生成脱敏排障包。
 - `provider_ping.py`：检查 agent/embedding provider 配置和可选真实调用。
@@ -233,13 +233,15 @@ CLI 输出约定：
 
 Web API 在 `src/novel/web_api.py`。新增接口时：
 
-1. 在 `handle_api_request()` 增加路径分发。
+1. 在 `_get_routes()` / `_post_routes()` 注册路径，不要继续扩大 method/path 条件链。
 2. 请求体读取使用 `_json_body()`。
 3. 项目根目录解析使用 `_root_from_query()` 或 `_root_from_body()`。
 4. 成功返回 `_success(data)`；失败返回 `_failure(...)`。
 5. 写操作用 `_locked_write()`，并复用 core service。
 6. 不要把真实 API Key、Authorization、env value 返回前端。
 7. 前端只调用 API，不复制业务逻辑。
+
+现有 Web 搜索、迁移和用量展示都只是 core service 的薄包装：`/api/search` 调用 `core/search.search_project()`，`/api/migration-status` 和 `/api/migrate` 调用 `core/migration.migrate_project()`，`/api/usage` 调用 `core/usage.summarize_provider_usage()`。后续扩展这些能力时也应保持同样分层。
 
 如果 API 保存文件，必须复用 core 的文件安全语义：默认不覆盖、版本化保存、必要备份、项目锁。
 
@@ -363,6 +365,8 @@ pytest -m "not real_api and not web_e2e" -q
 ruff check .
 mypy src
 ```
+
+当前 `mypy src` 已经不是假通过：它会输出真实类型错误。但在 CI 和默认 `scripts/check_local.py` 中仍是非阻断信号，目的是先暴露问题而不把大规模类型修复混进功能修复。需要本地严格门禁时运行 `python scripts/check_local.py --strict-mypy`。
 
 ## 13. 重构准则
 

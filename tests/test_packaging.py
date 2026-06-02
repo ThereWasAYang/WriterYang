@@ -186,6 +186,31 @@ def test_web_ui_user_guide_references_existing_screenshots() -> None:
         assert (guide_path.parent / image_path).exists(), image_path
 
 
+def test_manifest_includes_user_and_developer_docs() -> None:
+    manifest = Path("MANIFEST.in").read_text(encoding="utf-8")
+
+    for expected in (
+        "include docs/WEB_UI_USER_GUIDE.md",
+        "include docs/DEVELOPER_GUIDE.md",
+        "include docs/CODEBASE_REFERENCE.md",
+        "include docs/AGENT_PROMPT_ASSEMBLY.md",
+        "include docs/DEBUGGING_AND_REFACTORING.md",
+        "recursive-include docs/assets/web-ui-guide *.png",
+    ):
+        assert expected in manifest
+
+
+def test_github_workflows_include_web_e2e_and_informational_mypy() -> None:
+    tests_workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
+    release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    for workflow in (tests_workflow, release_workflow):
+        assert "Type check (informational)" in workflow
+        assert "continue-on-error: true" in workflow
+        assert "python -m playwright install chromium" in workflow
+        assert "pytest -m web_e2e -q" in workflow
+
+
 def test_web_ui_guide_screenshot_script_dry_run_does_not_write(tmp_path: Path, capsys) -> None:
     path = Path("scripts/capture_webui_guide_screenshots.py")
     spec = importlib.util.spec_from_file_location("capture_webui_guide_screenshots", path)

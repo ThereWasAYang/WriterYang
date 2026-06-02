@@ -21,7 +21,10 @@
 - 增加真实 embedding provider 抽象和适配：`local_hash`、阿里 DashScope `text-embedding-v4`、智谱 `embedding-3`，并为 `index rebuild` / `search --use-vector` 接入可配置 embedding。
 - 明确中文长篇小说默认工作流，新增新手快速开始、memory 手动编辑说明和模型配置最佳实践文档。
 - 新增武侠长篇示例项目 `examples/wuxia_mountain_sect`，配置文件带中文注释并可离线校验。
-- CI 扩展为 pytest、build、secret scan、ruff lint、mypy type check 和 CLI 入口检查。
+- CI 扩展为 pytest、build、secret scan、ruff lint、真实但非阻断 mypy type check、Web E2E 和 CLI 入口检查。
+- Web UI 增加项目搜索、schema 迁移入口和用量统计页；搜索默认使用 FTS，只有显式启用语义检索才调用 embedding。
+- `core/usage.py` 增加按 Agent 的 provider 调用和 token 汇总。
+- `core/consistency.py` 增加直接单元测试，覆盖 hidden truth、角色知识链、物品状态、双轨 timeline 和 accepted 闭环。
 - 新增 GitHub Release workflow，tag `v*` 时构建 sdist/wheel 并上传到 GitHub Release。
 - 新增贡献指南、issue template 和 PR template。
 - Orchestrator 增加项目管家能力，可生成和应用 `MemoryRepairProposal`，用于修正 timeline/state/canon 等项目记忆错误。

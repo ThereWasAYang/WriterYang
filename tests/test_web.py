@@ -9,7 +9,14 @@ from novel.cli import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import atomic_write_model_json, load_yaml
 from novel.core.provider_config import resolve_agent_config
-from novel.core.schemas import AuditReport, CreationSession, SessionRewriteEvent, SessionRewriteEvents, TimelineFile
+from novel.core.schemas import (
+    AuditReport,
+    CreationSession,
+    SessionProgress,
+    SessionRewriteEvent,
+    SessionRewriteEvents,
+    TimelineFile,
+)
 from novel.core.session import SessionResult
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import handle_api_request
@@ -673,6 +680,66 @@ def test_api_session_revise_outline_keeps_session_id(tmp_path: Path) -> None:
     assert (root / "memory" / "sessions" / session_id / "outline_proposal.md").is_file()
 
 
+def test_api_session_progress_idle_and_cancel_requested(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    start_status, start_payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "写第1章", "chapters": "1", "provider": "mock"}),
+    )
+    session_id = start_payload["data"]["session"]["session_id"]  # type: ignore[index]
+
+    idle_status, idle_payload = handle_api_request(
+        "GET",
+        "/api/session/progress",
+        f"path={root}&session_id={session_id}",
+        None,
+    )
+
+    assert start_status == 200
+    assert idle_status == 200
+    assert idle_payload["data"]["progress"]["status"] == "idle"  # type: ignore[index]
+
+    secret = "sk-test-progress-secret"
+    monkeypatch.setenv("WRITERYANG_TEST_API_KEY", secret)
+    now = datetime.now(timezone.utc)
+    atomic_write_model_json(
+        root / "memory" / "sessions" / session_id / "progress.json",
+        SessionProgress(
+            session_id=session_id,
+            status="running",
+            current_stage="draft",
+            current_message=f"调用模型 {secret}",
+            started_at=now,
+            updated_at=now,
+            error=f"api_key={secret}",
+        ),
+    )
+
+    running_status, running_payload = handle_api_request(
+        "GET",
+        "/api/session/progress",
+        f"path={root}&session_id={session_id}",
+        None,
+    )
+    cancel_status, cancel_payload = handle_api_request(
+        "POST",
+        "/api/session/cancel",
+        "",
+        json.dumps({"path": str(root), "session_id": session_id}),
+    )
+
+    assert running_status == 200
+    running_serialized = json.dumps(running_payload, ensure_ascii=False)
+    assert secret not in running_serialized
+    assert "[redacted]" in running_serialized or "[redacted-api-key]" in running_serialized
+    assert cancel_status == 200
+    progress = cancel_payload["data"]["progress"]  # type: ignore[index]
+    assert progress["status"] == "cancel_requested"
+    assert progress["cancel_requested_at"]
+
+
 def test_api_init_project_endpoint_creates_workspace(tmp_path: Path) -> None:
     root = tmp_path / "web-created"
 
@@ -901,9 +968,21 @@ def test_frontend_basic_render() -> None:
     assert 'id="sessionStart"' in html
     assert 'id="sessionRun"' in html
     assert 'id="sessionPanel"' in html
+    assert 'id="sessionProgressPanel"' in html
+    assert 'id="cancelSessionTask"' in html
+    assert 'id="recentOperationsPanel"' in html
     assert 'id="workbenchNextStepPanel"' in html
     assert 'id="rewriteEventsPanel"' in html
     assert "本次修改路由" in app_js
+    assert "/api/session/progress" in app_js
+    assert "/api/session/cancel" in app_js
+    assert "startSessionProgressPolling" in app_js
+    assert "renderSessionProgress" in app_js
+    assert "cancelSessionTask" in app_js
+    assert "beforeunload" in app_js
+    assert "metaKey" in app_js
+    assert "ctrlKey" in app_js
+    assert "buttons.forEach((button) => { button.disabled = true; });" not in app_js
     assert 'id="rejectedTextViewer"' in html
     assert 'id="sessionReviseAudit"' in html
     assert 'id="sessionReviseInstruction"' in html

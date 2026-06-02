@@ -21,7 +21,9 @@ from novel.core.session import (
     SessionRewriteControlOptions,
     SessionRunOptions,
     _has_hard_issues,
+    load_session_progress,
     load_rewrite_events,
+    request_session_cancel,
 )
 from novel.core import session as session_module
 from novel.core.workspace import InitOptions, init_workspace
@@ -143,6 +145,54 @@ def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
     assert manifest.entries
     assert all(len(entry.sha256) == 64 for entry in manifest.entries)
     assert load_rewrite_events(root, session.session_id) == []
+    progress = load_session_progress(root, session.session_id)
+    assert progress.status == "completed"
+    assert progress.current_stage == "completed"
+    assert progress.started_at is not None
+    assert progress.completed_at is not None
+    assert {event.stage for event in progress.events} >= {"session_start", "chapter_start", "draft", "polish", "audit", "completed"}
+
+
+def test_session_run_writes_progress_and_honors_cancel_at_boundary(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    session_path = root / "memory" / "sessions" / session.session_id / "session.json"
+    approved = load_json_model(session_path, CreationSession)
+    atomic_write_model_json(
+        session_path,
+        approved.model_copy(update={"final_output_paths": ["memory/chapters/001/polished.previous.md"]}),
+    )
+    chapter_dir = root / "memory" / "chapters" / "001"
+
+    def fake_generate(root_arg: Path, chapter_number: int, *args: object, **kwargs: object) -> None:
+        chapter_dir.mkdir(parents=True, exist_ok=True)
+        (chapter_dir / "polished.md").write_text(
+            "---\nchapter_number: 1\ntitle: 测试\nstatus: polished\n---\n\n已完成的安全边界前输出\n",
+            encoding="utf-8",
+        )
+        request_session_cancel(root_arg, session.session_id)
+
+    def fail_load_audit(*args: object, **kwargs: object) -> AuditReport:
+        raise AssertionError("cancel should stop before loading audit at the next boundary")
+
+    monkeypatch.setattr(session_module, "_generate_chapter_content", fake_generate)
+    monkeypatch.setattr(session_module, "_load_audit", fail_load_audit)
+
+    result = session_module.run_session(
+        SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock")
+    )
+
+    progress = load_session_progress(root, session.session_id)
+    assert result.session.status == "needs_revision"
+    assert result.session.content_status == "needs_revision"
+    assert result.session.final_output_paths == ["memory/chapters/001/polished.previous.md"]
+    assert progress.status == "cancelled"
+    assert progress.cancel_requested_at is not None
+    assert progress.completed_at is not None
+    assert (chapter_dir / "polished.md").is_file()
+    assert "安全边界前输出" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
 
 
 def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, monkeypatch) -> None:

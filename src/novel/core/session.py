@@ -16,6 +16,7 @@ from novel.core.planning import ChapterPlanningOptions, load_planning_provider, 
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.polishing import read_markdown_with_front_matter
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
+from novel.core.security import redact_secret_text
 from novel.core.schemas import (
     AuditReport,
     ChapterPlan,
@@ -33,6 +34,9 @@ from novel.core.schemas import (
     SessionRewriteEvents,
     SessionRewriteIssue,
     SessionRewriteStatus,
+    SessionProgress,
+    SessionProgressEvent,
+    SessionProgressStatus,
 )
 from novel.core.state_update import (
     AcceptChapterOptions,
@@ -44,10 +48,15 @@ from novel.core.state_update import (
 
 
 ProviderName = str
+_SESSION_PROGRESS_EVENT_LIMIT = 50
 
 
 class CreationSessionError(RuntimeError):
     """Raised when a collaborative creation session cannot proceed safely."""
+
+
+class _SessionCancelRequested(RuntimeError):
+    """Internal signal for cooperative cancellation at safe session boundaries."""
 
 
 @dataclass(frozen=True)
@@ -219,152 +228,262 @@ def run_session(options: SessionRunOptions) -> SessionResult:
         max_rounds = session.max_auto_revision_rounds
     session = session.model_copy(update={"status": "generating", "content_status": "generating", "updated_at": _utc_now()})
     _write_session(root, session)
+    _start_session_progress(root, session.session_id, message="Session 写作任务已开始。")
 
     final_outputs: list[str] = []
     audits: list[str] = []
     revisions: list[str] = []
-    for chapter_number in session.chapter_range:
-        _retire_state_update_proposal(root, chapter_number)
-        _generate_chapter_content(
-            root,
-            chapter_number,
-            session,
-            options.provider_name,
-            force=options.force,
-            use_search_context=options.use_search_context,
-            use_vector_context=options.use_vector_context,
-        )
-        audit_report = _load_audit(root, chapter_number)
-        round_number = 0
-        while _has_hard_issues(audit_report) and round_number < max_rounds:
-            round_number += 1
-            after_output_path: Path | None = None
-            repair_route = route_audit_repair(
-                root,
-                audit_report,
-                provider_name=options.provider_name,
-            )
-            if repair_route.route == "manual_review":
-                break
-            if repair_route.route == "plot_replan":
-                rewrite_event = _start_rewrite_event(
-                    root,
-                    session,
-                    chapter_number,
-                    round_number,
-                    "plot_replan",
-                    audit_report,
-                )
-                try:
-                    _auto_replan_chapter(
-                        root,
-                        chapter_number,
-                        session,
-                        audit_report,
-                        options.provider_name,
-                        round_number,
-                        use_search_context=options.use_search_context,
-                        use_vector_context=options.use_vector_context,
-                    )
-                    _generate_chapter_content(
-                        root,
-                        chapter_number,
-                        session,
-                        options.provider_name,
-                        force=True,
-                        use_search_context=options.use_search_context,
-                        use_vector_context=options.use_vector_context,
-                    )
-                    after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
-                except Exception:
-                    _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
-                    raise
-            else:
-                rewrite_event = _start_rewrite_event(
-                    root,
-                    session,
-                    chapter_number,
-                    round_number,
-                    "revision_rewrite",
-                    audit_report,
-                )
-                try:
-                    revision_path = _auto_repair_chapter(
-                        root,
-                        chapter_number,
-                        session,
-                        audit_report,
-                        options.provider_name,
-                        round_number,
-                        use_search_context=options.use_search_context,
-                        use_vector_context=options.use_vector_context,
-                    )
-                    revisions.append(_rel(root, revision_path))
-                    after_output_path = _promote_revision_to_polished(root, chapter_number, revision_path)
-                    _retire_state_update_proposal(root, chapter_number)
-                    _audit_chapter_content(
-                        root,
-                        chapter_number,
-                        session,
-                        options.provider_name,
-                        force=True,
-                        use_search_context=options.use_search_context,
-                        use_vector_context=options.use_vector_context,
-                    )
-                except Exception:
-                    _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
-                    raise
-            audit_report = _load_audit(root, chapter_number)
-            rewrite_status: SessionRewriteStatus = "unresolved" if _has_hard_issues(audit_report) else "completed"
-            _update_rewrite_event(
+    try:
+        _raise_if_session_cancel_requested(root, session)
+        for chapter_number in session.chapter_range:
+            _record_session_progress(
                 root,
                 session.session_id,
-                rewrite_event.event_id,
-                status=rewrite_status,
-                after_output_path=after_output_path,
+                status="running",
+                stage="chapter_start",
+                message=f"开始处理第 {chapter_number} 章。",
+                chapter_number=chapter_number,
             )
-        audit_path = _chapter_dir(root, chapter_number) / "audit.json"
-        audits.append(_rel(root, audit_path))
-        final_outputs.append(_rel(root, _chapter_dir(root, chapter_number) / "polished.md"))
-        if _has_hard_issues(audit_report):
-            session = session.model_copy(
-                update={
-                    "status": "needs_revision",
-                    "content_status": "needs_revision",
-                    "final_output_paths": final_outputs,
-                    "audit_history": [*session.audit_history, *audits],
-                    "revision_history": [*session.revision_history, *revisions],
-                    "updated_at": _utc_now(),
-                }
+            _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
+            _retire_state_update_proposal(root, chapter_number)
+            _generate_chapter_content(
+                root,
+                chapter_number,
+                session,
+                options.provider_name,
+                force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
             )
-            _write_session(root, session)
-            return SessionResult(
-                session=session,
-                session_path=_session_path(root, session.session_id),
-                message=f"Session stopped after unresolved audit issues in chapter {chapter_number}.",
+            _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
+            audit_report = _load_audit(root, chapter_number)
+            round_number = 0
+            while _has_hard_issues(audit_report) and round_number < max_rounds:
+                round_number += 1
+                after_output_path: Path | None = None
+                _record_session_progress(
+                    root,
+                    session.session_id,
+                    status="running",
+                    stage="auto_repair_route",
+                    message=f"第 {chapter_number} 章审核未通过，正在选择第 {round_number} 轮自动修复方式。",
+                    chapter_number=chapter_number,
+                    round_number=round_number,
+                )
+                _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
+                repair_route = route_audit_repair(
+                    root,
+                    audit_report,
+                    provider_name=options.provider_name,
+                )
+                if repair_route.route == "manual_review":
+                    _record_session_progress(
+                        root,
+                        session.session_id,
+                        status="running",
+                        stage="manual_review",
+                        message=f"第 {chapter_number} 章需要人工处理，自动修复停止。",
+                        chapter_number=chapter_number,
+                        round_number=round_number,
+                    )
+                    break
+                if repair_route.route == "plot_replan":
+                    rewrite_event = _start_rewrite_event(
+                        root,
+                        session,
+                        chapter_number,
+                        round_number,
+                        "plot_replan",
+                        audit_report,
+                    )
+                    try:
+                        _record_session_progress(
+                            root,
+                            session.session_id,
+                            status="running",
+                            stage="auto_replan",
+                            message=f"正在重写第 {chapter_number} 章大纲并重新生成正文。",
+                            chapter_number=chapter_number,
+                            round_number=round_number,
+                        )
+                        _auto_replan_chapter(
+                            root,
+                            chapter_number,
+                            session,
+                            audit_report,
+                            options.provider_name,
+                            round_number,
+                            use_search_context=options.use_search_context,
+                            use_vector_context=options.use_vector_context,
+                        )
+                        _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
+                        _generate_chapter_content(
+                            root,
+                            chapter_number,
+                            session,
+                            options.provider_name,
+                            force=True,
+                            use_search_context=options.use_search_context,
+                            use_vector_context=options.use_vector_context,
+                        )
+                        after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
+                    except _SessionCancelRequested:
+                        raise
+                    except Exception:
+                        _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
+                        raise
+                else:
+                    rewrite_event = _start_rewrite_event(
+                        root,
+                        session,
+                        chapter_number,
+                        round_number,
+                        "revision_rewrite",
+                        audit_report,
+                    )
+                    try:
+                        _record_session_progress(
+                            root,
+                            session.session_id,
+                            status="running",
+                            stage="auto_repair",
+                            message=f"正在按审核意见修订第 {chapter_number} 章。",
+                            chapter_number=chapter_number,
+                            round_number=round_number,
+                        )
+                        revision_path = _auto_repair_chapter(
+                            root,
+                            chapter_number,
+                            session,
+                            audit_report,
+                            options.provider_name,
+                            round_number,
+                            use_search_context=options.use_search_context,
+                            use_vector_context=options.use_vector_context,
+                        )
+                        _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
+                        revisions.append(_rel(root, revision_path))
+                        after_output_path = _promote_revision_to_polished(root, chapter_number, revision_path)
+                        _retire_state_update_proposal(root, chapter_number)
+                        _record_session_progress(
+                            root,
+                            session.session_id,
+                            status="running",
+                            stage="reaudit",
+                            message=f"正在重新审核第 {chapter_number} 章。",
+                            chapter_number=chapter_number,
+                            round_number=round_number,
+                        )
+                        _audit_chapter_content(
+                            root,
+                            chapter_number,
+                            session,
+                            options.provider_name,
+                            force=True,
+                            use_search_context=options.use_search_context,
+                            use_vector_context=options.use_vector_context,
+                        )
+                    except _SessionCancelRequested:
+                        raise
+                    except Exception:
+                        _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
+                        raise
+                _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
+                audit_report = _load_audit(root, chapter_number)
+                rewrite_status: SessionRewriteStatus = "unresolved" if _has_hard_issues(audit_report) else "completed"
+                _update_rewrite_event(
+                    root,
+                    session.session_id,
+                    rewrite_event.event_id,
+                    status=rewrite_status,
+                    after_output_path=after_output_path,
+                )
+            audit_path = _chapter_dir(root, chapter_number) / "audit.json"
+            audits.append(_rel(root, audit_path))
+            final_outputs.append(_rel(root, _chapter_dir(root, chapter_number) / "polished.md"))
+            if _has_hard_issues(audit_report):
+                session = session.model_copy(
+                    update={
+                        "status": "needs_revision",
+                        "content_status": "needs_revision",
+                        "final_output_paths": final_outputs,
+                        "audit_history": [*session.audit_history, *audits],
+                        "revision_history": [*session.revision_history, *revisions],
+                        "updated_at": _utc_now(),
+                    }
+                )
+                _write_session(root, session)
+                _record_session_progress(
+                    root,
+                    session.session_id,
+                    status="completed",
+                    stage="needs_revision",
+                    message=f"第 {chapter_number} 章仍有未解决审核问题，Session 停止等待修订。",
+                    chapter_number=chapter_number,
+                )
+                return SessionResult(
+                    session=session,
+                    session_path=_session_path(root, session.session_id),
+                    message=f"Session stopped after unresolved audit issues in chapter {chapter_number}.",
+                )
+            _record_session_progress(
+                root,
+                session.session_id,
+                status="running",
+                stage="state_update",
+                message=f"正在生成第 {chapter_number} 章状态更新建议。",
+                chapter_number=chapter_number,
             )
-        _propose_state(
-            root,
-            chapter_number,
-            session,
-            options.provider_name,
-            force=options.force,
-            use_search_context=options.use_search_context,
-            use_vector_context=options.use_vector_context,
-        )
+            _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
+            _propose_state(
+                root,
+                chapter_number,
+                session,
+                options.provider_name,
+                force=options.force,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
+            )
+            _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
 
-    session = session.model_copy(
-        update={
-            "status": "needs_user_review",
-            "content_status": "needs_user_review",
-            "final_output_paths": final_outputs,
-            "audit_history": [*session.audit_history, *audits],
-            "revision_history": [*session.revision_history, *revisions],
-            "updated_at": _utc_now(),
-        }
-    )
-    _write_session(root, session)
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session content is ready for user review.")
+        session = session.model_copy(
+            update={
+                "status": "needs_user_review",
+                "content_status": "needs_user_review",
+                "final_output_paths": final_outputs,
+                "audit_history": [*session.audit_history, *audits],
+                "revision_history": [*session.revision_history, *revisions],
+                "updated_at": _utc_now(),
+            }
+        )
+        _write_session(root, session)
+        _record_session_progress(
+            root,
+            session.session_id,
+            status="completed",
+            stage="completed",
+            message="Session 内容已生成，等待用户审阅。",
+        )
+        return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session content is ready for user review.")
+    except _SessionCancelRequested as exc:
+        return _cancelled_session_result(
+            root,
+            session,
+            final_outputs=final_outputs,
+            audits=audits,
+            revisions=revisions,
+            message=str(exc) or "Session 任务已取消。",
+        )
+    except Exception as exc:
+        _record_session_progress(
+            root,
+            session.session_id,
+            status="failed",
+            stage="failed",
+            message="Session 任务失败。",
+            error=str(exc),
+        )
+        raise
 
 
 def revise_content(options: SessionInstructionOptions) -> SessionResult:
@@ -1096,6 +1215,14 @@ def _generate_chapter_content(
 ) -> None:
     instruction = _session_instruction(session)
     draft_provider = load_drafting_provider(root, provider_name)
+    _record_session_progress(
+        root,
+        session.session_id,
+        status="running",
+        stage="draft",
+        message=f"正在生成第 {chapter_number} 章草稿。",
+        chapter_number=chapter_number,
+    )
     write_chapter_draft(
         ChapterDraftingOptions(
             root=root,
@@ -1107,7 +1234,16 @@ def _generate_chapter_content(
         ),
         draft_provider,
     )
+    _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
     polish_provider = load_polishing_provider(root, provider_name)
+    _record_session_progress(
+        root,
+        session.session_id,
+        status="running",
+        stage="polish",
+        message=f"正在润色第 {chapter_number} 章。",
+        chapter_number=chapter_number,
+    )
     polish_chapter(
         ChapterPolishingOptions(
             root=root,
@@ -1119,7 +1255,16 @@ def _generate_chapter_content(
         ),
         polish_provider,
     )
+    _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
     audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
+    _record_session_progress(
+        root,
+        session.session_id,
+        status="running",
+        stage="audit",
+        message=f"正在审核第 {chapter_number} 章。",
+        chapter_number=chapter_number,
+    )
     audit_chapter(
         ChapterAuditOptions(
             root=root,
@@ -1131,6 +1276,7 @@ def _generate_chapter_content(
         ),
         audit_provider,
     )
+    _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
 
 
 def _audit_chapter_content(
@@ -1394,6 +1540,169 @@ def _write_session(root: Path, session: CreationSession) -> None:
     atomic_write_model_json(_session_path(root, session.session_id), session)
 
 
+def load_session_progress(root: Path, session_id: str) -> SessionProgress:
+    path = _session_progress_path(root.resolve(), session_id)
+    if not path.exists():
+        return SessionProgress(session_id=session_id, status="idle")
+    return load_json_model(path, SessionProgress)
+
+
+def request_session_cancel(root: Path, session_id: str) -> SessionProgress:
+    root = root.resolve()
+    load_session(root, session_id)
+    progress = load_session_progress(root, session_id)
+    if progress.status not in {"running", "cancel_requested"}:
+        return progress
+    return _record_session_progress(
+        root,
+        session_id,
+        status="cancel_requested",
+        stage=progress.current_stage or "cancel_requested",
+        message="取消已请求，将在当前阶段结束后生效。",
+        chapter_number=progress.current_chapter,
+        round_number=progress.current_round,
+    )
+
+
+def _start_session_progress(root: Path, session_id: str, *, message: str) -> SessionProgress:
+    now = _utc_now()
+    event = SessionProgressEvent(stage="session_start", message=message, created_at=now)
+    progress = SessionProgress(
+        session_id=session_id,
+        status="running",
+        current_stage="session_start",
+        current_message=message,
+        events=[event],
+        started_at=now,
+        updated_at=now,
+    )
+    _write_session_progress(root, progress)
+    return progress
+
+
+def _record_session_progress(
+    root: Path,
+    session_id: str,
+    *,
+    status: SessionProgressStatus,
+    stage: str,
+    message: str,
+    chapter_number: int | None = None,
+    round_number: int | None = None,
+    error: str | None = None,
+) -> SessionProgress:
+    now = _utc_now()
+    existing = load_session_progress(root, session_id)
+    next_status = status
+    if existing.status == "cancel_requested" and status == "running":
+        next_status = "cancel_requested"
+    event = SessionProgressEvent(
+        stage=stage,
+        message=message,
+        chapter_number=chapter_number,
+        round_number=round_number,
+        created_at=now,
+    )
+    events = [*existing.events, event][-_SESSION_PROGRESS_EVENT_LIMIT:]
+    progress = SessionProgress(
+        session_id=session_id,
+        status=next_status,
+        current_stage=stage,
+        current_message=message,
+        current_chapter=chapter_number,
+        current_round=round_number,
+        events=events,
+        started_at=existing.started_at or now,
+        updated_at=now,
+        completed_at=now if next_status in {"cancelled", "completed", "failed"} else existing.completed_at,
+        cancel_requested_at=now if next_status == "cancel_requested" and not existing.cancel_requested_at else existing.cancel_requested_at,
+        error=_safe_progress_error(error) if error else None,
+    )
+    _write_session_progress(root, progress)
+    return progress
+
+
+def _write_session_progress(root: Path, progress: SessionProgress) -> None:
+    atomic_write_model_json(_session_progress_path(root, progress.session_id), progress)
+
+
+def _raise_if_session_cancel_requested(
+    root: Path,
+    session: CreationSession,
+    *,
+    chapter_number: int | None = None,
+    round_number: int | None = None,
+) -> None:
+    progress = load_session_progress(root, session.session_id)
+    if progress.status != "cancel_requested":
+        return
+    _record_session_progress(
+        root,
+        session.session_id,
+        status="cancel_requested",
+        stage="cancel_boundary",
+        message="取消请求已到达安全边界，正在停止当前 Session 任务。",
+        chapter_number=chapter_number,
+        round_number=round_number,
+    )
+    raise _SessionCancelRequested("Session 任务已取消。")
+
+
+def _cancelled_session_result(
+    root: Path,
+    session: CreationSession,
+    *,
+    final_outputs: list[str],
+    audits: list[str],
+    revisions: list[str],
+    message: str,
+) -> SessionResult:
+    partial_outputs = _session_has_partial_outputs(root, session)
+    updates: dict[str, object] = {
+        "updated_at": _utc_now(),
+        "final_output_paths": _merge_relative_paths(session.final_output_paths, final_outputs),
+        "audit_history": [*session.audit_history, *audits],
+        "revision_history": [*session.revision_history, *revisions],
+    }
+    if partial_outputs or final_outputs or audits or revisions:
+        updates.update({"status": "needs_revision", "content_status": "needs_revision"})
+    else:
+        updates.update({"status": "outline_approved", "content_status": "not_started"})
+    updated = session.model_copy(update=updates)
+    _write_session(root, updated)
+    _record_session_progress(
+        root,
+        updated.session_id,
+        status="cancelled",
+        stage="cancelled",
+        message=message,
+    )
+    return SessionResult(session=updated, session_path=_session_path(root, updated.session_id), message=message)
+
+
+def _session_has_partial_outputs(root: Path, session: CreationSession) -> bool:
+    for chapter_number in session.chapter_range:
+        chapter_dir = _chapter_dir(root, chapter_number)
+        if any((chapter_dir / name).exists() for name in ("draft.md", "polished.md", "audit.json", "state_update_proposal.json")):
+            return True
+    return False
+
+
+def _merge_relative_paths(existing: list[str], incoming: list[str]) -> list[str]:
+    merged = list(existing)
+    seen = set(merged)
+    for path in incoming:
+        if path not in seen:
+            merged.append(path)
+            seen.add(path)
+    return merged
+
+
+def _safe_progress_error(value: str) -> str:
+    text = redact_secret_text(value)
+    return text if len(text) <= 500 else text[:497] + "..."
+
+
 def _start_rewrite_event(
     root: Path,
     session: CreationSession,
@@ -1559,6 +1868,10 @@ def _session_path(root: Path, session_id: str) -> Path:
 
 def _rewrite_events_path(root: Path, session_id: str) -> Path:
     return _session_dir(root, session_id) / "rewrite_events.json"
+
+
+def _session_progress_path(root: Path, session_id: str) -> Path:
+    return _session_dir(root, session_id) / "progress.json"
 
 
 def _chapter_dir(root: Path, chapter_number: int) -> Path:

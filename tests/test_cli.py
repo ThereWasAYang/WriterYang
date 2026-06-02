@@ -9,6 +9,36 @@ from novel.cli import main
 from novel.core.workspace import InitOptions, init_workspace
 
 
+def test_web_cli_open_flag_controls_browser_launch(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    import novel.cli as cli_module
+    import novel.web_server as web_server_module
+
+    started: list[tuple[str, int]] = []
+    opened: list[str] = []
+
+    def fake_run_web_server(host: str, port: int) -> None:
+        started.append((host, port))
+
+    monkeypatch.setattr(web_server_module, "run_web_server", fake_run_web_server)
+    monkeypatch.setattr(cli_module.webbrowser, "open", lambda url: opened.append(url))
+
+    open_code, _, open_stderr = _run_cli(
+        ["web", "--path", str(root), "--host", "127.0.0.1", "--port", "61355", "--open"]
+    )
+    no_open_code, _, no_open_stderr = _run_cli(
+        ["web", "--path", str(root), "--host", "127.0.0.1", "--port", "61356", "--no-open"]
+    )
+
+    assert open_code == 0
+    assert no_open_code == 0
+    assert open_stderr == ""
+    assert no_open_stderr == ""
+    assert opened == ["http://127.0.0.1:61355"]
+    assert started == [("127.0.0.1", 61355), ("127.0.0.1", 61356)]
+
+
 def test_validate_cli_reports_success(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

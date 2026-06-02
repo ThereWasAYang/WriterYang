@@ -83,6 +83,7 @@ memory/
       metadata.json         # [运行时] accept 后记录章节状态
       context_report*.json  # [运行时] 开启检索上下文后生成
   sessions/                 # [运行时] session start 后生成会话目录
+    {session_id}/progress.json        # [运行时] Web UI 长任务阶段进度和协作式取消状态
   archive/                  # [运行时] session archive 后生成不可原地篡改归档
 runs/
   run_*.json                # [运行时] generate/session 工作流日志
@@ -167,7 +168,7 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 
 `novel ask` 的非 dry-run 主路径应先调用 Orchestrator 输出 `AskIntentDecision`，再根据结构化 task 执行：创建 Session、生成 memory repair proposal、导出或查看状态。自然语言中的“确认/应用 repair”只有在模型结构化决策明确为 `memory_repair_apply` 且带有 `repair_id` 时才允许执行；provider 不可用或 fallback 场景必须提示用户使用显式命令 `novel memory-repair apply <repair_id>`。
 
-`session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 Orchestrator 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“生成/提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
+`session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。长任务必须写 `memory/sessions/{session_id}/progress.json`，记录阶段、章节、轮次和状态；取消只能写入 `cancel_requested`，在章节或修复轮安全边界生效，不能强行中断当前 LLM HTTP 调用。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 Orchestrator 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“生成/提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
 
 Audit 打回后的人工控制有三个入口：`session revise-audit` 用用户纠正意见重新审核被打回原文；`session retry-rewrite` 基于最新 audit 再次发起打回；`session undo-rewrite` 恢复 rewrite event 的 rejected snapshot 并重跑 audit。三者都只能作用于未归档 session，且必须更新 `rewrite_events.json`、`audit_history` 和 session 状态。
 
@@ -175,7 +176,7 @@ orchestrator 同时承担项目管家职责。自然语言 memory 修复请求�
 
 Audit 自动打回也必须走结构化分流：`route_audit_repair()` 根据 `AuditReport` 中的 `source_layer`、`evidence.source`、issue 类型和上下文输出 `AuditRepairRouteDecision`。只有明确指向 plan 层的问题才回退 Plot；正文实现问题走 Writer/Revision；信息不足时返回 manual review，不允许仅因为描述里出现“真相/伏笔/大纲”等词就自动重写大纲。
 
-Web UI 面向普通作者时，Session 面板必须保留完整协商链路：创建大纲、修改大纲、批准大纲、开始写作、自动打回重写记录、Audit 复审/重试打回/撤回、按 Audit/用户意见修订、认可和归档。只读项目检查走 `/api/validate`，复用 `validate_project()`，不应在前端实现校验规则。后台状态、时间线和记忆管理变更必须写 `memory/management_events.jsonl`，Web UI 和 CLI 都要显示最近事件摘要。
+Web UI 面向普通作者时，Session 面板必须保留完整协商链路：创建大纲、修改大纲、批准大纲、开始写作、当前任务进度、协作式取消、自动打回重写记录、Audit 复审/重试打回/撤回、按 Audit/用户意见修订、认可和归档。只读项目检查走 `/api/validate`，复用 `validate_project()`，不应在前端实现校验规则。后台状态、时间线和记忆管理变更必须写 `memory/management_events.jsonl`，Web UI 和 CLI 都要显示最近事件摘要。
 
 底层命令仍可用于调试：
 
@@ -237,7 +238,7 @@ Web API 在 `src/novel/web_api.py`。新增接口时：
 2. 请求体读取使用 `_json_body()`。
 3. 项目根目录解析使用 `_root_from_query()` 或 `_root_from_body()`。
 4. 成功返回 `_success(data)`；失败返回 `_failure(...)`。
-5. 写操作用 `_locked_write()`，并复用 core service。
+5. 写操作用 `_locked_write()`，并复用 core service。协作式取消这类需要在长任务持锁期间生效的请求可以不走项目写锁，但必须只写受限的运行态文件，并由 core service 校验 session id。
 6. 不要把真实 API Key、Authorization、env value 返回前端。
 7. 前端只调用 API，不复制业务逻辑。
 

@@ -36,7 +36,16 @@ from novel.core.setup_guide import (
     configure_web_port,
     find_available_port,
 )
-from novel.core.schemas import AgentsConfig, AuditReport, ChapterPlan, CreationSession, EmbeddingsConfig, RevisionLog, RevisionRecord
+from novel.core.schemas import (
+    AgentsConfig,
+    AuditReport,
+    ChapterPlan,
+    CreationSession,
+    EmbeddingsConfig,
+    RevisionLog,
+    RevisionRecord,
+    SessionProgress,
+)
 from novel.core.security import validate_secret_config_file
 from novel.core.session import (
     SessionActionOptions,
@@ -47,9 +56,11 @@ from novel.core.session import (
     accept_session,
     approve_outline,
     archive_session,
+    load_session_progress,
     load_session,
     load_rewrite_events,
     parse_range,
+    request_session_cancel,
     retry_rewrite,
     revise_audit,
     revise_content,
@@ -180,6 +191,7 @@ def _get_routes():
         "/api/management-events": lambda query: _management_events(_root_from_query(query), _optional_int(query.get("limit")) or 20),
         "/api/audit-annotations": lambda query: _audit_annotations(_root_from_query(query), query),
         "/api/session": _session_api,
+        "/api/session/progress": _session_progress_api,
         "/api/session/rewrite-events": _session_rewrite_events_api,
         "/api/diff": lambda query: _workspace_diff(
             _root_from_query(query),
@@ -215,6 +227,7 @@ def _post_routes():
         "/api/session/revise-outline": ("web session revise-outline", _session_revise_outline, True),
         "/api/session/approve-outline": ("web session approve-outline", _session_approve_outline, True),
         "/api/session/run": ("web session run", _session_run, True),
+        "/api/session/cancel": ("web session cancel", _session_cancel, False),
         "/api/session/revise-content": ("web session revise-content", _session_revise_content, True),
         "/api/session/revise-audit": ("web session revise-audit", _session_revise_audit, True),
         "/api/session/retry-rewrite": ("web session retry-rewrite", _session_retry_rewrite, True),
@@ -808,6 +821,17 @@ def _session_run(data: dict[str, object]) -> dict[str, object]:
     return _session_result_payload(result)
 
 
+def _session_cancel(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
+    progress = request_session_cancel(root, session_id)
+    return {
+        "session_id": session_id,
+        "message": "取消已请求，将在当前章节或修复轮结束后生效。",
+        "progress": _session_progress_payload(progress),
+    }
+
+
 def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
     result = revise_content(
         SessionInstructionOptions(
@@ -985,9 +1009,20 @@ def _session_api(query: dict[str, str]) -> dict[str, object]:
     session = load_session(root, query.get("session_id") or "")
     return {
         "session": session.model_dump(mode="json"),
+        "progress": _session_progress_payload(load_session_progress(root, session.session_id)),
         "audit_summary": _session_audit_summary(root, session),
         "rewrite_events": _session_rewrite_event_summary(root, session),
         "management_events": _management_event_summary(root),
+    }
+
+
+def _session_progress_api(query: dict[str, str]) -> dict[str, object]:
+    root = _root_from_query(query)
+    session_id = _required_string(query.get("session_id"), "session_id")
+    load_session(root, session_id)
+    return {
+        "session_id": session_id,
+        "progress": _session_progress_payload(load_session_progress(root, session_id)),
     }
 
 
@@ -1014,11 +1049,26 @@ def _session_result_payload(result) -> dict[str, object]:
         "session": result.session.model_dump(mode="json"),
         "session_path": str(result.session_path),
         "message": result.message,
+        "progress": _session_progress_payload(load_session_progress(root, result.session.session_id)),
         "audit_summary": _session_audit_summary(root, result.session),
         "rewrite_events": _session_rewrite_event_summary(root, result.session),
         "revision_route": _session_latest_revision_route(result.session),
         "management_events": _management_event_summary(root),
     }
+
+
+def _session_progress_payload(progress: SessionProgress) -> dict[str, object]:
+    return _redact_progress_value(progress.model_dump(mode="json"))
+
+
+def _redact_progress_value(value):
+    if isinstance(value, str):
+        return _safe_error(value)
+    if isinstance(value, list):
+        return [_redact_progress_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_progress_value(item) for key, item in value.items()}
+    return value
 
 
 def _session_root_from_result_path(session_path: Path) -> Path:

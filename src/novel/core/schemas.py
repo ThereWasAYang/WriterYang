@@ -17,6 +17,7 @@ CreationScopeType = Literal["chapters", "segments"]
 SessionRewriteAction = Literal["revision_rewrite", "plot_replan"]
 SessionRewriteStatus = Literal["started", "completed", "unresolved", "failed"]
 SessionRewriteUndoStatus = Literal["not_requested", "restored", "failed"]
+SessionProgressStatus = Literal["idle", "running", "cancel_requested", "cancelled", "completed", "failed"]
 MemoryRepairOperationType = Literal["add", "replace", "remove"]
 MemoryRepairRiskLevel = Literal["low", "medium", "high"]
 ManagementEventType = Literal[
@@ -894,6 +895,29 @@ class SessionRewriteEvent(SchemaVersionedModel):
 
 class SessionRewriteEvents(SchemaVersionedModel):
     events: list[SessionRewriteEvent] = Field(default_factory=list)
+
+
+class SessionProgressEvent(FlexibleModel):
+    stage: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    chapter_number: int | None = Field(default=None, ge=1)
+    round_number: int | None = Field(default=None, ge=0)
+    created_at: datetime
+
+
+class SessionProgress(SchemaVersionedModel):
+    session_id: str = Field(min_length=1, pattern=r"^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
+    status: SessionProgressStatus
+    current_stage: str | None = None
+    current_message: str | None = None
+    current_chapter: int | None = Field(default=None, ge=1)
+    current_round: int | None = Field(default=None, ge=0)
+    events: list[SessionProgressEvent] = Field(default_factory=list)
+    started_at: datetime | None = None
+    updated_at: datetime | None = None
+    completed_at: datetime | None = None
+    cancel_requested_at: datetime | None = None
+    error: str | None = None
 
 
 class MemoryRepairOperation(FlexibleModel):

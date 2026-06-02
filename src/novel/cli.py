@@ -2077,6 +2077,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Port to bind. Overrides project.yaml web.default_port. Defaults to 8765.",
     )
+    web_open_group = web_parser.add_mutually_exclusive_group()
+    web_open_group.add_argument(
+        "--open",
+        dest="open_browser",
+        action="store_true",
+        help="Open the Web UI URL in the default browser after the server starts.",
+    )
+    web_open_group.add_argument(
+        "--no-open",
+        dest="open_browser",
+        action="store_false",
+        help="Do not open a browser automatically. This is the default.",
+    )
+    web_parser.set_defaults(open_browser=False)
 
     _add_integration_args_recursive(parser)
     return parser
@@ -3409,6 +3423,8 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             port = _resolve_web_port(args.path, args.port)
+            if args.open_browser:
+                webbrowser.open(f"http://{args.host}:{port}")
             run_web_server(host=args.host, port=port)
         except Exception as exc:
             error_type = "web_error"

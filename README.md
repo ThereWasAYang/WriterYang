@@ -219,7 +219,9 @@ novel export markdown --path ./my-novel --toc --force
 - `canon suggest` 后先看 proposal，再 `apply`；不要把隐藏真相写进读者可见摘要。
 - `session start` 后先看 `memory/sessions/{session_id}/outline_proposal.md`，不满意就 `session revise-outline`。
 - `session approve-outline` 后，后续写作必须遵守 approved outline。
-- `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复。每次自动打回都会记录到 `memory/sessions/{session_id}/rewrite_events.json`，并把被打回的 `polished.md` 快照保存到 `memory/sessions/{session_id}/rejections/`，方便作者确认打回原因是否合理。
+- `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复。运行时会把阶段级进度写入 `memory/sessions/{session_id}/progress.json`，Web UI 用它显示当前阶段、章节、轮次、已用时和最近事件。
+- Web UI 可以请求取消正在运行的 Session。取消是协作式的：系统只写入 `cancel_requested`，不会强行中断正在进行的 LLM HTTP 调用；任务会在当前章节或自动修复轮结束后的安全边界停止，最终进度变为 `cancelled`。
+- 每次自动打回都会记录到 `memory/sessions/{session_id}/rewrite_events.json`，并把被打回的 `polished.md` 快照保存到 `memory/sessions/{session_id}/rejections/`，方便作者确认打回原因是否合理。
 - 自动修复超过轮数后，session 会停在 `status=needs_revision`、`content_status=needs_revision`，用户可查看 audit、rewrite events 和 revision log；在 Web UI 中应优先查看“自动打回重写记录”，再使用“按 Audit 修订内容”，不要通过新建 session 覆盖已有产物来绕过问题。
 - 如果你认为 Audit 对时间线、状态或正文语义理解错了，不要直接删改 `audit.json`。使用 `novel session revise-audit <session_id> <event_id> --instruction "..."` 或 Web UI 的“纠正 Audit 理解并重新审核”，让 Audit Agent 带着你的纠正意见复审；复审后再用 `session retry-rewrite` 或 Web UI 的“根据新审核重新打回”触发重写。必要时可用 `session undo-rewrite` 或 Web UI 的“撤回本次打回”恢复被打回原文快照。
 - low 级别 audit issue 不会被静默自动修改，会展示给作者；作者可选择直接接受，或运行 `session revise-content <session_id> --from-audit` 生成修订版本。
@@ -578,6 +580,7 @@ novel export docx --path ./rain-station --output exports/book.docx --title "雨�
 ```bash
 novel web --path ./rain-station
 novel web --path ./rain-station --host 127.0.0.1 --port 9000
+novel web --path ./rain-station --open
 ```
 
 默认端口从项目的 `project.yaml` 读取：
@@ -589,7 +592,7 @@ web:
 
 如果没有配置，默认使用 `8765`。命令行 `--port` 会覆盖项目配置。端口被占用时，命令会给出清晰错误提示并退出，例如建议改用 `novel web --port 8766`。
 
-打开 `http://127.0.0.1:8765`。Web UI 顶部有 5 个主页面：主页、创作工作台、小说状态管理、模型与检索配置、运行日志 / 项目文件。Web API 调用同一套 core service，不返回真实 API Key。长任务执行时按钮会临时禁用并显示执行中状态；完成后会保留真实返回消息和 Session 状态，不会被自动刷新覆盖。
+打开 `http://127.0.0.1:8765`。如果希望 CLI 启动服务时自动打开浏览器，可以使用 `novel web --open`；默认和 `--no-open` 都不会自动打开。Web UI 顶部有 5 个主页面：主页、创作工作台、小说状态管理、模型与检索配置、运行日志 / 项目文件。Web API 调用同一套 core service，不返回真实 API Key。长任务执行时会显示已用时和最近操作；当前任务相关按钮会临时禁用，但取消当前 Session 任务和刷新类按钮仍可用。完成后会保留真实返回消息和 Session 状态，不会被自动刷新覆盖。
 
 面向非技术作者的浏览器操作流程见：[Web UI 小白使用指南](docs/WEB_UI_USER_GUIDE.md)。日常创作推荐使用“创作工作台”：创建大纲 -> 修改/批准大纲 -> 开始写作 -> 按 Audit 或用户意见修订 -> 认可 -> 归档 -> 导出。
 
@@ -602,7 +605,7 @@ web:
 - 运行日志 / 项目文件：项目搜索、安全文件树、只读文件预览、章节文件查看、运行日志、用量统计和 model I/O 摘要。
 - Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。Web UI 灵感默认走 Markdown 弱总纲，不为 Inspiration 强制开启 provider JSON mode；需要 `inspiration.json` 时可用 CLI 的 `--json` 或后续工具派生。
 - 章节对照：只读查看 `plan.json`、`draft.md`、`polished.md`、`audit.json`。
-- 章节编辑器：可编辑 `draft.md` / `polished.md`，保存时默认创建 `draft.v2.md` / `polished.v2.md` 等版本文件，并记录 `revision_log.json`，不原地覆盖旧稿。
+- 章节编辑器：可编辑 `draft.md` / `polished.md`，保存时默认创建 `draft.v2.md` / `polished.v2.md` 等版本文件，并记录 `revision_log.json`，不原地覆盖旧稿；有未保存修改时离开页面会提示，`Ctrl/Cmd+S` 会保存新版本。
 - Audit 定位：读取 `audit.json` 的 evidence quote，定位到正文中的行列位置；找不到时显示无法定位。
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
@@ -614,6 +617,7 @@ web:
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
+- 当前任务进度：Session 写作期间显示阶段、章节、轮次、已用时和最近事件；“取消当前 Session 任务”只会在安全边界生效，不会立刻打断当前 LLM 请求。
 - 自动打回重写记录：当 Audit 把正文打回重写时，显示第几章第几轮、打回原因、系统动作和“查看被打回原文”按钮；如果你认为打回不合理，应检查对应 `audit.json`、`memory/state/timeline.json`、`current_state.json` 和 canon 文件。
 - 项目管家：用自然语言说明 timeline/state/canon 的错误，生成可审查 repair proposal；确认应用前不会改正式 memory 文件。后台管理动态会显示状态更新、时间线更新、记忆修复 proposal/apply 等事件。
 - Audit 复审控制：选择 rewrite event 后，可以纠正 Audit 理解并重新审核、根据新审核重新打回，或撤回本次打回并恢复原文快照。

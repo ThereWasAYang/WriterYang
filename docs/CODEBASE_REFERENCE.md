@@ -142,6 +142,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_setup_recommend_port()` / `_setup_open_web()`：推荐可用端口并返回 Web UI URL；Web 场景不另起服务端。
 - `_index_refresh()`：调用 `refresh_search_index()`，刷新关键词索引或显式刷新真实 embedding 向量，并返回最新 search status。
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
+- `_session_progress_api()` / `_session_cancel()`：读取 `progress.json` 的脱敏进度摘要，并写入协作式取消请求；取消接口不走项目写锁，避免被正在运行的 `session run` 阻塞。
 - `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
 - `_memory_repair_suggest()` / `_memory_repair_apply()`：项目管家 proposal 和 apply API，调用 `core/memory_repair.py`，不在 Web 层直接 patch 文件。
 - `_session_revise_audit()` / `_session_retry_rewrite()` / `_session_undo_rewrite()`：Audit 复审、基于新审核重试打回、撤回打回并恢复快照。
@@ -164,12 +165,12 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 - 顶部主导航：主页、创作工作台、小说状态管理、模型与检索配置、运行日志 / 项目文件。
 - 主页：项目路径输入、打开/刷新、项目检查、新建项目、项目初始引导、项目状态、章节列表和下一步提示。
-- 创作工作台：创作输入、Session 主流程、自动打回记录、章节对照、章节编辑器、audit 定位和 revision diff。
+- 创作工作台：创作输入、Session 主流程、当前任务进度、协作式取消、自动打回记录、章节对照、章节编辑器、audit 定位和 revision diff。
 - 小说状态管理：canon 摘要、状态/时间线、项目管家和后台管理动态。
 - 模型与检索配置：Agent 模型配置、FTS / embedding 状态和索引刷新。
 - 运行日志 / 项目文件：安全文件树、只读文件预览、运行日志和章节文件查看。
 - 项目初始引导面板支持保存默认 API、可选 embedding API、推荐并保存 Web 端口，以及打开当前 Web UI 地址。
-- Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、按 Audit/用户意见修订、认可和归档。
+- Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、当前任务进度、协作式取消、按 Audit/用户意见修订、认可和归档。
 - 项目管家面板支持生成 memory repair proposal、确认 apply，并显示后台管理动态。
 - 检索索引面板显示 FTS / embedding 状态，支持本地刷新关键词索引，也支持显式刷新真实 embedding 向量索引。
 
@@ -184,7 +185,9 @@ Web UI 交互脚本。负责：
 - 通用 `$()`、`apiGet()`、`apiPost()`、`setMessage()` 等工具函数。
 - 主页面切换、页内 tab 切换和状态保持。
 - 项目打开、刷新、初始化和项目检查。
-- Session 创建、修改大纲、批准、运行、修订、认可、归档和打回记录展示。
+- Session 创建、修改大纲、批准、运行、修订、认可、归档、打回记录展示、进度轮询和取消请求。
+- 通用长任务状态：`withBusy()` 显示已用时、维护最近操作列表，并保留取消/刷新类按钮可用。
+- 章节编辑器：离开页面前未保存提醒，`Ctrl/Cmd+S` 保存新版本。
 - 章节对照、编辑器、audit evidence 定位、diff、文件树读取。
 - Provider / embedding 配置、索引刷新、状态/时间线、项目管家和运行日志 API 调用。
 - Agent 模型配置页用表单编辑 `provider`、`model`、`base_url_env`、`api_key_env`、`thinking.type`、`temperature`、`max_tokens` 等非密钥字段。配置页使用专用两栏布局，Agent 配置面板比检索索引面板更宽；`model` 是和 `provider` 同级的普通输入框，`base_url_env`、`api_key_env` 占满表单宽度。右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区；“恢复继承 default”通过 `/api/provider-config` 的 `clear_agents` 删除该 Agent 覆盖项。真实 API Key 仍只通过 `.env` / 初始引导管理。
@@ -213,7 +216,7 @@ Core 包标记文件。当前不导出业务 API；调用方应从具体 service
 - workflow/session/export：`AgentRunLog`、`AgentRunStep`、`CreationSession`、`CreationOutline`、`CreationArchiveManifest`、`ExportSourceChapter`、`ExportRecord`、`ExportManifest`。
 - revision/context：`RevisionLog`、`RevisionRecord`、`ContextBundle`、`ContextItem`、`ContextExclusion`。
 - state update：`StateUpdateProposal`、`StateChange`、`StateUpdateApplyLog`。
-- session/memory management：`SessionRewriteEvent`、`SessionRewriteEvents`、`MemoryRepairProposal`、`MemoryRepairOperation`、`MemoryRepairApplyLog`、`ManagementEvent`。
+- session/memory management：`SessionProgress`、`SessionProgressEvent`、`SessionRewriteEvent`、`SessionRewriteEvents`、`MemoryRepairProposal`、`MemoryRepairOperation`、`MemoryRepairApplyLog`、`ManagementEvent`。
 
 辅助：
 
@@ -501,7 +504,7 @@ Embedding provider：
 - `show_session()`：读取 session。
 - `revise_outline()`：按用户意见重新生成 outline proposal。
 - `approve_outline()`：冻结 approved outline。
-- `run_session()`：生成正文、润色、审核、自动修复、state proposal。
+- `run_session()`：生成正文、润色、审核、自动修复、state proposal，并在章节级安全边界写入进度事件、检查协作式取消请求。
 - `revise_content()`：按用户意见或 audit issue 修订内容。用户意见先调用 Orchestrator 路由；剧情级修改回到 Plot 重写 plan，写作实现级修改走 Writer/Polish 重写正文，局部表达修改才走 Revision 版本补丁。之后统一提升/重审/重建 state proposal。
 - `_resolve_content_revision_route()` / `_audit_driven_revision_route()`：把用户反馈或 audit issue 转为 `RevisionRouteDecision`；audit 驱动路径依赖结构化 audit repair route，不再扫描自然语言关键词决定是否重写大纲。
 - `_replan_and_rewrite_chapter()`：剧情级反馈路径，重写本章 `plan.json` 并重新生成正文。
@@ -511,6 +514,7 @@ Embedding provider：
 - `undo_rewrite()`：恢复 rewrite event 的 rejected snapshot，备份当前稿，重跑 audit，并更新 undo 状态。
 - `accept_session()`：应用状态更新并标记章节 accepted。
 - `archive_session()`：归档 approved outline、最终正文、audit、state update 和 manifest。
+- `load_session_progress()` / `request_session_cancel()`：读取 `memory/sessions/{session_id}/progress.json`，或写入 `cancel_requested`；取消不会强行中断当前 LLM HTTP 调用。
 - `load_rewrite_events()`：读取 `memory/sessions/{session_id}/rewrite_events.json`。
 - `_generate_chapter_content()`：单章 writer/polish/audit 调度。
 - `_auto_repair_chapter()`：正文层 medium/high/critical 自动修复，生成 `polished.vN.md`。

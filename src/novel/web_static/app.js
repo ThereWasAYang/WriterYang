@@ -17,6 +17,11 @@
     let providerConfigBackendMismatch = "";
     let backendMismatchAlertShown = false;
     let embeddingConfigEditing = false;
+    let sessionProgressPoller = null;
+    let sessionProgressTimer = null;
+    let currentBusyStartedAt = null;
+    let currentBusyLabel = "";
+    let recentOperations = [];
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -301,11 +306,23 @@
       return withBusy(label, async () => {
         const shouldPollRewriteEvents = endpoint === "/api/session/run";
         let rewritePoller = null;
+        let progressPolling = false;
         if (shouldPollRewriteEvents) rewritePoller = startRewriteEventPolling();
+        if (shouldPollRewriteEvents) {
+          progressPolling = true;
+          renderSessionProgress({
+            status: "running",
+            current_stage: "queued",
+            current_message: "Session 写作任务已提交，正在等待后台进入第一个阶段。",
+            started_at: new Date().toISOString(),
+          });
+          startSessionProgressPolling();
+        }
         try {
           const data = await apiPost(endpoint, payload);
           const session = data.session || {};
           if (session.session_id) $("sessionId").value = session.session_id;
+          if (data.progress) renderSessionProgress(data.progress);
           renderSessionSummary(data);
           $("fileViewer").textContent = JSON.stringify(data, null, 2);
           await refreshAll({ silent: true });
@@ -314,6 +331,10 @@
           setMessage(actionMessage(label, data));
         } finally {
           if (rewritePoller) window.clearInterval(rewritePoller);
+          if (progressPolling) {
+            await loadSessionProgress({ quiet: true });
+            stopSessionProgressPolling();
+          }
         }
       });
     }
@@ -1224,16 +1245,97 @@
         .replace(/&lt;\/mark&gt;/g, "</mark>");
     }
 
+    function formatElapsed(milliseconds) {
+      const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return minutes ? `${minutes}分${String(seconds).padStart(2, "0")}秒` : `${seconds}秒`;
+    }
+
+    function formatElapsedBetween(startedAt, endedAt) {
+      if (!startedAt) return "未开始";
+      const start = new Date(startedAt).getTime();
+      const end = endedAt ? new Date(endedAt).getTime() : Date.now();
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return "未知";
+      return formatElapsed(end - start);
+    }
+
+    function setBusyMessage() {
+      if (!currentBusyStartedAt || !currentBusyLabel) return;
+      setMessage(`${currentBusyLabel}执行中，已用时 ${formatElapsed(Date.now() - currentBusyStartedAt)}。真实 API 可能需要较长时间...`);
+    }
+
+    function canUseButtonDuringBusy(button) {
+      const allowedIds = new Set([
+        "cancelSessionTask",
+        "openProject",
+        "refreshProject",
+        "refreshProjectFiles",
+        "loadStateTimeline",
+        "loadProviderConfig",
+        "loadRuns",
+        "loadUsage",
+        "searchProjectContent",
+        "refreshFtsIndex",
+        "refreshEmbeddingIndex",
+      ]);
+      return Boolean(button.id && allowedIds.has(button.id));
+    }
+
+    function addRecentOperation(label, status, detail = "") {
+      recentOperations = [
+        {
+          label,
+          status,
+          detail,
+          ended_at: new Date().toISOString(),
+        },
+        ...recentOperations,
+      ].slice(0, 6);
+      renderRecentOperations();
+    }
+
+    function renderRecentOperations() {
+      const panel = $("recentOperationsPanel");
+      if (!panel) return;
+      if (!recentOperations.length) {
+        panel.textContent = "最近操作：暂无";
+        return;
+      }
+      panel.innerHTML = `
+        <b>最近操作</b>
+        ${recentOperations.map((item) => `
+          <div style="margin-top: 6px;">
+            <span>${escapeHtml(item.label)}：${escapeHtml(item.status)}</span>
+            ${item.detail ? `<div>${escapeHtml(item.detail)}</div>` : ""}
+          </div>
+        `).join("")}
+      `;
+    }
+
     async function withBusy(label, fn) {
       const buttons = Array.from(document.querySelectorAll("button"));
-      buttons.forEach((button) => { button.disabled = true; });
-      setMessage(`${label}执行中，真实 API 可能需要较长时间...`);
+      const previousStates = buttons.map((button) => [button, button.disabled]);
+      buttons.forEach((button) => {
+        if (!canUseButtonDuringBusy(button)) button.disabled = true;
+      });
+      currentBusyStartedAt = Date.now();
+      currentBusyLabel = label;
+      setBusyMessage();
+      sessionProgressTimer = window.setInterval(setBusyMessage, 1000);
       try {
-        return await fn();
+        const result = await fn();
+        addRecentOperation(label, "完成");
+        return result;
       } catch (error) {
+        addRecentOperation(label, "失败", error.message);
         setMessage(error.message, true);
       } finally {
-        buttons.forEach((button) => { button.disabled = false; });
+        if (sessionProgressTimer) window.clearInterval(sessionProgressTimer);
+        sessionProgressTimer = null;
+        currentBusyStartedAt = null;
+        currentBusyLabel = "";
+        previousStates.forEach(([button, disabled]) => { button.disabled = disabled; });
       }
     }
 
@@ -1280,8 +1382,114 @@
         ${renderRevisionRouteSummary(data.revision_route || (session.revision_route_history || []).slice(-1)[0])}
         ${renderSessionAuditSummary(data.audit_summary || [])}
       `;
+      if (data.progress) renderSessionProgress(data.progress);
       renderRewriteEvents(data.rewrite_events || []);
       renderManagementEvents(data.management_events || []);
+    }
+
+    async function loadSessionProgress(options = {}) {
+      const sessionId = $("sessionId").value.trim();
+      if (!sessionId) {
+        renderSessionProgress({ status: "idle" });
+        return null;
+      }
+      try {
+        const data = await apiGet("/api/session/progress", { path: projectPath(), session_id: sessionId });
+        renderSessionProgress(data.progress || { status: "idle" });
+        return data.progress || null;
+      } catch (error) {
+        if (!options.quiet) setMessage(error.message, true);
+        return null;
+      }
+    }
+
+    function startSessionProgressPolling() {
+      stopSessionProgressPolling();
+      const poll = async () => {
+        const progress = await loadSessionProgress({ quiet: true });
+        if (progress && ["cancelled", "completed", "failed"].includes(progress.status)) {
+          stopSessionProgressPolling();
+        }
+      };
+      poll();
+      sessionProgressPoller = window.setInterval(poll, 1500);
+      return sessionProgressPoller;
+    }
+
+    function stopSessionProgressPolling() {
+      if (sessionProgressPoller) window.clearInterval(sessionProgressPoller);
+      sessionProgressPoller = null;
+    }
+
+    async function cancelSessionTask() {
+      const sessionId = $("sessionId").value.trim();
+      if (!sessionId) {
+        setMessage("请先选择或创建 Session。", true);
+        return;
+      }
+      try {
+        const data = await apiPost("/api/session/cancel", { path: projectPath(), session_id: sessionId });
+        renderSessionProgress(data.progress || { status: "cancel_requested" });
+        addRecentOperation("取消当前 Session 任务", "已请求", data.message || "");
+        setMessage("取消已请求，会在当前章节或修复轮结束后生效。");
+      } catch (error) {
+        addRecentOperation("取消当前 Session 任务", "失败", error.message);
+        setMessage(error.message, true);
+      }
+    }
+
+    function renderSessionProgress(progress = {}) {
+      const panel = $("sessionProgressPanel");
+      const cancelButton = $("cancelSessionTask");
+      if (!panel || !cancelButton) return;
+      const status = progress.status || "idle";
+      if (status === "idle" && !(progress.events || []).length) {
+        panel.className = "metric";
+        panel.textContent = "当前任务进度：暂无";
+        cancelButton.classList.add("hidden");
+        cancelButton.disabled = false;
+        cancelButton.textContent = "取消当前 Session 任务";
+        return;
+      }
+      const statusLabels = {
+        idle: "空闲",
+        running: "运行中",
+        cancel_requested: "取消已请求",
+        cancelled: "已取消",
+        completed: "已完成",
+        failed: "失败",
+      };
+      const stateClass = status === "failed" ? "status-bad" : (
+        status === "cancel_requested" || status === "cancelled" ? "status-warn" : (
+          status === "completed" ? "status-ok" : ""
+        )
+      );
+      const events = (progress.events || []).slice(-5).reverse();
+      const elapsed = formatElapsedBetween(progress.started_at, progress.completed_at || (status === "running" || status === "cancel_requested" ? null : progress.updated_at));
+      panel.className = `metric ${stateClass}`;
+      panel.innerHTML = `
+        <b>当前任务进度：${escapeHtml(statusLabels[status] || status)}</b>
+        <div>阶段：${escapeHtml(progress.current_stage || "未开始")}</div>
+        <div>说明：${escapeHtml(progress.current_message || "暂无")}</div>
+        <div>章节：${escapeHtml(progress.current_chapter || "未设置")}；轮次：${escapeHtml(progress.current_round ?? "未设置")}；已用时：${escapeHtml(elapsed)}</div>
+        ${progress.error ? `<div class="status-bad">错误：${escapeHtml(progress.error)}</div>` : ""}
+        ${events.length ? `
+          <div style="margin-top: 8px;"><b style="font-size: 13px;">最近事件</b></div>
+          ${events.map((event) => `
+            <div style="margin-top: 4px;">
+              ${escapeHtml(event.stage || "")}：${escapeHtml(event.message || "")}
+            </div>
+          `).join("")}
+        ` : ""}
+      `;
+      const canCancel = status === "running";
+      cancelButton.classList.toggle("hidden", !["running", "cancel_requested"].includes(status));
+      cancelButton.disabled = status === "cancel_requested";
+      cancelButton.textContent = status === "cancel_requested"
+        ? "取消已请求，等待安全边界"
+        : "取消当前 Session 任务";
+      cancelButton.title = "取消会在当前章节或修复轮结束后生效，不会强行中断正在进行的 LLM HTTP 调用。";
+      if (!canCancel && status !== "cancel_requested") cancelButton.disabled = false;
     }
 
     function renderRevisionRouteSummary(record) {
@@ -1506,12 +1714,25 @@
     $("sessionReviseAudit").addEventListener("click", () => runSessionAction("/api/session/revise-audit", rewriteControlPayload(), "纠正 Audit 理解并重新审核"));
     $("sessionRetryRewrite").addEventListener("click", () => runSessionAction("/api/session/retry-rewrite", rewriteControlPayload(), "根据新审核重新打回"));
     $("sessionUndoRewrite").addEventListener("click", () => runSessionAction("/api/session/undo-rewrite", rewriteControlPayload(), "撤回本次打回"));
+    $("cancelSessionTask").addEventListener("click", cancelSessionTask);
     $("viewFile").addEventListener("click", viewFile);
     $("loadCompare").addEventListener("click", loadCompare);
     $("loadEditorFile").addEventListener("click", loadEditorFile);
     $("saveEditorVersion").addEventListener("click", saveEditorVersion);
     $("chapterEditorText").addEventListener("input", () => {
       $("editorDirty").textContent = $("chapterEditorText").value === editorLoadedContent ? "未修改" : "有未保存修改";
+    });
+    window.addEventListener("beforeunload", (event) => {
+      if (editorSourceFile && $("chapterEditorText").value !== editorLoadedContent) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !$("chapterEditor").classList.contains("hidden")) {
+        event.preventDefault();
+        saveEditorVersion();
+      }
     });
     $("loadAuditAnnotations").addEventListener("click", loadAuditAnnotations);
     $("loadRuns").addEventListener("click", loadRuns);

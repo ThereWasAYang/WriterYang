@@ -145,7 +145,9 @@ def _run_playwright(url: str, project: Path, output: Path) -> None:
         page.locator("#workbenchPage .workspace-grid > .stack").first.screenshot(
             path=str(output / "left_session_controls.png")
         )
-        page.locator("#rewriteEventsPanel").screenshot(path=str(output / "rewrite_events.png"))
+        page.locator("#workbenchPage .workspace-grid > .stack").nth(1).screenshot(
+            path=str(output / "rewrite_events.png")
+        )
 
         page.click("#loadCompare")
         page.wait_for_function("() => document.querySelector('#planViewer')?.textContent?.includes('雨夜山城')")

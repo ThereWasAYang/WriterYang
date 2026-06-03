@@ -10,6 +10,7 @@ import yaml
 
 from novel.core.io import load_json, load_json_model
 from novel.core.schemas import (
+    AuditEvidence,
     AuditIssue,
     ChapterMetadata,
     ChapterPlan,
@@ -48,7 +49,7 @@ class ConsistencyFinding:
             severity=self.severity,
             type=self.type,
             description=self.description,
-            evidence=[{"source": str(self.source), "quote": self.quote}],
+            evidence=[AuditEvidence(source=str(self.source), quote=self.quote)],
             suggested_fix=self.suggested_fix,
         )
 
@@ -530,9 +531,12 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
             )
         )
     else:
+        raw_issues = audit_data.get("issues", [])
+        if not isinstance(raw_issues, list):
+            raw_issues = []
         blocking_issues = [
             issue
-            for issue in audit_data.get("issues", [])
+            for issue in raw_issues
             if isinstance(issue, dict) and issue.get("severity") in {"medium", "high", "critical"}
         ]
         if audit_data.get("overall_status") == "blocked" or blocking_issues:

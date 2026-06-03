@@ -716,7 +716,7 @@ def _check_conflict(existing: list[str], incoming: list[str], label: str) -> Non
 
 
 def _ensure_hidden_truths_not_reader_visible(proposal: CanonProposal) -> None:
-    summaries = []
+    summaries: list[tuple[str, str]] = []
     summaries.extend((item.id, item.reader_visible_summary) for item in proposal.characters)
     summaries.extend((item.id, item.reader_visible_summary) for item in proposal.locations)
     summaries.extend((item.id, item.reader_visible_summary) for item in proposal.items)

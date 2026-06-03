@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import socket
-from typing import Mapping
+from typing import Literal, Mapping
 
 from novel.core.embeddings import EmbeddingError, EmbeddingProviderFactory
 from novel.core.env import load_project_env, write_project_env_values
@@ -16,7 +16,14 @@ from novel.core.providers import (
     ProviderError,
     ProviderFactory,
 )
-from novel.core.schemas import AgentConfig, AgentsConfig, EmbeddingProviderConfig, EmbeddingsConfig, ProjectConfig
+from novel.core.schemas import (
+    AgentConfig,
+    AgentsConfig,
+    EmbeddingProviderConfig,
+    EmbeddingsConfig,
+    ProjectConfig,
+    ThinkingConfig,
+)
 from novel.core.security import validate_secret_config_file
 
 
@@ -93,7 +100,7 @@ def configure_default_provider(
         api_key_env=DEFAULT_API_KEY_ENV,
         model=model,
         reasoning="medium",
-        thinking={"type": thinking_type},
+        thinking=ThinkingConfig(type=_normalize_thinking_type(thinking_type)),
         max_context_tokens=max_context_tokens,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -302,3 +309,12 @@ def _require_non_empty(value: str, field_name: str) -> str:
     if not stripped:
         raise SetupGuideError(f"{field_name} must not be empty")
     return stripped
+
+
+def _normalize_thinking_type(value: str) -> Literal["enabled", "disabled"]:
+    normalized = value.strip().lower()
+    if normalized == "enabled":
+        return "enabled"
+    if normalized == "disabled":
+        return "disabled"
+    raise SetupGuideError("thinking.type must be enabled or disabled")

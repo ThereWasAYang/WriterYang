@@ -519,16 +519,24 @@ def search_index_status(
         fts_status = "indexed"
 
     embedding_info = _embedding_config_status(root, embedding_provider_name, embedding_config_path)
-    embedding_status = embedding_info["status"]
-    provider_name = embedding_info.get("provider")
-    model_name = embedding_info.get("model")
-    env_missing = tuple(str(item) for item in embedding_info.get("env_missing", ()))
+    raw_embedding_status = embedding_info.get("status", "missing")
+    embedding_status = raw_embedding_status if isinstance(raw_embedding_status, str) else "missing"
+    raw_provider_name = embedding_info.get("provider")
+    raw_model_name = embedding_info.get("model")
+    provider_name = raw_provider_name if isinstance(raw_provider_name, str) else None
+    model_name = raw_model_name if isinstance(raw_model_name, str) else None
+    raw_env_missing = embedding_info.get("env_missing", ())
+    env_missing = (
+        tuple(str(item) for item in raw_env_missing)
+        if isinstance(raw_env_missing, (list, tuple, set))
+        else ()
+    )
     if embedding_status == "configured":
         embedding_status = _embedding_vector_status(
             sqlite_path,
             documents,
-            provider=str(provider_name),
-            model=str(model_name),
+            provider=provider_name or "",
+            model=model_name or "",
         )
     message = _search_status_message(fts_status, embedding_status, env_missing)
     return SearchIndexStatus(

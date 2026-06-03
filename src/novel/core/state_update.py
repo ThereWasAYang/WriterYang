@@ -564,6 +564,7 @@ def apply_state_changes_to_state(
         if change.entity_id == "story_position":
             _apply_model_field(updated.story_position, change.field, change.new_value, change.id)
             continue
+        target: Any
         if change.entity_id in character_ids:
             target = character_states.get(change.entity_id)
             if target is None:
@@ -614,7 +615,8 @@ def write_chapter_metadata(
 ) -> Path:
     chapter_dir = _chapter_dir(root, chapter_number)
     metadata_path = chapter_dir / "metadata.json"
-    accepted_at = _utc_now() if status == "accepted" else None
+    now = datetime.now(timezone.utc)
+    accepted_at = now if status == "accepted" else None
     metadata = ChapterMetadata(
         chapter_number=chapter_number,
         status=status,
@@ -625,7 +627,7 @@ def write_chapter_metadata(
         state_update_proposal_path=_relative_if_exists(root, chapter_dir / "state_update_proposal.json"),
         state_update_apply_log_path=str(apply_log_path.relative_to(root)) if apply_log_path else None,
         accepted_at=accepted_at,
-        updated_at=_utc_now(),
+        updated_at=now,
     )
     backup_if_exists(metadata_path, reason="metadata")
     atomic_write_model_json(metadata_path, metadata)
@@ -1057,6 +1059,7 @@ def _validate_state_change_old_values(
     for change in changes:
         if change.old_value is None:
             continue
+        target: Any | None
         if change.entity_id == "story_position":
             target = state.story_position
         elif change.entity_id in character_ids:
@@ -1083,7 +1086,7 @@ def _validate_state_change_old_values(
 def _current_state_value_for_change(target: Any | None, change: StateChange) -> Any:
     if target is not None:
         return getattr(target, change.field, None)
-    defaults = {
+    defaults: dict[str, Any] = {
         "possessions": [],
         "knowledge": [],
         "goals": [],
@@ -1115,7 +1118,7 @@ def _new_apply_log(
     timeline_backup_path: Path,
     status: Literal["applied", "rolled_back"],
 ) -> StateUpdateApplyLog:
-    now = _utc_now()
+    now = datetime.now(timezone.utc)
     return StateUpdateApplyLog(
         id="state_apply_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f"),
         chapter_number=chapter_number,

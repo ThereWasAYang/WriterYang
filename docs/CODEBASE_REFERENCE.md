@@ -12,7 +12,7 @@
 | `README.md` | 用户入口文档。 | 新命令、新工作流、新配置说明。 |
 | `CHANGELOG.md` | 版本变更记录。 | 每轮可见能力变化。 |
 | `CONTRIBUTING.md` | 贡献指南。 | 协作规范、测试命令、安全要求。 |
-| `.github/workflows/tests.yml` | CI：pytest、build、secret scan、ruff、informational mypy、Web E2E。 | 改 CI 阶段或 Python 版本。 |
+| `.github/workflows/tests.yml` | CI：pytest、build、secret scan、ruff、blocking mypy、Web E2E。 | 改 CI 阶段或 Python 版本。 |
 | `.github/workflows/release.yml` | tag 触发 GitHub Release 构建。 | 发布流程调整。 |
 | `schemas/*.schema.json` | 从 Pydantic models 导出的 JSON Schema。 | schema 变化后重新导出。 |
 | `examples/rain_station/` | 雨夜旧车站示例项目。 | README smoke、真实 provider 配置模板。 |
@@ -79,7 +79,8 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 主要函数：
 
 - `build_parser()`：定义所有 CLI 命令、子命令和参数。
-- `main(argv)`：命令分发入口，调用对应 core service。
+- `main(argv)`：命令分发入口，只解析参数、应用 `--project` alias，并通过 `_COMMAND_HANDLERS` 调用对应 handler。
+- `_COMMAND_HANDLERS` / `_cmd_*()`：同文件命令 handler 表；每个 handler 负责一个顶层命令，避免在 `main()` 中复用不同 result 类型。
 - `_add_agent_runtime_args()`：给 Agent 命令统一加 `--agent-config`、`--provider`、`--model`、`--dry-run-provider`。
 - `_add_integration_args()` / `_add_integration_args_recursive()`：给命令递归加 `--json`、`--quiet`、`--project`。
 - `_apply_project_alias()`：把 `--project` 映射为内部 `path`。
@@ -775,7 +776,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 
 | 目标 | 优先修改 |
 | --- | --- |
-| 新 CLI 命令 | core service -> `cli.py::build_parser()` -> `cli.py::main()` -> tests |
+| 新 CLI 命令 | core service -> `cli.py::build_parser()` -> 新增 `_cmd_*()` handler -> 登记 `_COMMAND_HANDLERS` -> tests |
 | 新 Web API | core service -> `web_api.py::handle_api_request()` -> frontend -> tests |
 | 新 Agent | prompt txt -> core service -> provider config -> schema -> tests |
 | 新 schema 文件 | `schemas.py` -> `json_schema.py` -> `schemas/*.schema.json` -> validation tests |

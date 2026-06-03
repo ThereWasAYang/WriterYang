@@ -148,7 +148,7 @@ Agent 级技能也放在 `skills/`，每个 Agent 单独保存、按需加载：
 确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑：
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装工具，确保源码更新后重启 Web UI 即可生效。
-- `check_local.py`：本地复现 CI 质量门禁。默认会真实运行 mypy 但把失败标记为 informational；需要 mypy 失败返回非零时使用 `--strict-mypy`。
+- `check_local.py`：本地复现 CI 质量门禁。mypy 是阻断式检查；`--strict-mypy` 保留为兼容旧命令的显式写法。
 - `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke。
 - `debug_bundle.py`：生成脱敏排障包。
 - `provider_ping.py`：检查 agent/embedding provider 配置和可选真实调用。
@@ -219,7 +219,7 @@ novel export markdown --path <project>
 1. 在 `core/` 新增或扩展 service，定义 options/result dataclass。
 2. service 中完成读取、校验、provider 调用、文件写入和返回结果。
 3. 在 `cli.py::build_parser()` 增加子命令和参数。
-4. 在 `cli.py::main()` 增加分支，调用 core service。
+4. 新增 `_cmd_<name>()` handler 并登记到 `cli.py::_COMMAND_HANDLERS`，不要把新分支直接塞回 `main()`。
 5. 如果命令写项目文件，用 `_command_lock()` 包住。
 6. 支持已有集成参数：`--path` / `--project`、`--json`、`--quiet`。
 7. 写 CLI 测试，覆盖成功、缺失文件、默认不覆盖、JSON 输出。
@@ -367,7 +367,7 @@ ruff check .
 mypy src
 ```
 
-当前 `mypy src` 已经不是假通过：它会输出真实类型错误。但在 CI 和默认 `scripts/check_local.py` 中仍是非阻断信号，目的是先暴露问题而不把大规模类型修复混进功能修复。需要本地严格门禁时运行 `python scripts/check_local.py --strict-mypy`。
+`mypy src` 已经是阻断式类型门禁：CI 和默认 `scripts/check_local.py` 都会因为 mypy 失败而失败。需要保持新增代码 0 类型错误。
 
 ## 13. 重构准则
 

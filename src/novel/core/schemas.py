@@ -803,10 +803,10 @@ class ContextBundle(SchemaVersionedModel):
             )
         if self.excluded:
             lines.append("- excluded:")
-            for item in self.excluded:
+            for excluded_item in self.excluded:
                 lines.append(
-                    f"  - [{item.type}] {item.id} ({item.source}); "
-                    f"visibility: {item.visibility}; reason: {item.reason}"
+                    f"  - [{excluded_item.type}] {excluded_item.id} ({excluded_item.source}); "
+                    f"visibility: {excluded_item.visibility}; reason: {excluded_item.reason}"
                 )
         if self.warnings:
             lines.append("- warnings:")

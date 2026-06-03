@@ -23,7 +23,7 @@ python -m build
 python -m twine check dist/*
 ```
 
-当前 `mypy src` 会真实输出类型问题，但 CI 中暂时是 informational 非阻断检查；本地一键检查默认也不因 mypy 失败而失败。需要把 mypy 作为本地硬门禁时，运行：
+`mypy src` 是阻断式类型检查；CI 和本地一键检查都会因为 mypy 失败而失败。`--strict-mypy` 保留为兼容旧命令的显式写法：
 
 ```bash
 python scripts/check_local.py --strict-mypy
@@ -50,6 +50,6 @@ python scripts/check_local.py --strict-mypy
 提交 PR 前请确认：
 
 - 已运行非真实 API 测试。
-- 已运行 lint/type check；注意 mypy 当前为真实但非阻断检查。
+- 已运行 lint/type check，且 mypy 为 0 errors。
 - 没有提交本地密钥、缓存、构建产物或项目锁。
 - README、docs、examples 与实际 CLI 命令一致。

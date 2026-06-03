@@ -32,7 +32,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--strict-mypy",
         action="store_true",
-        help="Make mypy failures fail the local gate. By default mypy is informational.",
+        help="Compatibility flag; mypy is always a blocking check.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without running them.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable output.")
@@ -70,7 +70,7 @@ def _selected_checks(args: argparse.Namespace) -> list[Check]:
     checks = [
         Check("pytest", [sys.executable, "-m", "pytest", "-m", "not real_api and not web_e2e", "-q"]),
         Check("ruff", [sys.executable, "-m", "ruff", "check", "."]),
-        Check("mypy", [sys.executable, "-m", "mypy", "src"], blocking=bool(args.strict_mypy)),
+        Check("mypy", [sys.executable, "-m", "mypy", "src"]),
         Check("secret-scan", _secret_scan_command()),
         Check("build", [sys.executable, "-m", "build"]),
         Check("twine", _twine_check_command()),

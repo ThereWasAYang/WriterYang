@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import sys
+from typing import Literal, cast
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel, Field
@@ -72,7 +73,7 @@ from novel.core.session import (
 from novel.core.providers import ProviderFactory
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
-from novel.core.workflow import GenerateChapterOptions, generate_chapter
+from novel.core.workflow import GenerateChapterOptions, ProviderName, generate_chapter
 from novel.core.workspace import InitOptions, init_workspace, is_default_inspiration_placeholder
 
 
@@ -350,9 +351,7 @@ def _audit_chapter(data: dict[str, object]) -> dict[str, object]:
             instruction=_optional_string(data.get("instruction")),
             force=bool(data.get("force")),
             strict=bool(data.get("strict")),
-            focus=tuple(str(item) for item in data.get("focus", []) if item)  # type: ignore[union-attr]
-            if isinstance(data.get("focus"), list)
-            else (),
+            focus=_audit_focus(data.get("focus")),
             audited_file=audited_file,  # type: ignore[arg-type]
             use_search_context=bool(data.get("use_search_context")),
             use_vector_context=bool(data.get("use_vector_context")),
@@ -397,7 +396,7 @@ def _generate_chapter(data: dict[str, object]) -> dict[str, object]:
             chapter_number=_chapter_number(data),
             instruction=_optional_string(data.get("instruction")),
             force=bool(data.get("force")),
-            provider_name=str(data.get("provider") or "config"),
+            provider_name=_provider_name(data.get("provider")),
             target_words=_optional_int(data.get("target_words")),
             style_note=_optional_string(data.get("style_note")),
             skip_polish=bool(data.get("skip_polish")),
@@ -1986,7 +1985,10 @@ def _root_from_body(data: dict[str, object]) -> Path:
 
 
 def _chapter_number(data: dict[str, object]) -> int:
-    value = int(data.get("chapter_number") or 0)
+    raw_value = data.get("chapter_number") or 0
+    if not isinstance(raw_value, (int, str)):
+        raise ValueError("chapter_number must be a positive integer")
+    value = int(raw_value)
     if value < 1:
         raise ValueError("chapter_number must be a positive integer")
     return value
@@ -2002,13 +2004,39 @@ def _optional_string(value: object) -> str | None:
 def _optional_int(value: object) -> int | None:
     if value in (None, ""):
         return None
+    if not isinstance(value, (int, str)):
+        raise ValueError(f"expected integer-compatible value, got {type(value).__name__}")
     return int(value)
 
 
 def _optional_float(value: object, default: float) -> float:
     if value in (None, ""):
         return default
+    if not isinstance(value, (int, float, str)):
+        raise ValueError(f"expected float-compatible value, got {type(value).__name__}")
     return float(value)
+
+
+def _provider_name(value: object) -> ProviderName:
+    provider = str(value or "config")
+    if provider not in {"config", "mock", "openai", "openai_compatible", "deepseek", "zai"}:
+        raise ValueError(f"unsupported provider: {provider}")
+    return cast(ProviderName, provider)
+
+
+def _audit_focus(value: object) -> tuple[
+    Literal["canon", "state", "timeline", "style", "plot", "character_voice", "premature_reveal"],
+    ...,
+]:
+    allowed = {"canon", "state", "timeline", "style", "plot", "character_voice", "premature_reveal"}
+    if not isinstance(value, list):
+        return ()
+    focus: list[Literal["canon", "state", "timeline", "style", "plot", "character_voice", "premature_reveal"]] = []
+    for item in value:
+        text = str(item)
+        if text in allowed:
+            focus.append(cast(Literal["canon", "state", "timeline", "style", "plot", "character_voice", "premature_reveal"], text))
+    return tuple(focus)
 
 
 def _truthy(value: object) -> bool:

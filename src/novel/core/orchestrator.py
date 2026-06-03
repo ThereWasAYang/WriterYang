@@ -445,9 +445,13 @@ def _normalize_ask_intent_payload(data: dict[str, object], *, fallback_request: 
     normalized["chapter_range"] = _normalize_chapter_numbers(normalized.get("chapter_range"), list(_chapters_from_request(fallback_request)))
     repair_id = str(normalized.get("repair_id") or "").strip()
     normalized["repair_id"] = repair_id or None
-    try:
-        confidence = float(normalized.get("confidence") or 0.5)
-    except (TypeError, ValueError):
+    raw_confidence = normalized.get("confidence")
+    if isinstance(raw_confidence, (int, float, str)):
+        try:
+            confidence = float(raw_confidence)
+        except ValueError:
+            confidence = 0.5
+    else:
         confidence = 0.5
     normalized["confidence"] = min(1.0, max(0.0, confidence))
     normalized["source"] = "model"
@@ -757,7 +761,14 @@ def _normalize_audit_repair_route_payload(data: dict[str, object], *, audit_repo
         raise OrchestratorError(f"unknown audit repair route: {route or '<empty>'}")
     normalized["route"] = route
     normalized["reason"] = str(normalized.get("reason") or "audit repair route decision")
-    normalized["chapter_number"] = int(normalized.get("chapter_number") or audit_report.chapter_number)
+    raw_chapter_number = normalized.get("chapter_number")
+    if isinstance(raw_chapter_number, (int, str)):
+        try:
+            normalized["chapter_number"] = int(raw_chapter_number)
+        except ValueError:
+            normalized["chapter_number"] = audit_report.chapter_number
+    else:
+        normalized["chapter_number"] = audit_report.chapter_number
     issue_ids = normalized.get("issue_ids")
     if not isinstance(issue_ids, list) or not issue_ids:
         normalized["issue_ids"] = [issue.id for issue in audit_report.issues if issue.severity in {"medium", "high", "critical"}]
@@ -1038,7 +1049,7 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
     chapter = plan.chapter_number
     if plan.task == "inspiration":
         provider = load_inspiration_provider(root, provider_name)
-        result = run_inspiration_agent(
+        inspiration_result = run_inspiration_agent(
             InspirationOptions(
                 root=root,
                 source_text=plan.instruction,
@@ -1049,14 +1060,14 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             ),
             provider,
         )
-        outputs = [_rel(root, result.markdown_path)]
-        if result.json_path:
-            outputs.append(_rel(root, result.json_path))
+        outputs = [_rel(root, inspiration_result.markdown_path)]
+        if inspiration_result.json_path:
+            outputs.append(_rel(root, inspiration_result.json_path))
         return outputs
     if plan.task == "canon":
         provider = load_canon_provider(root, provider_name)
         output_path = root / "runs" / f"canon_proposal_{_timestamp()}.json"
-        result = suggest_canon(
+        canon_result = suggest_canon(
             CanonSuggestOptions(
                 root=root,
                 output_path=output_path,
@@ -1065,11 +1076,11 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             ),
             provider,
         )
-        return [_rel(root, result.output_path)] if result.output_path else []
+        return [_rel(root, canon_result.output_path)] if canon_result.output_path else []
     if plan.task == "plan":
         assert chapter is not None
         provider = load_planning_provider(root, provider_name, chapter_number=chapter)
-        result = plan_chapter(
+        planning_result = plan_chapter(
             ChapterPlanningOptions(
                 root=root,
                 chapter_number=chapter,
@@ -1080,11 +1091,11 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             ),
             provider,
         )
-        return [_rel(root, result.plan_json_path), _rel(root, result.plan_markdown_path)]
+        return [_rel(root, planning_result.plan_json_path), _rel(root, planning_result.plan_markdown_path)]
     if plan.task == "write":
         assert chapter is not None
         provider = load_drafting_provider(root, provider_name)
-        result = write_chapter_draft(
+        drafting_result = write_chapter_draft(
             ChapterDraftingOptions(
                 root=root,
                 chapter_number=chapter,
@@ -1095,11 +1106,11 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             ),
             provider,
         )
-        return [_rel(root, result.draft_path)]
+        return [_rel(root, drafting_result.draft_path)]
     if plan.task == "polish":
         assert chapter is not None
         provider = load_polishing_provider(root, provider_name)
-        result = polish_chapter(
+        polishing_result = polish_chapter(
             ChapterPolishingOptions(
                 root=root,
                 chapter_number=chapter,
@@ -1110,11 +1121,11 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             ),
             provider,
         )
-        return [_rel(root, result.polished_path)]
+        return [_rel(root, polishing_result.polished_path)]
     if plan.task == "audit":
         assert chapter is not None
         provider = load_audit_provider(root, provider_name, chapter_number=chapter)
-        result = audit_chapter(
+        audit_result = audit_chapter(
             ChapterAuditOptions(
                 root=root,
                 chapter_number=chapter,
@@ -1125,11 +1136,11 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             ),
             provider,
         )
-        return [_rel(root, result.audit_path)]
+        return [_rel(root, audit_result.audit_path)]
     if plan.task == "revision":
         assert chapter is not None
         provider = load_revision_provider(root, provider_name, target="polished")
-        result = revise_chapter(
+        revision_result = revise_chapter(
             ChapterRevisionOptions(
                 root=root,
                 chapter_number=chapter,
@@ -1143,11 +1154,11 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             provider,
             provider_name=provider_name,
         )
-        return [_rel(root, result.output_path), _rel(root, result.revision_log_path)]
+        return [_rel(root, revision_result.output_path), _rel(root, revision_result.revision_log_path)]
     if plan.task == "plot_replan":
         assert chapter is not None
         provider = load_planning_provider(root, provider_name, chapter_number=chapter)
-        result = plan_chapter(
+        replan_result = plan_chapter(
             ChapterPlanningOptions(
                 root=root,
                 chapter_number=chapter,
@@ -1158,7 +1169,7 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             ),
             provider,
         )
-        return [_rel(root, result.plan_json_path), _rel(root, result.plan_markdown_path)]
+        return [_rel(root, replan_result.plan_json_path), _rel(root, replan_result.plan_markdown_path)]
     if plan.task == "writer_rewrite":
         assert chapter is not None
         provider = load_drafting_provider(root, provider_name)
@@ -1177,7 +1188,7 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
     if plan.task == "revision_patch":
         assert chapter is not None
         provider = load_revision_provider(root, provider_name, target="polished")
-        result = revise_chapter(
+        patch_result = revise_chapter(
             ChapterRevisionOptions(
                 root=root,
                 chapter_number=chapter,
@@ -1191,11 +1202,11 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             provider,
             provider_name=provider_name,
         )
-        return [_rel(root, result.output_path), _rel(root, result.revision_log_path)]
+        return [_rel(root, patch_result.output_path), _rel(root, patch_result.revision_log_path)]
     if plan.task == "state_update":
         assert chapter is not None
         provider = load_state_update_provider(root, provider_name, chapter_number=chapter)
-        result = propose_state_update(
+        state_update_result = propose_state_update(
             StateUpdateProposeOptions(
                 root=root,
                 chapter_number=chapter,
@@ -1206,15 +1217,15 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
             ),
             provider,
         )
-        return [_rel(root, result.proposal_path)]
+        return [_rel(root, state_update_result.proposal_path)]
     if plan.task == "export_markdown":
-        result = export_markdown(
+        export_result = export_markdown(
             MarkdownExportOptions(root=root, include_unaccepted=True, force=options.force)
         )
-        return [_rel(root, result.output_path), _rel(root, result.manifest_path)]
+        return [_rel(root, export_result.output_path), _rel(root, export_result.manifest_path)]
     if plan.task == "memory_repair":
-        result = suggest_memory_repair(root, plan.instruction, provider_name=provider_name)
-        return [_rel(root, result.proposal_path), _rel(root, result.markdown_path)]
+        memory_repair_result = suggest_memory_repair(root, plan.instruction, provider_name=provider_name)
+        return [_rel(root, memory_repair_result.proposal_path), _rel(root, memory_repair_result.markdown_path)]
     raise OrchestratorError(f"unsupported orchestrator task: {plan.task}")
 
 
@@ -1250,9 +1261,6 @@ def _new_run_log(plan: OrchestratorPlan) -> AgentRunLog:
         input_files=["project.yaml"],
         output_files=[],
         errors=[],
-        handoff_trace=[entry.as_dict() for entry in plan.handoff_trace],
-        orchestrator_task=plan.task,
-        max_loop_policy="single-pass handoff trace; repeated handoffs rejected",
     )
 
 

@@ -807,7 +807,7 @@ def _validate_optional_chapter_json(
     if not path.exists():
         return None
     try:
-        model = load_json_model(path, model_type)
+        model: object = load_json_model(path, model_type)
         _validate_model_schema_version(report, path, model)
         return model
     except ValidationError as exc:

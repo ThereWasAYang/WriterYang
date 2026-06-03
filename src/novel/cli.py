@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import webbrowser
+from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -928,7 +929,12 @@ def format_doctor_result(result: dict[str, object]) -> list[str]:
         f"Root: {result['root']}",
         f"Errors: {result['error_count']}; warnings: {result['warning_count']}",
     ]
-    for check in result["checks"]:  # type: ignore[index]
+    checks = result.get("checks", [])
+    if not isinstance(checks, list):
+        checks = []
+    for check in checks:
+        if not isinstance(check, dict):
+            continue
         lines.append(f"{check['status']}: {check['name']}: {check['message']}")
     return lines
 
@@ -2096,1342 +2102,1408 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _cmd_init(args: argparse.Namespace) -> int:
+    options = InitOptions(
+        title=args.title,
+        root=Path(args.path),
+        project_id=args.project_id,
+        language=args.language,
+        genre=args.genre,
+    )
+    try:
+        result = init_workspace(options)
+    except WorkspaceExistsError as exc:
+        return _failure(args, str(exc), error_type="workspace_exists")
+    setup_lines: list[str] = []
+    open_web = False
+    web_port: int | None = None
+    if _should_run_init_guide(args):
+        try:
+            setup_lines, open_web, web_port = _run_init_setup_guide(result.root)
+        except SetupGuideError as exc:
+            return _failure(
+                args,
+                f"Workspace created at {result.root}, but initial setup failed: {exc}",
+                error_type="setup_guide_error",
+            )
+    elif not getattr(args, "no_guide", False) and not _wants_json(args) and not _quiet(args):
+        setup_lines.append("Skipped initial setup guide because this command is not running in an interactive terminal.")
+
+    if open_web and web_port is not None:
+        from novel.web_server import WebServerError, run_web_server
+
+        url = f"http://127.0.0.1:{web_port}"
+        print(f"Created novel workspace: {result.root}")
+        for line in setup_lines:
+            print(line)
+        print(f"Web UI: {url}")
+        webbrowser.open(url)
+        try:
+            run_web_server(host="127.0.0.1", port=web_port)
+        except WebServerError as exc:
+            return _failure(args, str(exc), error_type="web_error")
+        return 0
+
+    return _success(
+        args,
+        {
+            "command": "init",
+            "root": str(result.root),
+            "project_file": str(result.root / "project.yaml"),
+            "setup_guide_ran": bool(setup_lines) and not setup_lines[0].startswith("Skipped"),
+            "setup_messages": setup_lines,
+            "web_port": web_port,
+        },
+        [
+            f"Created novel workspace: {result.root}",
+            f"Project file: {result.root / 'project.yaml'}",
+            *setup_lines,
+        ],
+    )
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    report = validate_project(Path(args.path))
+    payload = _validation_payload(report)
+    if _wants_json(args):
+        _print_json({"ok": report.ok, "command": "validate", "validation": payload})
+        return 0 if report.ok else 1
+    if _quiet(args):
+        return 0 if report.ok else 1
+    for message in report.messages:
+        path = message.path
+        try:
+            path = path.relative_to(report.root)
+        except ValueError:
+            pass
+        print(f"{message.level}: {path}: {message.message}")
+
+    if report.ok:
+        print(f"Validation passed: {len(report.warnings)} warning(s)")
+        return 0
+
+    print(
+        f"Validation failed: {len(report.errors)} error(s), "
+        f"{len(report.warnings)} warning(s)",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    try:
+        with _command_lock(args, Path(args.path), "migrate", enabled=not args.dry_run):
+            result = migrate_project(Path(args.path), dry_run=args.dry_run)
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except MigrationError as exc:
+        return _failure(args, str(exc), error_type="migration_error")
+    payload = {
+        "command": "migrate",
+        "root": str(result.root),
+        "changed": result.changed,
+        "from_version": result.from_version,
+        "to_version": result.to_version,
+        "updated_files": [str(path) for path in result.updated_files],
+        "dry_run": args.dry_run,
+    }
+    lines = [
+        f"Schema version: {result.from_version or 'missing'} -> {result.to_version}",
+        "Migration required." if result.changed else "Already up to date.",
+    ]
+    if result.changed:
+        action = "Would update" if args.dry_run else "Updated"
+        lines.extend(f"{action}: {path}" for path in result.updated_files)
+    return _success(args, payload, lines)
+
+
+def _cmd_schema(args: argparse.Namespace) -> int:
+    if args.schema_command == "export":
+        paths = export_json_schemas(args.output)
+        return _success(
+            args,
+            {
+                "command": "schema export",
+                "output": str(args.output),
+                "schema_count": len(paths),
+                "files": [str(path) for path in paths],
+            },
+            [f"Wrote {len(paths)} JSON Schema file(s) to {args.output}"],
+        )
+    return _failure(args, f"unknown schema command: {args.schema_command}", code=2)
+
+
+def _cmd_completion(args: argparse.Namespace) -> int:
+    script = completion_script(args.shell)
+    if _wants_json(args):
+        _print_json({"ok": True, "command": "completion", "shell": args.shell, "script": script})
+    elif not _quiet(args):
+        print(script, end="" if script.endswith("\n") else "\n")
+    return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    result = run_doctor(Path(args.path))
+    payload = {"command": "doctor", **result}
+    lines = format_doctor_result(result)
+    if result["error_count"]:
+        if _wants_json(args):
+            _print_json({"ok": False, **payload})
+            return 1
+        if not _quiet(args):
+            for line in lines:
+                print(line)
+        return 1
+    return _success(args, payload, lines)
+
+
+def _cmd_index(args: argparse.Namespace) -> int:
+    if args.index_command == "rebuild":
+        try:
+            with _command_lock(args, Path(args.path), "index rebuild"):
+                result = rebuild_search_index(
+                    Path(args.path),
+                    embedding_provider_name=args.embedding_provider,
+                    embedding_config_path=args.embedding_config,
+                    with_embeddings=args.with_embeddings,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
+        except SearchError as exc:
+            return _failure(args, str(exc), error_type="search_error")
+        return _success(
+            args,
+            {
+                "command": "index rebuild",
+                "index_path": str(result.index_path),
+                "sqlite_path": str(result.sqlite_path),
+                "manifest_path": str(result.manifest_path),
+                "document_count": result.document_count,
+                "embedding_document_count": result.embedding_document_count,
+                "with_embeddings": result.with_embeddings,
+            },
+            [
+                f"Rebuilt search index: {result.index_path}",
+                f"Documents: {result.document_count}",
+                f"Embedding vectors: {result.embedding_document_count}",
+            ],
+        )
+    if args.index_command == "refresh":
+        try:
+            with _command_lock(args, Path(args.path), "index refresh"):
+                result = refresh_search_index(
+                    Path(args.path),
+                    embedding_provider_name=args.embedding_provider,
+                    embedding_config_path=args.embedding_config,
+                    with_embeddings=args.with_embeddings,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
+        except SearchError as exc:
+            return _failure(args, str(exc), error_type="search_error")
+        return _success(
+            args,
+            {
+                "command": "index refresh",
+                "index_path": str(result.index_path),
+                "sqlite_path": str(result.sqlite_path),
+                "manifest_path": str(result.manifest_path),
+                "document_count": result.document_count,
+                "refreshed_count": result.refreshed_count,
+                "deleted_count": result.deleted_count,
+                "embedding_document_count": result.embedding_document_count,
+                "with_embeddings": result.with_embeddings,
+            },
+            [
+                f"Refreshed search index: {result.index_path}",
+                f"Documents: {result.document_count}",
+                f"Changed: {result.refreshed_count}; deleted: {result.deleted_count}",
+                f"Embedding vectors: {result.embedding_document_count}",
+            ],
+        )
+    if args.index_command == "status":
+        status = search_index_status(
+            Path(args.path),
+            embedding_provider_name=args.embedding_provider,
+            embedding_config_path=args.embedding_config,
+        )
+        return _success(
+            args,
+            {"command": "index status", **status.as_dict()},
+            [
+                f"FTS: {status.fts_status}",
+                f"Embedding: {status.embedding_status}",
+                status.message,
+            ],
+        )
+    return _failure(args, f"unknown index command: {args.index_command}", code=2)
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    try:
+        results = search_project(
+            Path(args.path),
+            args.query,
+            search_type=args.type,
+            limit=args.limit,
+            chapter_number=args.chapter,
+            highlight=args.highlight,
+            use_vector=args.use_vector,
+            embedding_provider_name=args.embedding_provider,
+            embedding_config_path=args.embedding_config,
+        )
+    except SearchError as exc:
+        return _failure(args, str(exc), error_type="search_error")
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "id": result.id,
+                        "type": result.type,
+                        "path": result.path,
+                        "title": result.title,
+                        "score": result.score,
+                        "matched_terms": list(result.matched_terms),
+                        "excerpt": result.excerpt,
+                        "highlighted_excerpt": result.highlighted_excerpt,
+                        "metadata": result.metadata,
+                    }
+                    for result in results
+                ],
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+    if not results:
+        print("No results.")
+        return 0
+    for index, result in enumerate(results, start=1):
+        terms = ", ".join(result.matched_terms) if result.matched_terms else "none"
+        print(f"{index}. [{result.type}] {result.title}")
+        print(f"   path: {result.path}")
+        print(f"   score: {result.score}; matched_terms: {terms}")
+        print(f"   excerpt: {result.highlighted_excerpt if args.highlight else result.excerpt}")
+    return 0
+
+
+def _cmd_memory_repair(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        with _command_lock(args, root, f"memory-repair {args.memory_repair_command}"):
+            if args.memory_repair_command == "suggest":
+                repair_result = suggest_memory_repair(root, args.request, provider_name=args.provider)
+                repair_payload: dict[str, object] = {
+                    "command": "memory-repair suggest",
+                    "repair_id": repair_result.proposal.repair_id,
+                    "proposal_path": str(repair_result.proposal_path),
+                    "markdown_path": str(repair_result.markdown_path),
+                    "target_files": repair_result.proposal.target_files,
+                    "operation_count": len(repair_result.proposal.operations),
+                    "confidence": repair_result.proposal.confidence,
+                    "management_events": _management_event_payload(root),
+                }
+                return _success(
+                    args,
+                    repair_payload,
+                    [
+                        f"Memory repair proposal: {repair_result.proposal_path}",
+                        f"Targets: {', '.join(repair_result.proposal.target_files) or 'none'}",
+                        f"Operations: {len(repair_result.proposal.operations)}",
+                        *_management_event_lines(root),
+                    ],
+                )
+            apply_result = apply_memory_repair(root, _resolve_memory_repair_proposal_arg(args.proposal))
+            apply_payload: dict[str, object] = {
+                "command": "memory-repair apply",
+                "repair_id": apply_result.proposal.repair_id,
+                "apply_log_path": str(apply_result.apply_log_path),
+                "status": apply_result.apply_log.status,
+                "management_events": _management_event_payload(root),
+            }
+            return _success(
+                args,
+                apply_payload,
+                [
+                    f"Applied memory repair: {apply_result.proposal.repair_id}",
+                    f"Apply log: {apply_result.apply_log_path}",
+                    *_management_event_lines(root),
+                ],
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except MemoryRepairError as exc:
+        return _failure(args, str(exc), error_type="memory_repair_error")
+
+
+def _cmd_ask(args: argparse.Namespace) -> int:
+    try:
+        with _command_lock(args, Path(args.path), "ask", enabled=not args.dry_run):
+            if args.max_steps < 1:
+                raise OrchestratorError("max_steps must be at least 1")
+            if args.max_agent_calls < 1:
+                raise OrchestratorError("max_agent_calls must be at least 1")
+            if args.dry_run:
+                result = orchestrate(
+                    OrchestratorOptions(
+                        root=Path(args.path),
+                        request=args.request,
+                        provider_name=args.provider,
+                        dry_run=True,
+                        force=args.force,
+                        max_steps=args.max_steps,
+                        max_retries=args.max_retries,
+                        max_agent_calls=args.max_agent_calls,
+                        use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
+                    )
+                )
+                dry_run_payload: dict[str, object] = {
+                    "command": "ask",
+                    "task": result.plan.task,
+                    "chapter_number": result.plan.chapter_number,
+                    "message": result.message,
+                    "run_log_path": str(result.run_log_path) if result.run_log_path else None,
+                    "handoff_trace": [entry.as_dict() for entry in result.plan.handoff_trace],
+                    "revision_route": result.plan.revision_route.model_dump(mode="json")
+                    if result.plan.revision_route
+                    else None,
+                }
+                if _wants_json(args):
+                    _print_json({"ok": True, **dry_run_payload})
+                    return 0
+                if not _quiet(args):
+                    if args.show_handoff_rules:
+                        print(handoff_rules_text())
+                        print("")
+                    print(format_orchestrator_plan(result.plan))
+                    print(result.message)
+                return 0
+            intent = decide_ask_intent(Path(args.path), args.request, provider_name=args.provider)
+            if intent.task == "memory_repair_apply":
+                if intent.source != "model" or not intent.repair_id:
+                    raise OrchestratorError("memory repair apply requires a structured model decision; use novel memory-repair apply <repair_id>")
+                apply_result = apply_memory_repair(
+                    Path(args.path),
+                    Path("memory") / "repairs" / intent.repair_id / "proposal.json",
+                )
+                apply_payload: dict[str, object] = {
+                    "command": "ask",
+                    "task": "memory_repair_apply",
+                    "ask_intent": intent.model_dump(mode="json"),
+                    "repair_id": apply_result.proposal.repair_id,
+                    "apply_log_path": str(apply_result.apply_log_path),
+                    "status": apply_result.apply_log.status,
+                    "management_events": _management_event_payload(Path(args.path)),
+                }
+                return _success(
+                    args,
+                    apply_payload,
+                    [
+                        f"Applied memory repair: {apply_result.proposal.repair_id}",
+                        f"Apply log: {apply_result.apply_log_path}",
+                        *_management_event_lines(Path(args.path)),
+                    ],
+                )
+            if intent.task == "memory_repair_suggest":
+                repair_result = suggest_memory_repair(Path(args.path), args.request, provider_name=args.provider)
+                repair_payload: dict[str, object] = {
+                    "command": "ask",
+                    "task": "memory_repair_suggest",
+                    "ask_intent": intent.model_dump(mode="json"),
+                    "repair_id": repair_result.proposal.repair_id,
+                    "proposal_path": str(repair_result.proposal_path),
+                    "markdown_path": str(repair_result.markdown_path),
+                    "target_files": repair_result.proposal.target_files,
+                    "operation_count": len(repair_result.proposal.operations),
+                    "management_events": _management_event_payload(Path(args.path)),
+                }
+                return _success(
+                    args,
+                    repair_payload,
+                    [
+                        f"Memory repair proposal: {repair_result.proposal_path}",
+                        f"Targets: {', '.join(repair_result.proposal.target_files)}",
+                        *_management_event_lines(Path(args.path)),
+                    ],
+                )
+            if intent.task == "export":
+                export_result = export_markdown(MarkdownExportOptions(root=Path(args.path), force=args.force))
+                export_payload: dict[str, object] = {
+                    "command": "ask",
+                    "task": "export",
+                    "ask_intent": intent.model_dump(mode="json"),
+                    "output_path": str(export_result.output_path),
+                    "manifest_path": str(export_result.manifest_path),
+                }
+                return _success(args, export_payload, [f"Exported Markdown: {export_result.output_path}"])
+            if intent.task in {"status", "show"}:
+                status = get_project_status(Path(args.path))
+                status_payload: dict[str, object] = {
+                    "command": "ask",
+                    "task": intent.task,
+                    "ask_intent": intent.model_dump(mode="json"),
+                    "status": _status_payload(status),
+                }
+                return _success(args, status_payload, format_status(status, Path(args.path)).splitlines())
+            if intent.task == "unknown":
+                raise OrchestratorError(intent.user_message or intent.reason)
+            fallback_chapter = _extract_chapter_from_text(args.request)
+            chapter_numbers = tuple(intent.chapter_range or ([fallback_chapter] if fallback_chapter else []) or [1])
+            session_result = start_session(
+                SessionStartOptions(
+                    root=Path(args.path),
+                    user_intent=args.request,
+                    chapter_range=chapter_numbers,
+                    provider_name=args.provider,
+                    force=args.force,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=args.use_vector_context,
+                )
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except MemoryRepairError as exc:
+        return _failure(args, str(exc), error_type="memory_repair_error")
+    except (OrchestratorError, CreationSessionError) as exc:
+        return _failure(args, str(exc), error_type="orchestrator_error")
+    session_payload: dict[str, object] = {
+        "command": "ask",
+        "task": "creation_session",
+        "ask_intent": intent.model_dump(mode="json"),
+        "chapter_number": session_result.session.chapter_range[0],
+        "chapter_range": session_result.session.chapter_range,
+        "session_id": session_result.session.session_id,
+        "message": session_result.message,
+        "session_path": str(session_result.session_path),
+        "status": session_result.session.status,
+    }
+    if _wants_json(args):
+        _print_json({"ok": True, **session_payload})
+        return 0
+    if _quiet(args):
+        return 0
+    print(f"Session: {session_result.session.session_id}")
+    print(session_result.message)
+    print(f"Session file: {session_result.session_path}")
+    print("Next: review outline_proposal.md, then run novel session approve-outline <session_id>")
+    return 0
+
+
+def _cmd_session(args: argparse.Namespace) -> int:
+    try:
+        root = Path(args.path)
+        with _command_lock(args, root, f"session {args.session_command}"):
+            result = _run_session_command(args, root)
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except CreationSessionError as exc:
+        return _failure(args, str(exc), error_type="session_error")
+    payload = _session_payload(args.session_command, result, root)
+    lines = [
+        f"Session: {result.session.session_id}",
+        result.message,
+        f"Status: {result.session.status}",
+        f"Session file: {result.session_path}",
+        *_session_revision_route_lines(result.session),
+        *_session_rewrite_lines(root, result.session),
+        *_management_event_lines(root),
+        *_session_low_issue_lines(root, result.session.audit_history),
+    ]
+    return _success(args, payload, lines)
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    try:
+        status = get_project_status(Path(args.path))
+    except ProjectReadError as exc:
+        return _failure(args, str(exc), error_type="project_read_error")
+    return _success(
+        args,
+        {"command": "status", "status": _status_payload(status)},
+        [format_status(status, Path(args.path))],
+    )
+
+
+def _cmd_usage(args: argparse.Namespace) -> int:
+    try:
+        summary = summarize_provider_usage(Path(args.path))
+    except UsageError as exc:
+        return _failure(args, str(exc), error_type="usage_error")
+    payload: dict[str, object] = {"command": "usage", "usage": summary.as_dict()}
+    lines = _format_usage_summary(summary.as_dict())
+    return _success(args, payload, lines)
+
+
+def _cmd_show(args: argparse.Namespace) -> int:
+    try:
+        if args.target == "characters":
+            output = format_characters(Path(args.path))
+        elif args.target == "timeline":
+            output = format_timeline(Path(args.path))
+        elif args.target == "canon":
+            output = format_canon(Path(args.path))
+        else:
+            output = format_state(Path(args.path))
+    except ProjectReadError as exc:
+        return _failure(args, str(exc), error_type="project_read_error")
+    return _success(
+        args,
+        {"command": "show", "target": args.target, "output": output},
+        [output],
+    )
+
+
+def _cmd_inspire(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                (("inspiration", ()),),
+            )
+            return 0
+        source_text, source_type = read_inspiration_input(args.text, args.input)
+        provider = load_inspiration_provider(
+            root,
+            args.provider,
+            agent_config_path=args.agent_config,
+            model_name=args.model,
+        )
+        with _command_lock(args, root, "inspire"):
+            result = run_inspiration_agent(
+                InspirationOptions(
+                    root=root,
+                    source_text=source_text,
+                    source_type=source_type,
+                    write_json=args.json,
+                    overwrite=args.overwrite,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=args.use_vector_context,
+                ),
+                provider,
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except InspirationError as exc:
+        return _failure(args, str(exc), error_type="inspiration_error")
+    except Exception as exc:
+        return _failure(args, f"inspiration generation failed: {exc}", error_type="inspiration_error")
+
+    lines = [f"Wrote inspiration markdown: {result.markdown_path}"]
+    if result.json_path:
+        lines.append(f"Wrote inspiration JSON: {result.json_path}")
+    return _success(
+        args,
+        {
+            "command": "inspire",
+            "markdown_path": str(result.markdown_path),
+            "json_path": str(result.json_path) if result.json_path else None,
+        },
+        lines,
+    )
+
+
+def _cmd_canon(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    if args.canon_command == "suggest":
+        try:
+            if args.dry_run_provider:
+                _print_dry_run_provider(
+                    root,
+                    args.agent_config,
+                    args.provider,
+                    args.model,
+                    (("canon", ("inspiration",)),),
+                )
+                return 0
+            provider = load_canon_provider(
+                root,
+                args.provider,
+                agent_config_path=args.agent_config,
+                model_name=args.model,
+            )
+            with _command_lock(args, root, "canon suggest", enabled=args.output is not None):
+                suggest_result = suggest_canon(
+                    CanonSuggestOptions(
+                        root=root,
+                        output_path=args.output,
+                        use_search_context=args.use_search_context,
+                        use_vector_context=args.use_vector_context,
+                    ),
+                    provider,
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
+        except CanonError as exc:
+            return _failure(args, str(exc), error_type="canon_error")
+        except Exception as exc:
+            return _failure(args, f"canon suggestion failed: {exc}", error_type="canon_error")
+
+        if _wants_json(args):
+            _print_json(
+                {
+                    "ok": True,
+                    "command": "canon suggest",
+                    "output_path": str(suggest_result.output_path) if suggest_result.output_path else None,
+                    "proposal": json.loads(suggest_result.proposal_json),
+                }
+            )
+            return 0
+        if _quiet(args):
+            return 0
+        if suggest_result.output_path:
+            print(f"Wrote canon proposal: {suggest_result.output_path}")
+        else:
+            print(suggest_result.proposal_json, end="")
+        return 0
+
+    if args.canon_command == "apply":
+        try:
+            with _command_lock(args, root, "canon apply"):
+                apply_result = apply_canon_proposal(root, args.proposal_file)
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
+        except CanonError as exc:
+            return _failure(args, str(exc), error_type="canon_error")
+        if _wants_json(args):
+            _print_json(
+                {
+                    "ok": apply_result.validation_report.ok,
+                    "command": "canon apply",
+                    "validation": _validation_payload(apply_result.validation_report),
+                }
+            )
+            return 0 if apply_result.validation_report.ok else 1
+        if not _quiet(args):
+            print(format_canon_validation_report(apply_result.validation_report))
+        return 0 if apply_result.validation_report.ok else 1
+
+    if args.canon_command == "validate":
+        report = validate_canon(root)
+        if _wants_json(args):
+            _print_json({"ok": report.ok, "command": "canon validate", "validation": _validation_payload(report)})
+            return 0 if report.ok else 1
+        if not _quiet(args):
+            print(format_canon_validation_report(report))
+        return 0 if report.ok else 1
+
+    if args.canon_command == "show":
+        try:
+            output = format_canon(root)
+        except ProjectReadError as exc:
+            return _failure(args, str(exc), error_type="project_read_error")
+        return _success(args, {"command": "canon show", "output": output}, [output])
+    return _failure(args, f"unknown canon command: {args.canon_command}", code=2)
+
+
+def _cmd_plan_chapter(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                (("plot", ()),),
+            )
+            return 0
+        instruction = read_planning_instruction(args.instruction, args.input)
+        provider = load_planning_provider(
+            root,
+            args.provider,
+            chapter_number=args.chapter_number,
+            agent_config_path=args.agent_config,
+            model_name=args.model,
+        )
+        with _command_lock(args, root, "plan-chapter"):
+            result = plan_chapter(
+                ChapterPlanningOptions(
+                    root=root,
+                    chapter_number=args.chapter_number,
+                    instruction=instruction,
+                    force=args.force,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=args.use_vector_context,
+                ),
+                provider,
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except PlanningError as exc:
+        return _failure(args, str(exc), error_type="planning_error")
+    except Exception as exc:
+        return _failure(args, f"chapter planning failed: {exc}", error_type="planning_error")
+
+    payload = {
+        "command": "plan-chapter",
+        "chapter_number": result.plan.chapter_number,
+        "plan_json_path": str(result.plan_json_path),
+        "plan_markdown_path": str(result.plan_markdown_path),
+        "validation": _validation_payload(result.validation_report),
+    }
+    if _wants_json(args):
+        _print_json({"ok": result.validation_report.ok, **payload})
+        return 0 if result.validation_report.ok else 1
+    if not _quiet(args):
+        print(f"Wrote chapter plan JSON: {result.plan_json_path}")
+        print(f"Wrote chapter plan Markdown: {result.plan_markdown_path}")
+    if not result.validation_report.ok:
+        if not _quiet(args):
+            print(
+                f"Validation failed after planning: {len(result.validation_report.errors)} error(s), "
+                f"{len(result.validation_report.warnings)} warning(s)",
+                file=sys.stderr,
+            )
+        return 1
+    if not _quiet(args):
+        print(f"Validation passed: {len(result.validation_report.warnings)} warning(s)")
+    return 0
+
+
+def _cmd_write_chapter(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                (("writer", ()),),
+            )
+            return 0
+        instruction = read_drafting_instruction(args.instruction, args.input)
+        provider = load_drafting_provider(
+            root,
+            args.provider,
+            agent_config_path=args.agent_config,
+            model_name=args.model,
+        )
+        with _command_lock(args, root, "write-chapter"):
+            result = write_chapter_draft(
+                ChapterDraftingOptions(
+                    root=root,
+                    chapter_number=args.chapter_number,
+                    instruction=instruction,
+                    force=args.force,
+                    target_words=args.target_words,
+                    style_note=args.style_note,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=args.use_vector_context,
+                ),
+                provider,
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except DraftingError as exc:
+        return _failure(args, str(exc), error_type="drafting_error")
+    except Exception as exc:
+        return _failure(args, f"chapter drafting failed: {exc}", error_type="drafting_error")
+
+    lines = [*(f"warning: {warning}" for warning in result.warnings), f"Wrote chapter draft: {result.draft_path}"]
+    return _success(
+        args,
+        {
+            "command": "write-chapter",
+            "draft_path": str(result.draft_path),
+            "warnings": list(result.warnings),
+        },
+        lines,
+    )
+
+
+def _cmd_polish_chapter(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                (("polish", ()),),
+            )
+            return 0
+        instruction = read_polishing_instruction(args.instruction, args.input)
+        edit_mode = resolve_edit_mode(
+            light_edit=args.light_edit,
+            deep_edit=args.deep_edit,
+        )
+        provider = load_polishing_provider(
+            root,
+            args.provider,
+            agent_config_path=args.agent_config,
+            model_name=args.model,
+        )
+        with _command_lock(args, root, "polish-chapter"):
+            result = polish_chapter(
+                ChapterPolishingOptions(
+                    root=root,
+                    chapter_number=args.chapter_number,
+                    instruction=instruction,
+                    force=args.force,
+                    style_note=args.style_note,
+                    keep_length=args.keep_length,
+                    edit_mode=edit_mode,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=args.use_vector_context,
+                ),
+                provider,
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except PolishingError as exc:
+        return _failure(args, str(exc), error_type="polishing_error")
+    except Exception as exc:
+        return _failure(args, f"chapter polishing failed: {exc}", error_type="polishing_error")
+
+    lines = [*(f"warning: {warning}" for warning in result.warnings), f"Wrote polished chapter: {result.polished_path}"]
+    return _success(
+        args,
+        {
+            "command": "polish-chapter",
+            "polished_path": str(result.polished_path),
+            "warnings": list(result.warnings),
+        },
+        lines,
+    )
+
+
+def _cmd_audit_chapter(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                (("audit", ()),),
+            )
+            return 0
+        instruction = read_audit_instruction(args.instruction, args.input)
+        provider = load_audit_provider(
+            root,
+            args.provider,
+            chapter_number=args.chapter_number,
+            audited_file=args.audited_file,
+            agent_config_path=args.agent_config,
+            model_name=args.model,
+        )
+        with _command_lock(args, root, "audit-chapter"):
+            result = audit_chapter(
+                ChapterAuditOptions(
+                    root=root,
+                    chapter_number=args.chapter_number,
+                    instruction=instruction,
+                    force=args.force,
+                    strict=args.strict,
+                    focus=tuple(args.focus),
+                    audited_file=args.audited_file,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=args.use_vector_context,
+                ),
+                provider,
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except AuditError as exc:
+        return _failure(args, str(exc), error_type="audit_error")
+    except Exception as exc:
+        return _failure(args, f"chapter audit failed: {exc}", error_type="audit_error")
+
+    lines = [
+        *(f"warning: {warning}" for warning in result.warnings),
+        f"Wrote chapter audit: {result.audit_path}",
+        f"Audit status: {result.report.overall_status}",
+        f"Issues: {len(result.report.issues)}",
+        f"Deterministic issues: {len(result.deterministic_findings)}"
+        + (
+            f" (highest: {result.deterministic_highest_severity})"
+            if result.deterministic_highest_severity
+            else ""
+        ),
+        *_audit_issue_lines(result.report),
+    ]
+    return _success(
+        args,
+        {
+            "command": "audit-chapter",
+            "audit_path": str(result.audit_path),
+            "overall_status": result.report.overall_status,
+            "issue_count": len(result.report.issues),
+            "issues": [issue.model_dump(mode="json") for issue in result.report.issues],
+            "deterministic_issue_count": len(result.deterministic_findings),
+            "deterministic_highest_severity": result.deterministic_highest_severity,
+            "warnings": list(result.warnings),
+        },
+        lines,
+    )
+
+
+def _cmd_revise_chapter(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            agent = "writer" if args.target == "draft" else "polish"
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                ((agent, ()),),
+            )
+            return 0
+        instruction = read_revision_instruction(args.instruction, args.input)
+        provider = load_revision_provider(
+            root,
+            args.provider,
+            target=args.target,
+            agent_config_path=args.agent_config,
+            model_name=args.model,
+        )
+        base_options = ChapterRevisionOptions(
+            root=root,
+            chapter_number=args.chapter_number,
+            instruction=instruction,
+            from_audit=args.from_audit,
+            target=args.target,
+            force=args.force,
+            save_as_version=args.save_as_version,
+            use_search_context=args.use_search_context,
+            use_vector_context=args.use_vector_context,
+        )
+        if args.max_rounds > 1:
+            with _command_lock(args, root, "revise-chapter"):
+                loop_result = revise_chapter_loop(
+                    RevisionLoopOptions(
+                        base_options=base_options,
+                        max_rounds=args.max_rounds,
+                        confirm_loop=args.confirm_loop,
+                    ),
+                    provider,
+                    provider_name=args.provider,
+                )
+                result = loop_result.results[-1]
+                revision_loop_log_path = loop_result.run_log_path
+        else:
+            with _command_lock(args, root, "revise-chapter"):
+                result = revise_chapter(
+                    base_options,
+                    provider,
+                    provider_name=args.provider,
+                )
+                revision_loop_log_path = None
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except RevisionError as exc:
+        return _failure(args, str(exc), error_type="revision_error")
+    except Exception as exc:
+        return _failure(args, f"chapter revision failed: {exc}", error_type="revision_error")
+
+    lines = [
+        *(f"warning: {warning}" for warning in result.warnings),
+        f"Wrote chapter revision: {result.output_path}",
+        f"Updated revision log: {result.revision_log_path}",
+        *( [f"Wrote revision loop log: {revision_loop_log_path}"] if revision_loop_log_path else [] ),
+    ]
+    return _success(
+        args,
+        {
+            "command": "revise-chapter",
+            "output_path": str(result.output_path),
+            "revision_log_path": str(result.revision_log_path),
+            "revision_loop_log_path": str(revision_loop_log_path) if revision_loop_log_path else None,
+            "revision_id": result.record.id,
+            "warnings": list(result.warnings),
+        },
+        lines,
+    )
+
+
+def _cmd_propose_state_update(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                (("state_update", ("audit",)),),
+            )
+            return 0
+        instruction = read_state_update_instruction(args.instruction, args.input)
+        provider = load_state_update_provider(
+            root,
+            args.provider,
+            chapter_number=args.chapter_number,
+            agent_config_path=args.agent_config,
+            model_name=args.model,
+        )
+        with _command_lock(args, root, "propose-state-update"):
+            result = propose_state_update(
+                StateUpdateProposeOptions(
+                    root=root,
+                    chapter_number=args.chapter_number,
+                    instruction=instruction,
+                    force=args.force,
+                    allow_unresolved_audit=args.allow_unresolved_audit,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=args.use_vector_context,
+                ),
+                provider,
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except StateUpdateError as exc:
+        return _failure(args, str(exc), error_type="state_update_error")
+    except Exception as exc:
+        return _failure(args, f"state update proposal failed: {exc}", error_type="state_update_error")
+
+    lines = [
+        *(f"warning: {warning}" for warning in result.warnings),
+        f"Wrote state update proposal: {result.proposal_path}",
+        f"State changes: {len(result.proposal.state_changes)}",
+        f"Timeline events: {len(result.proposal.timeline_events)}",
+    ]
+    return _success(
+        args,
+        {
+            "command": "propose-state-update",
+            "proposal_path": str(result.proposal_path),
+            "state_change_count": len(result.proposal.state_changes),
+            "timeline_event_count": len(result.proposal.timeline_events),
+            "warnings": list(result.warnings),
+        },
+        lines,
+    )
+
+
+def _cmd_apply_state_update(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        with _command_lock(args, root, "apply-state-update"):
+            result = apply_state_update(
+                StateUpdateApplyOptions(root=root, chapter_number=args.chapter_number)
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except StateUpdateError as exc:
+        return _failure(args, str(exc), error_type="state_update_error")
+    except Exception as exc:
+        return _failure(args, f"state update application failed: {exc}", error_type="state_update_error")
+
+    return _success(
+        args,
+        {
+            "command": "apply-state-update",
+            "state_backup_path": str(result.state_backup_path),
+            "timeline_backup_path": str(result.timeline_backup_path),
+            "apply_log_path": str(result.apply_log_path),
+            "state_path": str(result.state_path),
+            "timeline_path": str(result.timeline_path),
+        },
+        [
+            f"Backed up current state: {result.state_backup_path}",
+            f"Backed up timeline: {result.timeline_backup_path}",
+            f"Updated current state: {result.state_path}",
+            f"Updated timeline: {result.timeline_path}",
+            f"Wrote apply log: {result.apply_log_path}",
+        ],
+    )
+
+
+def _cmd_accept_chapter(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                (("state_update", ("audit",)),),
+            )
+            return 0
+        instruction = read_state_update_instruction(args.instruction, args.input)
+        provider = (
+            load_state_update_provider(
+                root,
+                args.provider,
+                chapter_number=args.chapter_number,
+                agent_config_path=args.agent_config,
+                model_name=args.model,
+            )
+            if args.propose
+            else None
+        )
+        with _command_lock(args, root, "accept-chapter"):
+            result = accept_chapter(
+                AcceptChapterOptions(
+                    root=root,
+                    chapter_number=args.chapter_number,
+                    allow_issues=args.allow_issues,
+                    propose=args.propose,
+                    instruction=instruction,
+                    force_proposal=args.force,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=args.use_vector_context,
+                ),
+                provider,
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except StateUpdateError as exc:
+        return _failure(args, str(exc), error_type="state_update_error")
+    except Exception as exc:
+        return _failure(args, f"chapter acceptance failed: {exc}", error_type="state_update_error")
+
+    lines = []
+    if result.proposal_result:
+        lines.append(f"Wrote state update proposal: {result.proposal_result.proposal_path}")
+    lines.extend(
+        [
+            f"Accepted chapter: {result.accepted_path}",
+            f"Updated chapter metadata: {result.metadata_path}",
+            f"Updated current state: {result.apply_result.state_path}",
+            f"Updated timeline: {result.apply_result.timeline_path}",
+        ]
+    )
+    return _success(
+        args,
+        {
+            "command": "accept-chapter",
+            "accepted_path": str(result.accepted_path),
+            "metadata_path": str(result.metadata_path),
+            "state_path": str(result.apply_result.state_path),
+            "timeline_path": str(result.apply_result.timeline_path),
+            "proposal_path": str(result.proposal_result.proposal_path)
+            if result.proposal_result
+            else None,
+        },
+        lines,
+    )
+
+
+def _cmd_generate_chapter(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.dry_run_provider:
+            _print_dry_run_provider(
+                root,
+                args.agent_config,
+                args.provider,
+                args.model,
+                (
+                    ("plot", ()),
+                    ("writer", ()),
+                    ("polish", ()),
+                    ("audit", ()),
+                ),
+            )
+            return 0
+        instruction = read_workflow_instruction(args.instruction, args.input)
+        with _command_lock(args, root, "generate-chapter"):
+            result = generate_chapter(
+                GenerateChapterOptions(
+                    root=root,
+                    chapter_number=args.chapter_number,
+                    instruction=instruction,
+                    force=args.force,
+                    resume=args.resume,
+                    provider_name=args.provider,
+                    agent_config_path=args.agent_config,
+                    model_name=args.model,
+                    target_words=args.target_words,
+                    style_note=args.style_note,
+            skip_polish=args.skip_polish,
+            skip_audit=args.skip_audit,
+            stop_after=args.stop_after,
+            use_search_context=args.use_search_context,
+            use_vector_context=args.use_vector_context,
+        )
+    )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except WorkflowError as exc:
+        return _failure(args, str(exc), error_type="workflow_error")
+    except Exception as exc:
+        return _failure(args, f"chapter generation failed: {exc}", error_type="workflow_error")
+
+    lines = [result.message, f"Run log: {result.run_log_path}"]
+    lines.extend(f"{step.step_id} {step.agent}: {step.status}" for step in result.run_log.steps)
+    return _success(
+        args,
+        {
+            "command": "generate-chapter",
+            "message": result.message,
+            "run_log_path": str(result.run_log_path),
+            "status": result.run_log.status,
+            "steps": [
+                {
+                    "step_id": step.step_id,
+                    "agent": step.agent,
+                    "status": step.status,
+                    "output_files": step.output_files,
+                    "error": step.error,
+                }
+                for step in result.run_log.steps
+            ],
+        },
+        lines,
+    )
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    if args.export_command == "markdown":
+        try:
+            chapters = parse_chapter_selector(args.chapters)
+            with _command_lock(args, root, "export markdown"):
+                markdown_result = export_markdown(
+                    MarkdownExportOptions(
+                        root=root,
+                        chapters=chapters,
+                        from_chapter=args.from_chapter,
+                        to_chapter=args.to_chapter,
+                        include_unaccepted=args.include_unaccepted,
+                        output_path=args.output,
+                        title=args.title,
+                        include_toc=args.toc,
+                        volume_title=args.volume_title,
+                        chapter_number_style=args.chapter_number_style,
+                        force=args.force,
+                    )
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
+        except ExportError as exc:
+            return _failure(args, str(exc), error_type="export_error")
+        except Exception as exc:
+            return _failure(args, f"markdown export failed: {exc}", error_type="export_error")
+
+        lines = [
+            *(f"warning: {warning}" for warning in markdown_result.warnings),
+            f"Wrote Markdown export: {markdown_result.output_path}",
+            f"Updated export manifest: {markdown_result.manifest_path}",
+            f"Chapters: {', '.join(str(number) for number in markdown_result.exported_chapters)}",
+        ]
+        return _success(
+            args,
+            {
+                "command": "export markdown",
+                "output_path": str(markdown_result.output_path),
+                "manifest_path": str(markdown_result.manifest_path),
+                "chapters": list(markdown_result.exported_chapters),
+                "warnings": list(markdown_result.warnings),
+            },
+            lines,
+        )
+    if args.export_command == "docx":
+        try:
+            chapters = parse_chapter_selector(args.chapters)
+            with _command_lock(args, root, "export docx"):
+                docx_result = export_docx(
+                    DocxExportOptions(
+                        root=root,
+                        chapters=chapters,
+                        from_chapter=args.from_chapter,
+                        to_chapter=args.to_chapter,
+                        include_unaccepted=args.include_unaccepted,
+                        output_path=args.output,
+                        title=args.title,
+                        force=args.force,
+                    )
+                )
+        except ProjectLockError as exc:
+            return _failure(args, str(exc), error_type="project_locked")
+        except ExportError as exc:
+            return _failure(args, str(exc), error_type="export_error")
+        except Exception as exc:
+            return _failure(args, f"docx export failed: {exc}", error_type="export_error")
+
+        lines = [
+            *(f"warning: {warning}" for warning in docx_result.warnings),
+            f"Wrote DOCX export: {docx_result.output_path}",
+            f"Updated export manifest: {docx_result.manifest_path}",
+            f"Chapters: {', '.join(str(number) for number in docx_result.exported_chapters)}",
+        ]
+        return _success(
+            args,
+            {
+                "command": "export docx",
+                "output_path": str(docx_result.output_path),
+                "manifest_path": str(docx_result.manifest_path),
+                "chapters": list(docx_result.exported_chapters),
+                "warnings": list(docx_result.warnings),
+            },
+            lines,
+        )
+    return _failure(args, f"unknown export command: {args.export_command}", code=2)
+
+
+def _cmd_web(args: argparse.Namespace) -> int:
+    from novel.web_server import WebServerError, run_web_server
+
+    try:
+        port = _resolve_web_port(args.path, args.port)
+        if args.open_browser:
+            webbrowser.open(f"http://{args.host}:{port}")
+        run_web_server(host=args.host, port=port)
+    except Exception as exc:
+        error_type = "web_error"
+        if isinstance(exc, WebServerError):
+            return _failure(args, str(exc), error_type=error_type)
+        return _failure(args, f"Web UI 启动失败：{exc}", error_type=error_type)
+    return 0
+
+
+_COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
+    "init": _cmd_init,
+    "validate": _cmd_validate,
+    "migrate": _cmd_migrate,
+    "schema": _cmd_schema,
+    "completion": _cmd_completion,
+    "doctor": _cmd_doctor,
+    "index": _cmd_index,
+    "search": _cmd_search,
+    "memory-repair": _cmd_memory_repair,
+    "ask": _cmd_ask,
+    "session": _cmd_session,
+    "status": _cmd_status,
+    "usage": _cmd_usage,
+    "show": _cmd_show,
+    "inspire": _cmd_inspire,
+    "canon": _cmd_canon,
+    "plan-chapter": _cmd_plan_chapter,
+    "write-chapter": _cmd_write_chapter,
+    "polish-chapter": _cmd_polish_chapter,
+    "audit-chapter": _cmd_audit_chapter,
+    "revise-chapter": _cmd_revise_chapter,
+    "propose-state-update": _cmd_propose_state_update,
+    "apply-state-update": _cmd_apply_state_update,
+    "accept-chapter": _cmd_accept_chapter,
+    "generate-chapter": _cmd_generate_chapter,
+    "export": _cmd_export,
+    "web": _cmd_web,
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _apply_project_alias(args)
 
-    if args.command == "init":
-        options = InitOptions(
-            title=args.title,
-            root=Path(args.path),
-            project_id=args.project_id,
-            language=args.language,
-            genre=args.genre,
-        )
-        try:
-            result = init_workspace(options)
-        except WorkspaceExistsError as exc:
-            return _failure(args, str(exc), error_type="workspace_exists")
-        setup_lines: list[str] = []
-        open_web = False
-        web_port: int | None = None
-        if _should_run_init_guide(args):
-            try:
-                setup_lines, open_web, web_port = _run_init_setup_guide(result.root)
-            except SetupGuideError as exc:
-                return _failure(
-                    args,
-                    f"Workspace created at {result.root}, but initial setup failed: {exc}",
-                    error_type="setup_guide_error",
-                )
-        elif not getattr(args, "no_guide", False) and not _wants_json(args) and not _quiet(args):
-            setup_lines.append("Skipped initial setup guide because this command is not running in an interactive terminal.")
-
-        if open_web and web_port is not None:
-            from novel.web_server import WebServerError, run_web_server
-
-            url = f"http://127.0.0.1:{web_port}"
-            print(f"Created novel workspace: {result.root}")
-            for line in setup_lines:
-                print(line)
-            print(f"Web UI: {url}")
-            webbrowser.open(url)
-            try:
-                run_web_server(host="127.0.0.1", port=web_port)
-            except WebServerError as exc:
-                return _failure(args, str(exc), error_type="web_error")
-            return 0
-
-        return _success(
-            args,
-            {
-                "command": "init",
-                "root": str(result.root),
-                "project_file": str(result.root / "project.yaml"),
-                "setup_guide_ran": bool(setup_lines) and not setup_lines[0].startswith("Skipped"),
-                "setup_messages": setup_lines,
-                "web_port": web_port,
-            },
-            [
-                f"Created novel workspace: {result.root}",
-                f"Project file: {result.root / 'project.yaml'}",
-                *setup_lines,
-            ],
-        )
-
-    if args.command == "validate":
-        report = validate_project(Path(args.path))
-        payload = _validation_payload(report)
-        if _wants_json(args):
-            _print_json({"ok": report.ok, "command": "validate", "validation": payload})
-            return 0 if report.ok else 1
-        if _quiet(args):
-            return 0 if report.ok else 1
-        for message in report.messages:
-            path = message.path
-            try:
-                path = path.relative_to(report.root)
-            except ValueError:
-                pass
-            print(f"{message.level}: {path}: {message.message}")
-
-        if report.ok:
-            print(f"Validation passed: {len(report.warnings)} warning(s)")
-            return 0
-
-        print(
-            f"Validation failed: {len(report.errors)} error(s), "
-            f"{len(report.warnings)} warning(s)",
-            file=sys.stderr,
-        )
-        return 1
-
-    if args.command == "migrate":
-        try:
-            with _command_lock(args, Path(args.path), "migrate", enabled=not args.dry_run):
-                result = migrate_project(Path(args.path), dry_run=args.dry_run)
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except MigrationError as exc:
-            return _failure(args, str(exc), error_type="migration_error")
-        payload = {
-            "command": "migrate",
-            "root": str(result.root),
-            "changed": result.changed,
-            "from_version": result.from_version,
-            "to_version": result.to_version,
-            "updated_files": [str(path) for path in result.updated_files],
-            "dry_run": args.dry_run,
-        }
-        lines = [
-            f"Schema version: {result.from_version or 'missing'} -> {result.to_version}",
-            "Migration required." if result.changed else "Already up to date.",
-        ]
-        if result.changed:
-            action = "Would update" if args.dry_run else "Updated"
-            lines.extend(f"{action}: {path}" for path in result.updated_files)
-        return _success(args, payload, lines)
-
-    if args.command == "schema":
-        if args.schema_command == "export":
-            paths = export_json_schemas(args.output)
-            return _success(
-                args,
-                {
-                    "command": "schema export",
-                    "output": str(args.output),
-                    "schema_count": len(paths),
-                    "files": [str(path) for path in paths],
-                },
-                [f"Wrote {len(paths)} JSON Schema file(s) to {args.output}"],
-            )
-
-    if args.command == "completion":
-        script = completion_script(args.shell)
-        if _wants_json(args):
-            _print_json({"ok": True, "command": "completion", "shell": args.shell, "script": script})
-        elif not _quiet(args):
-            print(script, end="" if script.endswith("\n") else "\n")
-        return 0
-
-    if args.command == "doctor":
-        result = run_doctor(Path(args.path))
-        payload = {"command": "doctor", **result}
-        lines = format_doctor_result(result)
-        if result["error_count"]:
-            if _wants_json(args):
-                _print_json({"ok": False, **payload})
-                return 1
-            if not _quiet(args):
-                for line in lines:
-                    print(line)
-            return 1
-        return _success(args, payload, lines)
-
-    if args.command == "index":
-        if args.index_command == "rebuild":
-            try:
-                with _command_lock(args, Path(args.path), "index rebuild"):
-                    result = rebuild_search_index(
-                        Path(args.path),
-                        embedding_provider_name=args.embedding_provider,
-                        embedding_config_path=args.embedding_config,
-                        with_embeddings=args.with_embeddings,
-                    )
-            except ProjectLockError as exc:
-                return _failure(args, str(exc), error_type="project_locked")
-            except SearchError as exc:
-                return _failure(args, str(exc), error_type="search_error")
-            return _success(
-                args,
-                {
-                    "command": "index rebuild",
-                    "index_path": str(result.index_path),
-                    "sqlite_path": str(result.sqlite_path),
-                    "manifest_path": str(result.manifest_path),
-                    "document_count": result.document_count,
-                    "embedding_document_count": result.embedding_document_count,
-                    "with_embeddings": result.with_embeddings,
-                },
-                [
-                    f"Rebuilt search index: {result.index_path}",
-                    f"Documents: {result.document_count}",
-                    f"Embedding vectors: {result.embedding_document_count}",
-                ],
-            )
-        if args.index_command == "refresh":
-            try:
-                with _command_lock(args, Path(args.path), "index refresh"):
-                    result = refresh_search_index(
-                        Path(args.path),
-                        embedding_provider_name=args.embedding_provider,
-                        embedding_config_path=args.embedding_config,
-                        with_embeddings=args.with_embeddings,
-                    )
-            except ProjectLockError as exc:
-                return _failure(args, str(exc), error_type="project_locked")
-            except SearchError as exc:
-                return _failure(args, str(exc), error_type="search_error")
-            return _success(
-                args,
-                {
-                    "command": "index refresh",
-                    "index_path": str(result.index_path),
-                    "sqlite_path": str(result.sqlite_path),
-                    "manifest_path": str(result.manifest_path),
-                    "document_count": result.document_count,
-                    "refreshed_count": result.refreshed_count,
-                    "deleted_count": result.deleted_count,
-                    "embedding_document_count": result.embedding_document_count,
-                    "with_embeddings": result.with_embeddings,
-                },
-                [
-                    f"Refreshed search index: {result.index_path}",
-                    f"Documents: {result.document_count}",
-                    f"Changed: {result.refreshed_count}; deleted: {result.deleted_count}",
-                    f"Embedding vectors: {result.embedding_document_count}",
-                ],
-            )
-        if args.index_command == "status":
-            status = search_index_status(
-                Path(args.path),
-                embedding_provider_name=args.embedding_provider,
-                embedding_config_path=args.embedding_config,
-            )
-            return _success(
-                args,
-                {"command": "index status", **status.as_dict()},
-                [
-                    f"FTS: {status.fts_status}",
-                    f"Embedding: {status.embedding_status}",
-                    status.message,
-                ],
-            )
-
-    if args.command == "search":
-        try:
-            results = search_project(
-                Path(args.path),
-                args.query,
-                search_type=args.type,
-                limit=args.limit,
-                chapter_number=args.chapter,
-                highlight=args.highlight,
-                use_vector=args.use_vector,
-                embedding_provider_name=args.embedding_provider,
-                embedding_config_path=args.embedding_config,
-            )
-        except SearchError as exc:
-            return _failure(args, str(exc), error_type="search_error")
-        if args.json:
-            print(
-                json.dumps(
-                    [
-                        {
-                            "id": result.id,
-                            "type": result.type,
-                            "path": result.path,
-                            "title": result.title,
-                            "score": result.score,
-                            "matched_terms": list(result.matched_terms),
-                            "excerpt": result.excerpt,
-                            "highlighted_excerpt": result.highlighted_excerpt,
-                            "metadata": result.metadata,
-                        }
-                        for result in results
-                    ],
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
-            return 0
-        if not results:
-            print("No results.")
-            return 0
-        for index, result in enumerate(results, start=1):
-            terms = ", ".join(result.matched_terms) if result.matched_terms else "none"
-            print(f"{index}. [{result.type}] {result.title}")
-            print(f"   path: {result.path}")
-            print(f"   score: {result.score}; matched_terms: {terms}")
-            print(f"   excerpt: {result.highlighted_excerpt if args.highlight else result.excerpt}")
-        return 0
-
-    if args.command == "memory-repair":
-        root = Path(args.path)
-        try:
-            with _command_lock(args, root, f"memory-repair {args.memory_repair_command}"):
-                if args.memory_repair_command == "suggest":
-                    repair_result = suggest_memory_repair(root, args.request, provider_name=args.provider)
-                    payload = {
-                        "command": "memory-repair suggest",
-                        "repair_id": repair_result.proposal.repair_id,
-                        "proposal_path": str(repair_result.proposal_path),
-                        "markdown_path": str(repair_result.markdown_path),
-                        "target_files": repair_result.proposal.target_files,
-                        "operation_count": len(repair_result.proposal.operations),
-                        "confidence": repair_result.proposal.confidence,
-                        "management_events": _management_event_payload(root),
-                    }
-                    return _success(
-                        args,
-                        payload,
-                        [
-                            f"Memory repair proposal: {repair_result.proposal_path}",
-                            f"Targets: {', '.join(repair_result.proposal.target_files) or 'none'}",
-                            f"Operations: {len(repair_result.proposal.operations)}",
-                            *_management_event_lines(root),
-                        ],
-                    )
-                apply_result = apply_memory_repair(root, _resolve_memory_repair_proposal_arg(args.proposal))
-                payload = {
-                    "command": "memory-repair apply",
-                    "repair_id": apply_result.proposal.repair_id,
-                    "apply_log_path": str(apply_result.apply_log_path),
-                    "status": apply_result.apply_log.status,
-                    "management_events": _management_event_payload(root),
-                }
-                return _success(
-                    args,
-                    payload,
-                    [
-                        f"Applied memory repair: {apply_result.proposal.repair_id}",
-                        f"Apply log: {apply_result.apply_log_path}",
-                        *_management_event_lines(root),
-                    ],
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except MemoryRepairError as exc:
-            return _failure(args, str(exc), error_type="memory_repair_error")
-
-    if args.command == "ask":
-        try:
-            with _command_lock(args, Path(args.path), "ask", enabled=not args.dry_run):
-                if args.max_steps < 1:
-                    raise OrchestratorError("max_steps must be at least 1")
-                if args.max_agent_calls < 1:
-                    raise OrchestratorError("max_agent_calls must be at least 1")
-                if args.dry_run:
-                    result = orchestrate(
-                        OrchestratorOptions(
-                            root=Path(args.path),
-                            request=args.request,
-                            provider_name=args.provider,
-                            dry_run=True,
-                            force=args.force,
-                            max_steps=args.max_steps,
-                            max_retries=args.max_retries,
-                            max_agent_calls=args.max_agent_calls,
-                            use_search_context=args.use_search_context,
-                            use_vector_context=args.use_vector_context,
-                        )
-                    )
-                    payload = {
-                        "command": "ask",
-                        "task": result.plan.task,
-                        "chapter_number": result.plan.chapter_number,
-                        "message": result.message,
-                        "run_log_path": str(result.run_log_path) if result.run_log_path else None,
-                        "handoff_trace": [entry.as_dict() for entry in result.plan.handoff_trace],
-                        "revision_route": result.plan.revision_route.model_dump(mode="json")
-                        if result.plan.revision_route
-                        else None,
-                    }
-                    if _wants_json(args):
-                        _print_json({"ok": True, **payload})
-                        return 0
-                    if not _quiet(args):
-                        if args.show_handoff_rules:
-                            print(handoff_rules_text())
-                            print("")
-                        print(format_orchestrator_plan(result.plan))
-                        print(result.message)
-                    return 0
-                intent = decide_ask_intent(Path(args.path), args.request, provider_name=args.provider)
-                if intent.task == "memory_repair_apply":
-                    if intent.source != "model" or not intent.repair_id:
-                        raise OrchestratorError("memory repair apply requires a structured model decision; use novel memory-repair apply <repair_id>")
-                    apply_result = apply_memory_repair(
-                        Path(args.path),
-                        Path("memory") / "repairs" / intent.repair_id / "proposal.json",
-                    )
-                    payload = {
-                        "command": "ask",
-                        "task": "memory_repair_apply",
-                        "ask_intent": intent.model_dump(mode="json"),
-                        "repair_id": apply_result.proposal.repair_id,
-                        "apply_log_path": str(apply_result.apply_log_path),
-                        "status": apply_result.apply_log.status,
-                        "management_events": _management_event_payload(Path(args.path)),
-                    }
-                    return _success(
-                        args,
-                        payload,
-                        [
-                            f"Applied memory repair: {apply_result.proposal.repair_id}",
-                            f"Apply log: {apply_result.apply_log_path}",
-                            *_management_event_lines(Path(args.path)),
-                        ],
-                    )
-                if intent.task == "memory_repair_suggest":
-                    repair_result = suggest_memory_repair(Path(args.path), args.request, provider_name=args.provider)
-                    payload = {
-                        "command": "ask",
-                        "task": "memory_repair_suggest",
-                        "ask_intent": intent.model_dump(mode="json"),
-                        "repair_id": repair_result.proposal.repair_id,
-                        "proposal_path": str(repair_result.proposal_path),
-                        "markdown_path": str(repair_result.markdown_path),
-                        "target_files": repair_result.proposal.target_files,
-                        "operation_count": len(repair_result.proposal.operations),
-                        "management_events": _management_event_payload(Path(args.path)),
-                    }
-                    return _success(
-                        args,
-                        payload,
-                        [
-                            f"Memory repair proposal: {repair_result.proposal_path}",
-                            f"Targets: {', '.join(repair_result.proposal.target_files)}",
-                            *_management_event_lines(Path(args.path)),
-                        ],
-                    )
-                if intent.task == "export":
-                    export_result = export_markdown(MarkdownExportOptions(root=Path(args.path), force=args.force))
-                    payload = {
-                        "command": "ask",
-                        "task": "export",
-                        "ask_intent": intent.model_dump(mode="json"),
-                        "output_path": str(export_result.output_path),
-                        "manifest_path": str(export_result.manifest_path),
-                    }
-                    return _success(args, payload, [f"Exported Markdown: {export_result.output_path}"])
-                if intent.task in {"status", "show"}:
-                    status = get_project_status(Path(args.path))
-                    payload = {
-                        "command": "ask",
-                        "task": intent.task,
-                        "ask_intent": intent.model_dump(mode="json"),
-                        "status": status.model_dump(mode="json"),
-                    }
-                    return _success(args, payload, format_status(status).splitlines())
-                if intent.task == "unknown":
-                    raise OrchestratorError(intent.user_message or intent.reason)
-                fallback_chapter = _extract_chapter_from_text(args.request)
-                chapter_numbers = tuple(intent.chapter_range or ([fallback_chapter] if fallback_chapter else []) or [1])
-                session_result = start_session(
-                    SessionStartOptions(
-                        root=Path(args.path),
-                        user_intent=args.request,
-                        chapter_range=chapter_numbers,
-                        provider_name=args.provider,
-                        force=args.force,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
-                    )
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except MemoryRepairError as exc:
-            return _failure(args, str(exc), error_type="memory_repair_error")
-        except (OrchestratorError, CreationSessionError) as exc:
-            return _failure(args, str(exc), error_type="orchestrator_error")
-        payload = {
-            "command": "ask",
-            "task": "creation_session",
-            "ask_intent": intent.model_dump(mode="json"),
-            "chapter_number": session_result.session.chapter_range[0],
-            "chapter_range": session_result.session.chapter_range,
-            "session_id": session_result.session.session_id,
-            "message": session_result.message,
-            "session_path": str(session_result.session_path),
-            "status": session_result.session.status,
-        }
-        if _wants_json(args):
-            _print_json({"ok": True, **payload})
-            return 0
-        if _quiet(args):
-            return 0
-        print(f"Session: {session_result.session.session_id}")
-        print(session_result.message)
-        print(f"Session file: {session_result.session_path}")
-        print("Next: review outline_proposal.md, then run novel session approve-outline <session_id>")
-        return 0
-
-    if args.command == "session":
-        try:
-            root = Path(args.path)
-            with _command_lock(args, root, f"session {args.session_command}"):
-                result = _run_session_command(args, root)
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except CreationSessionError as exc:
-            return _failure(args, str(exc), error_type="session_error")
-        payload = _session_payload(args.session_command, result, root)
-        lines = [
-            f"Session: {result.session.session_id}",
-            result.message,
-            f"Status: {result.session.status}",
-            f"Session file: {result.session_path}",
-            *_session_revision_route_lines(result.session),
-            *_session_rewrite_lines(root, result.session),
-            *_management_event_lines(root),
-            *_session_low_issue_lines(root, result.session.audit_history),
-        ]
-        return _success(args, payload, lines)
-
-    if args.command == "status":
-        try:
-            status = get_project_status(Path(args.path))
-        except ProjectReadError as exc:
-            return _failure(args, str(exc), error_type="project_read_error")
-        return _success(
-            args,
-            {"command": "status", "status": _status_payload(status)},
-            [format_status(status, Path(args.path))],
-        )
-
-    if args.command == "usage":
-        try:
-            summary = summarize_provider_usage(Path(args.path))
-        except UsageError as exc:
-            return _failure(args, str(exc), error_type="usage_error")
-        payload = {"command": "usage", "usage": summary.as_dict()}
-        lines = _format_usage_summary(summary.as_dict())
-        return _success(args, payload, lines)
-
-    if args.command == "show":
-        try:
-            if args.target == "characters":
-                output = format_characters(Path(args.path))
-            elif args.target == "timeline":
-                output = format_timeline(Path(args.path))
-            elif args.target == "canon":
-                output = format_canon(Path(args.path))
-            else:
-                output = format_state(Path(args.path))
-        except ProjectReadError as exc:
-            return _failure(args, str(exc), error_type="project_read_error")
-        return _success(
-            args,
-            {"command": "show", "target": args.target, "output": output},
-            [output],
-        )
-
-    if args.command == "inspire":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    (("inspiration", ()),),
-                )
-                return 0
-            source_text, source_type = read_inspiration_input(args.text, args.input)
-            provider = load_inspiration_provider(
-                root,
-                args.provider,
-                agent_config_path=args.agent_config,
-                model_name=args.model,
-            )
-            with _command_lock(args, root, "inspire"):
-                result = run_inspiration_agent(
-                    InspirationOptions(
-                        root=root,
-                        source_text=source_text,
-                        source_type=source_type,
-                        write_json=args.json,
-                        overwrite=args.overwrite,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
-                    ),
-                    provider,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except InspirationError as exc:
-            return _failure(args, str(exc), error_type="inspiration_error")
-        except Exception as exc:
-            return _failure(args, f"inspiration generation failed: {exc}", error_type="inspiration_error")
-
-        lines = [f"Wrote inspiration markdown: {result.markdown_path}"]
-        if result.json_path:
-            lines.append(f"Wrote inspiration JSON: {result.json_path}")
-        return _success(
-            args,
-            {
-                "command": "inspire",
-                "markdown_path": str(result.markdown_path),
-                "json_path": str(result.json_path) if result.json_path else None,
-            },
-            lines,
-        )
-
-    if args.command == "canon":
-        root = Path(args.path)
-        if args.canon_command == "suggest":
-            try:
-                if args.dry_run_provider:
-                    _print_dry_run_provider(
-                        root,
-                        args.agent_config,
-                        args.provider,
-                        args.model,
-                        (("canon", ("inspiration",)),),
-                    )
-                    return 0
-                provider = load_canon_provider(
-                    root,
-                    args.provider,
-                    agent_config_path=args.agent_config,
-                    model_name=args.model,
-                )
-                with _command_lock(args, root, "canon suggest", enabled=args.output is not None):
-                    result = suggest_canon(
-                        CanonSuggestOptions(
-                            root=root,
-                            output_path=args.output,
-                            use_search_context=args.use_search_context,
-                            use_vector_context=args.use_vector_context,
-                        ),
-                        provider,
-                    )
-            except ProjectLockError as exc:
-                return _failure(args, str(exc), error_type="project_locked")
-            except CanonError as exc:
-                return _failure(args, str(exc), error_type="canon_error")
-            except Exception as exc:
-                return _failure(args, f"canon suggestion failed: {exc}", error_type="canon_error")
-
-            if _wants_json(args):
-                _print_json(
-                    {
-                        "ok": True,
-                        "command": "canon suggest",
-                        "output_path": str(result.output_path) if result.output_path else None,
-                        "proposal": json.loads(result.proposal_json),
-                    }
-                )
-                return 0
-            if _quiet(args):
-                return 0
-            if result.output_path:
-                print(f"Wrote canon proposal: {result.output_path}")
-            else:
-                print(result.proposal_json, end="")
-            return 0
-
-        if args.canon_command == "apply":
-            try:
-                with _command_lock(args, root, "canon apply"):
-                    result = apply_canon_proposal(root, args.proposal_file)
-            except ProjectLockError as exc:
-                return _failure(args, str(exc), error_type="project_locked")
-            except CanonError as exc:
-                return _failure(args, str(exc), error_type="canon_error")
-            if _wants_json(args):
-                _print_json(
-                    {
-                        "ok": result.validation_report.ok,
-                        "command": "canon apply",
-                        "validation": _validation_payload(result.validation_report),
-                    }
-                )
-                return 0 if result.validation_report.ok else 1
-            if not _quiet(args):
-                print(format_canon_validation_report(result.validation_report))
-            return 0 if result.validation_report.ok else 1
-
-        if args.canon_command == "validate":
-            report = validate_canon(root)
-            if _wants_json(args):
-                _print_json({"ok": report.ok, "command": "canon validate", "validation": _validation_payload(report)})
-                return 0 if report.ok else 1
-            if not _quiet(args):
-                print(format_canon_validation_report(report))
-            return 0 if report.ok else 1
-
-        if args.canon_command == "show":
-            try:
-                output = format_canon(root)
-            except ProjectReadError as exc:
-                return _failure(args, str(exc), error_type="project_read_error")
-            return _success(args, {"command": "canon show", "output": output}, [output])
-
-    if args.command == "plan-chapter":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    (("plot", ()),),
-                )
-                return 0
-            instruction = read_planning_instruction(args.instruction, args.input)
-            provider = load_planning_provider(
-                root,
-                args.provider,
-                chapter_number=args.chapter_number,
-                agent_config_path=args.agent_config,
-                model_name=args.model,
-            )
-            with _command_lock(args, root, "plan-chapter"):
-                result = plan_chapter(
-                    ChapterPlanningOptions(
-                        root=root,
-                        chapter_number=args.chapter_number,
-                        instruction=instruction,
-                        force=args.force,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
-                    ),
-                    provider,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except PlanningError as exc:
-            return _failure(args, str(exc), error_type="planning_error")
-        except Exception as exc:
-            return _failure(args, f"chapter planning failed: {exc}", error_type="planning_error")
-
-        payload = {
-            "command": "plan-chapter",
-            "chapter_number": result.plan.chapter_number,
-            "plan_json_path": str(result.plan_json_path),
-            "plan_markdown_path": str(result.plan_markdown_path),
-            "validation": _validation_payload(result.validation_report),
-        }
-        if _wants_json(args):
-            _print_json({"ok": result.validation_report.ok, **payload})
-            return 0 if result.validation_report.ok else 1
-        if not _quiet(args):
-            print(f"Wrote chapter plan JSON: {result.plan_json_path}")
-            print(f"Wrote chapter plan Markdown: {result.plan_markdown_path}")
-        if not result.validation_report.ok:
-            if not _quiet(args):
-                print(
-                    f"Validation failed after planning: {len(result.validation_report.errors)} error(s), "
-                    f"{len(result.validation_report.warnings)} warning(s)",
-                    file=sys.stderr,
-                )
-            return 1
-        if not _quiet(args):
-            print(f"Validation passed: {len(result.validation_report.warnings)} warning(s)")
-        return 0
-
-    if args.command == "write-chapter":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    (("writer", ()),),
-                )
-                return 0
-            instruction = read_drafting_instruction(args.instruction, args.input)
-            provider = load_drafting_provider(
-                root,
-                args.provider,
-                agent_config_path=args.agent_config,
-                model_name=args.model,
-            )
-            with _command_lock(args, root, "write-chapter"):
-                result = write_chapter_draft(
-                    ChapterDraftingOptions(
-                        root=root,
-                        chapter_number=args.chapter_number,
-                        instruction=instruction,
-                        force=args.force,
-                        target_words=args.target_words,
-                        style_note=args.style_note,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
-                    ),
-                    provider,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except DraftingError as exc:
-            return _failure(args, str(exc), error_type="drafting_error")
-        except Exception as exc:
-            return _failure(args, f"chapter drafting failed: {exc}", error_type="drafting_error")
-
-        lines = [*(f"warning: {warning}" for warning in result.warnings), f"Wrote chapter draft: {result.draft_path}"]
-        return _success(
-            args,
-            {
-                "command": "write-chapter",
-                "draft_path": str(result.draft_path),
-                "warnings": list(result.warnings),
-            },
-            lines,
-        )
-
-    if args.command == "polish-chapter":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    (("polish", ()),),
-                )
-                return 0
-            instruction = read_polishing_instruction(args.instruction, args.input)
-            edit_mode = resolve_edit_mode(
-                light_edit=args.light_edit,
-                deep_edit=args.deep_edit,
-            )
-            provider = load_polishing_provider(
-                root,
-                args.provider,
-                agent_config_path=args.agent_config,
-                model_name=args.model,
-            )
-            with _command_lock(args, root, "polish-chapter"):
-                result = polish_chapter(
-                    ChapterPolishingOptions(
-                        root=root,
-                        chapter_number=args.chapter_number,
-                        instruction=instruction,
-                        force=args.force,
-                        style_note=args.style_note,
-                        keep_length=args.keep_length,
-                        edit_mode=edit_mode,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
-                    ),
-                    provider,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except PolishingError as exc:
-            return _failure(args, str(exc), error_type="polishing_error")
-        except Exception as exc:
-            return _failure(args, f"chapter polishing failed: {exc}", error_type="polishing_error")
-
-        lines = [*(f"warning: {warning}" for warning in result.warnings), f"Wrote polished chapter: {result.polished_path}"]
-        return _success(
-            args,
-            {
-                "command": "polish-chapter",
-                "polished_path": str(result.polished_path),
-                "warnings": list(result.warnings),
-            },
-            lines,
-        )
-
-    if args.command == "audit-chapter":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    (("audit", ()),),
-                )
-                return 0
-            instruction = read_audit_instruction(args.instruction, args.input)
-            provider = load_audit_provider(
-                root,
-                args.provider,
-                chapter_number=args.chapter_number,
-                audited_file=args.audited_file,
-                agent_config_path=args.agent_config,
-                model_name=args.model,
-            )
-            with _command_lock(args, root, "audit-chapter"):
-                result = audit_chapter(
-                    ChapterAuditOptions(
-                        root=root,
-                        chapter_number=args.chapter_number,
-                        instruction=instruction,
-                        force=args.force,
-                        strict=args.strict,
-                        focus=tuple(args.focus),
-                        audited_file=args.audited_file,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
-                    ),
-                    provider,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except AuditError as exc:
-            return _failure(args, str(exc), error_type="audit_error")
-        except Exception as exc:
-            return _failure(args, f"chapter audit failed: {exc}", error_type="audit_error")
-
-        lines = [
-            *(f"warning: {warning}" for warning in result.warnings),
-            f"Wrote chapter audit: {result.audit_path}",
-            f"Audit status: {result.report.overall_status}",
-            f"Issues: {len(result.report.issues)}",
-            f"Deterministic issues: {len(result.deterministic_findings)}"
-            + (
-                f" (highest: {result.deterministic_highest_severity})"
-                if result.deterministic_highest_severity
-                else ""
-            ),
-            *_audit_issue_lines(result.report),
-        ]
-        return _success(
-            args,
-            {
-                "command": "audit-chapter",
-                "audit_path": str(result.audit_path),
-                "overall_status": result.report.overall_status,
-                "issue_count": len(result.report.issues),
-                "issues": [issue.model_dump(mode="json") for issue in result.report.issues],
-                "deterministic_issue_count": len(result.deterministic_findings),
-                "deterministic_highest_severity": result.deterministic_highest_severity,
-                "warnings": list(result.warnings),
-            },
-            lines,
-        )
-
-    if args.command == "revise-chapter":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                agent = "writer" if args.target == "draft" else "polish"
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    ((agent, ()),),
-                )
-                return 0
-            instruction = read_revision_instruction(args.instruction, args.input)
-            provider = load_revision_provider(
-                root,
-                args.provider,
-                target=args.target,
-                agent_config_path=args.agent_config,
-                model_name=args.model,
-            )
-            base_options = ChapterRevisionOptions(
-                root=root,
-                chapter_number=args.chapter_number,
-                instruction=instruction,
-                from_audit=args.from_audit,
-                target=args.target,
-                force=args.force,
-                save_as_version=args.save_as_version,
-                use_search_context=args.use_search_context,
-                use_vector_context=args.use_vector_context,
-            )
-            if args.max_rounds > 1:
-                with _command_lock(args, root, "revise-chapter"):
-                    loop_result = revise_chapter_loop(
-                        RevisionLoopOptions(
-                            base_options=base_options,
-                            max_rounds=args.max_rounds,
-                            confirm_loop=args.confirm_loop,
-                        ),
-                        provider,
-                        provider_name=args.provider,
-                    )
-                    result = loop_result.results[-1]
-                    revision_loop_log_path = loop_result.run_log_path
-            else:
-                with _command_lock(args, root, "revise-chapter"):
-                    result = revise_chapter(
-                        base_options,
-                        provider,
-                        provider_name=args.provider,
-                    )
-                    revision_loop_log_path = None
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except RevisionError as exc:
-            return _failure(args, str(exc), error_type="revision_error")
-        except Exception as exc:
-            return _failure(args, f"chapter revision failed: {exc}", error_type="revision_error")
-
-        lines = [
-            *(f"warning: {warning}" for warning in result.warnings),
-            f"Wrote chapter revision: {result.output_path}",
-            f"Updated revision log: {result.revision_log_path}",
-            *( [f"Wrote revision loop log: {revision_loop_log_path}"] if revision_loop_log_path else [] ),
-        ]
-        return _success(
-            args,
-            {
-                "command": "revise-chapter",
-                "output_path": str(result.output_path),
-                "revision_log_path": str(result.revision_log_path),
-                "revision_loop_log_path": str(revision_loop_log_path) if revision_loop_log_path else None,
-                "revision_id": result.record.id,
-                "warnings": list(result.warnings),
-            },
-            lines,
-        )
-
-    if args.command == "propose-state-update":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    (("state_update", ("audit",)),),
-                )
-                return 0
-            instruction = read_state_update_instruction(args.instruction, args.input)
-            provider = load_state_update_provider(
-                root,
-                args.provider,
-                chapter_number=args.chapter_number,
-                agent_config_path=args.agent_config,
-                model_name=args.model,
-            )
-            with _command_lock(args, root, "propose-state-update"):
-                result = propose_state_update(
-                    StateUpdateProposeOptions(
-                        root=root,
-                        chapter_number=args.chapter_number,
-                        instruction=instruction,
-                        force=args.force,
-                        allow_unresolved_audit=args.allow_unresolved_audit,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
-                    ),
-                    provider,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except StateUpdateError as exc:
-            return _failure(args, str(exc), error_type="state_update_error")
-        except Exception as exc:
-            return _failure(args, f"state update proposal failed: {exc}", error_type="state_update_error")
-
-        lines = [
-            *(f"warning: {warning}" for warning in result.warnings),
-            f"Wrote state update proposal: {result.proposal_path}",
-            f"State changes: {len(result.proposal.state_changes)}",
-            f"Timeline events: {len(result.proposal.timeline_events)}",
-        ]
-        return _success(
-            args,
-            {
-                "command": "propose-state-update",
-                "proposal_path": str(result.proposal_path),
-                "state_change_count": len(result.proposal.state_changes),
-                "timeline_event_count": len(result.proposal.timeline_events),
-                "warnings": list(result.warnings),
-            },
-            lines,
-        )
-
-    if args.command == "apply-state-update":
-        root = Path(args.path)
-        try:
-            with _command_lock(args, root, "apply-state-update"):
-                result = apply_state_update(
-                    StateUpdateApplyOptions(root=root, chapter_number=args.chapter_number)
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except StateUpdateError as exc:
-            return _failure(args, str(exc), error_type="state_update_error")
-        except Exception as exc:
-            return _failure(args, f"state update application failed: {exc}", error_type="state_update_error")
-
-        return _success(
-            args,
-            {
-                "command": "apply-state-update",
-                "state_backup_path": str(result.state_backup_path),
-                "timeline_backup_path": str(result.timeline_backup_path),
-                "apply_log_path": str(result.apply_log_path),
-                "state_path": str(result.state_path),
-                "timeline_path": str(result.timeline_path),
-            },
-            [
-                f"Backed up current state: {result.state_backup_path}",
-                f"Backed up timeline: {result.timeline_backup_path}",
-                f"Updated current state: {result.state_path}",
-                f"Updated timeline: {result.timeline_path}",
-                f"Wrote apply log: {result.apply_log_path}",
-            ],
-        )
-
-    if args.command == "accept-chapter":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    (("state_update", ("audit",)),),
-                )
-                return 0
-            instruction = read_state_update_instruction(args.instruction, args.input)
-            provider = (
-                load_state_update_provider(
-                    root,
-                    args.provider,
-                    chapter_number=args.chapter_number,
-                    agent_config_path=args.agent_config,
-                    model_name=args.model,
-                )
-                if args.propose
-                else None
-            )
-            with _command_lock(args, root, "accept-chapter"):
-                result = accept_chapter(
-                    AcceptChapterOptions(
-                        root=root,
-                        chapter_number=args.chapter_number,
-                        allow_issues=args.allow_issues,
-                        propose=args.propose,
-                        instruction=instruction,
-                        force_proposal=args.force,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
-                    ),
-                    provider,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except StateUpdateError as exc:
-            return _failure(args, str(exc), error_type="state_update_error")
-        except Exception as exc:
-            return _failure(args, f"chapter acceptance failed: {exc}", error_type="state_update_error")
-
-        lines = []
-        if result.proposal_result:
-            lines.append(f"Wrote state update proposal: {result.proposal_result.proposal_path}")
-        lines.extend(
-            [
-                f"Accepted chapter: {result.accepted_path}",
-                f"Updated chapter metadata: {result.metadata_path}",
-                f"Updated current state: {result.apply_result.state_path}",
-                f"Updated timeline: {result.apply_result.timeline_path}",
-            ]
-        )
-        return _success(
-            args,
-            {
-                "command": "accept-chapter",
-                "accepted_path": str(result.accepted_path),
-                "metadata_path": str(result.metadata_path),
-                "state_path": str(result.apply_result.state_path),
-                "timeline_path": str(result.apply_result.timeline_path),
-                "proposal_path": str(result.proposal_result.proposal_path)
-                if result.proposal_result
-                else None,
-            },
-            lines,
-        )
-
-    if args.command == "generate-chapter":
-        root = Path(args.path)
-        try:
-            if args.dry_run_provider:
-                _print_dry_run_provider(
-                    root,
-                    args.agent_config,
-                    args.provider,
-                    args.model,
-                    (
-                        ("plot", ()),
-                        ("writer", ()),
-                        ("polish", ()),
-                        ("audit", ()),
-                    ),
-                )
-                return 0
-            instruction = read_workflow_instruction(args.instruction, args.input)
-            with _command_lock(args, root, "generate-chapter"):
-                result = generate_chapter(
-                    GenerateChapterOptions(
-                        root=root,
-                        chapter_number=args.chapter_number,
-                        instruction=instruction,
-                        force=args.force,
-                        resume=args.resume,
-                        provider_name=args.provider,
-                        agent_config_path=args.agent_config,
-                        model_name=args.model,
-                        target_words=args.target_words,
-                        style_note=args.style_note,
-                skip_polish=args.skip_polish,
-                skip_audit=args.skip_audit,
-                stop_after=args.stop_after,
-                use_search_context=args.use_search_context,
-                use_vector_context=args.use_vector_context,
-            )
-        )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except WorkflowError as exc:
-            return _failure(args, str(exc), error_type="workflow_error")
-        except Exception as exc:
-            return _failure(args, f"chapter generation failed: {exc}", error_type="workflow_error")
-
-        lines = [result.message, f"Run log: {result.run_log_path}"]
-        lines.extend(f"{step.step_id} {step.agent}: {step.status}" for step in result.run_log.steps)
-        return _success(
-            args,
-            {
-                "command": "generate-chapter",
-                "message": result.message,
-                "run_log_path": str(result.run_log_path),
-                "status": result.run_log.status,
-                "steps": [
-                    {
-                        "step_id": step.step_id,
-                        "agent": step.agent,
-                        "status": step.status,
-                        "output_files": step.output_files,
-                        "error": step.error,
-                    }
-                    for step in result.run_log.steps
-                ],
-            },
-            lines,
-        )
-
-    if args.command == "export":
-        root = Path(args.path)
-        if args.export_command == "markdown":
-            try:
-                chapters = parse_chapter_selector(args.chapters)
-                with _command_lock(args, root, "export markdown"):
-                    result = export_markdown(
-                        MarkdownExportOptions(
-                            root=root,
-                            chapters=chapters,
-                            from_chapter=args.from_chapter,
-                            to_chapter=args.to_chapter,
-                            include_unaccepted=args.include_unaccepted,
-                            output_path=args.output,
-                            title=args.title,
-                            include_toc=args.toc,
-                            volume_title=args.volume_title,
-                            chapter_number_style=args.chapter_number_style,
-                            force=args.force,
-                        )
-                    )
-            except ProjectLockError as exc:
-                return _failure(args, str(exc), error_type="project_locked")
-            except ExportError as exc:
-                return _failure(args, str(exc), error_type="export_error")
-            except Exception as exc:
-                return _failure(args, f"markdown export failed: {exc}", error_type="export_error")
-
-            lines = [
-                *(f"warning: {warning}" for warning in result.warnings),
-                f"Wrote Markdown export: {result.output_path}",
-                f"Updated export manifest: {result.manifest_path}",
-                f"Chapters: {', '.join(str(number) for number in result.exported_chapters)}",
-            ]
-            return _success(
-                args,
-                {
-                    "command": "export markdown",
-                    "output_path": str(result.output_path),
-                    "manifest_path": str(result.manifest_path),
-                    "chapters": list(result.exported_chapters),
-                    "warnings": list(result.warnings),
-                },
-                lines,
-            )
-        if args.export_command == "docx":
-            try:
-                chapters = parse_chapter_selector(args.chapters)
-                with _command_lock(args, root, "export docx"):
-                    result = export_docx(
-                        DocxExportOptions(
-                            root=root,
-                            chapters=chapters,
-                            from_chapter=args.from_chapter,
-                            to_chapter=args.to_chapter,
-                            include_unaccepted=args.include_unaccepted,
-                            output_path=args.output,
-                            title=args.title,
-                            force=args.force,
-                        )
-                    )
-            except ProjectLockError as exc:
-                return _failure(args, str(exc), error_type="project_locked")
-            except ExportError as exc:
-                return _failure(args, str(exc), error_type="export_error")
-            except Exception as exc:
-                return _failure(args, f"docx export failed: {exc}", error_type="export_error")
-
-            lines = [
-                *(f"warning: {warning}" for warning in result.warnings),
-                f"Wrote DOCX export: {result.output_path}",
-                f"Updated export manifest: {result.manifest_path}",
-                f"Chapters: {', '.join(str(number) for number in result.exported_chapters)}",
-            ]
-            return _success(
-                args,
-                {
-                    "command": "export docx",
-                    "output_path": str(result.output_path),
-                    "manifest_path": str(result.manifest_path),
-                    "chapters": list(result.exported_chapters),
-                    "warnings": list(result.warnings),
-                },
-                lines,
-            )
-
-    if args.command == "web":
-        from novel.web_server import WebServerError, run_web_server
-
-        try:
-            port = _resolve_web_port(args.path, args.port)
-            if args.open_browser:
-                webbrowser.open(f"http://{args.host}:{port}")
-            run_web_server(host=args.host, port=port)
-        except Exception as exc:
-            error_type = "web_error"
-            if isinstance(exc, WebServerError):
-                return _failure(args, str(exc), error_type=error_type)
-            return _failure(args, f"Web UI 启动失败：{exc}", error_type=error_type)
-        return 0
+    handler = _COMMAND_HANDLERS.get(args.command)
+    if handler is not None:
+        return handler(args)
 
     parser.error(f"unknown command: {args.command}")
     return 2

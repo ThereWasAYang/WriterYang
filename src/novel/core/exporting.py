@@ -16,6 +16,8 @@ from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.schemas import ExportManifest, ExportRecord, ExportSourceChapter, ProjectConfig
 
+ExportType = Literal["markdown", "docx", "html", "txt"]
+
 
 class ExportError(RuntimeError):
     """Raised when export cannot proceed safely."""
@@ -254,7 +256,7 @@ def update_export_manifest(
     root: Path,
     manifest_path: Path,
     output_path: Path,
-    export_type: str,
+    export_type: ExportType,
     title: str,
     chapters: list[ExportedChapter],
 ) -> ExportManifest:

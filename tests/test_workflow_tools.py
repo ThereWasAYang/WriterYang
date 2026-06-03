@@ -53,10 +53,12 @@ def test_check_local_dry_run_lists_quality_gate() -> None:
     completed = _run_script("scripts/check_local.py", "--dry-run", "--json", "--skip-build")
     payload = json.loads(completed.stdout)
     names = {item["name"] for item in payload["checks"]}
+    checks = {item["name"]: item for item in payload["checks"]}
 
     assert completed.returncode == 0
     assert payload["ok"] is True
     assert {"pytest", "ruff", "mypy", "secret-scan"} <= names
+    assert checks["mypy"]["blocking"] is True
     assert "build" not in names
 
 

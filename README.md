@@ -137,7 +137,7 @@ python scripts/check_local.py
 python scripts/check_local.py --strict-mypy
 ```
 
-`mypy src` 现在会真实输出类型问题，但默认仍是 informational 非阻断检查；`scripts/check_local.py --strict-mypy` 才会让 mypy 失败影响本地门禁结果。GitHub Actions 会阻断 pytest、ruff、secret scan、build 和 Web E2E；mypy 暂时保留为真实但非阻断信号，避免在一次版本中混入大规模类型修复。
+`mypy src` 是阻断式类型门禁；`scripts/check_local.py` 默认会因为 mypy 失败返回非零。`--strict-mypy` 仍可使用，但现在只是兼容旧命令的显式写法。GitHub Actions 会阻断 pytest、ruff、mypy、secret scan、build 和 Web E2E。
 
 工作流和排障脚本：
 

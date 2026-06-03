@@ -104,11 +104,13 @@ class ProjectLock:
 def read_project_lock(root: Path) -> ProjectLockInfo:
     path = root.expanduser().resolve() / LOCK_FILE_NAME
     data = _read_lock_payload(path)
+    raw_task = data.get("task")
+    raw_created_at = data.get("created_at")
     return ProjectLockInfo(
         path=path,
         pid=_int_or_none(data.get("pid")),
-        task=data.get("task") if isinstance(data.get("task"), str) else None,
-        created_at=data.get("created_at") if isinstance(data.get("created_at"), str) else None,
+        task=raw_task if isinstance(raw_task, str) else None,
+        created_at=raw_created_at if isinstance(raw_created_at, str) else None,
     )
 
 

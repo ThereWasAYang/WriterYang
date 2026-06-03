@@ -200,13 +200,13 @@ def test_manifest_includes_user_and_developer_docs() -> None:
         assert expected in manifest
 
 
-def test_github_workflows_include_web_e2e_and_informational_mypy() -> None:
+def test_github_workflows_include_web_e2e_and_blocking_mypy() -> None:
     tests_workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
     release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 
     for workflow in (tests_workflow, release_workflow):
-        assert "Type check (informational)" in workflow
-        assert "continue-on-error: true" in workflow
+        assert "Type check" in workflow
+        assert "continue-on-error: true" not in workflow
         assert "python -m playwright install chromium" in workflow
         assert "pytest -m web_e2e -q" in workflow
 

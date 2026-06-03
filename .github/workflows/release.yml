@@ -24,8 +24,7 @@ jobs:
         run: pytest -m "not real_api and not web_e2e" -q
       - name: Lint
         run: ruff check .
-      - name: Type check (informational)
-        continue-on-error: true
+      - name: Type check
         run: mypy src
       - name: Install Playwright Chromium
         run: python -m playwright install chromium

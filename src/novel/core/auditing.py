@@ -637,9 +637,12 @@ def _is_subjective_nonblocking_issue(issue: dict[str, object]) -> bool:
     if evidence_strength == "strong":
         return False
     confidence_value = issue.get("confidence")
-    try:
-        confidence = float(confidence_value) if confidence_value is not None else None
-    except (TypeError, ValueError):
+    if isinstance(confidence_value, (int, float, str)):
+        try:
+            confidence = float(confidence_value)
+        except ValueError:
+            confidence = None
+    else:
         confidence = None
     has_specific_evidence = _has_specific_audit_evidence(issue)
     if issue.get("is_hard_blocker") is False:
@@ -722,7 +725,7 @@ def combine_audit_reports(
         summary=summary,
         issues=issues,
         passed_checks=checks,
-        created_at=_utc_now(),
+        created_at=datetime.now(timezone.utc),
     )
 
 

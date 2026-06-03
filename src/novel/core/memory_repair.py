@@ -8,7 +8,7 @@ import re
 import shutil
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from novel.core.agent_output import (
     AgentInvocationContext,
@@ -56,7 +56,7 @@ class MemoryRepairApplyResult:
     apply_log_path: Path
 
 
-ALLOWED_MEMORY_FILES: dict[str, type] = {
+ALLOWED_MEMORY_FILES: dict[str, type[BaseModel]] = {
     "memory/state/timeline.json": TimelineFile,
     "memory/state/current_state.json": EntityState,
     "memory/canon/characters.json": CharactersFile,

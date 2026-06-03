@@ -32,7 +32,7 @@ def migrate_project(root: Path, *, dry_run: bool = False) -> MigrationResult:
         raise MigrationError(f"{project_path} is missing")
     project_data = _load_yaml_mapping(project_path)
     raw_version = project_data.get("schema_version")
-    from_version = int(raw_version) if raw_version is not None else None
+    from_version = _parse_schema_version(project_path, raw_version)
     if from_version and from_version > CURRENT_SCHEMA_VERSION:
         raise MigrationError(
             f"project schema_version {from_version} is newer than supported {CURRENT_SCHEMA_VERSION}"
@@ -169,14 +169,26 @@ def _migrate_timeline_events(events: object) -> None:
 
 
 def _reject_newer_version(path: Path, raw_version: object) -> None:
-    try:
-        version = int(raw_version)
-    except (TypeError, ValueError) as exc:
-        raise MigrationError(f"{path} has invalid schema_version: {raw_version!r}") from exc
+    version = _parse_schema_version(path, raw_version)
+    if version is None:
+        raise MigrationError(f"{path} has invalid schema_version: {raw_version!r}")
     if version > CURRENT_SCHEMA_VERSION:
         raise MigrationError(
             f"{path} schema_version {version} is newer than supported {CURRENT_SCHEMA_VERSION}"
         )
+
+
+def _parse_schema_version(path: Path, raw_version: object) -> int | None:
+    if raw_version is None:
+        return None
+    if isinstance(raw_version, int):
+        return raw_version
+    if isinstance(raw_version, str):
+        try:
+            return int(raw_version)
+        except ValueError as exc:
+            raise MigrationError(f"{path} has invalid schema_version: {raw_version!r}") from exc
+    raise MigrationError(f"{path} has invalid schema_version: {raw_version!r}")
 
 
 def _load_yaml_mapping(path: Path) -> dict[str, object]:

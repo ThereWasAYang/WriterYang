@@ -29,6 +29,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     temp_dir: Path | None = None
     if args.project:
         root = Path(args.project).expanduser().resolve()
+    elif args.dry_run:
+        root = Path(tempfile.gettempdir()).resolve() / "writeryang-smoke-dry-run" / "novel"
     else:
         temp_dir = Path(tempfile.mkdtemp(prefix="writeryang-smoke-"))
         root = temp_dir / "novel"
@@ -56,12 +58,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         _run_step(report, "canon_apply", planned[3])
         start_payload = _run_step(report, "session_start", planned[4])
         session_id = str(start_payload["session_id"])
-        _run_step(report, "session_approve", _json_cli(["session", "approve-outline", session_id, "--path", str(root)]))
-        _run_step(report, "session_run", _json_cli(["session", "run", session_id, "--path", str(root), "--provider", args.provider]))
-        _run_step(report, "session_accept", _json_cli(["session", "accept", session_id, "--path", str(root), "--provider", args.provider]))
-        _run_step(report, "session_archive", _json_cli(["session", "archive", session_id, "--path", str(root)]))
-        _run_step(report, "export_markdown", _json_cli(["export", "markdown", "--path", str(root), "--force"]))
-        _run_step(report, "validate", _json_cli(["validate", "--path", str(root)]))
+        _run_step(report, "session_approve", _json_cli(["session", "approve-outline", session_id, "--project", str(root)]))
+        _run_step(
+            report,
+            "session_run",
+            _json_cli(["session", "run", session_id, "--project", str(root), "--provider", args.provider]),
+        )
+        _run_step(
+            report,
+            "session_accept",
+            _json_cli(["session", "accept", session_id, "--project", str(root), "--provider", args.provider]),
+        )
+        _run_step(report, "session_archive", _json_cli(["session", "archive", session_id, "--project", str(root)]))
+        _run_step(report, "export_markdown", _json_cli(["export", "markdown", "--project", str(root), "--force"]))
+        _run_step(report, "validate", _json_cli(["validate", "--project", str(root)]))
         report["session_id"] = session_id
     except RuntimeError:
         ok = False
@@ -78,11 +88,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _planned_commands(args: argparse.Namespace, root: Path, proposal_path: Path) -> list[list[str]]:
     return [
-        _json_cli(["init", args.title, "--path", str(root)]),
-        _json_cli(["inspire", args.inspiration, "--path", str(root), "--provider", args.provider, "--overwrite"]),
-        _json_cli(["canon", "suggest", "--path", str(root), "--provider", args.provider, "--output", str(proposal_path)]),
-        _json_cli(["canon", "apply", str(proposal_path), "--path", str(root)]),
-        _json_cli(["session", "start", args.intent, "--path", str(root), "--chapters", args.chapters, "--provider", args.provider]),
+        _json_cli(["init", args.title, "--project", str(root)]),
+        _json_cli(["inspire", args.inspiration, "--project", str(root), "--provider", args.provider, "--overwrite"]),
+        _json_cli(
+            ["canon", "suggest", "--project", str(root), "--provider", args.provider, "--output", str(proposal_path)]
+        ),
+        _json_cli(["canon", "apply", str(proposal_path), "--project", str(root)]),
+        _json_cli(
+            ["session", "start", args.intent, "--project", str(root), "--chapters", args.chapters, "--provider", args.provider]
+        ),
     ]
 
 

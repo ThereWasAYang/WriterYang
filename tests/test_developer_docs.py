@@ -90,7 +90,7 @@ def test_developer_docs_reference_existing_core_commands() -> None:
         assert command.split()[1] in parser_help
 
 
-def test_developer_docs_cover_memory_search_errors_and_skill_loading() -> None:
+def test_developer_docs_cover_memory_search_errors_and_tools() -> None:
     combined_docs = "\n".join(Path(path).read_text(encoding="utf-8") for path in DEVELOPER_DOCS)
 
     for phrase in (
@@ -105,7 +105,6 @@ def test_developer_docs_cover_memory_search_errors_and_skill_loading() -> None:
         "_get_routes()",
         "_post_routes()",
         "--strict-mypy",
-        "渐进式披露",
         "Agent 输出不合约",
         "ProviderError",
         "EmbeddingError",

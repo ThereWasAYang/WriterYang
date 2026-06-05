@@ -31,7 +31,6 @@ schemas/                # 由 Pydantic 导出的 JSON Schema
 examples/               # 可验证示例项目
 tests/                  # 单元、集成、Web、真实 API 标记测试
 docs/                   # 用户、集成、开发文档
-skills/                 # 给人类开发者和外部 Agent 使用的工作流技能
 scripts/                # 本地质量门禁、smoke、排障、provider ping 等工具脚本
 ```
 
@@ -113,48 +112,20 @@ exports/
 - 检索索引：`memory/search_index.json`、`memory/search_index.sqlite`、`memory/search_index_manifest.json`。FTS 可自动刷新；真实 embedding 向量只在显式 vector 检索或手动 `--with-embeddings` 刷新时调用外部 API，不用 `local_hash` 冒充真实语义检索。
 - 调试记忆：`runs/model_io/`、`runs/provider_calls.jsonl`、`runs/agent_output_violations/`。这些文件可用于定位问题，但可能包含小说正文和隐藏设定，不应提交。
 
-## 4. Workflow Skills 和工具脚本
+## 4. 工具脚本和 CLI 集成
 
-仓库级技能放在 `skills/`，用于让人类开发者或外部大模型 Agent 按固定流程工作：
-
-- `writeryang-maintainer`：代码修改、测试、文档同步和 GitHub 同步规则。
-- `writeryang-workflow-debug`：session / audit / state / provider 失败的证据收集顺序。
-- `writeryang-real-api-smoke`：真实 provider smoke 的安全流程。
-- `writeryang-web-ui-qa`：Web UI 变更后的浏览器验证流程。
-- `writeryang-release`：发版前检查和发布流程。
-
-Agent 级技能也放在 `skills/`，每个 Agent 单独保存、按需加载：
-
-- `writeryang-agent-orchestrator`：用户协商、session 状态机和 handoff 边界。
-- `writeryang-agent-inspiration`：灵感输入、弱方向输出和 inspiration artifact 边界。
-- `writeryang-agent-canon`：canon proposal、stable ID、hidden truth 和 apply 边界。
-- `writeryang-agent-plot`：ChapterPlan 输入、输出、引用校验和 plan artifact 边界。
-- `writeryang-agent-writer`：draft 输入、Markdown/front matter 输出和内部任务输出契约。
-- `writeryang-agent-polish`：polished 输出、edit mode 和事实保持边界。
-- `writeryang-agent-audit`：AuditReport、deterministic checks 和 severity policy。
-- `writeryang-agent-state-update`：state proposal、timeline update 和 acceptance gate。
-- `writeryang-agent-revision`：版本化修订、revision log 和 session 修订语义。
-
-不要把多个 Agent 的详细规则混到一个 skill 中；定位到具体 Agent 后再加载对应 skill。创意类能力不能 skill 化或脚本化：不要把剧情设计、正文表达、人物塑造写成固定模板。Agent skill 只记录安全边界、产物契约、排查顺序和测试入口。
-
-渐进式披露原则：
-
-1. 先加载通用维护或排障 skill，例如 `writeryang-maintainer` 或 `writeryang-workflow-debug`。
-2. 通过日志和 artifact 定位到具体 Agent 后，只加载对应 `writeryang-agent-*` skill。
-3. 不把所有 Agent skill 一次性塞进上下文，避免 token 浪费和职责污染。
-4. Skill 只约束确定性流程、文件边界、输出契约和调试顺序；创意内容仍交给 prompt、用户意图和模型能力动态生成。
-5. 如果开发者只改 Web UI、脚本或发布流程，不加载创意 Agent skill。
-
-确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑：
+项目不再维护给外部 coding Agent 阅读的仓库级技能层；自动化和第三方 Agent 应使用稳定 CLI 契约。确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑。脚本用于本地安装、质量门禁、smoke、排障、provider ping、Web UI 验证和截图生成，不作为小说生成 prompt 的一部分：
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装工具，确保源码更新后重启 Web UI 即可生效。
 - `check_local.py`：本地复现 CI 质量门禁。mypy 是阻断式检查；`--strict-mypy` 保留为兼容旧命令的显式写法。
 - `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke。
-- `debug_bundle.py`：生成脱敏排障包。
+- `debug_bundle.py`：生成脱敏排障包。它会移除已知密钥值，但 bundle 仍可能包含小说正文、隐藏设定和模型 I/O 摘要，不应外发或提交。
 - `provider_ping.py`：检查 agent/embedding provider 配置和可选真实调用。
 - `webui_smoke.py`：用 Playwright 跑最小 Web UI 流程。
 - `capture_webui_guide_screenshots.py`：用 mock 临时项目重新生成 Web UI 小白指南截图。
 - `project_health.py`：聚合 validate/status/usage/audit/session/export 状态。
+
+外部 Agent 或自动化工具调用 WriterYang 时，使用稳定 CLI 契约：所有命令传 `--project --json --quiet`，只解析 stdout 中的 JSON，不抓取人类可读文本。具体命令清单和轻量 manifest 见 `docs/INTEGRATION.md` 与 `docs/openclaw_tool_manifest.json`。
 
 ## 5. 推荐工作流和底层命令
 

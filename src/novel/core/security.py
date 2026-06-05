@@ -106,11 +106,12 @@ def _iter_scan_files(root: Path, *, tracked_only: bool) -> list[Path]:
             )
         except Exception:
             return _walk_files(root)
-        return [
-            root / rel
-            for rel in result.stdout.splitlines()
-            if rel and _should_scan_path(Path(rel))
-        ]
+        files: list[Path] = []
+        for rel in result.stdout.splitlines():
+            path = root / rel
+            if rel and path.is_file() and _should_scan_path(Path(rel)):
+                files.append(path)
+        return files
     return _walk_files(root)
 
 

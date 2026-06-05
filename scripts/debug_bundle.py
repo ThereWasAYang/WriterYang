@@ -56,9 +56,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     command_outputs = output / "command_outputs"
     command_outputs.mkdir(exist_ok=True)
     commands = {
-        "validate.json": ["validate", "--path", str(root)],
-        "status.json": ["status", "--path", str(root)],
-        "usage.json": ["usage", "--path", str(root)],
+        "validate.json": ["validate", "--project", str(root)],
+        "status.json": ["status", "--project", str(root)],
+        "usage.json": ["usage", "--project", str(root)],
     }
     for name, command in commands.items():
         result = _run_cli_json(command)

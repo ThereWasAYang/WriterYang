@@ -26,7 +26,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     project = Path(args.project).expanduser().resolve() if args.project else Path(tempfile.mkdtemp(prefix="writeryang-webui-")) / "novel"
     screenshots = Path(args.screenshots).expanduser().resolve() if args.screenshots else project.parent / "screenshots"
-    port = args.port or _free_port()
+    port = args.port or (8765 if args.dry_run else _free_port())
     url = f"http://127.0.0.1:{port}"
     planned = [
         "start web server",
@@ -43,7 +43,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     screenshots.mkdir(parents=True, exist_ok=True)
     server = subprocess.Popen(
-        [sys.executable, "-m", "novel", "web", "--path", str(project), "--host", "127.0.0.1", "--port", str(port)],
+        [sys.executable, "-m", "novel", "web", "--project", str(project), "--host", "127.0.0.1", "--port", str(port)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

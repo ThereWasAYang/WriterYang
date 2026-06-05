@@ -246,11 +246,10 @@ def test_user_docs_use_generic_environment_setup() -> None:
     assert local_env_name not in combined
 
 
-def test_readme_mentions_workflow_skills_and_scripts() -> None:
+def test_readme_mentions_workflow_scripts() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
     for phrase in (
-        "skills/",
         "scripts/check_local.py",
         "scripts/smoke_session.py",
         "scripts/debug_bundle.py",

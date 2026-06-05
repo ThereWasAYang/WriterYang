@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 
 from novel.core.io import atomic_write_text, backup_file
 from novel.core.locking import ProjectLock, ProjectLockError
+from novel.core import security as security_module
 from novel.core.security import scan_security, validate_env_example, validate_secret_config_file
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -16,6 +18,19 @@ from novel.core.workspace import InitOptions, init_workspace
 def test_repository_secret_scan_passes() -> None:
     result = scan_security(Path("."))
     assert result.ok, [f"{item.code}:{item.path}:{item.line}" for item in result.findings]
+
+
+def test_security_scan_skips_deleted_tracked_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "present.txt").write_text("safe text\n", encoding="utf-8")
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, stdout="missing.txt\npresent.txt\n", stderr="")
+
+    monkeypatch.setattr(security_module.subprocess, "run", fake_run)
+
+    result = scan_security(tmp_path)
+
+    assert result.ok
 
 
 def test_env_example_requires_empty_values(tmp_path: Path) -> None:

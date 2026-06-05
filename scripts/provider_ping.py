@@ -7,14 +7,13 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Sequence
-
-from novel.core.embeddings import create_embedding_provider
-from novel.core.provider_config import ProviderOverrides, create_agent_provider, describe_agent_provider, load_agents_config
-from novel.core.providers import ModelRequest
+from typing import TYPE_CHECKING, Sequence
 
 
 DEFAULT_AGENTS = ("orchestrator", "inspiration", "canon", "plot", "writer", "polish", "audit", "state_update")
+
+if TYPE_CHECKING:
+    from novel.core.provider_config import ProviderOverrides
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -33,6 +32,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.env_file:
         _load_env_file(Path(args.env_file).expanduser().resolve())
     agents = _agent_names(root, args.agent)
+    from novel.core.provider_config import ProviderOverrides
+
     overrides = ProviderOverrides(provider_name=args.provider, model_name=args.model)
 
     agent_results = [_check_agent(root, agent, overrides=overrides, allow_network=args.allow_network) for agent in agents]
@@ -59,6 +60,8 @@ def _agent_names(root: Path, requested: list[str] | None) -> list[str]:
     config_path = root / "config" / "agents.yaml"
     if not config_path.exists():
         return list(DEFAULT_AGENTS)
+    from novel.core.provider_config import load_agents_config
+
     config = load_agents_config(config_path)
     configured = [name for name in DEFAULT_AGENTS if name in config.agents]
     return configured or sorted(config.agents)
@@ -67,6 +70,9 @@ def _agent_names(root: Path, requested: list[str] | None) -> list[str]:
 def _check_agent(root: Path, agent: str, *, overrides: ProviderOverrides, allow_network: bool) -> dict[str, object]:
     config_path = root / "config" / "agents.yaml"
     try:
+        from novel.core.provider_config import create_agent_provider, describe_agent_provider
+        from novel.core.providers import ModelRequest
+
         descriptor = describe_agent_provider(config_path, agent, overrides=overrides)
         result: dict[str, object] = {
             "agent": agent,
@@ -112,6 +118,8 @@ def _check_agent(root: Path, agent: str, *, overrides: ProviderOverrides, allow_
 
 def _check_embedding(root: Path, *, provider_name: str, allow_network: bool) -> dict[str, object]:
     try:
+        from novel.core.embeddings import create_embedding_provider
+
         provider = create_embedding_provider(root, provider_name=provider_name)
         result: dict[str, object] = {
             "provider": provider.provider_name,

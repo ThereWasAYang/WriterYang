@@ -2,7 +2,7 @@
 
 本文是代码级地图。它不替代源码，但说明每个主要文件、class 和 function 的职责，帮助新开发者或大模型 Agent 快速定位修改点。
 
-覆盖口径：公共 class、service function、CLI/Web 入口和跨模块 helper 会逐项说明；私有 helper 按所在模块的职责分组说明，并在对应模块列出关键函数名。新增 Python 文件、schema、Agent prompt、CLI/Web API 或 workflow skill 后，必须同步更新本文和相关专题文档。
+覆盖口径：公共 class、service function、CLI/Web 入口和跨模块 helper 会逐项说明；私有 helper 按所在模块的职责分组说明，并在对应模块列出关键函数名。新增 Python 文件、schema、Agent prompt 或 CLI/Web API 后，必须同步更新本文和相关专题文档。
 
 ## 1. 顶层文件
 
@@ -17,7 +17,6 @@
 | `schemas/*.schema.json` | 从 Pydantic models 导出的 JSON Schema。 | schema 变化后重新导出。 |
 | `examples/rain_station/` | 雨夜旧车站示例项目。 | README smoke、真实 provider 配置模板。 |
 | `examples/wuxia_mountain_sect/` | 武侠长篇示例项目。 | 中文用户配置参考、validate 示例。 |
-| `skills/` | 仓库级工作流技能。 | 给人类开发者和外部大模型 Agent 提供固定维护、排障、真实 API smoke、Web QA、发布流程。 |
 | `scripts/` | 确定性工具脚本。 | 一键安装、本地质量门禁、Session smoke、provider ping、debug bundle、Web UI smoke、项目健康报告。 |
 
 ## 2. 包入口
@@ -714,7 +713,7 @@ Provider 用量统计：
 | `tests/test_auditing.py` | AuditReport、deterministic precheck、output guard。 |
 | `tests/test_state_update.py` | State proposal/apply/accept、回滚、冲突。 |
 | `tests/test_workflow.py` | `generate-chapter` 流水线和 run log。 |
-| `tests/test_workflow_tools.py` | 工作流 skill 和工具脚本的渐进式加载、确定性脚本边界。 |
+| `tests/test_workflow_tools.py` | 工具脚本帮助输出、dry-run 行为、CLI 契约和确定性脚本边界。 |
 | `tests/test_session.py` | Creation Session 状态机、归档、安全。 |
 | `tests/test_orchestrator.py` | `novel ask` 和 handoff trace。 |
 | `tests/test_memory_repair.py` | 项目管家 memory repair proposal/apply 和白名单 patch。 |
@@ -738,37 +737,16 @@ Provider 用量统计：
 - `tests/conftest.py`：pytest 标记和公共配置。
 - `tests/provider_fixtures.py`：mock provider fixture。
 
-## 13. Skills 和 Scripts
-
-### `skills/`
-
-- `writeryang-maintainer/SKILL.md`：代码修改、测试、文档、GitHub 同步规则。
-- `writeryang-workflow-debug/SKILL.md`：session/audit/state/provider 失败排查顺序。
-- `writeryang-real-api-smoke/SKILL.md`：真实 provider smoke 的安全边界和验收标准。
-- `writeryang-web-ui-qa/SKILL.md`：Web UI 改动后的浏览器 QA 流程。
-- `writeryang-release/SKILL.md`：发版前检查。
-- `writeryang-agent-orchestrator/SKILL.md`：Orchestrator / Session 的用户协商、handoff 和状态机边界。
-- `writeryang-agent-inspiration/SKILL.md`：Inspiration Agent 的输入、弱方向产物和 inspire 排查入口。
-- `writeryang-agent-canon/SKILL.md`：Canon Agent 的 proposal、apply、stable ID 和 hidden truth 边界。
-- `writeryang-agent-plot/SKILL.md`：Plot Agent 的 ChapterPlan 输入输出、引用校验和 context report 边界。
-- `writeryang-agent-writer/SKILL.md`：Writer Agent 的 draft 产物、front matter 和输出守卫边界。
-- `writeryang-agent-polish/SKILL.md`：Polish Agent 的 edit mode、事实保持和 polished 产物边界。
-- `writeryang-agent-audit/SKILL.md`：Audit Agent 的 AuditReport、deterministic checks 和 severity policy。
-- `writeryang-agent-state-update/SKILL.md`：State Update Agent 的 proposal、apply log、state/timeline 冲突边界。
-- `writeryang-agent-revision/SKILL.md`：Revision Agent 的版本文件、revision log 和 session 修订边界。
-
-Agent skill 只作为开发者和外部 Agent 的边界说明，不参与小说生成 prompt。创意生成仍由 `src/novel/prompts/` 和 core service 动态组装，不能把剧情、文风或人物塑造固化成脚本。
-
-### `scripts/`
+## 13. Scripts
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装 WriterYang；同时生成固定环境的 Web UI 启动器。
 - `check_local.py`：本地质量门禁，组合 pytest、ruff、mypy、secret scan、build、twine。
 - `smoke_session.py`：创建临时项目并用 CLI 跑完整 Session smoke。
-- `debug_bundle.py`：收集脱敏排障包。
+- `debug_bundle.py`：收集脱敏排障包；会移除已知密钥值，但 bundle 仍可能包含小说正文、隐藏设定和模型 I/O 摘要，不应外发或提交。
 - `provider_ping.py`：检查 agent/embedding provider 配置，显式允许后可做真实最小调用。
 - `webui_smoke.py`：启动本地 Web UI 并用 Playwright 跑最小浏览器流程。
 - `capture_webui_guide_screenshots.py`：启动本地 Web UI，用 mock 临时项目生成用户手册截图。
-- `project_health.py`：聚合 validate/status/usage/chapter/session/export 健康摘要。
+- `project_health.py`：聚合 validate/status/usage、章节审核、Session 和导出状态。
 
 这些脚本只组合现有 CLI/core，不复制业务决策。
 

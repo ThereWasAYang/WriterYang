@@ -17,29 +17,17 @@ SCRIPTS = (
     "scripts/provider_ping.py",
     "scripts/webui_smoke.py",
     "scripts/project_health.py",
+    "scripts/capture_webui_guide_screenshots.py",
 )
 
-SKILLS = (
-    "skills/writeryang-maintainer/SKILL.md",
-    "skills/writeryang-workflow-debug/SKILL.md",
-    "skills/writeryang-real-api-smoke/SKILL.md",
-    "skills/writeryang-web-ui-qa/SKILL.md",
-    "skills/writeryang-release/SKILL.md",
+DOCS_AND_TESTS_WITHOUT_REMOVED_SKILL_LAYER = (
+    "README.md",
+    "docs/DEVELOPER_GUIDE.md",
+    "docs/CODEBASE_REFERENCE.md",
+    "tests/test_workflow_tools.py",
+    "tests/test_packaging.py",
+    "tests/test_developer_docs.py",
 )
-
-AGENT_SKILLS = (
-    "skills/writeryang-agent-orchestrator/SKILL.md",
-    "skills/writeryang-agent-inspiration/SKILL.md",
-    "skills/writeryang-agent-canon/SKILL.md",
-    "skills/writeryang-agent-plot/SKILL.md",
-    "skills/writeryang-agent-writer/SKILL.md",
-    "skills/writeryang-agent-polish/SKILL.md",
-    "skills/writeryang-agent-audit/SKILL.md",
-    "skills/writeryang-agent-state-update/SKILL.md",
-    "skills/writeryang-agent-revision/SKILL.md",
-)
-
-ALL_SKILLS = (*SKILLS, *AGENT_SKILLS)
 
 
 def test_workflow_scripts_have_help() -> None:
@@ -47,6 +35,25 @@ def test_workflow_scripts_have_help() -> None:
         completed = _run_script(rel_path, "--help")
         assert completed.returncode == 0
         assert "usage:" in completed.stdout
+
+
+def test_repository_does_not_restore_removed_external_agent_skill_layer() -> None:
+    assert not Path("skills").exists()
+
+
+def test_docs_and_tests_do_not_reference_removed_external_agent_skill_layer() -> None:
+    forbidden_phrases = (
+        "skills" + "/",
+        "SKILL" + ".md",
+        "渐进" + "式披露",
+        "Workflow " + "Skills",
+        "workflow " + "skill",
+    )
+
+    for rel_path in DOCS_AND_TESTS_WITHOUT_REMOVED_SKILL_LAYER:
+        text = Path(rel_path).read_text(encoding="utf-8")
+        for phrase in forbidden_phrases:
+            assert phrase not in text, f"{rel_path} still references removed external Agent skill layer"
 
 
 def test_check_local_dry_run_lists_quality_gate() -> None:
@@ -77,6 +84,33 @@ def test_smoke_session_dry_run_lists_session_flow(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert "session start" in flattened
     assert "canon apply" in flattened
+    assert "--project" in flattened
+    assert "--path" not in flattened
+
+
+def test_smoke_session_dry_run_without_project_does_not_create_workspace(tmp_path: Path) -> None:
+    temp_root = tmp_path / "temp"
+    temp_root.mkdir()
+    completed = _run_script(
+        "scripts/smoke_session.py",
+        "--dry-run",
+        "--json",
+        env={"TMPDIR": str(temp_root)},
+    )
+    payload = json.loads(completed.stdout)
+
+    assert completed.returncode == 0
+    assert payload["ok"] is True
+    assert list(temp_root.iterdir()) == []
+
+
+def test_webui_smoke_dry_run_does_not_bind_port() -> None:
+    completed = _run_script("scripts/webui_smoke.py", "--dry-run", "--json")
+    payload = json.loads(completed.stdout)
+
+    assert completed.returncode == 0
+    assert payload["ok"] is True
+    assert payload["url"] == "http://127.0.0.1:8765"
 
 
 def test_provider_ping_mock_does_not_need_real_api(tmp_path: Path) -> None:
@@ -136,57 +170,17 @@ def test_project_health_json_reports_workspace(tmp_path: Path) -> None:
     assert payload["validate"]["ok"] is True
 
 
-def test_skills_have_frontmatter_and_reference_tools() -> None:
-    for rel_path in ALL_SKILLS:
-        text = Path(rel_path).read_text(encoding="utf-8")
-        assert text.startswith("---\n")
-        assert "\nname:" in text
-        assert "\ndescription:" in text
-    combined = "\n".join(Path(path).read_text(encoding="utf-8") for path in SKILLS)
-    assert "scripts/check_local.py" in combined
-    assert "scripts/debug_bundle.py" in combined
-    assert "scripts/provider_ping.py" in combined
-
-
-def test_agent_skills_are_isolated_by_agent() -> None:
-    agent_names = {Path(path).parent.name.removeprefix("writeryang-agent-") for path in AGENT_SKILLS}
-
-    for rel_path in AGENT_SKILLS:
-        path = Path(rel_path)
-        agent = path.parent.name.removeprefix("writeryang-agent-")
-        text = path.read_text(encoding="utf-8")
-        lower_text = text.lower()
-
-        assert f"name: writeryang-agent-{agent}" in text
-        assert "Use this skill only for" in text
-        assert text.count("# WriterYang") == 1
-
-        for other in agent_names - {agent}:
-            other_title = other.replace("-", " ").title()
-            assert f"# writeryang {other_title} agent".lower() not in lower_text
-            assert f"use this skill only for the {other_title}".lower() not in lower_text
-
-
-def test_creative_agent_skills_do_not_prescribe_creative_templates() -> None:
-    creative_skill_paths = (
-        "skills/writeryang-agent-inspiration/SKILL.md",
-        "skills/writeryang-agent-plot/SKILL.md",
-        "skills/writeryang-agent-writer/SKILL.md",
+def test_workflow_scripts_use_project_alias_for_internal_cli_calls() -> None:
+    scripts = (
+        "scripts/smoke_session.py",
+        "scripts/debug_bundle.py",
+        "scripts/webui_smoke.py",
+        "scripts/project_health.py",
     )
-    banned_phrases = (
-        "必须按三幕式",
-        "固定剧情模板",
-        "三幕式模板",
-        "角色弧光公式",
-        "如何写出好看正文",
-        "如何设计精彩剧情",
-        "创造人物弧光",
-    )
-
-    for rel_path in creative_skill_paths:
+    for rel_path in scripts:
         text = Path(rel_path).read_text(encoding="utf-8")
-        for phrase in banned_phrases:
-            assert phrase not in text
+        assert '"--project"' in text
+        assert '"--path"' not in text
 
 
 def test_tool_scripts_do_not_directly_call_creative_services() -> None:

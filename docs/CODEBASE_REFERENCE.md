@@ -437,6 +437,7 @@ ChapterPlan 引用提取：
 
 - `plan_focus_entity_ids()`：从 `required_context`、scene participants/location 和 structured fields 提取 focus 实体。
 - `plan_timeline_event_ids()`：提取 plan 直接引用的 timeline event。
+- `plan_related_timeline_event_ids()` / `KEY_TIMELINE_EVENT_ROLES`：基于结构化 focus entity ID 召回关键历史/记忆类 timeline event，不做自然语言事件 ID 猜测。
 - `plan_search_terms()`：把 goal、summary、must_include、scene beats 等稳定信息转成检索 query 片段。
 - `default_mock_chapter_plan_json()`：测试 fixture。
 
@@ -617,6 +618,7 @@ orchestrator 项目管家修复 proposal：
 - `search_project()`：关键词/字段/类型/章节搜索。
 - `retrieve_context()`：旧的检索入口。
 - `retrieve_context_bundle()`：结构化上下文检索，按 ChapterPlan 扩展实体引用。
+- ChapterPlan 显式 `timeline_event_ids` 优先级最高；focus entity 关联的关键历史/记忆类 timeline event 会以较低优先级补充进入 ContextBundle。
 - `write_context_report()`：写 `context_report*.json`。
 - `_include_entity_context()`、`_include_related_events()`、`_include_related_hidden_material()`：补充 canon/state/timeline/hidden material。
 - `_maybe_include_hidden_truth()`：按 task visibility 控制 hidden truth。
@@ -688,8 +690,11 @@ Provider 用量统计：
 
 模板加载在 `core/prompts.py`：
 
-- `load_prompt_template(name)`：按名称读取 `.txt`。
+- `PROMPT_VERSION`：当前最新聚合 prompt 版本。
+- `PROMPT_VERSIONS`：逐模板版本映射，覆盖每个非 partial prompt。
+- `load_prompt_template(name)`：按名称读取 `.txt`，并解析 `{{partial:name}}` 共享片段。
 - `render_prompt_template(name, **values)`：简单 format 渲染。
+- `prompts/partials/*.txt`：只放共享规则片段，例如 ContextBundle 长期记忆说明和内部任务不反问约束。
 
 ## 12. Tests 目录
 

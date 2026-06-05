@@ -17,7 +17,13 @@ from novel.core.embeddings import (
 )
 from novel.core.env import load_project_env
 from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json
-from novel.core.plan_refs import plan_focus_entity_ids, plan_search_terms, plan_timeline_event_ids
+from novel.core.plan_refs import (
+    plan_focus_entity_ids,
+    plan_related_timeline_event_ids,
+    plan_search_terms,
+    plan_timeline_event_ids,
+    timeline_event_has_key_recall_role,
+)
 from novel.core.schemas import (
     ChapterPlan,
     ContextBundle,
@@ -396,6 +402,7 @@ def retrieve_context_bundle(
     data = _load_context_data(root)
     direct_ids = _plan_entity_ids(plan)
     direct_event_ids = _plan_timeline_event_ids(plan)
+    related_event_ids = plan_related_timeline_event_ids(plan, data["events"]) - direct_event_ids
     for entity_id in sorted(direct_ids):
         _include_entity_context(
             root=root,
@@ -417,6 +424,21 @@ def retrieve_context_bundle(
                     visibility="reader_visible" if event.get("reader_visible") else "author_only",
                     reason="referenced by ChapterPlan.required_context.timeline_event_ids",
                     priority=92,
+                    content=_safe_content(event),
+                ),
+            )
+    for event_id in sorted(related_event_ids):
+        event = data["events_by_id"].get(event_id)
+        if event:
+            _put_context_item(
+                included,
+                ContextItem(
+                    id=event_id,
+                    type="timeline_event",
+                    source="memory/state/timeline.json",
+                    visibility="reader_visible" if event.get("reader_visible") else "author_only",
+                    reason="related to ChapterPlan focus entities and key timeline recall policy",
+                    priority=88,
                     content=_safe_content(event),
                 ),
             )
@@ -816,6 +838,8 @@ def _include_related_events(
             continue
         if event.get("location_id") != entity_id and entity_id not in _string_list(event.get("participant_ids")):
             continue
+        if not timeline_event_has_key_recall_role(event):
+            continue
         _put_context_item(
             included,
             ContextItem(
@@ -823,7 +847,7 @@ def _include_related_events(
                 type="timeline_event",
                 source="memory/state/timeline.json",
                 visibility="reader_visible" if event.get("reader_visible") else "author_only",
-                reason=f"timeline event references {entity_id}",
+                reason=f"timeline event references {entity_id} and has a key recall role",
                 priority=84,
                 content=_safe_content(event),
             ),

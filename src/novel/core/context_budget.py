@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from itertools import groupby
 from typing import Iterable
 
-from novel.core.plan_refs import plan_focus_entity_ids, plan_timeline_event_ids
+from novel.core.plan_refs import (
+    KEY_TIMELINE_EVENT_ROLES,
+    plan_focus_entity_ids,
+    plan_related_timeline_event_ids,
+    plan_timeline_event_ids,
+)
 from novel.core.schemas import (
     ChapterPlan,
     ContextBudgetConfig,
@@ -17,7 +22,7 @@ from novel.core.schemas import (
 from novel.core.search import HIDDEN_TRUTH_REDACT_TASKS
 
 
-_KEY_EVENT_ROLES = frozenset({"revelation", "backstory", "summary"})
+_KEY_EVENT_ROLES = KEY_TIMELINE_EVENT_ROLES
 
 
 @dataclass(frozen=True)
@@ -53,7 +58,7 @@ def render_timeline_prompt_text(
         timeline,
         chapter_number=chapter_number,
         focus_ids=plan_focus_entity_ids(plan),
-        required_event_ids=plan_timeline_event_ids(plan),
+        required_event_ids=plan_timeline_event_ids(plan) | plan_related_timeline_event_ids(plan, timeline.events),
         task=task,
         config=config,
     )

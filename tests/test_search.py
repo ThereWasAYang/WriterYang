@@ -295,6 +295,63 @@ def test_context_bundle_expands_chapter_plan_entities_and_state(tmp_path: Path) 
     assert "建立追查动机" in bundle.query
 
 
+def test_context_bundle_recalls_key_timeline_events_for_plan_focus(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    _write_timeline_events(
+        root,
+        [
+            {
+                "id": "event_old_backstory",
+                "chapter": 1,
+                "in_story_time": "七年前",
+                "summary": "早年广播协议留下未解影响",
+                "reader_visible": True,
+                "event_role": "backstory",
+                "location_id": "loc_other",
+                "participant_ids": ["char_lin_che"],
+            },
+            {
+                "id": "event_old_current",
+                "chapter": 1,
+                "in_story_time": "七年前",
+                "summary": "普通巡查记录",
+                "reader_visible": True,
+                "event_role": "current_action",
+                "location_id": "loc_other",
+                "participant_ids": ["char_lin_che"],
+            },
+            {
+                "id": "event_other_backstory",
+                "chapter": 1,
+                "in_story_time": "七年前",
+                "summary": "旁支角色旧事",
+                "reader_visible": True,
+                "event_role": "backstory",
+                "location_id": "loc_other",
+                "participant_ids": ["char_other"],
+            },
+        ],
+    )
+    payload = json.loads(default_mock_chapter_plan_json(8))
+    payload["required_context"]["timeline_event_ids"] = []
+    plan = parse_chapter_plan(json.dumps(payload, ensure_ascii=False))
+
+    bundle = retrieve_context_bundle(
+        root,
+        chapter_number=8,
+        task="write",
+        instruction="继续调查",
+        plan=plan,
+        limit=20,
+    )
+
+    included = {(item.type, item.id): item for item in bundle.included}
+    assert ("timeline_event", "event_old_backstory") in included
+    assert included[("timeline_event", "event_old_backstory")].priority == 88
+    assert ("timeline_event", "event_old_current") not in included
+    assert ("timeline_event", "event_other_backstory") not in included
+
+
 def test_context_bundle_protects_hidden_truth_for_write(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
     plan = parse_chapter_plan(default_mock_chapter_plan_json(1))
@@ -441,21 +498,36 @@ def _workspace_with_generated_chapter(tmp_path: Path) -> Path:
 
 
 def _write_timeline_event(root: Path) -> None:
+    _write_timeline_events(
+        root,
+        [
+            {
+                "id": "event_broadcast",
+                "chapter": 1,
+                "in_story_time": "雨夜",
+                "summary": "旧车站广播响起",
+                "reader_visible": True,
+                "location_id": "loc_old_station",
+                "participant_ids": ["char_lin_che"],
+            }
+        ],
+    )
+
+
+def _write_timeline_events(root: Path, events: list[dict[str, object]]) -> None:
+    normalized_events: list[dict[str, object]] = []
+    for event in events:
+        chapter = event.get("chapter", 1)
+        normalized_events.append(
+            {
+                **event,
+                "narrative_position": {"chapter": chapter},
+                "story_position": {"time_label": str(event.get("in_story_time", "未知"))},
+            }
+        )
     (root / "memory" / "state" / "timeline.json").write_text(
         json.dumps(
-            {
-                "events": [
-                    {
-                        "id": "event_broadcast",
-                        "chapter": 1,
-                        "in_story_time": "雨夜",
-                        "summary": "旧车站广播响起",
-                        "reader_visible": True,
-                        "location_id": "loc_old_station",
-                        "participant_ids": ["char_lin_che"],
-                    }
-                ]
-            },
+            {"events": normalized_events},
             ensure_ascii=False,
             indent=2,
         )

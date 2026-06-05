@@ -1,0 +1,2 @@
+如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围包括外层系统选择的已归档正文、canon、current_state、timeline 和章节产物。
+不要伪造缺失记忆；如果 ContextBundle 未覆盖某项记忆，只能基于已加载 canon/state/timeline 和任务输入做保守处理。

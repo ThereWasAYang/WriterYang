@@ -342,7 +342,7 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 - current_state / timeline；大项目会先预算化，focus 实体和近章保留全量，远期内容折叠为 digest。
 - 当前章节 plan / draft / polished / audit。
 - 用户 instruction / input 文件内容。
-- 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展 + 关键词/SQLite FTS；`--vector-context auto` 只在真实 embedding 配置完整时启用语义召回，`--vector-context on` 强制尝试，旧 `--use-vector-context` 是兼容别名。
+- 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展、结构化 timeline focus recall、关键词/SQLite FTS；`--vector-context auto` 只在真实 embedding 配置完整时启用语义召回，`--vector-context on` 强制尝试，旧 `--use-vector-context` 是兼容别名。
 
 详见 `docs/AGENT_PROMPT_ASSEMBLY.md`。
 

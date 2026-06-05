@@ -1,18 +1,51 @@
 from __future__ import annotations
 
+from importlib.resources import files
+from pathlib import Path
+
 from novel.core.auditing import build_audit_system_prompt
 from novel.core.canon import build_canon_system_prompt
 from novel.core.drafting import build_writer_system_prompt
 from novel.core.planning import build_planning_system_prompt
 from novel.core.polishing import build_polish_system_prompt
-from novel.core.prompts import PROMPT_VERSION, load_prompt_template
+from novel.core.prompts import PROMPT_VERSION, PROMPT_VERSIONS, load_prompt_template
 from novel.core.revision import build_revision_system_prompt
 from novel.core.state_update import build_state_update_system_prompt
 
 
 def test_prompt_templates_are_versioned_and_loadable() -> None:
-    assert PROMPT_VERSION == "2026-05-31"
+    assert PROMPT_VERSION == "2026-06-05"
     assert "Writer Agent" in load_prompt_template("writer_system")
+
+
+def test_prompt_versions_cover_non_partial_templates() -> None:
+    template_names = {
+        item.name.removesuffix(".txt")
+        for item in files("novel.prompts").iterdir()
+        if item.name.endswith(".txt")
+    }
+
+    assert set(PROMPT_VERSIONS) == template_names
+    assert PROMPT_VERSION == max(PROMPT_VERSIONS.values())
+    assert PROMPT_VERSIONS["writer_system"] == "2026-06-05"
+    assert PROMPT_VERSIONS["orchestrator_ask_intent_system"] == "2026-05-31"
+
+
+def test_prompt_partials_render_and_raw_prompts_do_not_duplicate_shared_context_text() -> None:
+    prompt = load_prompt_template("writer_system")
+    shared_sentence = "如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考"
+
+    assert "{{partial:" not in prompt
+    assert shared_sentence in prompt
+
+    prompts_dir = Path(__file__).resolve().parents[1] / "src" / "novel" / "prompts"
+    duplicated = [
+        path.name
+        for path in prompts_dir.glob("*_system.txt")
+        if shared_sentence in path.read_text(encoding="utf-8")
+    ]
+    assert duplicated == []
+    assert shared_sentence in (prompts_dir / "partials" / "context_bundle_memory.txt").read_text(encoding="utf-8")
 
 
 def test_agent_system_prompts_keep_core_constraints() -> None:

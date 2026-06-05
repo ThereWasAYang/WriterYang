@@ -11,6 +11,7 @@ PROMPT_VERSIONS: dict[str, str] = {
     "audit_repair_route_system": "2026-05-31",
     "audit_system": "2026-06-05",
     "canon_system": "2026-06-05",
+    "chapter_memory_system": "2026-06-05",
     "inspiration_system": "2026-06-05",
     "memory_repair_system": "2026-05-31",
     "orchestrator_ask_intent_system": "2026-05-31",

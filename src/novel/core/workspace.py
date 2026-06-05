@@ -194,6 +194,13 @@ def _project_yaml(
         "  max_full_timeline_events: 40\n"
         "  max_full_state_entities: 60\n"
         "  digest_dropped: true\n"
+        "chapter_memory:\n"
+        "  enabled: true\n"
+        "  generate_on_accept: true\n"
+        "  strict_accept: false\n"
+        "  inject_into_tasks:\n"
+        '    - "plan"\n'
+        '    - "write"\n'
         "polish:\n"
         '  mode: "single_pass"\n'
         "audit_recall:\n"
@@ -222,6 +229,7 @@ def _agents_yaml() -> str:
         "audit": ("low", 64000, 8192, 0.2, 60, 1),
         "revision": ("medium", 128000, 24000, 0.6, 120, 1),
         "state_update": ("low", 64000, 8192, 0.2, 60, 1),
+        "chapter_memory": ("low", 64000, 8192, 0.2, 60, 1),
     }
     lines = [
         f"schema_version: {CURRENT_SCHEMA_VERSION}\n",

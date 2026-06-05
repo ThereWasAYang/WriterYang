@@ -52,7 +52,7 @@ thinking:
 原因：
 
 - `writer`、`polish` 的输出会直接写入 Markdown，关闭 thinking 可降低把分析性内容混入正文的风险。
-- `canon`、`state_update` 需要严格 JSON，关闭 thinking 更容易保持输出干净。
+- `canon`、`state_update`、`chapter_memory` 需要严格 JSON，关闭 thinking 更容易保持输出干净。
 - `plot`、`audit` 在复杂长篇中可以单独改成 `enabled`，用于增强推理和一致性检查。
 
 ## 按 Agent 配置建议
@@ -68,6 +68,7 @@ thinking:
 | `audit` | 一致性审核。 | 低幻觉、细节比对、JSON 输出。 | `temperature: 0-0.3`，复杂项目可 `thinking.type: enabled`。 |
 | `revision` | 根据用户意见或 audit issues 修订版本稿。 | 事实保持、定向修复、中文表达。 | `temperature: 0.4-0.7`，`reasoning: medium-high`，`max_tokens: 16000-32000`。 |
 | `state_update` | 提取状态和时间线变化。 | 信息抽取、引用一致性。 | `temperature: 0-0.3`，`reasoning: low-medium`。 |
+| `chapter_memory` | 生成 accepted 章节检索记忆。 | 结构化摘要、来源引用、可见性分级。 | `temperature: 0-0.2`，`reasoning: low-medium`，`max_tokens: 4096-8192`。 |
 
 ## 参数解释
 

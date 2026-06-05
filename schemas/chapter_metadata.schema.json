@@ -95,6 +95,18 @@
       "default": null,
       "title": "State Update Apply Log Path"
     },
+    "chapter_memory_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Chapter Memory Path"
+    },
     "accepted_at": {
       "anyOf": [
         {

@@ -60,6 +60,8 @@ novel generate-chapter 1 --project ./rain-station --provider config --json --qui
 novel propose-state-update 1 --project ./rain-station --provider config --json --quiet
 novel apply-state-update 1 --project ./rain-station --json --quiet
 novel accept-chapter 1 --project ./rain-station --json --quiet
+novel chapter-memory show 1 --project ./rain-station --json --quiet
+novel chapter-memory generate 1 --project ./rain-station --provider config --force --json --quiet
 novel export markdown --project ./rain-station --include-unaccepted --json --quiet
 novel export docx --project ./rain-station --include-unaccepted --json --quiet
 novel ask "请为第1章生成章节计划" --project ./rain-station --provider config --json --quiet
@@ -86,6 +88,7 @@ novel index refresh --project ./rain-station --json --quiet
 novel index rebuild --project ./rain-station --json --quiet
 novel index refresh --project ./rain-station --with-embeddings --embedding-provider dashscope --json --quiet
 novel search "车站广播" --project ./rain-station --type all --limit 10 --json --quiet
+novel search "未解决线索" --project ./rain-station --type chapter_memory --limit 10 --json --quiet
 novel search "角色是否知道旧案真相" --project ./rain-station --use-vector --embedding-provider dashscope --json --quiet
 ```
 

@@ -1,0 +1,301 @@
+{
+  "$defs": {
+    "ChapterMemoryItem": {
+      "additionalProperties": true,
+      "properties": {
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "visibility": {
+          "default": "author_only",
+          "enum": [
+            "reader_visible",
+            "author_only",
+            "hidden_truth",
+            "audit_only"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "related_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Entity Ids",
+          "type": "array"
+        },
+        "timeline_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Timeline Event Ids",
+          "type": "array"
+        },
+        "source_refs": {
+          "items": {
+            "$ref": "#/$defs/ChapterMemorySourceRef"
+          },
+          "title": "Source Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "title": "ChapterMemoryItem",
+      "type": "object"
+    },
+    "ChapterMemorySource": {
+      "additionalProperties": true,
+      "properties": {
+        "polished_path": {
+          "minLength": 1,
+          "title": "Polished Path",
+          "type": "string"
+        },
+        "polished_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Polished Sha256",
+          "type": "string"
+        },
+        "plan_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Path"
+        },
+        "audit_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Audit Path"
+        },
+        "state_update_proposal_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Update Proposal Path"
+        },
+        "state_update_apply_log_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Update Apply Log Path"
+        }
+      },
+      "required": [
+        "polished_path",
+        "polished_sha256"
+      ],
+      "title": "ChapterMemorySource",
+      "type": "object"
+    },
+    "ChapterMemorySourceRef": {
+      "additionalProperties": true,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote"
+        }
+      },
+      "required": [
+        "path",
+        "kind"
+      ],
+      "title": "ChapterMemorySourceRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "status": {
+      "default": "accepted",
+      "enum": [
+        "accepted",
+        "archived"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "generation_status": {
+      "enum": [
+        "model_generated",
+        "deterministic_fallback"
+      ],
+      "title": "Generation Status",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/ChapterMemorySource"
+    },
+    "reader_visible_summary": {
+      "minLength": 1,
+      "title": "Reader Visible Summary",
+      "type": "string"
+    },
+    "plot_beats": {
+      "items": {
+        "$ref": "#/$defs/ChapterMemoryItem"
+      },
+      "title": "Plot Beats",
+      "type": "array"
+    },
+    "character_knowledge_changes": {
+      "items": {
+        "$ref": "#/$defs/ChapterMemoryItem"
+      },
+      "title": "Character Knowledge Changes",
+      "type": "array"
+    },
+    "state_changes": {
+      "items": {
+        "$ref": "#/$defs/ChapterMemoryItem"
+      },
+      "title": "State Changes",
+      "type": "array"
+    },
+    "timeline_event_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Timeline Event Ids",
+      "type": "array"
+    },
+    "open_threads": {
+      "items": {
+        "$ref": "#/$defs/ChapterMemoryItem"
+      },
+      "title": "Open Threads",
+      "type": "array"
+    },
+    "foreshadowing": {
+      "items": {
+        "$ref": "#/$defs/ChapterMemoryItem"
+      },
+      "title": "Foreshadowing",
+      "type": "array"
+    },
+    "continuity_notes": {
+      "items": {
+        "$ref": "#/$defs/ChapterMemoryItem"
+      },
+      "title": "Continuity Notes",
+      "type": "array"
+    },
+    "retrieval_hints": {
+      "items": {
+        "$ref": "#/$defs/ChapterMemoryItem"
+      },
+      "title": "Retrieval Hints",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "chapter_number",
+    "title",
+    "generated_at",
+    "generation_status",
+    "source",
+    "reader_visible_summary"
+  ],
+  "title": "ChapterMemory",
+  "type": "object"
+}

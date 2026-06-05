@@ -35,7 +35,7 @@ from novel.core.schemas import (
 )
 
 
-SearchType = Literal["character", "location", "item", "event", "chapter", "all"]
+SearchType = Literal["character", "location", "item", "event", "chapter", "chapter_memory", "all"]
 HIDDEN_TRUTH_REDACT_TASKS: set[ContextTask] = {"inspiration", "write", "polish", "revision"}
 _AUTO_VECTOR_READY_STATUSES = {"indexed", "missing", "stale"}
 
@@ -1051,13 +1051,34 @@ def _include_search_result(
             ),
         )
         return
+    if task in HIDDEN_TRUTH_REDACT_TASKS and result.type == "chapter_memory":
+        _put_context_item(
+            included,
+            ContextItem(
+                id=result.id,
+                type="search_chapter_memory",
+                source=result.path,
+                visibility="reader_visible",
+                reason="search matched chapter memory; raw excerpt redacted for drafting safety",
+                priority=min(70 + result.score, 89),
+                content={
+                    "title": result.title,
+                    "excerpt": "ChapterMemory matched. Use it only as a pointer; verify facts in accepted polished.md/canon/state/timeline.",
+                    "matched_terms": [],
+                    "metadata": result.metadata,
+                },
+            ),
+        )
+        return
     _put_context_item(
         included,
         ContextItem(
             id=result.id,
             type=f"search_{result.type}",
             source=result.path,
-            visibility="reader_visible" if result.type in {"character", "location", "item", "chapter", "event"} else "author_only",
+            visibility="reader_visible"
+            if result.type in {"character", "location", "item", "chapter", "chapter_memory", "event"}
+            else "author_only",
             reason=f"search match: {', '.join(result.matched_terms) if result.matched_terms else 'vector similarity'}",
             priority=min(70 + result.score, 89),
             content={
@@ -1290,10 +1311,11 @@ def _chapter_json_documents(root: Path) -> list[SearchDocument]:
             continue
         data = _safe_load_json(path)
         text = _json_text(data)
+        document_type = "chapter_memory" if path.name == "chapter_memory.json" else "chapter"
         documents.append(
             SearchDocument(
                 id=_safe_id(_rel(root, path)),
-                type="chapter",
+                type=document_type,
                 path=_rel(root, path),
                 title=path.name,
                 text=text,
@@ -1424,7 +1446,14 @@ def _diverse_context_results(
         chapter = result.metadata.get("chapter_number") or result.metadata.get("chapter")
         near_chapter = chapter_number is not None and isinstance(chapter, int) and abs(chapter - chapter_number) <= 1
         archived = result.path.startswith("memory/archive/") or "/archive/" in result.path
-        type_priority = {"character": 0, "location": 1, "item": 2, "event": 3, "chapter": 4}.get(result.type, 5)
+        type_priority = {
+            "character": 0,
+            "location": 1,
+            "item": 2,
+            "event": 3,
+            "chapter_memory": 4,
+            "chapter": 5,
+        }.get(result.type, 6)
         return (0 if archived else 1, 0 if near_chapter else 1, type_priority)
 
     selected: list[SearchResult] = []

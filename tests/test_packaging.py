@@ -91,6 +91,7 @@ def test_readme_documents_all_agent_model_roles() -> None:
         "audit",
         "revision",
         "state_update",
+        "chapter_memory",
     ):
         assert f"| `{agent_name}` |" in readme
 

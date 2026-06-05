@@ -38,6 +38,35 @@
       "title": "CanonDriftConfig",
       "type": "object"
     },
+    "ChapterMemoryConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "generate_on_accept": {
+          "default": true,
+          "title": "Generate On Accept",
+          "type": "boolean"
+        },
+        "strict_accept": {
+          "default": false,
+          "title": "Strict Accept",
+          "type": "boolean"
+        },
+        "inject_into_tasks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inject Into Tasks",
+          "type": "array"
+        }
+      },
+      "title": "ChapterMemoryConfig",
+      "type": "object"
+    },
     "ContextBudgetConfig": {
       "additionalProperties": true,
       "properties": {
@@ -239,6 +268,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/ContextBudgetConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "chapter_memory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ChapterMemoryConfig"
         },
         {
           "type": "null"

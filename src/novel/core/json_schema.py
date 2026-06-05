@@ -12,6 +12,7 @@ from novel.core.schemas import (
     AgentsConfig,
     AuditReport,
     CanonProposal,
+    ChapterMemory,
     ChapterMetadata,
     ChapterPlan,
     CharactersFile,
@@ -62,6 +63,7 @@ SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
     SchemaDefinition("current_state", EntityState, "memory/state/current_state.json"),
     SchemaDefinition("timeline", TimelineFile, "memory/state/timeline.json"),
     SchemaDefinition("chapter_plan", ChapterPlan, "memory/chapters/{chapter}/plan.json"),
+    SchemaDefinition("chapter_memory", ChapterMemory, "memory/chapters/{chapter}/chapter_memory.json"),
     SchemaDefinition("context_bundle", ContextBundle, "memory/chapters/{chapter}/context_report.json"),
     SchemaDefinition("audit_report", AuditReport, "memory/chapters/{chapter}/audit.json"),
     SchemaDefinition(

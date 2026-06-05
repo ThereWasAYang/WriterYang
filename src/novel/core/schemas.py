@@ -22,6 +22,8 @@ MemoryRepairOperationType = Literal["add", "replace", "remove"]
 MemoryRepairRiskLevel = Literal["low", "medium", "high"]
 ManagementEventType = Literal[
     "chapter_accepted",
+    "chapter_memory_generated",
+    "chapter_memory_failed",
     "state_update_proposed",
     "state_update_applied",
     "timeline_updated",
@@ -52,6 +54,9 @@ AuditRepairRoute = Literal["plot_replan", "writer_rewrite", "revision_rewrite", 
 VectorContextMode = Literal["auto", "on", "off"]
 PolishMode = Literal["single_pass", "auto", "review_gate"]
 ContextRequestKind = Literal["chapter_prose", "entity", "query"]
+ChapterMemoryGenerationStatus = Literal["model_generated", "deterministic_fallback"]
+ChapterMemoryStatus = Literal["accepted", "archived"]
+ChapterMemoryVisibility = Literal["reader_visible", "author_only", "hidden_truth", "audit_only"]
 
 
 class FlexibleModel(BaseModel):
@@ -94,6 +99,13 @@ class AuditRecallConfig(FlexibleModel):
     max_requests_per_round: int = Field(default=3, ge=1, le=10)
 
 
+class ChapterMemoryConfig(FlexibleModel):
+    enabled: bool = True
+    generate_on_accept: bool = True
+    strict_accept: bool = False
+    inject_into_tasks: list[str] = Field(default_factory=lambda: ["plan", "write"])
+
+
 class CanonDriftConfig(FlexibleModel):
     enabled: bool = True
 
@@ -110,6 +122,7 @@ class ProjectConfig(SchemaVersionedModel):
     default_style_profile_id: str | None = None
     web: WebConfig | None = None
     context_budget: ContextBudgetConfig | None = None
+    chapter_memory: ChapterMemoryConfig | None = None
     polish: PolishConfig | None = None
     audit_recall: AuditRecallConfig | None = None
     canon_drift: CanonDriftConfig | None = None
@@ -551,8 +564,75 @@ class ChapterMetadata(SchemaVersionedModel):
     audit_path: str | None = None
     state_update_proposal_path: str | None = None
     state_update_apply_log_path: str | None = None
+    chapter_memory_path: str | None = None
     accepted_at: datetime | None = None
     updated_at: datetime
+
+
+class ChapterMemorySource(FlexibleModel):
+    polished_path: str = Field(min_length=1)
+    polished_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    plan_path: str | None = None
+    audit_path: str | None = None
+    state_update_proposal_path: str | None = None
+    state_update_apply_log_path: str | None = None
+
+
+class ChapterMemorySourceRef(FlexibleModel):
+    path: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    id: str | None = None
+    quote: str | None = None
+
+
+class ChapterMemoryItem(FlexibleModel):
+    summary: str = Field(min_length=1)
+    description: str | None = None
+    visibility: ChapterMemoryVisibility = "author_only"
+    related_entity_ids: list[EntityId] = Field(default_factory=list)
+    timeline_event_ids: list[EntityId] = Field(default_factory=list)
+    source_refs: list[ChapterMemorySourceRef] = Field(default_factory=list)
+
+
+class ChapterMemory(SchemaVersionedModel):
+    chapter_number: int = Field(ge=1)
+    title: str = Field(min_length=1)
+    status: ChapterMemoryStatus = "accepted"
+    generated_at: datetime
+    generation_status: ChapterMemoryGenerationStatus
+    source: ChapterMemorySource
+    reader_visible_summary: str = Field(min_length=1)
+    plot_beats: list[ChapterMemoryItem] = Field(default_factory=list)
+    character_knowledge_changes: list[ChapterMemoryItem] = Field(default_factory=list)
+    state_changes: list[ChapterMemoryItem] = Field(default_factory=list)
+    timeline_event_ids: list[EntityId] = Field(default_factory=list)
+    open_threads: list[ChapterMemoryItem] = Field(default_factory=list)
+    foreshadowing: list[ChapterMemoryItem] = Field(default_factory=list)
+    continuity_notes: list[ChapterMemoryItem] = Field(default_factory=list)
+    retrieval_hints: list[ChapterMemoryItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def memory_item_timeline_refs_are_listed(self) -> "ChapterMemory":
+        timeline_ids = list(self.timeline_event_ids)
+        for item in self.all_items():
+            for event_id in item.timeline_event_ids:
+                if event_id not in timeline_ids:
+                    timeline_ids.append(event_id)
+        _require_unique_values(timeline_ids, "chapter memory timeline_event id")
+        self.timeline_event_ids = timeline_ids
+        return self
+
+    def all_items(self) -> list[ChapterMemoryItem]:
+        return [
+            *self.plot_beats,
+            *self.character_knowledge_changes,
+            *self.state_changes,
+            *self.open_threads,
+            *self.foreshadowing,
+            *self.continuity_notes,
+            *self.retrieval_hints,
+        ]
 
 
 class CreationArchiveEntry(FlexibleModel):

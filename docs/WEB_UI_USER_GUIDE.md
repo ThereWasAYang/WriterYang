@@ -151,7 +151,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 项目文件 | 浏览工作区安全文件。 | 点击文件名后，内容会显示在“文件预览”里。“读取”只是加载到 Web UI，不会修改文件。 |
 | 运行日志 | 查看 run log、provider calls、model I/O 摘要。 | 排查真实 API 或 Agent 输出问题时使用。 |
 | 用量统计 | 查看模型调用次数和 token 汇总。 | 点击“刷新用量”，可以按 Agent / Provider / Model 查看统计。 |
-| 章节文件查看 | 读取单个章节文件或操作返回详情。 | 可查看 plan/draft/polished/audit；项目检查、生成、修订等结构化结果也会写到这里。 |
+| 章节文件查看 | 读取单个章节文件或操作返回详情。 | 可查看 plan/draft/polished/audit/chapter_memory；项目检查、生成、修订等结构化结果也会写到这里。 |
 
 ## 输入灵感
 
@@ -315,7 +315,7 @@ issue 等级：
 1. 点击“认可本次创作”。
 2. 点击“归档”。
 
-认可会应用本次状态和时间线更新，并把章节标记为 accepted。归档会把 approved outline、最终正文、audit、state update 和 manifest 保存到 archive，并记录文件 hash。
+认可会应用本次状态和时间线更新，把章节标记为 accepted，并 best-effort 生成 ChapterMemory。归档会把 approved outline、最终正文、audit、state update、ChapterMemory 和 manifest 保存到 archive，并记录文件 hash。
 
 归档后，后续流程不能在没有你许可的情况下改这次内容。
 

@@ -28,6 +28,14 @@ from novel.core.canon import (
     load_canon_provider,
     suggest_canon,
 )
+from novel.core.chapter_memory import (
+    ChapterMemoryError,
+    ChapterMemoryOptions,
+    chapter_memory_path,
+    generate_chapter_memory,
+    load_chapter_memory_provider,
+    load_chapter_memories,
+)
 from novel.core.env import load_project_env
 from novel.core.drafting import (
     ChapterDraftingOptions,
@@ -164,6 +172,7 @@ ERROR_CODES = {
     "migration_error": "Schema migration failed.",
     "orchestrator_error": "Orchestrator request failed.",
     "memory_repair_error": "Memory repair proposal or apply failed.",
+    "chapter_memory_error": "Chapter memory generation or loading failed.",
     "planning_error": "Chapter planning failed.",
     "polishing_error": "Chapter polishing failed.",
     "project_read_error": "Project data could not be read.",
@@ -847,7 +856,7 @@ def _prompt_yes_no(label: str, *, default: bool) -> bool:
 
 def completion_script(shell: str) -> str:
     commands = (
-        "init validate migrate schema index search ask session status usage show inspire canon plan-chapter "
+        "init validate migrate schema index search ask memory-repair chapter-memory session status usage show inspire canon plan-chapter "
         "write-chapter polish-chapter audit-chapter revise-chapter propose-state-update "
         "apply-state-update accept-chapter generate-chapter export web doctor completion"
     )
@@ -1216,7 +1225,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument(
         "--type",
         default="all",
-        choices=("character", "location", "item", "event", "chapter", "all"),
+        choices=("character", "location", "item", "event", "chapter", "chapter_memory", "all"),
         help="Result type to search. Defaults to all.",
     )
     search_parser.add_argument(
@@ -1325,6 +1334,38 @@ def build_parser() -> argparse.ArgumentParser:
     memory_repair_apply.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
     memory_repair_apply.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
     memory_repair_apply.add_argument("--quiet", action="store_true", help="Suppress normal output.")
+
+    chapter_memory_parser = subparsers.add_parser("chapter-memory", help="Manage accepted chapter memory")
+    chapter_memory_subparsers = chapter_memory_parser.add_subparsers(dest="chapter_memory_command", required=True)
+    chapter_memory_show = chapter_memory_subparsers.add_parser("show", help="Show a chapter_memory.json file")
+    chapter_memory_show.add_argument("chapter_number", type=int, help="Chapter number")
+    chapter_memory_show.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    chapter_memory_generate = chapter_memory_subparsers.add_parser("generate", help="Generate chapter_memory.json")
+    chapter_memory_generate.add_argument("chapter_number", type=int, help="Chapter number")
+    chapter_memory_generate.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    chapter_memory_generate.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for structured ChapterMemory generation.",
+    )
+    chapter_memory_generate.add_argument("--force", action="store_true", help="Overwrite existing chapter_memory.json.")
+    _add_agent_runtime_args(chapter_memory_generate)
+    chapter_memory_rebuild = chapter_memory_subparsers.add_parser("rebuild", help="Rebuild chapter memories")
+    chapter_memory_rebuild.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    chapter_memory_rebuild.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for structured ChapterMemory generation.",
+    )
+    chapter_memory_rebuild.add_argument("--force", action="store_true", help="Overwrite existing chapter_memory.json files.")
+    chapter_memory_rebuild.add_argument(
+        "--missing-only",
+        action="store_true",
+        help="Only generate ChapterMemory for accepted chapters missing chapter_memory.json.",
+    )
+    _add_agent_runtime_args(chapter_memory_rebuild)
 
     session_parser = subparsers.add_parser("session", help="Manage collaborative creation sessions")
     session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
@@ -2504,6 +2545,146 @@ def _cmd_memory_repair(args: argparse.Namespace) -> int:
         return _failure(args, str(exc), error_type="memory_repair_error")
 
 
+def _cmd_chapter_memory(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        if args.chapter_memory_command == "show":
+            path = chapter_memory_path(root, args.chapter_number)
+            if not path.exists():
+                raise ChapterMemoryError(f"{path} is missing")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if _wants_json(args):
+                _print_json({"ok": True, "command": "chapter-memory show", "path": str(path), "memory": payload})
+                return 0
+            if not _quiet(args):
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.chapter_memory_command == "generate":
+            if args.dry_run_provider:
+                _print_dry_run_provider(
+                    root,
+                    args.agent_config,
+                    args.provider,
+                    args.model,
+                    (("chapter_memory", ("state_update", "audit")),),
+                )
+                return 0
+            with _command_lock(args, root, "chapter-memory generate"):
+                provider_warnings: list[str] = []
+                provider = None
+                try:
+                    provider = load_chapter_memory_provider(
+                        root,
+                        args.provider,
+                        chapter_number=args.chapter_number,
+                        agent_config_path=args.agent_config,
+                        model_name=args.model,
+                    )
+                except Exception as exc:
+                    provider_warnings.append(f"chapter memory provider unavailable; using deterministic fallback: {exc}")
+                result = generate_chapter_memory(
+                    ChapterMemoryOptions(root=root, chapter_number=args.chapter_number, force=args.force),
+                    provider,
+                    initial_warnings=tuple(provider_warnings),
+                )
+            return _success(
+                args,
+                {
+                    "command": "chapter-memory generate",
+                    "chapter_number": args.chapter_number,
+                    "memory_path": str(result.memory_path),
+                    "warnings": list(result.warnings),
+                },
+                [
+                    *(f"warning: {warning}" for warning in result.warnings),
+                    f"Wrote chapter memory: {result.memory_path}",
+                ],
+            )
+
+        if args.chapter_memory_command == "rebuild":
+            if args.dry_run_provider:
+                _print_dry_run_provider(
+                    root,
+                    args.agent_config,
+                    args.provider,
+                    args.model,
+                    (("chapter_memory", ("state_update", "audit")),),
+                )
+                return 0
+            written: list[str] = []
+            warnings: list[str] = []
+            with _command_lock(args, root, "chapter-memory rebuild"):
+                for chapter_number in _accepted_chapter_numbers(root):
+                    path = chapter_memory_path(root, chapter_number)
+                    if args.missing_only and path.exists():
+                        continue
+                    try:
+                        provider_warnings = []
+                        provider = None
+                        try:
+                            provider = load_chapter_memory_provider(
+                                root,
+                                args.provider,
+                                chapter_number=chapter_number,
+                                agent_config_path=args.agent_config,
+                                model_name=args.model,
+                            )
+                        except Exception as exc:
+                            provider_warnings.append(
+                                f"chapter {chapter_number}: chapter memory provider unavailable; "
+                                f"using deterministic fallback: {exc}"
+                            )
+                        result = generate_chapter_memory(
+                            ChapterMemoryOptions(root=root, chapter_number=chapter_number, force=True),
+                            provider,
+                            initial_warnings=tuple(provider_warnings),
+                        )
+                        written.append(str(result.memory_path))
+                        warnings.extend(result.warnings)
+                    except Exception as exc:
+                        warnings.append(f"chapter {chapter_number}: {exc}")
+            return _success(
+                args,
+                {
+                    "command": "chapter-memory rebuild",
+                    "written": written,
+                    "warnings": warnings,
+                },
+                [
+                    *(f"warning: {warning}" for warning in warnings),
+                    f"Rebuilt chapter memories: {len(written)}",
+                    *(f"Wrote: {path}" for path in written),
+                ],
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except ChapterMemoryError as exc:
+        return _failure(args, str(exc), error_type="chapter_memory_error")
+    except Exception as exc:
+        return _failure(args, f"chapter memory operation failed: {exc}", error_type="chapter_memory_error")
+    return _failure(args, f"unknown chapter-memory command: {args.chapter_memory_command}", code=2)
+
+
+def _accepted_chapter_numbers(root: Path) -> list[int]:
+    chapters_dir = root / "memory" / "chapters"
+    if not chapters_dir.exists():
+        return []
+    numbers: set[int] = set()
+    memories, _ = load_chapter_memories(root, include_stale=True)
+    numbers.update(memory.chapter_number for memory in memories)
+    for child in sorted(chapters_dir.iterdir()):
+        if not child.is_dir() or not child.name.isdigit():
+            continue
+        polished_path = child / "polished.md"
+        if not polished_path.exists():
+            continue
+        text = polished_path.read_text(encoding="utf-8")
+        if "status: accepted" in text:
+            numbers.add(int(child.name))
+    return sorted(numbers)
+
+
 def _cmd_ask(args: argparse.Namespace) -> int:
     try:
         with _command_lock(args, Path(args.path), "ask", enabled=not args.dry_run):
@@ -3297,7 +3478,7 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
                 args.agent_config,
                 args.provider,
                 args.model,
-                (("state_update", ("audit",)),),
+                (("state_update", ("audit",)), ("chapter_memory", ("state_update", "audit"))),
             )
             return 0
         instruction = read_state_update_instruction(args.instruction, args.input)
@@ -3324,6 +3505,9 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
                     use_search_context=args.use_search_context,
                     use_vector_context=_vector_context_mode_from_args(args),
                     canon_provider_name=args.provider,
+                    chapter_memory_provider_name=args.provider,
+                    agent_config_path=args.agent_config,
+                    model_name=args.model,
                 ),
                 provider,
             )
@@ -3339,6 +3523,8 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
         lines.append(f"Wrote state update proposal: {result.proposal_result.proposal_path}")
     if result.canon_drift_proposal_path:
         lines.append(f"Wrote canon drift proposal: {result.canon_drift_proposal_path}")
+    if result.chapter_memory_result:
+        lines.append(f"Wrote chapter memory: {result.chapter_memory_result.memory_path}")
     lines.extend(f"warning: {warning}" for warning in result.warnings)
     lines.extend(
         [
@@ -3361,6 +3547,9 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
             else None,
             "canon_drift_proposal_path": str(result.canon_drift_proposal_path)
             if result.canon_drift_proposal_path
+            else None,
+            "chapter_memory_path": str(result.chapter_memory_result.memory_path)
+            if result.chapter_memory_result
             else None,
             "warnings": list(result.warnings),
         },
@@ -3552,6 +3741,7 @@ _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "index": _cmd_index,
     "search": _cmd_search,
     "memory-repair": _cmd_memory_repair,
+    "chapter-memory": _cmd_chapter_memory,
     "ask": _cmd_ask,
     "session": _cmd_session,
     "status": _cmd_status,

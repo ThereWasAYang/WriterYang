@@ -17,6 +17,13 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.canon import format_canon_summary, load_canon_drift_provider, load_canon_files, suggest_canon_drift
+from novel.core.chapter_memory import (
+    ChapterMemoryError,
+    ChapterMemoryOptions,
+    ChapterMemoryResult,
+    generate_chapter_memory,
+    load_chapter_memory_provider,
+)
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.management import record_management_event
@@ -77,6 +84,9 @@ class AcceptChapterOptions:
     use_vector_context: bool | VectorContextMode = "auto"
     canon_drift: bool = True
     canon_provider_name: str = "config"
+    chapter_memory_provider_name: str = "config"
+    agent_config_path: Path | None = None
+    model_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +116,7 @@ class AcceptChapterResult:
     accepted_path: Path
     metadata_path: Path
     metadata: ChapterMetadata
+    chapter_memory_result: ChapterMemoryResult | None = None
     canon_drift_proposal_path: Path | None = None
     warnings: tuple[str, ...] = ()
 
@@ -304,6 +315,8 @@ def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None
         StateUpdateApplyOptions(root=root, chapter_number=options.chapter_number)
     )
     accepted_path = mark_chapter_accepted(root, options.chapter_number)
+    chapter_memory_result, chapter_memory_warnings = _generate_accepted_chapter_memory(root, options)
+    warnings.extend(chapter_memory_warnings)
     metadata_path = write_chapter_metadata(
         root,
         options.chapter_number,
@@ -339,9 +352,63 @@ def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None
         accepted_path=accepted_path,
         metadata_path=metadata_path,
         metadata=metadata,
+        chapter_memory_result=chapter_memory_result,
         canon_drift_proposal_path=canon_drift_path,
         warnings=tuple(warnings),
     )
+
+
+def _generate_accepted_chapter_memory(
+    root: Path,
+    options: AcceptChapterOptions,
+) -> tuple[ChapterMemoryResult | None, tuple[str, ...]]:
+    project = load_yaml_model(root / "project.yaml", ProjectConfig)
+    config = project.chapter_memory
+    if config and (not config.enabled or not config.generate_on_accept):
+        return None, ()
+    strict = bool(config.strict_accept) if config else False
+    warnings: list[str] = []
+    provider = None
+    try:
+        try:
+            provider = load_chapter_memory_provider(
+                root,
+                options.chapter_memory_provider_name,
+                chapter_number=options.chapter_number,
+                agent_config_path=options.agent_config_path,
+                model_name=options.model_name,
+            )
+        except Exception as exc:
+            warnings.append(f"chapter memory provider unavailable; using deterministic fallback: {exc}")
+        result = generate_chapter_memory(
+            ChapterMemoryOptions(root=root, chapter_number=options.chapter_number, force=True),
+            provider,
+            initial_warnings=tuple(warnings),
+        )
+        record_management_event(
+            root,
+            "chapter_memory_generated",
+            f"已生成第 {options.chapter_number} 章 ChapterMemory。",
+            source=f"chapter_{options.chapter_number:03d}",
+            target_files=[str(result.memory_path.relative_to(root))],
+            status="success" if not result.warnings else "warning",
+            details={"warning_count": len(result.warnings)},
+        )
+        return result, result.warnings
+    except Exception as exc:
+        record_management_event(
+            root,
+            "chapter_memory_failed",
+            f"第 {options.chapter_number} 章 ChapterMemory 生成失败。",
+            source=f"chapter_{options.chapter_number:03d}",
+            status="error" if strict else "warning",
+            details={"error": str(exc)},
+        )
+        if strict:
+            if isinstance(exc, ChapterMemoryError):
+                raise
+            raise ChapterMemoryError(str(exc)) from exc
+        return None, (f"chapter memory generation skipped: {exc}",)
 
 
 def _load_existing_apply_result(root: Path, chapter_number: int) -> StateUpdateApplyResult | None:
@@ -671,6 +738,7 @@ def write_chapter_metadata(
         audit_path=_relative_if_exists(root, chapter_dir / "audit.json"),
         state_update_proposal_path=_relative_if_exists(root, chapter_dir / "state_update_proposal.json"),
         state_update_apply_log_path=str(apply_log_path.relative_to(root)) if apply_log_path else None,
+        chapter_memory_path=_relative_if_exists(root, chapter_dir / "chapter_memory.json"),
         accepted_at=accepted_at,
         updated_at=now,
     )

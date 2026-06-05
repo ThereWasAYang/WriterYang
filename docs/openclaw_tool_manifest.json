@@ -24,6 +24,14 @@
       "argv": ["novel", "audit-chapter", "{chapter_number}", "--project", "{project}", "--provider", "config", "--json", "--quiet"]
     },
     {
+      "name": "chapter_memory_show",
+      "argv": ["novel", "chapter-memory", "show", "{chapter_number}", "--project", "{project}", "--json", "--quiet"]
+    },
+    {
+      "name": "chapter_memory_generate",
+      "argv": ["novel", "chapter-memory", "generate", "{chapter_number}", "--project", "{project}", "--provider", "config", "--force", "--json", "--quiet"]
+    },
+    {
       "name": "export_markdown",
       "argv": ["novel", "export", "markdown", "--project", "{project}", "--json", "--quiet"]
     }

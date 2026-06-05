@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 from pydantic import ValidationError
 import yaml
 
+from novel.core.chapter_memory import validate_chapter_memory
 from novel.core.consistency import check_project_consistency
 from novel.core.env import load_project_env
 from novel.core.io import load_json_model, load_yaml_model
@@ -16,6 +17,7 @@ from novel.core.schemas import (
     AgentConfigPatch,
     AgentsConfig,
     AuditReport,
+    ChapterMemory,
     ChapterMetadata,
     ChapterPlan,
     CharactersFile,
@@ -319,6 +321,7 @@ def _validate_agent_names(
         "polish",
         "audit",
         "state_update",
+        "chapter_memory",
     }
     if agents.default is None:
         report.warning(path, "default API config is missing; real projects should define config/agents.yaml default")
@@ -797,6 +800,10 @@ def _validate_single_chapter_output(
         chapter_dir / "state_update_apply_log.json",
         StateUpdateApplyLog,
     )
+    chapter_memory = _validate_optional_chapter_json(report, chapter_dir / "chapter_memory.json", ChapterMemory)
+    if isinstance(chapter_memory, ChapterMemory):
+        for warning in validate_chapter_memory(root, chapter_memory):
+            report.warning(chapter_dir / "chapter_memory.json", warning)
 
 
 def _validate_optional_chapter_json(

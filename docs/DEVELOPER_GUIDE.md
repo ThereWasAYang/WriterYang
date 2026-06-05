@@ -78,6 +78,7 @@ memory/
       audit.json            # [运行时] audit-chapter/session run 后生成
       state_update_proposal.json     # [运行时] propose-state-update/session accept 前生成
       state_update_apply_log.json    # [运行时] apply-state-update/session accept 后生成
+      chapter_memory.json            # [运行时] accept 后 best-effort 生成的章节检索记忆
       revision_log.json     # [运行时] revise/edit 保存版本后生成
       metadata.json         # [运行时] accept 后记录章节状态
       context_report*.json  # [运行时] 开启检索上下文后生成
@@ -314,6 +315,7 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 - 当前章节 plan / draft / polished / audit。
 - 用户 instruction / input 文件内容。
 - 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展、结构化 timeline focus recall、关键词/SQLite FTS；`--vector-context auto` 只在真实 embedding 配置完整时启用语义召回，`--vector-context on` 强制尝试，旧 `--use-vector-context` 是兼容别名。
+- 可选 ChapterMemory context。它只作为压缩上下文和检索导航，不能替代 canon、current_state、timeline 或 accepted `polished.md`。
 
 详见 `docs/AGENT_PROMPT_ASSEMBLY.md`。
 

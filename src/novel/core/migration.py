@@ -93,6 +93,7 @@ def _schema_versioned_json_paths(root: Path) -> tuple[Path, ...]:
                     chapter_dir / "plan.json",
                     chapter_dir / "audit.json",
                     chapter_dir / "metadata.json",
+                    chapter_dir / "chapter_memory.json",
                     chapter_dir / "revision_log.json",
                     chapter_dir / "state_update_proposal.json",
                     chapter_dir / "state_update_apply_log.json",

@@ -279,7 +279,7 @@ agents:
       type: "disabled"
 ```
 
-支持的 agent 名称包括 `orchestrator`、`inspiration`、`canon`、`plot`、`writer`、`polish`、`audit`、`state_update`、`revision`。
+支持的 agent 名称包括 `orchestrator`、`inspiration`、`canon`、`plot`、`writer`、`polish`、`audit`、`state_update`、`chapter_memory`、`revision`。
 
 `provider` 字段当前支持以下值：
 
@@ -341,6 +341,7 @@ novel write-chapter 1 --path ./rain-station --model temporary-model --dry-run-pr
 | `audit` | 审核章节与 canon、state、timeline、plan、style 是否冲突，输出 `audit.json`。 | 严格指令遵守、结构化 JSON、细节比对、低幻觉。 | `reasoning: low-medium`，复杂项目可 `high`；`thinking.type: disabled` 或 `enabled`；`temperature: 0-0.3`，`max_context_tokens: 64000-128000`。 | 审核是判定类任务，应降低随机性；复杂长篇可提高 reasoning 或开启 thinking 来增强一致性检查。 |
 | `revision` | 只处理低风险局部表达补丁，例如替换指定句子或小段文字；生成 `draft.vN.md` / `polished.vN.md` 并记录 `revision_log.json`。 | 精准定位、保留核心剧情事实、避免引入新冲突。 | `reasoning: medium-high`，`thinking.type: disabled`，`temperature: 0.4-0.7`，`max_context_tokens: 128000`，`timeout_seconds: 90-150`。 | 剧情级修改交给 Plot，写作实现级修改交给 Writer/Polish；Revision 只做低风险局部补丁，输出仍是可直接使用的正文，建议中低温并关闭 thinking。 |
 | `state_update` | 从通过审核的章节中提取状态变化和时间线事件。 | 信息抽取、结构化 JSON、引用一致性。 | `reasoning: low-medium`，`thinking.type: disabled`，`temperature: 0-0.3`，`max_context_tokens: 64000`。 | 状态更新不应创造正文中没有发生的事件，低温更稳定。 |
+| `chapter_memory` | 从 accepted 章节生成 `chapter_memory.json`，作为后续 Plot/Writer 的压缩上下文和检索导航。 | 结构化摘要、来源引用、可见性分级、保守抽取。 | `reasoning: low-medium`，`thinking.type: disabled`，`temperature: 0-0.2`，`max_context_tokens: 64000`。 | ChapterMemory 不是事实源，只能辅助定位 canon、current_state、timeline 和 accepted `polished.md`；低温能减少把未发生内容写进记忆。 |
 
 通用建议：
 
@@ -439,7 +440,16 @@ proposal 文件会保存为 `memory/chapters/{chapter_number}/state_update_propo
 推荐流程是先 `propose-state-update`，人工检查 proposal，再 `apply-state-update`，最后 `accept-chapter`。如果 apply log 已存在且状态为 `applied`，`accept-chapter` 只标记章节 accepted，不会重复应用 state/timeline 更新。
 如果想一步完成，可以使用 `novel accept-chapter 1 --path ./rain-station --propose --provider config`；这会在缺少 proposal 时生成并应用。
 接受章节后会写入结构化状态文件 `memory/chapters/{chapter_number}/metadata.json`，同时保留 `polished.md` front matter 中的 `status: accepted` 以兼容导出流程。
+接受章节还会 best-effort 生成 `memory/chapters/{chapter_number}/chapter_memory.json`。它会记录读者可见摘要、剧情节点、状态变化、时间线事件、未解决线索和检索指针，并注入后续 `plot` / `writer` 上下文；如果模型配置不可用或输出无效，会降级为 deterministic fallback 并写入 warnings。ChapterMemory 只用于压缩上下文和引导检索，不能替代 `canon`、`current_state`、`timeline` 或 accepted `polished.md`。
 接受章节还会尝试生成 `canon_drift_proposal.json`，用于补登本章新出现的角色、地点、物品、规则或伏笔；该 proposal 不会自动 apply，仍需要用户确认后走 `canon apply`。
+
+可以手动查看或重建章节记忆：
+
+```bash
+novel chapter-memory show 1 --path ./rain-station
+novel chapter-memory generate 1 --path ./rain-station --provider config --force
+novel chapter-memory rebuild --path ./rain-station --provider config --missing-only
+```
 
 ## 一键生成章节流水线
 
@@ -470,6 +480,7 @@ novel index status --path ./rain-station
 novel search "林澈" --path ./rain-station --type character
 novel search "旧车站广播" --path ./rain-station --type event --limit 5
 novel search "破损车票" --path ./rain-station --type chapter --chapter 1 --highlight --json
+novel search "旧车站未解决线索" --path ./rain-station --type chapter_memory --chapter 1
 novel search "旧物修复师" --path ./rain-station --use-vector --embedding-provider dashscope
 ```
 
@@ -477,11 +488,12 @@ novel search "旧物修复师" --path ./rain-station --use-vector --embedding-pr
 
 - 中文检索增强：对连续中文文本生成 2-gram / 3-gram 检索 token。
 - 字段权重：`id`、标题、类型、路径、正文使用不同权重评分。
-- 过滤：支持 `--type character/location/item/event/chapter/all` 和 `--chapter`。
+- 过滤：支持 `--type character/location/item/event/chapter/chapter_memory/all` 和 `--chapter`。
 - 高亮：`--highlight` 会返回 `<mark>...</mark>` 标记的 excerpt。
 - SQLite FTS：`memory/search_index.sqlite` 中包含 FTS5 表。
 - freshness manifest：每个文档记录 `sha256`、`mtime`、索引时间和 FTS / embedding 状态。普通 `novel search` 会在 FTS 缺失或过期时自动刷新关键词索引；显式启用 `--use-vector` 或上下文检索选择 `--vector-context on` 时，会先刷新缺失或过期的真实 embedding 向量。
 - 向量表：SQLite 中可选保存真实 embedding 向量。真实 embedding 只在用户显式刷新向量索引或显式启用 vector 检索时调用，不会作为普通 FTS 搜索的隐式成本。
+- ChapterMemory：`chapter_memory.json` 会作为 `chapter_memory` 类型入索引，检索权重高于普通章节文件；命中结果只作为导航指针，具体事实仍需回到 accepted `polished.md`、canon、state 或 timeline 校验。
 
 默认可靠路径是关键词 + SQLite FTS。`local_hash` 只用于测试和离线开发 fixture，不作为真实创作的语义检索 fallback。没有配置真实 embedding API 时，`--use-vector` 会给出清晰错误；Web UI 状态栏会标红提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。项目初始化后，也可以在 Web UI 的“模型与检索配置”页重新填写 Embedding Base URL、API Key 和模型名；保存成功会清空输入框并自动刷新语义向量索引。
 

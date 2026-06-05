@@ -28,6 +28,7 @@ AGENTS = (
     "polish",
     "audit",
     "state_update",
+    "chapter_memory",
     "revision",
 )
 

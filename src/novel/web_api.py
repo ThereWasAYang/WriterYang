@@ -17,6 +17,7 @@ import yaml
 from novel import __version__
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import apply_canon_proposal, load_canon_provider, suggest_canon, CanonSuggestOptions
+from novel.core.chapter_memory import validate_chapter_memory
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.env import load_project_env
 from novel.core.exporting import MarkdownExportOptions, export_markdown, parse_chapter_selector
@@ -40,6 +41,7 @@ from novel.core.setup_guide import (
 from novel.core.schemas import (
     AgentsConfig,
     AuditReport,
+    ChapterMemory,
     ChapterPlan,
     CreationSession,
     EmbeddingsConfig,
@@ -96,6 +98,7 @@ EDITABLE_AGENT_NAMES = {
     "polish",
     "audit",
     "state_update",
+    "chapter_memory",
     "revision",
 }
 
@@ -951,8 +954,12 @@ def _search_api(query: dict[str, str]) -> dict[str, object]:
     root = _root_from_query(query)
     search_query = _required_string(query.get("query") or query.get("q"), "query")
     search_type = _optional_string(query.get("type")) or "all"
-    if search_type not in {"character", "location", "item", "event", "chapter", "all"}:
-        raise WebAPIError("invalid_request", "type must be character/location/item/event/chapter/all", status=400)
+    if search_type not in {"character", "location", "item", "event", "chapter", "chapter_memory", "all"}:
+        raise WebAPIError(
+            "invalid_request",
+            "type must be character/location/item/event/chapter/chapter_memory/all",
+            status=400,
+        )
     limit = _optional_int(query.get("limit")) or 10
     chapter = _optional_int(query.get("chapter"))
     use_vector = _truthy(query.get("use_vector"))
@@ -1510,9 +1517,11 @@ def _list_chapters(root: Path) -> list[dict[str, object]]:
             "has_draft": (child / "draft.md").exists(),
             "has_polished": (child / "polished.md").exists(),
             "has_audit": (child / "audit.json").exists(),
+            "has_chapter_memory": (child / "chapter_memory.json").exists(),
             "status": None,
             "title": None,
             "audit_status": None,
+            "chapter_memory_stale": None,
         }
         _merge_plan_metadata(child / "plan.json", entry)
         _merge_polished_metadata(child / "polished.md", entry)
@@ -1520,6 +1529,15 @@ def _list_chapters(root: Path) -> list[dict[str, object]]:
             data = load_json(child / "audit.json")
             if isinstance(data, dict):
                 entry["audit_status"] = data.get("overall_status")
+        if (child / "chapter_memory.json").exists():
+            try:
+                memory = load_json_model(child / "chapter_memory.json", ChapterMemory)
+                entry["chapter_memory_stale"] = any(
+                    "stale chapter memory" in warning
+                    for warning in validate_chapter_memory(root, memory)
+                )
+            except Exception:
+                entry["chapter_memory_stale"] = True
         chapters.append(entry)
     return chapters
 
@@ -1542,6 +1560,7 @@ def _read_chapter_file(root: Path, query: dict[str, str]) -> dict[str, object]:
         "draft": "draft.md",
         "polished": "polished.md",
         "audit": "audit.json",
+        "chapter_memory": "chapter_memory.json",
     }
     if chapter_number < 1 or file_type not in mapping:
         raise ValueError("invalid chapter or file type")

@@ -125,10 +125,11 @@ Prompt 组装：
 - `memory/state/timeline.json`
 - 用户 `--instruction` / `--input`
 - 可选 `ContextBundle.render_for_prompt()`
+- 已 accepted 章节的 `chapter_memory.json` 概览和重点记忆
 
 Prompt 组装：
 
-- `build_planning_user_prompt()` 写入项目、目标章节、schema 必填字段、引用规则、用户要求，以及预算化 state/timeline 视图。
+- `build_planning_user_prompt()` 写入项目、目标章节、schema 必填字段、引用规则、用户要求、预算化 state/timeline 视图，以及 ChapterMemory 检索导航上下文。
 - 明确禁止写正文、禁止修改 canon/state/timeline、禁止发明不存在的角色/地点/required_context ID。
 
 输出处理：
@@ -158,10 +159,11 @@ Prompt 组装：
 - `timeline.json`
 - 用户 instruction、target words、style note
 - 可选 search context
+- 已 accepted 章节的 `chapter_memory.json` 红线保护视图
 
 Prompt 组装：
 
-- `build_writer_user_prompt()` 写入项目、章节、目标字数、用户写作要求、临时文风、ChapterPlan、style guide、canon、预算化 state/timeline、inspiration。
+- `build_writer_user_prompt()` 写入项目、章节、目标字数、用户写作要求、临时文风、ChapterPlan、style guide、canon、预算化 state/timeline、inspiration，以及只包含读者可见摘要、安全连续性提示和检索指针的 ChapterMemory。
 - 正文输出要求写在 system prompt 和 user prompt：只输出可放入 `draft.md` 的 Markdown body，不要 YAML front matter、JSON、大纲、分析。
 
 输出处理：
@@ -271,7 +273,39 @@ Prompt 组装：
 - `validate_state_update_proposal()` 检查引用、重复 ID、物品 holder/location 冲突。
 - `apply_state_update()` 写入前备份 state/timeline，失败时回滚。
 
-## 9. Revision Agent
+## 9. ChapterMemory Agent
+
+- Service：`core/chapter_memory.py`
+- System prompt：`prompts/chapter_memory_system.txt`
+- Provider loader：`load_chapter_memory_provider()`
+- 入口函数：`generate_chapter_memory()`
+- 触发方式：`accept_chapter()` 在 state/timeline 应用成功并标记 accepted 后 best-effort 触发；也可用 `novel chapter-memory generate/rebuild` 手动重建。
+- 输出：`memory/chapters/{NNN}/chapter_memory.json`
+
+输入来源：
+
+- `project.yaml`
+- accepted `memory/chapters/{NNN}/polished.md`
+- `plan.json`
+- 可选 `audit.json`
+- 可选 `state_update_proposal.json`
+- 可选 `state_update_apply_log.json`
+- `memory/state/timeline.json`
+
+Prompt 组装：
+
+- `build_chapter_memory_user_prompt()` 写入来源文件 path/sha、ChapterPlan、AuditReport、StateUpdateProposal、ApplyLog、accepted 正文 metadata/body 和本章 timeline events。
+- system/user prompt 都强调 ChapterMemory 只是压缩上下文和检索导航，不是事实源；冲突时以 canon、current_state、timeline 和 accepted `polished.md` 为准。
+- 每个列表项必须带 `visibility` 和 `source_refs`；隐藏或敏感信息不得伪装成 `reader_visible`。
+
+输出处理：
+
+- JSON contract：`ChapterMemory`。
+- `parse_chapter_memory()` 解析 provider JSON 后强制覆盖章节号、状态、来源 path/sha 和 generation_status。
+- provider 不可用或输出无效时，`build_deterministic_chapter_memory()` 从 plan、state proposal 和 timeline 生成保守 fallback，并写 warnings。
+- `validate_chapter_memory()` 检查 source 文件、accepted 状态、`polished_sha256`、timeline id 和 `source_refs`。
+
+## 10. Revision Agent
 
 - Service：`core/revision.py`
 - System prompt：`prompts/revision_system.txt`
@@ -304,7 +338,7 @@ Prompt 组装：
 - 默认保存为新版本，不覆盖原稿；Session 流程会把通过修订产生的 `polished.vN.md` 提升为当前 `polished.md` 后重审。
 - `_append_revision_log()` 记录版本来源、instruction、audit issue ids、provider。
 
-## 10. Orchestrator
+## 11. Orchestrator
 
 - Service：`core/orchestrator.py`
 - System prompt：
@@ -337,7 +371,7 @@ Prompt 组装：
 - 当前推荐作者入口是 session；`ask` 主要用于创建或引导协作流程。
 - Orchestrator 只有在修订路由等受控决策点调用模型；仍必须显式区分 user-facing 对话和 internal task 调度。
 
-## 11. Creation Session
+## 12. Creation Session
 
 - Service：`core/session.py`
 - 入口函数：`start_session()`、`revise_outline()`、`approve_outline()`、`run_session()`、`revise_content()`、`revise_audit()`、`retry_rewrite()`、`undo_rewrite()`、`accept_session()`、`archive_session()`。
@@ -363,7 +397,7 @@ Prompt 组装：
 
 Session 层是用户协作入口。它可以要求用户批准大纲和最终内容；底层内部 Agent 不能直接问用户。
 
-## 12. Search Context 和 hidden truth
+## 13. Search Context、ChapterMemory 和 hidden truth
 
 `core/search.py::retrieve_context_bundle()` 返回 `ContextBundle`：
 
@@ -377,9 +411,10 @@ Session 层是用户协作入口。它可以要求用户批准大纲和最终内
 - `plan` 和 `audit` 可以看到 hidden truth，但必须标记为内部参考。
 - `write` 默认不把 hidden truth 原文放进 prompt。
 - 如果开启 `--use-search-context`，默认使用 ChapterPlan 实体扩展 + 关键词/SQLite FTS 补充，并写 `context_report*.json` 供追踪。
+- `chapter_memory.json` 会作为 `chapter_memory` 类型进入检索；Writer 的 ContextBundle 只拿到“这是导航指针，需要回源校验”的安全摘录，不直接注入可能包含 hidden truth 的原始 JSON excerpt。
 - `--vector-context auto` 是默认语义召回策略：真实 embedding 配置和环境变量完整时启用，否则只用 FTS；`on` 强制尝试语义召回，`off` 关闭。`local_hash` 只允许显式测试路径，不作为真实业务 fallback。
 
-## 13. Prompt 和日志排查
+## 14. Prompt 和日志排查
 
 真实模型输出异常时看：
 

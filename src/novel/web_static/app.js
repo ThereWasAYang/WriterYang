@@ -1,8 +1,8 @@
     const $ = (id) => document.getElementById(id);
-    const chapterFileTypes = ["plan", "draft", "polished", "audit"];
+    const chapterFileTypes = ["plan", "draft", "polished", "audit", "chapter_memory"];
     const providerAgentNames = [
       "orchestrator", "inspiration", "canon", "plot", "writer",
-      "polish", "audit", "state_update", "revision",
+      "polish", "audit", "state_update", "chapter_memory", "revision",
     ];
     const providerFormFieldIds = [
       "providerProviderField", "providerModelField", "providerBaseUrlEnvField",
@@ -240,7 +240,7 @@
           <td>${chapter.chapter_number}</td>
           <td>${escapeHtml(chapter.title || "")}</td>
           <td>${escapeHtml(chapter.status || "")}</td>
-          <td>${chapter.has_plan ? "plan " : ""}${chapter.has_draft ? "draft " : ""}${chapter.has_polished ? "polished " : ""}${chapter.has_audit ? "audit" : ""}</td>
+          <td>${chapter.has_plan ? "plan " : ""}${chapter.has_draft ? "draft " : ""}${chapter.has_polished ? "polished " : ""}${chapter.has_audit ? "audit " : ""}${chapter.has_chapter_memory ? (chapter.chapter_memory_stale ? "memory(stale)" : "memory") : ""}</td>
           <td>${escapeHtml(chapter.audit_status || "")}</td>
           <td><button data-chapter="${chapter.chapter_number}" class="select-chapter">选择</button></td>
         </tr>

@@ -12,6 +12,7 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.canon import CanonFiles, format_canon_summary, load_canon_files
+from novel.core.chapter_memory import render_chapter_memory_prompt_text
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -83,6 +84,13 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         else None
     )
     search_context = context_bundle.render_for_prompt() if context_bundle else ""
+    chapter_memory_context = render_chapter_memory_prompt_text(
+        root,
+        project=project,
+        chapter_number=options.chapter_number,
+        task="plan",
+        plan=None,
+    )
 
     canon_summary = format_canon_summary(canon)
     user_prompt = build_planning_user_prompt(
@@ -96,6 +104,7 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         timeline=timeline,
         instruction=options.instruction,
         search_context=search_context,
+        chapter_memory_context=chapter_memory_context,
     )
     plan = _generate_chapter_plan_with_repair(
         root=root,
@@ -166,6 +175,7 @@ def build_planning_user_prompt(
     timeline: TimelineFile,
     instruction: str | None,
     search_context: str = "",
+    chapter_memory_context: str = "",
 ) -> str:
     state_text = render_state_prompt_text(
         state,
@@ -201,6 +211,7 @@ def build_planning_user_prompt(
         "- 输出必须是 JSON，不要 Markdown。\n\n"
         f"用户额外要求：\n{instruction or '无'}\n\n"
         f"{search_context}\n"
+        f"{chapter_memory_context}\n"
         f"Canon 摘要：\n{canon_summary}\n\n"
         f"Current state：\n{state_text}\n\n"
         f"Timeline：\n{timeline_text}\n\n"

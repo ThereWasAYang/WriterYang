@@ -40,6 +40,7 @@
 - `src/novel/core/agent_output.py`
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
+- `src/novel/core/chapter_memory.py`
 - `src/novel/core/consistency.py`
 - `src/novel/core/context_budget.py`
 - `src/novel/core/drafting.py`
@@ -424,7 +425,7 @@ Prompt 上下文预算化：
 
 - `ChapterPlanningOptions` / `ChapterPlanningResult` / `PlanningError`。
 - `plan_chapter()`：生成 `plan.json` 和 `plan.md`。
-- `build_planning_user_prompt()`：组装 project、inspiration、style、canon、state、timeline、instruction、search context。
+- `build_planning_user_prompt()`：组装 project、inspiration、style、canon、state、timeline、instruction、search context 和 ChapterMemory context。
 - `parse_chapter_plan()`：解析和校验 `ChapterPlan`。
 - `_generate_chapter_plan_with_repair()`：输出守卫 + schema/reference repair。
 - `_validate_plan_for_write()` / `_plan_reference_errors()`：写入前阻断缺失引用。
@@ -446,7 +447,7 @@ ChapterPlan 引用提取：
 
 - `ChapterDraftingOptions` / `ChapterDraftingResult` / `DraftingError`。
 - `write_chapter_draft()`：读取 plan/canon/state/timeline/style/inspiration，生成 `draft.md`。
-- `build_writer_user_prompt()`：组装 Writer Agent 输入。
+- `build_writer_user_prompt()`：组装 Writer Agent 输入，并注入红线保护后的 ChapterMemory context。
 - `render_draft_markdown()`：写 YAML front matter。
 - `_clean_body()`：清除代码块包装。
 - `default_mock_draft_body()`。
@@ -497,12 +498,23 @@ ChapterPlan 引用提取：
 - `StateUpdateProposeResult` / `StateUpdateApplyResult` / `AcceptChapterResult`。
 - `propose_state_update()`：生成 proposal，不改正式 state/timeline。
 - `apply_state_update()`：校验 proposal、备份、应用 state/timeline、失败回滚。
-- `accept_chapter()`：检查 audit、必要时 propose/apply、标记 accepted。
+- `accept_chapter()`：检查 audit、必要时 propose/apply、标记 accepted，并 best-effort 生成 ChapterMemory。
 - `validate_state_update_proposal()`：引用和冲突校验。
 - `apply_state_changes_to_state()`：把 state_changes 应用到 EntityState。
 - `mark_chapter_accepted()` / `write_chapter_metadata()`。
 - `build_state_update_user_prompt()` / `parse_state_update_proposal()`。
 - `_generate_state_update_proposal_with_repair()`：输出守卫 + schema repair。
+
+### `core/chapter_memory.py`
+
+已接受章节的结构化检索记忆：
+
+- `generate_chapter_memory()`：读取 accepted `polished.md`、plan、audit、state proposal/apply log 和 timeline，生成 `chapter_memory.json`。
+- `load_chapter_memory_provider()`：读取 `chapter_memory` agent 配置，缺省可继承 `state_update` / `audit`。
+- `build_deterministic_chapter_memory()`：provider 不可用或模型输出无效时的保守 fallback。
+- `validate_chapter_memory()`：检查章节状态、source path、正文 sha、timeline id 和 source_refs。
+- `load_chapter_memories()`：按章节加载历史记忆，默认跳过 stale 记忆。
+- `render_chapter_memory_prompt_text()`：为 Plot 渲染全局/重点记忆，为 Writer 渲染读者可见和安全连续性视图。
 
 ### `core/revision.py`
 
@@ -618,6 +630,7 @@ orchestrator 项目管家修复 proposal：
 - `retrieve_context()`：旧的检索入口。
 - `retrieve_context_bundle()`：结构化上下文检索，按 ChapterPlan 扩展实体引用。
 - ChapterPlan 显式 `timeline_event_ids` 优先级最高；focus entity 关联的关键历史/记忆类 timeline event 会以较低优先级补充进入 ContextBundle。
+- `chapter_memory.json` 作为 `chapter_memory` 类型入索引，检索命中只作为 accepted 正文/canon/state/timeline 的导航指针；Writer 任务会隐藏原始 excerpt，避免泄漏 hidden truth。
 - `write_context_report()`：写 `context_report*.json`。
 - `_include_entity_context()`、`_include_related_events()`、`_include_related_hidden_material()`：补充 canon/state/timeline/hidden material。
 - `_maybe_include_hidden_truth()`：按 task visibility 控制 hidden truth。
@@ -685,6 +698,7 @@ Provider 用量统计：
 | `prompts/polish_system.txt` | Polish | 只输出润色正文，保留核心事实，不改设定。 |
 | `prompts/audit_system.txt` | Audit | 只输出 AuditReport JSON，检查一致性。 |
 | `prompts/state_update_system.txt` | StateUpdate | 只输出 StateUpdateProposal JSON，根据正文实际发生事件提取。 |
+| `prompts/chapter_memory_system.txt` | ChapterMemory | 只输出 ChapterMemory JSON，带 source_refs 和 visibility，强调不是正式事实源。 |
 | `prompts/revision_system.txt` | Revision | 只输出修订正文，按 instruction/audit 修复，不改 state/timeline。 |
 
 模板加载在 `core/prompts.py`：
@@ -712,6 +726,7 @@ Provider 用量统计：
 | `tests/test_polishing.py` | Polish edit mode、front matter、覆盖保护。 |
 | `tests/test_auditing.py` | AuditReport、deterministic precheck、output guard。 |
 | `tests/test_state_update.py` | State proposal/apply/accept、回滚、冲突。 |
+| `tests/test_chapter_memory.py` | ChapterMemory schema、accept 集成、fallback、上下文注入和检索。 |
 | `tests/test_workflow.py` | `generate-chapter` 流水线和 run log。 |
 | `tests/test_workflow_tools.py` | 工具脚本帮助输出、dry-run 行为、CLI 契约和确定性脚本边界。 |
 | `tests/test_session.py` | Creation Session 状态机、归档、安全。 |

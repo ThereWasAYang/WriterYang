@@ -50,6 +50,7 @@ def test_agent_prompt_assembly_covers_agents_and_prompt_files() -> None:
         "Polish Agent",
         "Audit Agent",
         "State Update Agent",
+        "ChapterMemory Agent",
         "Revision Agent",
         "Orchestrator",
         "Creation Session",
@@ -62,6 +63,7 @@ def test_agent_prompt_assembly_covers_agents_and_prompt_files() -> None:
         "prompts/polish_system.txt",
         "prompts/audit_system.txt",
         "prompts/state_update_system.txt",
+        "prompts/chapter_memory_system.txt",
         "prompts/revision_system.txt",
     )
 

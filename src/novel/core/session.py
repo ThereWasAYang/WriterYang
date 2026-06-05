@@ -828,6 +828,7 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
                 propose=True,
                 force_proposal=options.force,
                 canon_provider_name=options.provider_name,
+                chapter_memory_provider_name=options.provider_name,
             ),
             provider,
         )
@@ -839,6 +840,7 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
             target_files=[
                 f"memory/chapters/{chapter_number:03d}/metadata.json",
                 f"memory/chapters/{chapter_number:03d}/state_update_apply_log.json",
+                f"memory/chapters/{chapter_number:03d}/chapter_memory.json",
             ],
             status="success",
         )
@@ -1622,6 +1624,7 @@ def _archive_sources(root: Path, session: CreationSession) -> list[Path]:
                 chapter_dir / "audit.json",
                 chapter_dir / "state_update_proposal.json",
                 chapter_dir / "state_update_apply_log.json",
+                chapter_dir / "chapter_memory.json",
                 chapter_dir / "metadata.json",
             ]
         )

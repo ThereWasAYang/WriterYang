@@ -16,6 +16,8 @@
     "event_type": {
       "enum": [
         "chapter_accepted",
+        "chapter_memory_generated",
+        "chapter_memory_failed",
         "state_update_proposed",
         "state_update_applied",
         "timeline_updated",

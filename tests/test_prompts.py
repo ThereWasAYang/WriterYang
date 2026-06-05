@@ -5,6 +5,7 @@ from pathlib import Path
 
 from novel.core.auditing import build_audit_system_prompt
 from novel.core.canon import build_canon_system_prompt
+from novel.core.chapter_memory import build_chapter_memory_system_prompt
 from novel.core.drafting import build_writer_system_prompt
 from novel.core.planning import build_planning_system_prompt
 from novel.core.polishing import build_polish_system_prompt
@@ -60,6 +61,8 @@ def test_agent_system_prompts_keep_core_constraints() -> None:
     assert "reader_visible_summary" in build_canon_system_prompt()
     assert "Revision Loop 必须受最大轮数限制" in build_revision_system_prompt()
     assert "只输出结构化 JSON" in build_state_update_system_prompt()
+    assert "只输出 ChapterMemory JSON" in build_chapter_memory_system_prompt()
+    assert "不是正式事实源" in build_chapter_memory_system_prompt()
 
 
 def test_all_agent_prompts_explain_context_bundle_memory() -> None:

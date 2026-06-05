@@ -121,6 +121,154 @@
       "title": "AgentConfig",
       "type": "object"
     },
+    "AgentConfigPatch": {
+      "additionalProperties": true,
+      "properties": {
+        "provider": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "api_key_env": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key Env"
+        },
+        "base_url_env": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url Env"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning"
+        },
+        "thinking": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ThinkingConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_context_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Context Tokens"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "max_retries": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Retries"
+        }
+      },
+      "title": "AgentConfigPatch",
+      "type": "object"
+    },
     "ThinkingConfig": {
       "additionalProperties": true,
       "properties": {
@@ -141,23 +289,37 @@
   "additionalProperties": true,
   "properties": {
     "schema_version": {
-      "default": 1,
+      "default": 2,
       "minimum": 1,
       "title": "Schema Version",
       "type": "integer"
     },
+    "default": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "agents": {
       "additionalProperties": {
-        "$ref": "#/$defs/AgentConfig"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AgentConfig"
+          },
+          {
+            "$ref": "#/$defs/AgentConfigPatch"
+          }
+        ]
       },
-      "minProperties": 1,
       "title": "Agents",
       "type": "object"
     }
   },
-  "required": [
-    "agents"
-  ],
   "title": "AgentsConfig",
   "type": "object"
 }

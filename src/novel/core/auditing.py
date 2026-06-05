@@ -16,7 +16,8 @@ from novel.core.agent_output import (
 )
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.consistency import check_chapter_consistency
-from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
+from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -26,12 +27,14 @@ from novel.core.schemas import (
     AuditEvidence,
     AuditIssue,
     AuditReport,
+    AuditRecallConfig,
     ChapterPlan,
     ContextBundle,
     EntityState,
     ProjectConfig,
     TimelineFile,
     HiddenTruthsFile,
+    VectorContextMode,
 )
 from novel.core.validation import validate_canon
 
@@ -62,7 +65,8 @@ class ChapterAuditOptions:
     focus: tuple[FocusArea, ...] = ()
     audited_file: AuditedFile = "polished.md"
     use_search_context: bool = False
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
+    max_recall_rounds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +134,15 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         focus=options.focus,
     )
     provider_report = _generate_audit_report_with_repair(provider, context, user_prompt, root)
+    provider_report = _maybe_rerun_audit_with_recalled_context(
+        root=root,
+        options=options,
+        provider=provider,
+        context=context,
+        report=provider_report,
+        strict=options.strict,
+        focus=options.focus,
+    )
     if provider_report.chapter_number != options.chapter_number:
         precheck = _append_precheck_issue(
             precheck,
@@ -198,6 +211,8 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
     warnings: list[str] = []
     style_guide = _read_style_guide(root, warnings)
     canon = load_canon_files(root)
+    state_json = _budgeted_state_or_raw(root, project=project, chapter_number=options.chapter_number, plan=plan)
+    timeline_json = _budgeted_timeline_or_raw(root, project=project, chapter_number=options.chapter_number, plan=plan)
     context_bundle = (
         retrieve_context_bundle(
             root,
@@ -221,11 +236,29 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
         inspiration_md=_read_optional_text(root / "memory" / "inspiration.md"),
         style_guide=style_guide,
         canon_summary=format_canon_summary(canon),
-        state_json=_read_required_json_text(root / "memory" / "state" / "current_state.json"),
-        timeline_json=_read_required_json_text(root / "memory" / "state" / "timeline.json"),
+        state_json=state_json,
+        timeline_json=timeline_json,
         search_context=context_bundle.render_for_prompt() if context_bundle else "",
         context_bundle=context_bundle,
     )
+
+
+def _budgeted_state_or_raw(root: Path, *, project: ProjectConfig, chapter_number: int, plan: ChapterPlan) -> str:
+    path = root / "memory" / "state" / "current_state.json"
+    try:
+        state = load_json_model(path, EntityState)
+        return render_state_prompt_text(state, project=project, chapter_number=chapter_number, plan=plan)
+    except Exception:
+        return _read_required_json_text(path)
+
+
+def _budgeted_timeline_or_raw(root: Path, *, project: ProjectConfig, chapter_number: int, plan: ChapterPlan) -> str:
+    path = root / "memory" / "state" / "timeline.json"
+    try:
+        timeline = load_json_model(path, TimelineFile)
+        return render_timeline_prompt_text(timeline, project=project, chapter_number=chapter_number, task="audit", plan=plan)
+    except Exception:
+        return _read_required_json_text(path)
 
 
 def run_deterministic_prechecks(
@@ -435,7 +468,9 @@ def build_audit_user_prompt(
     instruction: str | None,
     strict: bool,
     focus: tuple[FocusArea, ...],
+    recalled_context: str = "",
 ) -> str:
+    recalled_context_text = f"Additional recalled context：\n{recalled_context}\n\n" if recalled_context else ""
     return (
         f"项目：{context.project.title}\n"
         f"语言：{context.project.language}\n"
@@ -445,7 +480,7 @@ def build_audit_user_prompt(
         f"审核重点：{', '.join(focus) if focus else '全部'}\n"
         f"用户额外审核要求：{instruction or '无'}\n\n"
         "请输出严格 JSON，符合 AuditReport schema，至少包含：\n"
-        "chapter_number, audited_file, overall_status, summary, issues, passed_checks, created_at。\n"
+        "chapter_number, audited_file, overall_status, summary, issues, passed_checks, created_at, need_context。\n"
         "issues 每项至少包含 id, severity, type, description, evidence, suggested_fix。\n\n"
         "字段约束：\n"
         "- issue.id 必须使用小写字母、数字和下划线，例如 audit_001_001，不要使用连字符。\n"
@@ -468,6 +503,8 @@ def build_audit_user_prompt(
         "倒序、插叙、回忆、旧事揭示本身不是 timeline_conflict；只有 narrative_position 倒退、"
         "或同一 story_position.thread_id 内已明确 story_position.order 的 causes/effects 反转，"
         "才应作为时间线硬冲突。\n"
+        "如果缺少某段历史正文、实体或查询上下文，且该缺口会影响 medium/high/critical 问题判断，"
+        "可在 need_context 中列出 kind=chapter_prose/entity/query、ref 和 reason；否则 need_context 置空数组。\n"
         f"{context.deterministic_summary}\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
         f"Audited file metadata：\n{json.dumps(context.audited_document.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
@@ -475,11 +512,110 @@ def build_audit_user_prompt(
         f"Draft body：\n{context.draft_body}\n\n"
         f"Polished body：\n{context.polished_body}\n\n"
         f"{context.search_context}\n"
+        f"{recalled_context_text}"
         f"Style guide：\n{context.style_guide}\n\n"
         f"Canon 摘要：\n{context.canon_summary}\n\n"
         f"Current state：\n{context.state_json}\n\n"
         f"Timeline：\n{context.timeline_json}\n\n"
         f"Inspiration.md：\n{context.inspiration_md}\n"
+    )
+
+
+def _maybe_rerun_audit_with_recalled_context(
+    *,
+    root: Path,
+    options: ChapterAuditOptions,
+    provider: ModelProvider,
+    context: AuditContext,
+    report: AuditReport,
+    strict: bool,
+    focus: tuple[FocusArea, ...],
+) -> AuditReport:
+    if not report.need_context:
+        return report
+    recall_config = context.project.audit_recall or AuditRecallConfig()
+    configured_rounds = recall_config.max_recall_rounds if recall_config.enabled else 0
+    max_rounds = options.max_recall_rounds if options.max_recall_rounds is not None else configured_rounds
+    if max_rounds <= 0:
+        return report
+    max_requests = recall_config.max_requests_per_round
+    recalled_context, log_entries = _resolve_audit_context_requests(
+        root,
+        options=options,
+        context=context,
+        report=report,
+        max_requests=max_requests,
+    )
+    _write_audit_recall_log(root, options.chapter_number, log_entries)
+    if not recalled_context.strip():
+        return report
+    rerun_prompt = build_audit_user_prompt(
+        context=context,
+        instruction=options.instruction,
+        strict=strict,
+        focus=focus,
+        recalled_context=recalled_context,
+    )
+    return _generate_audit_report_with_repair(provider, context, rerun_prompt, root)
+
+
+def _resolve_audit_context_requests(
+    root: Path,
+    *,
+    options: ChapterAuditOptions,
+    context: AuditContext,
+    report: AuditReport,
+    max_requests: int,
+) -> tuple[str, list[dict[str, object]]]:
+    sections: list[str] = []
+    log_entries: list[dict[str, object]] = []
+    for request in report.need_context[:max_requests]:
+        title = f"{request.kind}:{request.ref}"
+        content = ""
+        if request.kind == "chapter_prose":
+            content = _recall_chapter_prose(root, request.ref)
+        elif request.kind in {"entity", "query"}:
+            bundle = retrieve_context_bundle(
+                root,
+                chapter_number=options.chapter_number,
+                task="audit",
+                instruction=request.ref,
+                plan=context.plan,
+                use_vector=options.use_vector_context,
+            )
+            content = bundle.render_for_prompt()
+        if content.strip():
+            sections.append(f"## {title}\nReason: {request.reason}\n{content.strip()}")
+        log_entries.append(
+            {
+                "kind": request.kind,
+                "ref": request.ref,
+                "reason": request.reason,
+                "found": bool(content.strip()),
+            }
+        )
+    return "\n\n".join(sections), log_entries
+
+
+def _recall_chapter_prose(root: Path, ref: str) -> str:
+    match = re.search(r"\d+", ref)
+    if not match:
+        return ""
+    chapter_number = int(match.group(0))
+    chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+    for name in ("polished.md", "draft.md"):
+        path = chapter_dir / name
+        if path.exists():
+            return f"{path.relative_to(root)}:\n{path.read_text(encoding='utf-8')}"
+    return ""
+
+
+def _write_audit_recall_log(root: Path, chapter_number: int, entries: list[dict[str, object]]) -> None:
+    chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(
+        chapter_dir / "audit_recall.json",
+        {"chapter_number": chapter_number, "created_at": _utc_now(), "requests": entries},
     )
 
 

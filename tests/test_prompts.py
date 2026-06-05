@@ -43,5 +43,6 @@ def test_all_agent_prompts_explain_context_bundle_memory() -> None:
 
     for prompt in prompts:
         assert "ContextBundle" in prompt
-        assert "FTS/embedding" in prompt
+        assert "长期记忆参考" in prompt
+        assert "FTS/embedding" not in prompt
         assert "不要伪造缺失记忆" in prompt

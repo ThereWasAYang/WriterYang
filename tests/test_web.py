@@ -1080,7 +1080,11 @@ def test_frontend_basic_render() -> None:
     assert '$("configEmbeddingModel").value = ""' in app_js
     assert "with_embeddings: true" in app_js
     assert "Embedding API 已保存，但语义向量索引刷新失败" in app_js
+    assert "vectorContextMode" in html
+    assert "vector_context" in app_js
     assert "use_vector_context" in app_js
+    assert "autoPolish" in html
+    assert 'polish_mode: $("autoPolish").checked ? "auto" : "single_pass"' in app_js
     assert "当前无法使用基于 embedding 的语义检索" in app_js
     assert "fetch(" in app_js
     assert "loadRuntime" in app_js

@@ -42,6 +42,7 @@
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
 - `src/novel/core/consistency.py`
+- `src/novel/core/context_budget.py`
 - `src/novel/core/drafting.py`
 - `src/novel/core/embeddings.py`
 - `src/novel/core/env.py`
@@ -55,12 +56,14 @@
 - `src/novel/core/memory_repair.py`
 - `src/novel/core/migration.py`
 - `src/novel/core/orchestrator.py`
+- `src/novel/core/plan_refs.py`
 - `src/novel/core/planning.py`
 - `src/novel/core/polishing.py`
 - `src/novel/core/prompts.py`
 - `src/novel/core/provider_config.py`
 - `src/novel/core/providers.py`
 - `src/novel/core/revision.py`
+- `src/novel/core/runtime_config.py`
 - `src/novel/core/schemas.py`
 - `src/novel/core/search.py`
 - `src/novel/core/security.py`
@@ -383,6 +386,15 @@ Embedding provider：
 - `_project_yaml()` / `_agents_yaml()` / `_embeddings_yaml()`：默认配置内容。
 - `_write_new_file()`：避免覆盖已有用户文件。
 
+### `core/context_budget.py`
+
+Prompt 上下文预算化：
+
+- `ContextBudgetView`：预算化后的完整条目、digest、focus ID 和裁剪状态。
+- `project_context_budget()`：读取 `project.yaml.context_budget`，无配置时使用默认启用策略。
+- `select_timeline_view()` / `select_state_view()`：保留 focus 实体/事件和近章内容，远期内容折叠成 digest；红线任务不泄漏 author-only 内容。
+- `render_timeline_prompt_text()` / `render_state_prompt_text()`：给 Agent prompt 渲染 state/timeline；未裁剪时保持原 JSON 文本。
+
 ### `core/inspiration.py`
 
 灵感/弱总纲：
@@ -418,6 +430,14 @@ Embedding provider：
 - `_generate_chapter_plan_with_repair()`：输出守卫 + schema/reference repair。
 - `_validate_plan_for_write()` / `_plan_reference_errors()`：写入前阻断缺失引用。
 - `render_plan_markdown()`：可读 plan.md。
+
+### `core/plan_refs.py`
+
+ChapterPlan 引用提取：
+
+- `plan_focus_entity_ids()`：从 `required_context`、scene participants/location 和 structured fields 提取 focus 实体。
+- `plan_timeline_event_ids()`：提取 plan 直接引用的 timeline event。
+- `plan_search_terms()`：把 goal、summary、must_include、scene beats 等稳定信息转成检索 query 片段。
 - `default_mock_chapter_plan_json()`：测试 fixture。
 
 ### `core/drafting.py`
@@ -577,6 +597,13 @@ orchestrator 项目管家修复 proposal：
 - `_execute_plan()` / `_execute_task()`：调用对应 core service。
 - `_validate_handoff_trace()` / `_check_limits()`：安全限制。
 - `_write_run_log()`：写 orchestrator run log。
+
+### `core/runtime_config.py`
+
+运行时配置归一化：
+
+- `normalize_polish_mode()`：把 CLI/Web 的 `single-pass` 等输入归一为 schema 使用的 `single_pass`。
+- `project_polish_mode()`：读取项目 `polish.mode`，缺省为 `single_pass`。
 
 ## 9. 检索、展示、导出
 

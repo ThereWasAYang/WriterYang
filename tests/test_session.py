@@ -150,7 +150,14 @@ def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
     assert progress.current_stage == "completed"
     assert progress.started_at is not None
     assert progress.completed_at is not None
-    assert {event.stage for event in progress.events} >= {"session_start", "chapter_start", "draft", "polish", "audit", "completed"}
+    assert {event.stage for event in progress.events} >= {
+        "session_start",
+        "chapter_start",
+        "draft",
+        "single_pass_final",
+        "audit",
+        "completed",
+    }
 
 
 def test_session_run_writes_progress_and_honors_cancel_at_boundary(tmp_path: Path, monkeypatch) -> None:

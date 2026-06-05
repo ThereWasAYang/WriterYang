@@ -36,6 +36,13 @@ Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API，再合�
 
 如果内部 Agent 第一次输出“请补充/请确认/是否需要”之类问题，`generate_with_output_guard()` 会写 violation log，并自动追加一次 repair prompt 要求直接产出目标 artifact。第二次仍失败则不写正式文件。
 
+通用上下文策略：
+
+- `core/search.py::retrieve_context_bundle()` 产出的说明使用统一 prompt 片段，称为“系统检索出的长期记忆参考”，不假设 FTS 和 embedding 一定同时存在。
+- `--vector-context auto|on|off` 控制语义召回；`auto` 只在真实 embedding provider 配置完整且环境变量齐全时启用，失败会回退 FTS 并写入 ContextBundle warning。旧 `--use-vector-context` 是 `on` 的兼容别名。
+- 检索 query 会拼接章节号、用户 instruction、ChapterPlan 的 goal/summary/must_include/scenes 等稳定信息。
+- state/timeline 进入 prompt 前先走 `core/context_budget.py`：focus 实体和近 N 章保留全量，远期内容折叠成 digest；小项目未裁剪时仍渲染原 JSON，保护兼容性。
+
 ## 2. Inspiration Agent
 
 - Service：`core/inspiration.py`
@@ -91,8 +98,9 @@ Prompt 组装：
 
 - `AgentOutputContract(output_kind="json", json_schema_name="CanonProposal")`。
 - `parse_canon_proposal()` 提取 JSON 并做低风险归一化。
-- `validate_canon_proposal()` 检查重复 ID、跨类型冲突和 hidden truth 泄漏。
+- `validate_canon_proposal()` 检查重复 ID、跨类型冲突和 hidden truth 泄漏；canon drift proposal 可引用既有 canon ID，但新增对象仍不能和既有 ID 冲突。
 - schema/validation 失败后 `_generate_canon_proposal_with_repair()` 再请求一次。
+- `accept_chapter()` 后会触发 canon drift 检测，只在 `memory/chapters/{NNN}/canon_drift_proposal.json` 写人工确认用 proposal，不自动 apply canon。
 
 ## 4. Plot / Chapter Planning Agent
 
@@ -118,7 +126,7 @@ Prompt 组装：
 
 Prompt 组装：
 
-- `build_planning_user_prompt()` 写入项目、目标章节、schema 必填字段、引用规则、用户要求。
+- `build_planning_user_prompt()` 写入项目、目标章节、schema 必填字段、引用规则、用户要求，以及预算化 state/timeline 视图。
 - 明确禁止写正文、禁止修改 canon/state/timeline、禁止发明不存在的角色/地点/required_context ID。
 
 输出处理：
@@ -151,7 +159,7 @@ Prompt 组装：
 
 Prompt 组装：
 
-- `build_writer_user_prompt()` 写入项目、章节、目标字数、用户写作要求、临时文风、ChapterPlan、style guide、canon、state、timeline、inspiration。
+- `build_writer_user_prompt()` 写入项目、章节、目标字数、用户写作要求、临时文风、ChapterPlan、style guide、canon、预算化 state/timeline、inspiration。
 - 正文输出要求写在 system prompt 和 user prompt：只输出可放入 `draft.md` 的 Markdown body，不要 YAML front matter、JSON、大纲、分析。
 
 输出处理：
@@ -160,6 +168,7 @@ Prompt 组装：
 - 使用 stream 调用并合并正文。
 - `_clean_body()` 去掉代码块包装。
 - `render_draft_markdown()` 加 YAML front matter。
+- `generate-chapter` 和 session 的默认 `polish.mode=single_pass` 会把 writer 的 `draft.md` 正文提升为 `polished.md`，front matter 标记 `created_by: writer_agent`、`polish_skipped: true`，然后继续 audit。
 
 ## 6. Polish Agent
 
@@ -182,8 +191,9 @@ Prompt 组装：
 
 Prompt 组装：
 
-- `build_polish_user_prompt()` 写入 edit mode、是否保持长度、用户要求、ChapterPlan、draft metadata/body、style、canon、state、timeline、inspiration。
+- `build_polish_user_prompt()` 写入 edit mode、是否保持长度、用户要求、ChapterPlan、draft metadata/body、style、canon、预算化 state/timeline、inspiration。
 - edit mode 由 `resolve_edit_mode()` 解析：`light`、`normal`、`deep`。
+- Polish Agent 仍可通过显式 `polish-chapter`、`--polish-mode auto` 或 Web UI 的“自动润色”开关运行；`review_gate` 会停在 `draft.md` 等待人工处理，不自动 audit。
 
 输出处理：
 
@@ -214,8 +224,9 @@ Prompt 组装：
 
 Prompt 组装：
 
-- `build_audit_user_prompt()` 写入审核文件、严格模式、审核重点、deterministic summary、章节正文、plan、style、canon、state、timeline。
+- `build_audit_user_prompt()` 写入审核文件、严格模式、审核重点、deterministic summary、章节正文、plan、style、canon、预算化 state/timeline。
 - system prompt 要求只输出 `AuditReport` JSON，并检查 canon/state/timeline/hidden truth/plan/style；timeline 审核必须区分 `narrative_position` 和 `story_position`，不能把倒序、插叙或回忆本身当作硬冲突。
+- 当 medium+ 问题无法确认时，Audit Agent 可输出 `need_context` 请求章节正文、实体上下文或 query 上下文；编排层最多补取 1 轮、每轮最多 3 个请求，并写 `audit_recall.json`。
 
 输出处理：
 
@@ -248,7 +259,7 @@ Prompt 组装：
 
 Prompt 组装：
 
-- `build_state_update_user_prompt()` 要求根据正文实际发生事件提取状态变化，并同时输出 timeline event 的正文呈现顺序 `narrative_position` 与故事世界顺序 `story_position`。
+- `build_state_update_user_prompt()` 要求根据正文实际发生事件提取状态变化，并同时输出 timeline event 的正文呈现顺序 `narrative_position` 与故事世界顺序 `story_position`；输入使用预算化 state/timeline。
 - 明确不要创造正文中没有发生的重大事件、不要修改 canon、无法判断写入 warnings。
 
 输出处理：
@@ -282,7 +293,7 @@ Prompt 组装：
 
 Prompt 组装：
 
-- `build_revision_user_prompt()` 写入源正文、用户修改要求、blocking audit issue 摘要、完整 audit report、style、canon、state、timeline。
+- `build_revision_user_prompt()` 写入源正文、用户修改要求、blocking audit issue 摘要、完整 audit report、style、canon、预算化 state/timeline。
 - 如果 `--from-audit`，要求逐条修复 medium/high/critical issues，优先应用 suggested_fix，并避免原 evidence quote 以同一问题形式保留。
 
 输出处理：
@@ -341,7 +352,7 @@ Prompt 组装：
 1. `start_session()` 创建 session，并调用 Plot Agent 为章节范围生成 outline proposal。
 2. `revise_outline()` 把用户意见合并进 intent，重新生成 outline proposal。
 3. `approve_outline()` 复制 proposal 为 approved outline。
-4. `run_session()` 调用 Writer、Polish、Audit；medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
+4. `run_session()` 默认调用 Writer，把 `draft.md` 提升为 `polished.md` 后 Audit；配置 `polish.mode=auto` 或前端开启“自动润色”时才运行 Polish Agent。medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
 5. `revise_audit()` 用用户纠正意见重新审核被打回原文，写入 `audit_revision_history`。
 6. `retry_rewrite()` 基于最新 audit 再次执行正文修订或重写计划；`undo_rewrite()` 恢复被打回快照并重审。
 7. `revise_content()` 处理作者反馈或 audit issue。用户反馈先由 Orchestrator 判定：剧情级修改重写 plan 并重新 writer/polish/audit；写作实现级修改保留 plan、重写 draft/polished/audit；局部表达修改才调用 Revision Agent 生成版本稿并提升当前稿。audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
@@ -364,7 +375,7 @@ Session 层是用户协作入口。它可以要求用户批准大纲和最终内
 - `plan` 和 `audit` 可以看到 hidden truth，但必须标记为内部参考。
 - `write` 默认不把 hidden truth 原文放进 prompt。
 - 如果开启 `--use-search-context`，默认使用 ChapterPlan 实体扩展 + 关键词/SQLite FTS 补充，并写 `context_report*.json` 供追踪。
-- 只有同时开启 `--use-vector-context` 时，才加入语义向量召回；如果真实 embedding 向量缺失或过期，搜索层会先自动刷新。`local_hash` 只用于测试 fixture，不作为真实业务 fallback。
+- `--vector-context auto` 是默认语义召回策略：真实 embedding 配置和环境变量完整时启用，否则只用 FTS；`on` 强制尝试语义召回，`off` 关闭。`local_hash` 只允许显式测试路径，不作为真实业务 fallback。
 
 ## 13. Prompt 和日志排查
 

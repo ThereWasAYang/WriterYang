@@ -1,0 +1,84 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "event_id": {
+      "minLength": 1,
+      "pattern": "^mgmt_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "enum": [
+        "chapter_accepted",
+        "state_update_proposed",
+        "state_update_applied",
+        "timeline_updated",
+        "canon_drift_proposed",
+        "memory_repair_proposed",
+        "memory_repair_applied",
+        "memory_repair_failed"
+      ],
+      "title": "Event Type",
+      "type": "string"
+    },
+    "message": {
+      "minLength": 1,
+      "title": "Message",
+      "type": "string"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source"
+    },
+    "target_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Target Files",
+      "type": "array"
+    },
+    "status": {
+      "default": "info",
+      "enum": [
+        "info",
+        "success",
+        "warning",
+        "error"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "details": {
+      "additionalProperties": true,
+      "title": "Details",
+      "type": "object"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "message",
+    "created_at"
+  ],
+  "title": "ManagementEvent",
+  "type": "object"
+}

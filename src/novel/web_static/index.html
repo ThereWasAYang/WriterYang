@@ -152,9 +152,19 @@
               <input id="useSearchContext" type="checkbox" style="width: auto;" checked>
               <span>使用搜索上下文</span>
             </label>
+            <label for="vectorContextMode">语义检索模式</label>
+            <select id="vectorContextMode">
+              <option value="auto" selected>auto（配置完整时自动启用）</option>
+              <option value="on">on（强制使用 embedding）</option>
+              <option value="off">off（仅关键词检索）</option>
+            </select>
             <label class="row" style="justify-content: flex-start; gap: 8px;">
               <input id="useVectorContext" type="checkbox" style="width: auto;">
-              <span>使用 embedding 语义检索</span>
+              <span>兼容选项：强制使用 embedding 语义检索</span>
+            </label>
+            <label class="row" style="justify-content: flex-start; gap: 8px;">
+              <input id="autoPolish" type="checkbox" style="width: auto;">
+              <span>自动润色（writer → polish → audit）</span>
             </label>
             <details style="margin-top: 10px;">
               <summary>危险 / 调试选项</summary>

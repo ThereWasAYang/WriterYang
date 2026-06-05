@@ -188,6 +188,20 @@ def _project_yaml(
         "  planned_chapters: 80\n"
         "web:\n"
         "  default_port: 8765\n"
+        "context_budget:\n"
+        "  enabled: true\n"
+        "  recent_window_chapters: 3\n"
+        "  max_full_timeline_events: 40\n"
+        "  max_full_state_entities: 60\n"
+        "  digest_dropped: true\n"
+        "polish:\n"
+        '  mode: "single_pass"\n'
+        "audit_recall:\n"
+        "  enabled: true\n"
+        "  max_recall_rounds: 1\n"
+        "  max_requests_per_round: 3\n"
+        "canon_drift:\n"
+        "  enabled: true\n"
         "narration:\n"
         '  pov: "third_person_limited"\n'
         '  tense: "past"\n'

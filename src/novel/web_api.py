@@ -43,9 +43,11 @@ from novel.core.schemas import (
     ChapterPlan,
     CreationSession,
     EmbeddingsConfig,
+    PolishMode,
     RevisionLog,
     RevisionRecord,
     SessionProgress,
+    VectorContextMode,
 )
 from novel.core.security import validate_secret_config_file
 from novel.core.session import (
@@ -284,7 +286,7 @@ def _plan_chapter(data: dict[str, object]) -> dict[str, object]:
             instruction=_optional_string(data.get("instruction")),
             force=bool(data.get("force")),
             use_search_context=bool(data.get("use_search_context")),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
         ),
         provider,
     )
@@ -307,7 +309,7 @@ def _write_chapter(data: dict[str, object]) -> dict[str, object]:
             target_words=_optional_int(data.get("target_words")),
             style_note=_optional_string(data.get("style_note")),
             use_search_context=bool(data.get("use_search_context")),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
         ),
         provider,
     )
@@ -327,7 +329,7 @@ def _polish_chapter(data: dict[str, object]) -> dict[str, object]:
             keep_length=bool(data.get("keep_length")),
             edit_mode=str(data.get("edit_mode") or "normal"),  # type: ignore[arg-type]
             use_search_context=bool(data.get("use_search_context")),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
         ),
         provider,
     )
@@ -354,7 +356,7 @@ def _audit_chapter(data: dict[str, object]) -> dict[str, object]:
             focus=_audit_focus(data.get("focus")),
             audited_file=audited_file,  # type: ignore[arg-type]
             use_search_context=bool(data.get("use_search_context")),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
         ),
         provider,
     )
@@ -399,11 +401,12 @@ def _generate_chapter(data: dict[str, object]) -> dict[str, object]:
             provider_name=_provider_name(data.get("provider")),
             target_words=_optional_int(data.get("target_words")),
             style_note=_optional_string(data.get("style_note")),
+            polish_mode=_polish_mode(data),
             skip_polish=bool(data.get("skip_polish")),
             skip_audit=bool(data.get("skip_audit")),
             stop_after=_optional_string(data.get("stop_after")),  # type: ignore[arg-type]
             use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
         )
     )
     return {
@@ -681,7 +684,7 @@ def _inspire(data: dict[str, object]) -> dict[str, object]:
             write_json=bool(data.get("write_json")),
             overwrite=overwrite,
             use_search_context=bool(data.get("use_search_context")),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
         ),
         provider,
     )
@@ -701,7 +704,7 @@ def _canon_suggest(data: dict[str, object]) -> dict[str, object]:
             root=root,
             output_path=output_path,
             use_search_context=bool(data.get("use_search_context")),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
         ),
         provider,
     )
@@ -773,7 +776,8 @@ def _session_start(data: dict[str, object]) -> dict[str, object]:
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
+            polish_mode=_polish_mode(data),
         )
     )
     return _session_result_payload(result)
@@ -788,7 +792,8 @@ def _session_revise_outline(data: dict[str, object]) -> dict[str, object]:
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
+            polish_mode=_polish_mode(data),
         )
     )
     return _session_result_payload(result)
@@ -814,7 +819,8 @@ def _session_run(data: dict[str, object]) -> dict[str, object]:
             force=bool(data.get("force")),
             max_auto_revision_rounds=_optional_int(data.get("max_auto_revision_rounds")),
             use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
+            polish_mode=_polish_mode(data),
         )
     )
     return _session_result_payload(result)
@@ -841,7 +847,8 @@ def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
             force=bool(data.get("force")),
             from_audit=bool(data.get("from_audit")),
             use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
+            polish_mode=_polish_mode(data),
         )
     )
     return _session_result_payload(result)
@@ -857,7 +864,8 @@ def _session_revise_audit(data: dict[str, object]) -> dict[str, object]:
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
+            polish_mode=_polish_mode(data),
         )
     )
     return _session_result_payload(result)
@@ -873,7 +881,8 @@ def _session_retry_rewrite(data: dict[str, object]) -> dict[str, object]:
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
+            polish_mode=_polish_mode(data),
         )
     )
     return _session_result_payload(result)
@@ -887,7 +896,8 @@ def _session_undo_rewrite(data: dict[str, object]) -> dict[str, object]:
             event_id=str(data.get("event_id") or ""),
             provider_name=str(data.get("provider") or "config"),
             use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=bool(data.get("use_vector_context")),
+            use_vector_context=_vector_context_mode(data),
+            polish_mode=_polish_mode(data),
         )
     )
     return _session_result_payload(result)
@@ -1999,6 +2009,25 @@ def _optional_string(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _vector_context_mode(data: dict[str, object]) -> VectorContextMode:
+    if bool(data.get("use_vector_context")):
+        return "on"
+    value = _optional_string(data.get("vector_context"))
+    if value in {"auto", "on", "off"}:
+        return cast(VectorContextMode, value)
+    return "auto"
+
+
+def _polish_mode(data: dict[str, object]) -> PolishMode | None:
+    value = _optional_string(data.get("polish_mode"))
+    if not value:
+        return None
+    normalized = value.replace("-", "_")
+    if normalized in {"single_pass", "auto", "review_gate"}:
+        return cast(PolishMode, normalized)
+    return None
 
 
 def _optional_int(value: object) -> int | None:

@@ -61,6 +61,11 @@ class WorkspaceInitTest(unittest.TestCase):
             self.assertEqual(state["character_states"], [])
             self.assertEqual(state["item_states"], [])
             self.assertEqual(state["location_states"], [])
+            project_yaml = (root / "project.yaml").read_text(encoding="utf-8")
+            self.assertIn('mode: "single_pass"', project_yaml)
+            self.assertIn("context_budget:", project_yaml)
+            self.assertIn("audit_recall:", project_yaml)
+            self.assertIn("canon_drift:", project_yaml)
 
     def test_init_writes_env_var_names_not_api_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

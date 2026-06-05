@@ -55,6 +55,24 @@ def test_audit_agent_question_repairs_once(tmp_path: Path) -> None:
     assert "不要向用户或上游 Agent 提问" in provider.requests[1].user_prompt
 
 
+def test_audit_recall_reruns_with_requested_chapter_context(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    first = json.loads(default_mock_audit_report_json(1, "polished.md"))
+    first["need_context"] = [
+        {"kind": "chapter_prose", "ref": "1", "reason": "核对旧车站广播原文"}
+    ]
+    second = json.loads(default_mock_audit_report_json(1, "polished.md"))
+    second["summary"] = "复审后通过"
+    provider = MockProvider(fake_response=[json.dumps(first, ensure_ascii=False), json.dumps(second, ensure_ascii=False)])
+
+    result = audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
+
+    assert result.report.summary == "复审后通过"
+    assert len(provider.requests) == 2
+    assert "Additional recalled context" in provider.requests[1].user_prompt
+    assert (root / "memory" / "chapters" / "001" / "audit_recall.json").is_file()
+
+
 def test_audit_search_context_writes_report_and_includes_hidden_truth(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     provider = MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md"))

@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "MemoryRepairOperation": {
+      "additionalProperties": true,
+      "properties": {
+        "op": {
+          "enum": [
+            "add",
+            "replace",
+            "remove"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "file": {
+          "minLength": 1,
+          "title": "File",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "file",
+        "path",
+        "reason"
+      ],
+      "title": "MemoryRepairOperation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "repair_id": {
+      "minLength": 1,
+      "pattern": "^repair_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+      "title": "Repair Id",
+      "type": "string"
+    },
+    "created_by": {
+      "const": "orchestrator",
+      "default": "orchestrator",
+      "title": "Created By",
+      "type": "string"
+    },
+    "user_request": {
+      "minLength": 1,
+      "title": "User Request",
+      "type": "string"
+    },
+    "target_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Target Files",
+      "type": "array"
+    },
+    "operations": {
+      "items": {
+        "$ref": "#/$defs/MemoryRepairOperation"
+      },
+      "title": "Operations",
+      "type": "array"
+    },
+    "risk_level": {
+      "default": "medium",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Risk Level",
+      "type": "string"
+    },
+    "confidence": {
+      "default": 0.0,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "needs_user_confirmation": {
+      "default": true,
+      "title": "Needs User Confirmation",
+      "type": "boolean"
+    },
+    "validation_before": {
+      "additionalProperties": true,
+      "title": "Validation Before",
+      "type": "object"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "repair_id",
+    "user_request",
+    "created_at"
+  ],
+  "title": "MemoryRepairProposal",
+  "type": "object"
+}

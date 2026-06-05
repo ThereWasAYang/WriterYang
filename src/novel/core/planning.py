@@ -12,6 +12,7 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.canon import CanonFiles, format_canon_summary, load_canon_files
+from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -22,6 +23,7 @@ from novel.core.schemas import (
     EntityState,
     ProjectConfig,
     TimelineFile,
+    VectorContextMode,
 )
 from novel.core.validation import ValidationReport
 
@@ -37,7 +39,7 @@ class ChapterPlanningOptions:
     instruction: str | None = None
     force: bool = False
     use_search_context: bool = False
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
 
 
 @dataclass(frozen=True)
@@ -165,6 +167,19 @@ def build_planning_user_prompt(
     instruction: str | None,
     search_context: str = "",
 ) -> str:
+    state_text = render_state_prompt_text(
+        state,
+        project=project,
+        chapter_number=chapter_number,
+        plan=None,
+    )
+    timeline_text = render_timeline_prompt_text(
+        timeline,
+        project=project,
+        chapter_number=chapter_number,
+        task="plan",
+        plan=None,
+    )
     return (
         f"项目：{project.title}\n"
         f"语言：{project.language}\n"
@@ -187,8 +202,8 @@ def build_planning_user_prompt(
         f"用户额外要求：\n{instruction or '无'}\n\n"
         f"{search_context}\n"
         f"Canon 摘要：\n{canon_summary}\n\n"
-        f"Current state：\n{state.model_dump_json(indent=2)}\n\n"
-        f"Timeline：\n{timeline.model_dump_json(indent=2)}\n\n"
+        f"Current state：\n{state_text}\n\n"
+        f"Timeline：\n{timeline_text}\n\n"
         f"Style guide：\n{style_guide}\n\n"
         f"Inspiration.md：\n{inspiration_md}\n\n"
         f"Inspiration.json：\n{inspiration_json}\n"

@@ -11,6 +11,7 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -21,6 +22,7 @@ from novel.core.schemas import (
     EntityState,
     ProjectConfig,
     TimelineFile,
+    VectorContextMode,
 )
 
 
@@ -37,7 +39,7 @@ class ChapterDraftingOptions:
     target_words: int | None = None
     style_note: str | None = None
     use_search_context: bool = False
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
 
 
 @dataclass(frozen=True)
@@ -194,6 +196,19 @@ def build_writer_user_prompt(
     style_note: str | None,
     search_context: str = "",
 ) -> str:
+    state_text = render_state_prompt_text(
+        state,
+        project=project,
+        chapter_number=plan.chapter_number,
+        plan=plan,
+    )
+    timeline_text = render_timeline_prompt_text(
+        timeline,
+        project=project,
+        chapter_number=plan.chapter_number,
+        task="write",
+        plan=plan,
+    )
     return (
         f"项目：{project.title}\n"
         f"语言：{project.language}\n"
@@ -208,8 +223,8 @@ def build_writer_user_prompt(
         f"ChapterPlan：\n{plan.model_dump_json(indent=2)}\n\n"
         f"Style guide：\n{style_guide}\n\n"
         f"Canon 摘要：\n{canon_summary}\n\n"
-        f"Current state：\n{state.model_dump_json(indent=2)}\n\n"
-        f"Timeline：\n{timeline.model_dump_json(indent=2)}\n\n"
+        f"Current state：\n{state_text}\n\n"
+        f"Timeline：\n{timeline_text}\n\n"
         f"Inspiration.md：\n{inspiration_md}\n\n"
         f"Inspiration.json：\n{inspiration_json}\n"
     )

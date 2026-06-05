@@ -721,7 +721,7 @@
   "additionalProperties": true,
   "properties": {
     "schema_version": {
-      "default": 1,
+      "default": 2,
       "minimum": 1,
       "title": "Schema Version",
       "type": "integer"

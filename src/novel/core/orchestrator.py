@@ -36,6 +36,7 @@ from novel.core.schemas import (
     AuditRepairRouteDecision,
     AuditReport,
     RevisionRouteDecision,
+    VectorContextMode,
 )
 from novel.core.state_update import (
     StateUpdateProposeOptions,
@@ -142,7 +143,7 @@ class OrchestratorOptions:
     max_retries: int = 0
     max_agent_calls: int = 8
     use_search_context: bool = True
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
 
 
 @dataclass(frozen=True)
@@ -455,8 +456,23 @@ def _normalize_ask_intent_payload(data: dict[str, object], *, fallback_request: 
         confidence = 0.5
     normalized["confidence"] = min(1.0, max(0.0, confidence))
     normalized["source"] = "model"
-    if normalized["task"] == "memory_repair_apply" and not normalized["repair_id"]:
-        raise OrchestratorError("memory_repair_apply decision is missing repair_id")
+    if normalized["task"] == "memory_repair_apply":
+        request_repair_id = _extract_repair_id(fallback_request)
+        if not request_repair_id:
+            normalized["task"] = "memory_repair_suggest"
+            normalized["repair_id"] = None
+            normalized["reason"] = (
+                f"{normalized['reason']} Downgraded from memory_repair_apply because the user request "
+                "does not include an explicit repair_id."
+            )
+            normalized.setdefault(
+                "user_message",
+                "我会先生成 memory repair proposal；应用 repair 需要明确的 repair_id。",
+            )
+        elif not normalized["repair_id"]:
+            raise OrchestratorError("memory_repair_apply decision is missing repair_id")
+        elif normalized["repair_id"] != request_repair_id:
+            raise OrchestratorError("memory_repair_apply decision repair_id does not match user request")
     if normalized.get("user_message") is not None:
         normalized["user_message"] = str(normalized["user_message"])
     return normalized

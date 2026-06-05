@@ -65,6 +65,83 @@
           ],
           "default": null,
           "title": "Suggested Fix"
+        },
+        "source_layer": {
+          "anyOf": [
+            {
+              "enum": [
+                "plan",
+                "draft",
+                "polished",
+                "state",
+                "timeline",
+                "canon",
+                "style",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Layer"
+        },
+        "blocking_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocking Reason"
+        },
+        "evidence_strength": {
+          "anyOf": [
+            {
+              "enum": [
+                "weak",
+                "medium",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Strength"
+        },
+        "is_hard_blocker": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Hard Blocker"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
         }
       },
       "required": [
@@ -75,12 +152,43 @@
       ],
       "title": "AuditIssue",
       "type": "object"
+    },
+    "ContextRequest": {
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "enum": [
+            "chapter_prose",
+            "entity",
+            "query"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "ref",
+        "reason"
+      ],
+      "title": "ContextRequest",
+      "type": "object"
     }
   },
   "additionalProperties": true,
   "properties": {
     "schema_version": {
-      "default": 1,
+      "default": 2,
       "minimum": 1,
       "title": "Schema Version",
       "type": "integer"
@@ -126,6 +234,13 @@
         "type": "string"
       },
       "title": "Passed Checks",
+      "type": "array"
+    },
+    "need_context": {
+      "items": {
+        "$ref": "#/$defs/ContextRequest"
+      },
+      "title": "Need Context",
       "type": "array"
     }
   },

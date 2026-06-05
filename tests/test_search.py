@@ -20,6 +20,7 @@ from novel.core.search import (
     refresh_search_index,
     retrieve_context,
     retrieve_context_bundle,
+    resolve_vector_context_mode,
     search_index_status,
     search_project,
     write_context_report,
@@ -128,6 +129,36 @@ def test_vector_search_without_real_embedding_index_fails_clearly(tmp_path: Path
     assert code != 0
     assert stdout == ""
     assert "embedding vector" in stderr
+
+
+def test_vector_context_auto_enables_only_when_embedding_config_is_complete(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+
+    enabled, warnings = resolve_vector_context_mode(root, "auto")
+    assert enabled is False
+    assert any("missing embedding environment" in warning for warning in warnings)
+
+    (root / ".env").write_text('DASHSCOPE_API_KEY="test-key"\n', encoding="utf-8")
+    enabled, warnings = resolve_vector_context_mode(root, "auto")
+    assert enabled is True
+    assert warnings == []
+
+
+def test_vector_context_auto_disables_test_only_local_hash(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    embeddings_path = root / "config" / "embeddings.yaml"
+    embeddings_path.write_text(
+        embeddings_path.read_text(encoding="utf-8").replace(
+            'active_provider: "dashscope"',
+            'active_provider: "test_local_hash"',
+        ),
+        encoding="utf-8",
+    )
+
+    enabled, warnings = resolve_vector_context_mode(root, "auto")
+
+    assert enabled is False
+    assert any("local_hash" in warning for warning in warnings)
 
 
 def test_search_supports_chinese_tokenization_and_highlight(tmp_path: Path) -> None:
@@ -261,6 +292,7 @@ def test_context_bundle_expands_chapter_plan_entities_and_state(tmp_path: Path) 
     assert ("item_state", "state_item_broken_ticket") in included
     assert ("timeline_event", "event_broadcast") in included
     assert included[("character", "char_lin_che")].priority == 100
+    assert "建立追查动机" in bundle.query
 
 
 def test_context_bundle_protects_hidden_truth_for_write(tmp_path: Path) -> None:

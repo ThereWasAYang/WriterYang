@@ -1,0 +1,58 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "repair_id": {
+      "minLength": 1,
+      "title": "Repair Id",
+      "type": "string"
+    },
+    "applied_at": {
+      "format": "date-time",
+      "title": "Applied At",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "applied",
+        "failed",
+        "rolled_back"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "target_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Target Files",
+      "type": "array"
+    },
+    "backups": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Backups",
+      "type": "array"
+    },
+    "errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Errors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "repair_id",
+    "applied_at",
+    "status"
+  ],
+  "title": "MemoryRepairApplyLog",
+  "type": "object"
+}

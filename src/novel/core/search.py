@@ -17,6 +17,7 @@ from novel.core.embeddings import (
 )
 from novel.core.env import load_project_env
 from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json
+from novel.core.plan_refs import plan_focus_entity_ids, plan_search_terms, plan_timeline_event_ids
 from novel.core.schemas import (
     ChapterPlan,
     ContextBundle,
@@ -24,11 +25,13 @@ from novel.core.schemas import (
     ContextItem,
     ContextTask,
     ContextVisibility,
+    VectorContextMode,
 )
 
 
 SearchType = Literal["character", "location", "item", "event", "chapter", "all"]
 HIDDEN_TRUTH_REDACT_TASKS: set[ContextTask] = {"inspiration", "write", "polish", "revision"}
+_AUTO_VECTOR_READY_STATUSES = {"indexed", "missing", "stale"}
 
 
 class SearchError(RuntimeError):
@@ -379,16 +382,16 @@ def retrieve_context_bundle(
     instruction: str | None,
     plan: ChapterPlan | None = None,
     limit: int = 12,
-    use_vector: bool = False,
+    use_vector: bool | VectorContextMode = "off",
 ) -> ContextBundle:
     root = root.resolve()
-    query_parts = [f"chapter {chapter_number}" if chapter_number is not None else f"{task} project memory"]
-    if instruction and instruction.strip():
-        query_parts.append(instruction.strip())
+    query_parts = _context_query_parts(chapter_number=chapter_number, task=task, instruction=instruction, plan=plan)
     query = " ".join(query_parts)
     included: dict[tuple[str, str], ContextItem] = {}
     excluded: dict[tuple[str, str], ContextExclusion] = {}
     warnings: list[str] = []
+    resolved_use_vector, vector_warnings = resolve_vector_context_mode(root, use_vector)
+    warnings.extend(vector_warnings)
 
     data = _load_context_data(root)
     direct_ids = _plan_entity_ids(plan)
@@ -445,7 +448,7 @@ def retrieve_context_bundle(
         query=query,
         chapter_number=chapter_number,
         limit=limit,
-        use_vector=use_vector,
+        use_vector=resolved_use_vector,
     )
     warnings.extend(search_warnings)
     for result in search_results:
@@ -461,6 +464,55 @@ def retrieve_context_bundle(
         warnings=warnings,
         created_at=_utc_now(),
     )
+
+
+def normalize_vector_context_mode(value: bool | str | None) -> VectorContextMode:
+    if value is True:
+        return "on"
+    if value is False or value is None:
+        return "off"
+    normalized = str(value).strip().lower().replace("-", "_")
+    if normalized in {"on", "true", "yes", "1"}:
+        return "on"
+    if normalized in {"off", "false", "no", "0"}:
+        return "off"
+    if normalized == "auto":
+        return "auto"
+    raise SearchError(f"unsupported vector context mode: {value}")
+
+
+def resolve_vector_context_mode(root: Path, value: bool | VectorContextMode) -> tuple[bool, list[str]]:
+    mode = normalize_vector_context_mode(value)
+    if mode == "on":
+        return True, []
+    if mode == "off":
+        return False, []
+
+    status = search_index_status(root)
+    if status.embedding_provider == "local_hash" or status.embedding_status == "test_only":
+        return False, ["auto vector context disabled; local_hash embedding is only for tests"]
+    if status.embedding_status in _AUTO_VECTOR_READY_STATUSES:
+        return True, []
+    if status.embedding_status == "env_missing":
+        missing = ", ".join(status.embedding_env_missing)
+        return False, [f"auto vector context disabled; missing embedding environment variables: {missing}"]
+    return False, []
+
+
+def _context_query_parts(
+    *,
+    chapter_number: int | None,
+    task: ContextTask,
+    instruction: str | None,
+    plan: ChapterPlan | None,
+) -> list[str]:
+    parts = [f"chapter {chapter_number}" if chapter_number is not None else f"{task} project memory"]
+    if instruction and instruction.strip():
+        parts.append(instruction.strip())
+    for term in plan_search_terms(plan):
+        if term not in parts:
+            parts.append(term)
+    return parts
 
 
 def write_context_report(root: Path, bundle: ContextBundle, *, force: bool = False) -> Path:
@@ -696,20 +748,11 @@ def _by_key(values: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]
 
 
 def _plan_entity_ids(plan: ChapterPlan | None) -> set[str]:
-    if plan is None:
-        return set()
-    entity_ids = set(plan.required_context.canon_entity_ids)
-    entity_ids.update(plan.required_context.state_entity_ids)
-    for scene in plan.scenes:
-        entity_ids.add(scene.location_id)
-        entity_ids.update(scene.participant_ids)
-    return {entity_id for entity_id in entity_ids if entity_id}
+    return plan_focus_entity_ids(plan)
 
 
 def _plan_timeline_event_ids(plan: ChapterPlan | None) -> set[str]:
-    if plan is None:
-        return set()
-    return {event_id for event_id in plan.required_context.timeline_event_ids if event_id}
+    return plan_timeline_event_ids(plan)
 
 
 def _include_entity_context(

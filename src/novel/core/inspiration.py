@@ -17,7 +17,7 @@ from novel.core.provider_config import ProviderOverrides, create_agent_provider,
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
 from novel.core.search import retrieve_context_bundle, write_context_report
-from novel.core.schemas import InspirationBrief, ProjectConfig
+from novel.core.schemas import InspirationBrief, ProjectConfig, VectorContextMode
 
 
 class InspirationError(RuntimeError):
@@ -32,7 +32,7 @@ class InspirationOptions:
     write_json: bool = False
     overwrite: bool = False
     use_search_context: bool = False
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,78 @@
 {
   "$defs": {
+    "AuditRecallConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_recall_rounds": {
+          "default": 1,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Max Recall Rounds",
+          "type": "integer"
+        },
+        "max_requests_per_round": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Max Requests Per Round",
+          "type": "integer"
+        }
+      },
+      "title": "AuditRecallConfig",
+      "type": "object"
+    },
+    "CanonDriftConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "CanonDriftConfig",
+      "type": "object"
+    },
+    "ContextBudgetConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "recent_window_chapters": {
+          "default": 3,
+          "minimum": 0,
+          "title": "Recent Window Chapters",
+          "type": "integer"
+        },
+        "max_full_timeline_events": {
+          "default": 40,
+          "minimum": 1,
+          "title": "Max Full Timeline Events",
+          "type": "integer"
+        },
+        "max_full_state_entities": {
+          "default": 60,
+          "minimum": 1,
+          "title": "Max Full State Entities",
+          "type": "integer"
+        },
+        "digest_dropped": {
+          "default": true,
+          "title": "Digest Dropped",
+          "type": "boolean"
+        }
+      },
+      "title": "ContextBudgetConfig",
+      "type": "object"
+    },
     "Narration": {
       "additionalProperties": true,
       "properties": {
@@ -17,6 +90,23 @@
         "tense"
       ],
       "title": "Narration",
+      "type": "object"
+    },
+    "PolishConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "mode": {
+          "default": "single_pass",
+          "enum": [
+            "single_pass",
+            "auto",
+            "review_gate"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "title": "PolishConfig",
       "type": "object"
     },
     "TargetLength": {
@@ -69,7 +159,7 @@
   "additionalProperties": true,
   "properties": {
     "schema_version": {
-      "default": 1,
+      "default": 2,
       "minimum": 1,
       "title": "Schema Version",
       "type": "integer"
@@ -138,6 +228,50 @@
       "anyOf": [
         {
           "$ref": "#/$defs/WebConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "context_budget": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ContextBudgetConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "polish": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PolishConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "audit_recall": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuditRecallConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "canon_drift": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CanonDriftConfig"
         },
         {
           "type": "null"

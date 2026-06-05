@@ -102,23 +102,34 @@
   "additionalProperties": true,
   "properties": {
     "schema_version": {
-      "default": 1,
+      "default": 2,
       "minimum": 1,
       "title": "Schema Version",
       "type": "integer"
     },
     "chapter_number": {
-      "minimum": 1,
-      "title": "Chapter Number",
-      "type": "integer"
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Chapter Number"
     },
     "task": {
       "enum": [
+        "inspiration",
+        "canon",
         "plan",
         "write",
         "polish",
         "audit",
-        "state_update"
+        "state_update",
+        "revision"
       ],
       "title": "Task",
       "type": "string"
@@ -155,7 +166,6 @@
     }
   },
   "required": [
-    "chapter_number",
     "task",
     "query",
     "created_at"

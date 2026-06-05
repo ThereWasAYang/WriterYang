@@ -3,19 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import json
 from pathlib import Path
 import shutil
 import yaml
 
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
-from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model
+from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.management import record_management_event
 from novel.core.orchestrator import route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.polishing import read_markdown_with_front_matter
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
+from novel.core.runtime_config import normalize_polish_mode, project_polish_mode
 from novel.core.security import redact_secret_text
 from novel.core.schemas import (
     AuditReport,
@@ -37,6 +39,9 @@ from novel.core.schemas import (
     SessionProgress,
     SessionProgressEvent,
     SessionProgressStatus,
+    PolishMode,
+    ProjectConfig,
+    VectorContextMode,
 )
 from novel.core.state_update import (
     AcceptChapterOptions,
@@ -68,7 +73,8 @@ class SessionStartOptions:
     provider_name: ProviderName = "config"
     force: bool = False
     use_search_context: bool = True
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
+    polish_mode: PolishMode | None = None
 
 
 @dataclass(frozen=True)
@@ -79,7 +85,8 @@ class SessionRunOptions:
     force: bool = False
     max_auto_revision_rounds: int | None = None
     use_search_context: bool = True
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
+    polish_mode: PolishMode | None = None
 
 
 @dataclass(frozen=True)
@@ -91,7 +98,8 @@ class SessionInstructionOptions:
     force: bool = False
     from_audit: bool = False
     use_search_context: bool = True
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
+    polish_mode: PolishMode | None = None
 
 
 @dataclass(frozen=True)
@@ -111,7 +119,8 @@ class SessionRewriteControlOptions:
     provider_name: ProviderName = "config"
     force: bool = False
     use_search_context: bool = True
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
+    polish_mode: PolishMode | None = None
 
 
 @dataclass(frozen=True)
@@ -246,7 +255,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
             )
             _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
             _retire_state_update_proposal(root, chapter_number)
-            _generate_chapter_content(
+            generated_audit = _generate_chapter_content(
                 root,
                 chapter_number,
                 session,
@@ -254,7 +263,30 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 force=options.force,
                 use_search_context=options.use_search_context,
                 use_vector_context=options.use_vector_context,
+                polish_mode=options.polish_mode,
             )
+            if generated_audit is False:
+                final_outputs.append(_rel(root, _chapter_dir(root, chapter_number) / "draft.md"))
+                session = session.model_copy(
+                    update={
+                        "status": "needs_revision",
+                        "content_status": "needs_user_review",
+                        "final_output_paths": final_outputs,
+                        "audit_history": [*session.audit_history, *audits],
+                        "revision_history": [*session.revision_history, *revisions],
+                        "updated_at": _utc_now(),
+                    }
+                )
+                _write_session(root, session)
+                _record_session_progress(
+                    root,
+                    session.session_id,
+                    status="completed",
+                    stage="review_gate",
+                    message="Session stopped at review gate.",
+                    chapter_number=chapter_number,
+                )
+                return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session stopped at review gate.")
             _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
             audit_report = _load_audit(root, chapter_number)
             round_number = 0
@@ -325,6 +357,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                             force=True,
                             use_search_context=options.use_search_context,
                             use_vector_context=options.use_vector_context,
+                            polish_mode=options.polish_mode,
                         )
                         after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
                     except _SessionCancelRequested:
@@ -684,7 +717,7 @@ def _replan_and_rewrite_chapter(
     instruction: str,
     *,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> Path:
     planning_provider = load_planning_provider(root, provider_name, chapter_number=chapter_number)
     plan_chapter(
@@ -716,7 +749,7 @@ def _rewrite_chapter_with_writer(
     instruction: str,
     *,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> Path:
     draft_provider = load_drafting_provider(root, provider_name)
     write_chapter_draft(
@@ -794,6 +827,7 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
                 allow_issues=False,
                 propose=True,
                 force_proposal=options.force,
+                canon_provider_name=options.provider_name,
             ),
             provider,
         )
@@ -999,6 +1033,7 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
             force=True,
             use_search_context=options.use_search_context,
             use_vector_context=options.use_vector_context,
+            polish_mode=options.polish_mode,
         )
         after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
     else:
@@ -1088,7 +1123,7 @@ def _session_status_after_manual_rewrite(
     force: bool,
     final_output_path: Path,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> dict[str, object]:
     if _has_hard_issues(audit_report):
         return {
@@ -1130,7 +1165,7 @@ def _write_outline_proposal(
     force: bool,
     *,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> CreationSession:
     chapters: list[CreationOutlineChapter] = []
     for chapter_number in session.chapter_range:
@@ -1211,8 +1246,10 @@ def _generate_chapter_content(
     *,
     force: bool,
     use_search_context: bool,
-    use_vector_context: bool,
-) -> None:
+    use_vector_context: bool | VectorContextMode,
+    polish_mode: PolishMode | None = None,
+) -> bool:
+    mode = _effective_session_polish_mode(root, polish_mode)
     instruction = _session_instruction(session)
     draft_provider = load_drafting_provider(root, provider_name)
     _record_session_progress(
@@ -1235,26 +1272,47 @@ def _generate_chapter_content(
         draft_provider,
     )
     _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
-    polish_provider = load_polishing_provider(root, provider_name)
-    _record_session_progress(
-        root,
-        session.session_id,
-        status="running",
-        stage="polish",
-        message=f"正在润色第 {chapter_number} 章。",
-        chapter_number=chapter_number,
-    )
-    polish_chapter(
-        ChapterPolishingOptions(
-            root=root,
+    if mode == "review_gate":
+        _record_session_progress(
+            root,
+            session.session_id,
+            status="running",
+            stage="review_gate",
+            message=f"第 {chapter_number} 章草稿已生成，等待人工复核。",
             chapter_number=chapter_number,
-            instruction=instruction,
-            force=force,
-            use_search_context=use_search_context,
-            use_vector_context=use_vector_context,
-        ),
-        polish_provider,
-    )
+        )
+        return False
+    if mode == "auto":
+        polish_provider = load_polishing_provider(root, provider_name)
+        _record_session_progress(
+            root,
+            session.session_id,
+            status="running",
+            stage="polish",
+            message=f"正在润色第 {chapter_number} 章。",
+            chapter_number=chapter_number,
+        )
+        polish_chapter(
+            ChapterPolishingOptions(
+                root=root,
+                chapter_number=chapter_number,
+                instruction=instruction,
+                force=force,
+                use_search_context=use_search_context,
+                use_vector_context=use_vector_context,
+            ),
+            polish_provider,
+        )
+    else:
+        _record_session_progress(
+            root,
+            session.session_id,
+            status="running",
+            stage="single_pass_final",
+            message=f"正在将第 {chapter_number} 章草稿标记为最终稿。",
+            chapter_number=chapter_number,
+        )
+        _promote_draft_to_polished(root, chapter_number, force=force)
     _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
     audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
     _record_session_progress(
@@ -1277,6 +1335,40 @@ def _generate_chapter_content(
         audit_provider,
     )
     _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
+    return True
+
+
+def _effective_session_polish_mode(root: Path, polish_mode: PolishMode | None) -> PolishMode:
+    if polish_mode:
+        return normalize_polish_mode(polish_mode)
+    project = load_yaml_model(root / "project.yaml", ProjectConfig)
+    return project_polish_mode(project)
+
+
+def _promote_draft_to_polished(root: Path, chapter_number: int, *, force: bool) -> Path:
+    chapter_dir = _chapter_dir(root, chapter_number)
+    draft_path = chapter_dir / "draft.md"
+    polished_path = chapter_dir / "polished.md"
+    if polished_path.exists() and not force:
+        raise CreationSessionError(f"{polished_path} already exists; use force to overwrite it")
+    draft = read_markdown_with_front_matter(draft_path)
+    title = str(draft.metadata.get("title") or f"Chapter {chapter_number}")
+    if force:
+        backup_if_exists(polished_path, reason="force")
+    atomic_write_text(
+        polished_path,
+        "---\n"
+        f"chapter_number: {chapter_number}\n"
+        f"title: {json.dumps(title, ensure_ascii=False)}\n"
+        "status: polished\n"
+        "created_by: writer_agent\n"
+        "based_on: draft.md\n"
+        "polish_skipped: true\n"
+        f"created_at: {_utc_now()}\n"
+        "---\n\n"
+        f"{draft.body.strip()}\n",
+    )
+    return polished_path
 
 
 def _audit_chapter_content(
@@ -1287,7 +1379,7 @@ def _audit_chapter_content(
     *,
     force: bool,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> None:
     audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
     audit_chapter(
@@ -1312,7 +1404,7 @@ def _audit_chapter_content_with_instruction(
     instruction: str,
     force: bool,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> None:
     audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
     audit_chapter(
@@ -1337,7 +1429,7 @@ def _auto_repair_chapter(
     round_number: int,
     *,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> Path:
     issue_summary = "; ".join(
         f"{issue.severity}/{issue.type}: {issue.description}"
@@ -1375,7 +1467,7 @@ def _auto_repair_chapter_with_instruction(
     instruction: str | None,
     *,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> Path:
     issue_summary = "; ".join(
         f"{issue.severity}/{issue.type}: {issue.description}"
@@ -1413,7 +1505,7 @@ def _auto_replan_chapter(
     round_number: int,
     *,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> None:
     issue_summary = _blocking_issue_summary(audit_report)
     provider = load_planning_provider(root, provider_name, chapter_number=chapter_number)
@@ -1493,7 +1585,7 @@ def _propose_state(
     *,
     force: bool,
     use_search_context: bool,
-    use_vector_context: bool,
+    use_vector_context: bool | VectorContextMode,
 ) -> None:
     provider = load_state_update_provider(root, provider_name, chapter_number=chapter_number)
     propose_state_update(

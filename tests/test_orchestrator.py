@@ -221,6 +221,28 @@ def test_ask_intent_decision_repair_retry(tmp_path: Path) -> None:
     assert len(provider.requests) == 2
 
 
+def test_ask_intent_downgrades_apply_without_explicit_repair_id(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    provider = MockProvider(
+        fake_response=json.dumps(
+            {
+                "task": "memory_repair_apply",
+                "reason": "用户想修正记忆。",
+                "repair_id": "repair_20260530_010101_000001",
+                "confidence": 0.82,
+                "source": "model",
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    decision = decide_ask_intent(root, "第2章 event_wrong_current 其实是回忆，帮我修下记忆", provider=provider)
+
+    assert decision.task == "memory_repair_suggest"
+    assert decision.repair_id is None
+    assert "explicit repair_id" in decision.reason
+
+
 def test_ask_intent_fallback_does_not_apply_repair(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -22,10 +23,12 @@ from novel.core.planning import (
 from novel.core.polishing import (
     ChapterPolishingOptions,
     polish_chapter,
+    read_markdown_with_front_matter,
 )
-from novel.core.io import atomic_write_model_json
+from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_yaml_model
 from novel.core.providers import ModelProvider
-from novel.core.schemas import AgentRunLog, AgentRunStep
+from novel.core.runtime_config import normalize_polish_mode, project_polish_mode
+from novel.core.schemas import AgentRunLog, AgentRunStep, PolishMode, ProjectConfig, VectorContextMode
 
 
 StopAfter = Literal["plan", "write", "polish", "audit"]
@@ -48,11 +51,12 @@ class GenerateChapterOptions:
     model_name: str | None = None
     target_words: int | None = None
     style_note: str | None = None
+    polish_mode: PolishMode | None = None
     skip_polish: bool = False
     skip_audit: bool = False
     stop_after: StopAfter | None = None
     use_search_context: bool = True
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
 
 
 @dataclass(frozen=True)
@@ -69,10 +73,9 @@ def generate_chapter(
     root = options.root.resolve()
     if options.chapter_number < 1:
         raise WorkflowError("chapter_number must be a positive integer")
-    if options.skip_polish and options.stop_after == "polish":
-        raise WorkflowError("--stop-after polish cannot be used with --skip-polish")
     if options.skip_audit and options.stop_after == "audit":
         raise WorkflowError("--stop-after audit cannot be used with --skip-audit")
+    polish_mode = _effective_polish_mode(root, options)
 
     loader = provider_loader or (
         lambda root, provider_name, step, chapter_number: _load_provider_for_step(
@@ -97,14 +100,19 @@ def generate_chapter(
         if _should_stop(options, "write"):
             return _complete(root, run_log, run_log_path, "Stopped after write.")
 
-        if options.skip_polish:
+        if polish_mode == "review_gate":
             if options.skip_audit:
-                return _complete(root, run_log, run_log_path, "Generated draft; polish and audit were skipped.")
-            return _complete(root, run_log, run_log_path, "Generated draft; polish was skipped so audit was not run.")
+                return _complete(root, run_log, run_log_path, "Generated draft; review gate stopped before polish and audit.")
+            return _complete(root, run_log, run_log_path, "Generated draft; review gate stopped before finalization and audit.")
 
-        _run_polish_step(root, options, run_log, loader)
-        if _should_stop(options, "polish"):
-            return _complete(root, run_log, run_log_path, "Stopped after polish.")
+        if polish_mode == "auto":
+            _run_polish_step(root, options, run_log, loader)
+            if _should_stop(options, "polish"):
+                return _complete(root, run_log, run_log_path, "Stopped after polish.")
+        else:
+            _run_promote_draft_step(root, options, run_log)
+            if _should_stop(options, "polish"):
+                return _complete(root, run_log, run_log_path, "Stopped after single-pass finalization.")
 
         if options.skip_audit:
             return _complete(root, run_log, run_log_path, "Generated polished chapter; audit was skipped.")
@@ -195,6 +203,15 @@ def _run_plan_step(
     step.status = "completed"
 
 
+def _effective_polish_mode(root: Path, options: GenerateChapterOptions) -> PolishMode:
+    if options.skip_polish:
+        return "single_pass"
+    if options.polish_mode:
+        return normalize_polish_mode(options.polish_mode)
+    project = load_yaml_model(root / "project.yaml", ProjectConfig)
+    return project_polish_mode(project)
+
+
 def _run_write_step(
     root: Path,
     options: GenerateChapterOptions,
@@ -283,6 +300,54 @@ def _run_polish_step(
         raise
     step.output_files = [_rel(root, result.polished_path)]
     step.status = "completed"
+
+
+def _run_promote_draft_step(root: Path, options: GenerateChapterOptions, run_log: AgentRunLog) -> None:
+    step = _start_step(
+        run_log,
+        step_id="step_003",
+        agent="writer_agent",
+        input_files=[
+            f"memory/chapters/{options.chapter_number:03d}/draft.md",
+        ],
+    )
+    polished_path = root / "memory" / "chapters" / f"{options.chapter_number:03d}" / "polished.md"
+    if _resume_existing_step(root, options, step, "single-pass finalization", [polished_path]):
+        return
+    try:
+        draft_path = root / "memory" / "chapters" / f"{options.chapter_number:03d}" / "draft.md"
+        if not draft_path.exists():
+            raise WorkflowError(f"{draft_path} is missing; run write step first")
+        draft = read_markdown_with_front_matter(draft_path)
+        title = str(draft.metadata.get("title") or f"Chapter {options.chapter_number}")
+        polished_markdown = _render_single_pass_polished_markdown(
+            chapter_number=options.chapter_number,
+            title=title,
+            body=draft.body,
+        )
+        if options.force:
+            backup_if_exists(polished_path, reason="force")
+        atomic_write_text(polished_path, polished_markdown)
+    except Exception as exc:
+        _fail_step(step, exc)
+        raise
+    step.output_files = [_rel(root, polished_path)]
+    step.status = "completed"
+
+
+def _render_single_pass_polished_markdown(*, chapter_number: int, title: str, body: str) -> str:
+    return (
+        "---\n"
+        f"chapter_number: {chapter_number}\n"
+        f"title: {json.dumps(title, ensure_ascii=False)}\n"
+        "status: polished\n"
+        "created_by: writer_agent\n"
+        "based_on: draft.md\n"
+        "polish_skipped: true\n"
+        f"created_at: {_utc_now()}\n"
+        "---\n\n"
+        f"{body.strip()}\n"
+    )
 
 
 def _run_audit_step(

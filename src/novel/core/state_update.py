@@ -16,7 +16,8 @@ from novel.core.agent_output import (
     AgentOutputContract,
     generate_with_output_guard,
 )
-from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.canon import format_canon_summary, load_canon_drift_provider, load_canon_files, suggest_canon_drift
+from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.management import record_management_event
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
@@ -38,6 +39,7 @@ from novel.core.schemas import (
     StateUpdateApplyLog,
     StateUpdateProposal,
     TimelineFile,
+    VectorContextMode,
 )
 from novel.core.validation import validate_canon
 
@@ -54,7 +56,7 @@ class StateUpdateProposeOptions:
     force: bool = False
     allow_unresolved_audit: bool = False
     use_search_context: bool = False
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,9 @@ class AcceptChapterOptions:
     instruction: str | None = None
     force_proposal: bool = False
     use_search_context: bool = True
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
+    canon_drift: bool = True
+    canon_provider_name: str = "config"
 
 
 @dataclass(frozen=True)
@@ -102,6 +106,8 @@ class AcceptChapterResult:
     accepted_path: Path
     metadata_path: Path
     metadata: ChapterMetadata
+    canon_drift_proposal_path: Path | None = None
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -270,6 +276,7 @@ def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None
     root = options.root.resolve()
     audit = _load_audit(root, options.chapter_number)
     _ensure_audit_allows_progress(audit, allow_issues=options.allow_issues)
+    warnings: list[str] = []
 
     proposal_result: StateUpdateProposeResult | None = None
     proposal_path = _chapter_dir(root, options.chapter_number) / "state_update_proposal.json"
@@ -304,12 +311,36 @@ def accept_chapter(options: AcceptChapterOptions, provider: ModelProvider | None
         apply_log_path=apply_result.apply_log_path,
     )
     metadata = load_json_model(metadata_path, ChapterMetadata)
+    canon_drift_path: Path | None = None
+    if options.canon_drift:
+        try:
+            drift_provider = load_canon_drift_provider(root, options.canon_provider_name)
+            drift_result = suggest_canon_drift(
+                root,
+                chapter_number=options.chapter_number,
+                provider=drift_provider,
+                force=options.force_proposal,
+            )
+            canon_drift_path = drift_result.output_path
+            if canon_drift_path:
+                record_management_event(
+                    root,
+                    "canon_drift_proposed",
+                    f"已生成第 {options.chapter_number} 章 canon 漂移补登 proposal。",
+                    source=f"chapter_{options.chapter_number:03d}",
+                    target_files=[str(canon_drift_path.relative_to(root))],
+                    status="info",
+                )
+        except Exception as exc:
+            warnings.append(f"canon drift proposal skipped: {exc}")
     return AcceptChapterResult(
         proposal_result=proposal_result,
         apply_result=apply_result,
         accepted_path=accepted_path,
         metadata_path=metadata_path,
         metadata=metadata,
+        canon_drift_proposal_path=canon_drift_path,
+        warnings=tuple(warnings),
     )
 
 
@@ -345,7 +376,7 @@ def load_state_update_context(
     *,
     instruction: str | None = None,
     use_search_context: bool = False,
-    use_vector_context: bool = False,
+    use_vector_context: bool | VectorContextMode = "auto",
 ) -> StateUpdateContext:
     chapter_dir = _chapter_dir(root, chapter_number)
     plan_path = chapter_dir / "plan.json"
@@ -354,12 +385,15 @@ def load_state_update_context(
     if not plan_path.exists():
         raise StateUpdateError(f"{plan_path} is missing; run novel plan-chapter first")
     if not polished_path.exists():
-        raise StateUpdateError(f"{polished_path} is missing; run novel polish-chapter first")
+        raise StateUpdateError(f"{polished_path} is missing; generate or promote a final chapter first")
     if not audit_path.exists():
         raise StateUpdateError(f"{audit_path} is missing; run novel audit-chapter first")
 
     canon = load_canon_files(root)
     plan = load_json_model(plan_path, ChapterPlan)
+    project = load_yaml_model(root / "project.yaml", ProjectConfig)
+    state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
+    timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
     context_bundle = (
         retrieve_context_bundle(
             root,
@@ -373,13 +407,24 @@ def load_state_update_context(
         else None
     )
     return StateUpdateContext(
-        project=load_yaml_model(root / "project.yaml", ProjectConfig),
+        project=project,
         plan=plan,
         polished=_read_front_matter(polished_path),
         audit=load_json_model(audit_path, AuditReport),
         canon_summary=format_canon_summary(canon),
-        state_json=(root / "memory" / "state" / "current_state.json").read_text(encoding="utf-8"),
-        timeline_json=(root / "memory" / "state" / "timeline.json").read_text(encoding="utf-8"),
+        state_json=render_state_prompt_text(
+            state,
+            project=project,
+            chapter_number=chapter_number,
+            plan=plan,
+        ),
+        timeline_json=render_timeline_prompt_text(
+            timeline,
+            project=project,
+            chapter_number=chapter_number,
+            task="state_update",
+            plan=plan,
+        ),
         search_context=context_bundle.render_for_prompt() if context_bundle else "",
         context_bundle=context_bundle,
     )

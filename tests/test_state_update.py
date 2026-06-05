@@ -15,9 +15,12 @@ from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_pla
 from novel.core.polishing import ChapterPolishingOptions, polish_chapter
 from novel.core.providers import MockProvider
 from novel.core.schemas import ChapterMetadata, EntityState, StateUpdateApplyLog, StateUpdateProposal, TimelineFile
+from novel.core import state_update as state_update_module
 from novel.core.state_update import (
+    AcceptChapterOptions,
     StateUpdateApplyOptions,
     StateUpdateProposeOptions,
+    accept_chapter,
     default_mock_state_update_proposal_json,
     apply_state_update,
     parse_state_update_proposal,
@@ -464,11 +467,13 @@ def test_accept_chapter_passed_audit_applies_update_and_marks_accepted(tmp_path:
     root = _workspace_with_audit(tmp_path)
     _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
 
-    code, stdout, stderr = _run_cli(["accept-chapter", "1", "--path", str(root)])
+    code, stdout, stderr = _run_cli(["accept-chapter", "1", "--path", str(root), "--provider", "mock"])
 
     assert code == 0
     assert stderr == ""
     assert "Accepted chapter:" in stdout
+    assert "warning:" not in stdout
+    assert not (root / "memory" / "chapters" / "001" / "canon_drift_proposal.json").exists()
     metadata = _read_front_matter(root / "memory" / "chapters" / "001" / "polished.md")
     assert metadata["status"] == "accepted"
     assert "accepted_at" in metadata
@@ -486,15 +491,62 @@ def test_accept_chapter_after_apply_is_idempotent(tmp_path: Path) -> None:
     first_apply, _, _ = _run_cli(["apply-state-update", "1", "--path", str(root)])
     timeline_before = json.loads((root / "memory" / "state" / "timeline.json").read_text(encoding="utf-8"))
 
-    code, stdout, stderr = _run_cli(["accept-chapter", "1", "--path", str(root)])
+    code, stdout, stderr = _run_cli(["accept-chapter", "1", "--path", str(root), "--provider", "mock"])
     timeline_after = json.loads((root / "memory" / "state" / "timeline.json").read_text(encoding="utf-8"))
 
     assert first_apply == 0
     assert code == 0
     assert stderr == ""
     assert "Accepted chapter:" in stdout
+    assert "warning:" not in stdout
     assert timeline_after == timeline_before
     assert len(timeline_after["events"]) == 1
+
+
+def test_accept_chapter_writes_canon_drift_proposal_without_applying_it(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_with_audit(tmp_path)
+    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    drift_data = {
+        "characters": [],
+        "locations": [],
+        "items": [
+            {
+                "id": "item_blue_lamp",
+                "name": "蓝色信号灯",
+                "type": "clue",
+                "reader_visible_summary": "旧车站站台深处短暂亮起的蓝色信号灯。",
+                "tags": ["线索"],
+            }
+        ],
+        "world_rules": [],
+        "hidden_truths": [
+            {
+                "id": "truth_blue_lamp_signal",
+                "title": "蓝灯来自旧车站异常",
+                "description": "蓝色信号灯会在旧车站异常开启时短暂显现。",
+                "visibility": "hidden",
+                "importance": "medium",
+                "related_entity_ids": ["item_blue_lamp", "loc_old_station"],
+                "foreshadowing_ids": [],
+            }
+        ],
+        "foreshadowing_threads": [],
+        "notes": ["补登本章新增线索。"],
+    }
+    drift_provider = MockProvider(fake_response=json.dumps(drift_data, ensure_ascii=False))
+    monkeypatch.setattr(state_update_module, "load_canon_drift_provider", lambda *args, **kwargs: drift_provider)
+
+    result = accept_chapter(AcceptChapterOptions(root=root, chapter_number=1))
+
+    proposal_path = root / "memory" / "chapters" / "001" / "canon_drift_proposal.json"
+    assert result.canon_drift_proposal_path == proposal_path
+    assert proposal_path.is_file()
+    proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+    assert proposal["items"][0]["id"] == "item_blue_lamp"
+    canon_items = json.loads((root / "memory" / "canon" / "items.json").read_text(encoding="utf-8"))
+    assert all(item["id"] != "item_blue_lamp" for item in canon_items["items"])
+    events_text = (root / "memory" / "management_events.jsonl").read_text(encoding="utf-8")
+    assert "canon_drift_proposed" in events_text
 
 
 def test_propose_state_update_blocked_audit_fails_by_default(tmp_path: Path) -> None:
@@ -561,7 +613,9 @@ def test_accept_chapter_allow_issues_can_continue_with_blocked_audit(tmp_path: P
         ]
     )
 
-    code, stdout, stderr = _run_cli(["accept-chapter", "1", "--path", str(root), "--allow-issues"])
+    code, stdout, stderr = _run_cli(
+        ["accept-chapter", "1", "--path", str(root), "--allow-issues", "--provider", "mock"]
+    )
 
     assert code == 0
     assert stderr == ""

@@ -30,10 +30,29 @@ def test_generate_chapter_mock_completes_full_pipeline(tmp_path: Path) -> None:
     assert [step.agent for step in run_log.steps] == [
         "plot_agent",
         "writer_agent",
-        "polish_agent",
+        "writer_agent",
         "audit_agent",
     ]
     assert "memory/chapters/001/audit.json" in run_log.output_files
+    assert "polish_skipped: true" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
+
+
+def test_generate_chapter_auto_polish_runs_polish_agent(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    code, stdout, stderr = _run_cli(
+        ["generate-chapter", "1", "--path", str(root), "--provider", "mock", "--polish-mode", "auto"]
+    )
+
+    assert code == 0
+    assert stderr == ""
+    assert "Audit passed" in stdout
+    assert [step.agent for step in _latest_run_log(root).steps] == [
+        "plot_agent",
+        "writer_agent",
+        "polish_agent",
+        "audit_agent",
+    ]
 
 
 def test_generate_chapter_stop_after_plan_only_generates_plan(tmp_path: Path) -> None:
@@ -70,7 +89,7 @@ def test_generate_chapter_stop_after_write_generates_plan_and_draft(tmp_path: Pa
     assert [step.agent for step in _latest_run_log(root).steps] == ["plot_agent", "writer_agent"]
 
 
-def test_generate_chapter_skip_polish_does_not_generate_polished_or_audit(tmp_path: Path) -> None:
+def test_generate_chapter_skip_polish_is_single_pass_alias(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 
     code, stdout, stderr = _run_cli(
@@ -81,9 +100,15 @@ def test_generate_chapter_skip_polish_does_not_generate_polished_or_audit(tmp_pa
     assert stderr == ""
     chapter_dir = root / "memory" / "chapters" / "001"
     assert (chapter_dir / "draft.md").is_file()
-    assert not (chapter_dir / "polished.md").exists()
-    assert not (chapter_dir / "audit.json").exists()
-    assert [step.agent for step in _latest_run_log(root).steps] == ["plot_agent", "writer_agent"]
+    assert (chapter_dir / "polished.md").is_file()
+    assert (chapter_dir / "audit.json").is_file()
+    assert "polish_skipped: true" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
+    assert [step.agent for step in _latest_run_log(root).steps] == [
+        "plot_agent",
+        "writer_agent",
+        "writer_agent",
+        "audit_agent",
+    ]
 
 
 def test_generate_chapter_skip_audit_does_not_generate_audit(tmp_path: Path) -> None:
@@ -101,7 +126,7 @@ def test_generate_chapter_skip_audit_does_not_generate_audit(tmp_path: Path) -> 
     assert [step.agent for step in _latest_run_log(root).steps] == [
         "plot_agent",
         "writer_agent",
-        "polish_agent",
+        "writer_agent",
     ]
 
 
@@ -155,7 +180,7 @@ def test_generate_chapter_resume_reuses_existing_outputs_and_continues(tmp_path:
     assert [step.agent for step in run_log.steps] == [
         "plot_agent",
         "writer_agent",
-        "polish_agent",
+        "writer_agent",
         "audit_agent",
     ]
     assert "memory/chapters/001/plan.json" in run_log.output_files

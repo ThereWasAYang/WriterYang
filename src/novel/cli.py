@@ -11,6 +11,7 @@ import webbrowser
 from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
+from typing import cast
 
 from novel.core.auditing import (
     AuditError,
@@ -141,7 +142,7 @@ from novel.core.setup_guide import (
     find_available_port,
     is_port_available,
 )
-from novel.core.schemas import AgentsConfig, AuditReport, CreationSession, ProjectConfig
+from novel.core.schemas import AgentsConfig, AuditReport, CreationSession, PolishMode, ProjectConfig, VectorContextMode
 from novel.core.usage import UsageError, summarize_provider_usage
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
@@ -222,10 +223,43 @@ def _add_search_context_args(parser: argparse.ArgumentParser, *, default_enabled
             help="Add explainable FTS memory context to the agent prompt.",
         )
     parser.add_argument(
+        "--vector-context",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="Embedding semantic context mode for agent memory retrieval. Defaults to auto.",
+    )
+    parser.add_argument(
         "--use-vector-context",
         action="store_true",
-        help="Use real embedding vectors when adding search context. Refreshes stale vectors first.",
+        help="Compatibility alias for --vector-context on.",
     )
+
+
+def _add_polish_mode_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--polish-mode",
+        choices=("single-pass", "auto", "review-gate"),
+        default=None,
+        help="Finalization mode. Defaults to project polish.mode or single-pass.",
+    )
+
+
+def _vector_context_mode_from_args(args: argparse.Namespace) -> VectorContextMode:
+    if getattr(args, "use_vector_context", False):
+        return "on"
+    value = str(getattr(args, "vector_context", "auto") or "auto")
+    if value in {"auto", "on", "off"}:
+        return cast(VectorContextMode, value)
+    return "auto"
+
+
+def _polish_mode_from_arg(value: str | None) -> PolishMode | None:
+    if not value:
+        return None
+    normalized = value.replace("-", "_")
+    if normalized in {"single_pass", "auto", "review_gate"}:
+        return cast(PolishMode, normalized)
+    return None
 
 
 def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
@@ -242,7 +276,7 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 provider_name=args.provider,
                 force=args.force,
                 use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=getattr(args, "use_vector_context", False),
+                use_vector_context=_vector_context_mode_from_args(args),
             )
         )
     if command == "show":
@@ -256,7 +290,7 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 provider_name=args.provider,
                 force=args.force,
                 use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=getattr(args, "use_vector_context", False),
+                use_vector_context=_vector_context_mode_from_args(args),
             )
         )
     if command == "approve-outline":
@@ -270,7 +304,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 force=args.force,
                 max_auto_revision_rounds=args.max_auto_revision_rounds,
                 use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=getattr(args, "use_vector_context", False),
+                use_vector_context=_vector_context_mode_from_args(args),
+                polish_mode=_polish_mode_from_arg(getattr(args, "polish_mode", None)),
             )
         )
     if command == "revise-content":
@@ -283,7 +318,7 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 force=args.force,
                 from_audit=args.from_audit,
                 use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=getattr(args, "use_vector_context", False),
+                use_vector_context=_vector_context_mode_from_args(args),
             )
         )
     if command == "revise-audit":
@@ -296,7 +331,8 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 provider_name=args.provider,
                 force=args.force,
                 use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=getattr(args, "use_vector_context", False),
+                use_vector_context=_vector_context_mode_from_args(args),
+                polish_mode=_polish_mode_from_arg(getattr(args, "polish_mode", None)),
             )
         )
     if command == "retry-rewrite":
@@ -309,7 +345,7 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 provider_name=args.provider,
                 force=args.force,
                 use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=getattr(args, "use_vector_context", False),
+                use_vector_context=_vector_context_mode_from_args(args),
             )
         )
     if command == "undo-rewrite":
@@ -320,7 +356,7 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
                 event_id=args.event_id,
                 provider_name=args.provider,
                 use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=getattr(args, "use_vector_context", False),
+                use_vector_context=_vector_context_mode_from_args(args),
             )
         )
     if command == "accept":
@@ -1345,6 +1381,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum automatic repair rounds. Defaults to session setting.",
     )
+    _add_polish_mode_arg(session_run)
     _add_search_context_args(session_run, default_enabled=True)
 
     session_revise_content = session_subparsers.add_parser("revise-content", help="Revise generated session content")
@@ -1391,6 +1428,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provider to use for rewrite retry.",
     )
     session_retry_rewrite.add_argument("--force", action="store_true", help="Overwrite generated artifacts if needed.")
+    _add_polish_mode_arg(session_retry_rewrite)
     _add_search_context_args(session_retry_rewrite, default_enabled=True)
 
     session_undo_rewrite = session_subparsers.add_parser("undo-rewrite", help="Restore rejected text snapshot for a rewrite event")
@@ -1564,9 +1602,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Add explainable search results to the planning prompt.",
     )
     plan_parser.add_argument(
+        "--vector-context",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="Embedding semantic context mode for agent memory retrieval. Defaults to auto.",
+    )
+    plan_parser.add_argument(
         "--use-vector-context",
         action="store_true",
-        help="Use real embedding vectors when adding search context. Refreshes stale vectors first.",
+        help="Compatibility alias for --vector-context on.",
     )
 
     write_parser = subparsers.add_parser("write-chapter", help="Generate a chapter draft")
@@ -1616,9 +1660,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Add explainable search results to the writing prompt.",
     )
     write_parser.add_argument(
+        "--vector-context",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="Embedding semantic context mode for agent memory retrieval. Defaults to auto.",
+    )
+    write_parser.add_argument(
         "--use-vector-context",
         action="store_true",
-        help="Use real embedding vectors when adding search context. Refreshes stale vectors first.",
+        help="Compatibility alias for --vector-context on.",
     )
 
     polish_parser = subparsers.add_parser("polish-chapter", help="Polish a chapter draft")
@@ -1727,9 +1777,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Add explainable search results to the audit prompt.",
     )
     audit_parser.add_argument(
+        "--vector-context",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="Embedding semantic context mode for agent memory retrieval. Defaults to auto.",
+    )
+    audit_parser.add_argument(
         "--use-vector-context",
         action="store_true",
-        help="Use real embedding vectors when adding search context. Refreshes stale vectors first.",
+        help="Compatibility alias for --vector-context on.",
+    )
+    audit_parser.add_argument(
+        "--no-audit-recall",
+        action="store_true",
+        help="Disable bounded audit context recall for this run.",
     )
 
     revise_parser = subparsers.add_parser("revise-chapter", help="Revise a chapter from instructions or audit")
@@ -1878,7 +1939,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         default="config",
         choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
-        help="Provider to use when --propose is set.",
+        help="Provider to use for --propose and canon drift proposal checks.",
     )
     _add_agent_runtime_args(accept_parser)
     accept_parser.add_argument(
@@ -1938,9 +1999,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reuse already generated step outputs and continue the pipeline.",
     )
     generate_parser.add_argument(
+        "--polish-mode",
+        choices=("single-pass", "auto", "review-gate"),
+        default=None,
+        help="Finalization mode. Defaults to project polish.mode or single-pass.",
+    )
+    generate_parser.add_argument(
         "--skip-polish",
         action="store_true",
-        help="Stop after draft generation; polished.md and audit.json are not generated.",
+        help="Compatibility alias for --polish-mode single-pass.",
     )
     generate_parser.add_argument(
         "--skip-audit",
@@ -2456,7 +2523,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
                         max_retries=args.max_retries,
                         max_agent_calls=args.max_agent_calls,
                         use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
+                        use_vector_context=_vector_context_mode_from_args(args),
                     )
                 )
                 dry_run_payload: dict[str, object] = {
@@ -2559,7 +2626,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
                     provider_name=args.provider,
                     force=args.force,
                     use_search_context=args.use_search_context,
-                    use_vector_context=args.use_vector_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
                 )
             )
     except ProjectLockError as exc:
@@ -2683,7 +2750,7 @@ def _cmd_inspire(args: argparse.Namespace) -> int:
                     write_json=args.json,
                     overwrite=args.overwrite,
                     use_search_context=args.use_search_context,
-                    use_vector_context=args.use_vector_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
                 ),
                 provider,
             )
@@ -2733,7 +2800,7 @@ def _cmd_canon(args: argparse.Namespace) -> int:
                         root=root,
                         output_path=args.output,
                         use_search_context=args.use_search_context,
-                        use_vector_context=args.use_vector_context,
+                        use_vector_context=_vector_context_mode_from_args(args),
                     ),
                     provider,
                 )
@@ -2829,7 +2896,7 @@ def _cmd_plan_chapter(args: argparse.Namespace) -> int:
                     instruction=instruction,
                     force=args.force,
                     use_search_context=args.use_search_context,
-                    use_vector_context=args.use_vector_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
                 ),
                 provider,
             )
@@ -2895,7 +2962,7 @@ def _cmd_write_chapter(args: argparse.Namespace) -> int:
                     target_words=args.target_words,
                     style_note=args.style_note,
                     use_search_context=args.use_search_context,
-                    use_vector_context=args.use_vector_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
                 ),
                 provider,
             )
@@ -2952,7 +3019,7 @@ def _cmd_polish_chapter(args: argparse.Namespace) -> int:
                     keep_length=args.keep_length,
                     edit_mode=edit_mode,
                     use_search_context=args.use_search_context,
-                    use_vector_context=args.use_vector_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
                 ),
                 provider,
             )
@@ -3007,7 +3074,8 @@ def _cmd_audit_chapter(args: argparse.Namespace) -> int:
                     focus=tuple(args.focus),
                     audited_file=args.audited_file,
                     use_search_context=args.use_search_context,
-                    use_vector_context=args.use_vector_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
+                    max_recall_rounds=0 if args.no_audit_recall else None,
                 ),
                 provider,
             )
@@ -3077,7 +3145,7 @@ def _cmd_revise_chapter(args: argparse.Namespace) -> int:
             force=args.force,
             save_as_version=args.save_as_version,
             use_search_context=args.use_search_context,
-            use_vector_context=args.use_vector_context,
+            use_vector_context=_vector_context_mode_from_args(args),
         )
         if args.max_rounds > 1:
             with _command_lock(args, root, "revise-chapter"):
@@ -3156,7 +3224,7 @@ def _cmd_propose_state_update(args: argparse.Namespace) -> int:
                     force=args.force,
                     allow_unresolved_audit=args.allow_unresolved_audit,
                     use_search_context=args.use_search_context,
-                    use_vector_context=args.use_vector_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
                 ),
                 provider,
             )
@@ -3254,7 +3322,8 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
                     instruction=instruction,
                     force_proposal=args.force,
                     use_search_context=args.use_search_context,
-                    use_vector_context=args.use_vector_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
+                    canon_provider_name=args.provider,
                 ),
                 provider,
             )
@@ -3268,6 +3337,9 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
     lines = []
     if result.proposal_result:
         lines.append(f"Wrote state update proposal: {result.proposal_result.proposal_path}")
+    if result.canon_drift_proposal_path:
+        lines.append(f"Wrote canon drift proposal: {result.canon_drift_proposal_path}")
+    lines.extend(f"warning: {warning}" for warning in result.warnings)
     lines.extend(
         [
             f"Accepted chapter: {result.accepted_path}",
@@ -3287,6 +3359,10 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
             "proposal_path": str(result.proposal_result.proposal_path)
             if result.proposal_result
             else None,
+            "canon_drift_proposal_path": str(result.canon_drift_proposal_path)
+            if result.canon_drift_proposal_path
+            else None,
+            "warnings": list(result.warnings),
         },
         lines,
     )
@@ -3322,12 +3398,13 @@ def _cmd_generate_chapter(args: argparse.Namespace) -> int:
                     agent_config_path=args.agent_config,
                     model_name=args.model,
                     target_words=args.target_words,
-                    style_note=args.style_note,
+            style_note=args.style_note,
+            polish_mode=_polish_mode_from_arg(args.polish_mode),
             skip_polish=args.skip_polish,
             skip_audit=args.skip_audit,
             stop_after=args.stop_after,
             use_search_context=args.use_search_context,
-            use_vector_context=args.use_vector_context,
+            use_vector_context=_vector_context_mode_from_args(args),
         )
     )
     except ProjectLockError as exc:

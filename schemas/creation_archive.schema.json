@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "CreationArchiveEntry": {
+      "additionalProperties": true,
+      "properties": {
+        "source_path": {
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "archive_path": {
+          "minLength": 1,
+          "title": "Archive Path",
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "title": "Sha256",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "archive_path",
+        "sha256",
+        "created_at"
+      ],
+      "title": "CreationArchiveEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "session_id": {
+      "minLength": 1,
+      "title": "Session Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/CreationArchiveEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "session_id",
+    "created_at"
+  ],
+  "title": "CreationArchiveManifest",
+  "type": "object"
+}

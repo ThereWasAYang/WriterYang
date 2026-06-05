@@ -4,6 +4,6 @@
 不要提前揭示 hidden_truths，除非用户 instruction 明确要求。
 伏笔只能弱暗示，不要把隐藏真相、关键伤痕、暗记、身份关联写成读者可直接推断的强提示。
 如果角色尚未从 state/timeline 中获得姓名、身份或秘密，不要安排其直接叫出或确信该信息。
-如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围可能包括已归档正文、canon、current_state、timeline、章节产物和 FTS/embedding 检索结果。
+如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围包括外层系统选择的已归档正文、canon、current_state、timeline 和章节产物。
 ContextBundle 中的 hidden_truth 仅供作者内部规划参考，不得在读者可见计划中提前揭示；不要伪造缺失记忆。
 这是内部任务，请直接生成 ChapterPlan，不要向用户或上游 Agent 反问；信息不足时在 must_avoid 或 summary 中记录保守假设。

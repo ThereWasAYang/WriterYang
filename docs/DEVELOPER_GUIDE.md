@@ -181,8 +181,10 @@ Web UI 面向普通作者时，Session 面板必须保留完整协商链路：�
 底层命令仍可用于调试：
 
 ```text
-plan-chapter -> write-chapter -> polish-chapter -> audit-chapter -> propose/apply state update -> accept-chapter
+plan-chapter -> write-chapter -> finalize polished.md -> audit-chapter -> propose/apply state update -> accept-chapter
 ```
+
+默认 finalization 是 `polish.mode=single_pass`，直接把 Writer 产出的 `draft.md` 提升为 `polished.md` 并继续 audit；显式 `polish-chapter`、`--polish-mode auto` 或 Web UI“自动润色”才会调用 Polish Agent。
 
 常用命令清单：
 
@@ -337,10 +339,10 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 - project 基本信息。
 - inspiration / style guide。
 - canon summary 或完整 canon 文件。
-- current_state / timeline。
+- current_state / timeline；大项目会先预算化，focus 实体和近章保留全量，远期内容折叠为 digest。
 - 当前章节 plan / draft / polished / audit。
 - 用户 instruction / input 文件内容。
-- 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展 + 关键词/SQLite FTS；向量召回必须显式启用 `--use-vector-context`，搜索层会在真实 embedding 向量缺失或过期时先刷新索引。
+- 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展 + 关键词/SQLite FTS；`--vector-context auto` 只在真实 embedding 配置完整时启用语义召回，`--vector-context on` 强制尝试，旧 `--use-vector-context` 是兼容别名。
 
 详见 `docs/AGENT_PROMPT_ASSEMBLY.md`。
 

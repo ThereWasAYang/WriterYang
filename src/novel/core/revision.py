@@ -13,6 +13,7 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.migration import CURRENT_SCHEMA_VERSION
@@ -30,6 +31,7 @@ from novel.core.schemas import (
     RevisionLog,
     RevisionRecord,
     TimelineFile,
+    VectorContextMode,
 )
 
 
@@ -50,7 +52,7 @@ class ChapterRevisionOptions:
     force: bool = False
     save_as_version: bool = True
     use_search_context: bool = False
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
 
 
 @dataclass(frozen=True)
@@ -310,6 +312,19 @@ def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisio
         audit_text = context.audit.model_dump_json(indent=2)
         blocking_issue_text = _blocking_audit_issue_text(context.audit)
     mode = "基于 audit issues 修复" if options.from_audit else "基于用户 instruction 修订"
+    state_text = render_state_prompt_text(
+        context.state,
+        project=context.project,
+        chapter_number=context.plan.chapter_number,
+        plan=context.plan,
+    )
+    timeline_text = render_timeline_prompt_text(
+        context.timeline,
+        project=context.project,
+        chapter_number=context.plan.chapter_number,
+        task="revision",
+        plan=context.plan,
+    )
     return (
         f"项目：{context.project.title}\n"
         f"语言：{context.project.language}\n"
@@ -328,8 +343,8 @@ def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisio
         f"Audit report：\n{audit_text}\n\n"
         f"Style guide：\n{context.style_guide}\n\n"
         f"Canon 摘要：\n{context.canon_summary}\n\n"
-        f"Current state：\n{context.state.model_dump_json(indent=2)}\n\n"
-        f"Timeline：\n{context.timeline.model_dump_json(indent=2)}\n"
+        f"Current state：\n{state_text}\n\n"
+        f"Timeline：\n{timeline_text}\n"
     )
 
 

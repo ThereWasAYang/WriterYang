@@ -25,6 +25,7 @@ ManagementEventType = Literal[
     "state_update_proposed",
     "state_update_applied",
     "timeline_updated",
+    "canon_drift_proposed",
     "memory_repair_proposed",
     "memory_repair_applied",
     "memory_repair_failed",
@@ -48,6 +49,9 @@ DecisionSource = Literal["model", "fallback", "mock", "deterministic"]
 AuditIssueSourceLayer = Literal["plan", "draft", "polished", "state", "timeline", "canon", "style", "unknown"]
 AuditEvidenceStrength = Literal["weak", "medium", "strong"]
 AuditRepairRoute = Literal["plot_replan", "writer_rewrite", "revision_rewrite", "manual_review"]
+VectorContextMode = Literal["auto", "on", "off"]
+PolishMode = Literal["single_pass", "auto", "review_gate"]
+ContextRequestKind = Literal["chapter_prose", "entity", "query"]
 
 
 class FlexibleModel(BaseModel):
@@ -72,6 +76,28 @@ class WebConfig(FlexibleModel):
     default_port: int = Field(default=8765, ge=1, le=65535)
 
 
+class ContextBudgetConfig(FlexibleModel):
+    enabled: bool = True
+    recent_window_chapters: int = Field(default=3, ge=0)
+    max_full_timeline_events: int = Field(default=40, ge=1)
+    max_full_state_entities: int = Field(default=60, ge=1)
+    digest_dropped: bool = True
+
+
+class PolishConfig(FlexibleModel):
+    mode: PolishMode = "single_pass"
+
+
+class AuditRecallConfig(FlexibleModel):
+    enabled: bool = True
+    max_recall_rounds: int = Field(default=1, ge=0, le=2)
+    max_requests_per_round: int = Field(default=3, ge=1, le=10)
+
+
+class CanonDriftConfig(FlexibleModel):
+    enabled: bool = True
+
+
 class ProjectConfig(SchemaVersionedModel):
     project_id: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     title: str = Field(min_length=1)
@@ -83,6 +109,10 @@ class ProjectConfig(SchemaVersionedModel):
     target_length: TargetLength | None = None
     default_style_profile_id: str | None = None
     web: WebConfig | None = None
+    context_budget: ContextBudgetConfig | None = None
+    polish: PolishConfig | None = None
+    audit_recall: AuditRecallConfig | None = None
+    canon_drift: CanonDriftConfig | None = None
 
 
 class ThinkingConfig(FlexibleModel):
@@ -814,6 +844,12 @@ class ContextBundle(SchemaVersionedModel):
         return "\n".join(lines) + "\n"
 
 
+class ContextRequest(FlexibleModel):
+    kind: ContextRequestKind
+    ref: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+
 class AuditEvidence(FlexibleModel):
     source: str
     quote: str
@@ -841,6 +877,7 @@ class AuditReport(SchemaVersionedModel):
     issues: list[AuditIssue]
     created_at: datetime
     passed_checks: list[str] = Field(default_factory=list)
+    need_context: list[ContextRequest] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def passed_reports_have_no_blocking_severity_issues(self) -> AuditReport:

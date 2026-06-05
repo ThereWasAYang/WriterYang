@@ -13,6 +13,7 @@ from novel.core.agent_output import (
     AgentOutputContract,
     generate_with_output_guard,
 )
+from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_text, backup_file, load_json_model, load_yaml_model
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -21,13 +22,17 @@ from novel.core.prompts import load_prompt_template
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     CanonProposal,
+    ChapterPlan,
     CharactersFile,
+    EntityState,
     ForeshadowingFile,
     HiddenTruthsFile,
     ItemsFile,
     LocationsFile,
     ProjectConfig,
+    TimelineFile,
     WorldFile,
+    VectorContextMode,
 )
 from novel.core.validation import ValidationReport, validate_canon
 
@@ -41,7 +46,7 @@ class CanonSuggestOptions:
     root: Path
     output_path: Path | None = None
     use_search_context: bool = False
-    use_vector_context: bool = False
+    use_vector_context: bool | VectorContextMode = "auto"
 
 
 @dataclass(frozen=True)
@@ -55,6 +60,12 @@ class CanonSuggestResult:
 @dataclass(frozen=True)
 class CanonApplyResult:
     validation_report: ValidationReport
+
+
+@dataclass(frozen=True)
+class CanonDriftResult:
+    proposal: CanonProposal
+    output_path: Path | None
 
 
 def suggest_canon(options: CanonSuggestOptions, provider: ModelProvider) -> CanonSuggestResult:
@@ -116,8 +127,8 @@ def apply_canon_proposal(root: Path, proposal_path: Path) -> CanonApplyResult:
     except Exception as exc:
         raise CanonError(f"could not read proposal JSON: {exc}") from exc
 
-    validate_canon_proposal(proposal)
     canon = load_canon_files(root)
+    validate_canon_proposal(proposal, existing_canon=canon)
     _check_apply_conflicts(canon, proposal)
 
     canon.characters.characters.extend(proposal.characters)
@@ -153,6 +164,64 @@ def load_canon_provider(
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
         mock_response=default_mock_canon_proposal_json(),
     )
+
+
+def load_canon_drift_provider(
+    root: Path,
+    provider_name: str,
+    *,
+    agent_config_path: Path | None = None,
+    model_name: str | None = None,
+) -> ModelProvider:
+    return create_agent_provider(
+        agent_config_path or default_agent_config_path(root),
+        "canon",
+        fallback_agents=("audit",),
+        overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
+        mock_response=default_empty_canon_proposal_json(),
+    )
+
+
+def suggest_canon_drift(
+    root: Path,
+    *,
+    chapter_number: int,
+    provider: ModelProvider,
+    force: bool = False,
+) -> CanonDriftResult:
+    root = root.resolve()
+    chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+    output_path = chapter_dir / "canon_drift_proposal.json"
+    if output_path.exists() and not force:
+        proposal = load_json_model(output_path, CanonProposal)
+        return CanonDriftResult(proposal=proposal, output_path=output_path)
+    project = load_yaml_model(root / "project.yaml", ProjectConfig)
+    if project.canon_drift and not project.canon_drift.enabled:
+        return CanonDriftResult(proposal=CanonProposal(notes=["canon drift detection disabled by project config"]), output_path=None)
+    plan = load_json_model(chapter_dir / "plan.json", ChapterPlan)
+    polished_path = chapter_dir / "polished.md"
+    if not polished_path.exists():
+        raise CanonError(f"{polished_path} is missing; cannot detect canon drift")
+    canon = load_canon_files(root)
+    state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
+    timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    prompt = build_canon_drift_user_prompt(
+        project=project,
+        chapter_number=chapter_number,
+        plan=plan,
+        polished_markdown=polished_path.read_text(encoding="utf-8"),
+        existing_summary=format_canon_summary(canon),
+        state_text=render_state_prompt_text(state, project=project, chapter_number=chapter_number, plan=plan),
+        timeline_text=render_timeline_prompt_text(timeline, project=project, chapter_number=chapter_number, task="canon", plan=plan),
+    )
+    proposal = _generate_canon_proposal_with_repair(root, provider, prompt, format_canon_summary(canon), existing_canon=canon)
+    if not _canon_proposal_has_changes(proposal):
+        return CanonDriftResult(proposal=proposal, output_path=None)
+    if force and output_path.exists():
+        backup_file(output_path, reason="force")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(output_path, proposal.model_dump_json(indent=2) + "\n")
+    return CanonDriftResult(proposal=proposal, output_path=output_path)
 
 
 @dataclass(frozen=True)
@@ -282,6 +351,36 @@ def build_canon_user_prompt(
     )
 
 
+def build_canon_drift_user_prompt(
+    *,
+    project: ProjectConfig,
+    chapter_number: int,
+    plan: ChapterPlan,
+    polished_markdown: str,
+    existing_summary: str,
+    state_text: str,
+    timeline_text: str,
+) -> str:
+    return (
+        f"项目：{project.title}\n"
+        f"语言：{project.language}\n"
+        f"章节：{chapter_number} - {plan.title}\n\n"
+        "请扫描本章最终稿是否引入了未登记到 canon 的新角色、地点、物品、世界规则、隐藏真相或伏笔。\n"
+        "只输出 CanonProposal JSON；若没有需要补登的内容，输出所有数组为空，并在 notes 说明。\n\n"
+        "要求：\n"
+        "- 只补登正文中已经实际出现或明确成立的新 canon 对象。\n"
+        "- 不要重复输出已有 canon 对象；已有 ID 可在 related_entity_ids/hidden_truth_id/foreshadowing_ids 中引用。\n"
+        "- 新 ID 必须使用 char_/loc_/item_/rule_/truth_/thread_ 前缀，并匹配 ^[a-z0-9_]+$。\n"
+        "- reader_visible_summary 只能写读者可见信息；隐藏背景只能写入 hidden_truths 或 private_author_notes。\n"
+        "- 不要修改 current_state/timeline；本任务只生成人工确认用 canon proposal。\n\n"
+        f"已有 canon 摘要：\n{existing_summary}\n\n"
+        f"ChapterPlan：\n{plan.model_dump_json(indent=2)}\n\n"
+        f"Current state：\n{state_text}\n\n"
+        f"Timeline：\n{timeline_text}\n\n"
+        f"最终稿 polished.md：\n{polished_markdown}\n"
+    )
+
+
 def parse_canon_proposal(content: str) -> CanonProposal:
     json_text = _extract_json_object(content)
     try:
@@ -299,6 +398,8 @@ def _generate_canon_proposal_with_repair(
     provider: ModelProvider,
     user_prompt: str,
     existing_summary: str,
+    *,
+    existing_canon: CanonFiles | None = None,
 ) -> CanonProposal:
     request = ModelRequest(
         system_prompt=build_canon_system_prompt(),
@@ -324,7 +425,7 @@ def _generate_canon_proposal_with_repair(
     )
     try:
         proposal = parse_canon_proposal(content)
-        validate_canon_proposal(proposal)
+        validate_canon_proposal(proposal, existing_canon=existing_canon)
         return proposal
     except CanonError as exc:
         repair_content = generate_with_output_guard(
@@ -354,8 +455,22 @@ def _generate_canon_proposal_with_repair(
             ),
         )
         proposal = parse_canon_proposal(repair_content)
-        validate_canon_proposal(proposal)
+        validate_canon_proposal(proposal, existing_canon=existing_canon)
         return proposal
+
+
+def _canon_proposal_has_changes(proposal: CanonProposal) -> bool:
+    return any(
+        (
+            proposal.characters,
+            proposal.locations,
+            proposal.items,
+            proposal.world_rules,
+            proposal.hidden_truths,
+            proposal.foreshadowing_threads,
+        )
+    )
+
 
 def _repair_prompt(*, schema_name: str, original_prompt: str, invalid_output: str, error: str) -> str:
     return (
@@ -464,7 +579,7 @@ def _normalize_list_field(value: object) -> list[object]:
     return [value]
 
 
-def validate_canon_proposal(proposal: CanonProposal) -> None:
+def validate_canon_proposal(proposal: CanonProposal, *, existing_canon: CanonFiles | None = None) -> None:
     _require_unique_ids([item.id for item in proposal.characters], "character")
     _require_unique_ids([item.id for item in proposal.locations], "location")
     _require_unique_ids([item.id for item in proposal.items], "item")
@@ -481,6 +596,13 @@ def validate_canon_proposal(proposal: CanonProposal) -> None:
     )
     truth_ids = {item.id for item in proposal.hidden_truths}
     thread_ids = {item.id for item in proposal.foreshadowing_threads}
+    if existing_canon:
+        entity_ids.update(item.id for item in existing_canon.characters.characters)
+        entity_ids.update(item.id for item in existing_canon.locations.locations)
+        entity_ids.update(item.id for item in existing_canon.items.items)
+        entity_ids.update(item.id for item in existing_canon.world.world_rules)
+        truth_ids.update(item.id for item in existing_canon.hidden_truths.hidden_truths)
+        thread_ids.update(item.id for item in existing_canon.foreshadowing.foreshadowing_threads)
 
     for truth in proposal.hidden_truths:
         for thread_id in truth.foreshadowing_ids:
@@ -577,6 +699,21 @@ def default_mock_canon_proposal_json() -> str:
                 }
             ],
             "notes": ["Mock proposal for MVP canon generation tests."],
+        },
+        ensure_ascii=False,
+    )
+
+
+def default_empty_canon_proposal_json() -> str:
+    return json.dumps(
+        {
+            "characters": [],
+            "locations": [],
+            "items": [],
+            "world_rules": [],
+            "hidden_truths": [],
+            "foreshadowing_threads": [],
+            "notes": ["mock canon drift detected no new canon entries."],
         },
         ensure_ascii=False,
     )

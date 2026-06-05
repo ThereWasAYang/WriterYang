@@ -293,7 +293,9 @@
           provider: $("provider").value,
           force: $("forceWrites").checked,
           use_search_context: $("useSearchContext").checked,
+          vector_context: $("vectorContextMode").value,
           use_vector_context: $("useVectorContext").checked,
+          polish_mode: $("autoPolish").checked ? "auto" : "single_pass",
         };
         const data = await apiPost(endpoint, payload);
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
@@ -347,8 +349,10 @@
           chapters: $("sessionChapters").value.trim(),
           provider: $("provider").value,
           force: $("forceWrites").checked,
+          vector_context: $("vectorContextMode").value,
           use_search_context: $("useSearchContext").checked,
           use_vector_context: $("useVectorContext").checked,
+          polish_mode: $("autoPolish").checked ? "auto" : "single_pass",
         };
       if (options.includeSessionId !== false) payload.session_id = $("sessionId").value.trim();
       if (options.fromAudit) payload.from_audit = true;
@@ -519,6 +523,7 @@
           force: $("forceWrites").checked,
           write_json: false,
           use_search_context: $("useSearchContext").checked,
+          vector_context: $("vectorContextMode").value,
           use_vector_context: $("useVectorContext").checked,
         });
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
@@ -533,6 +538,7 @@
           path: projectPath(),
           provider: $("provider").value,
           use_search_context: $("useSearchContext").checked,
+          vector_context: $("vectorContextMode").value,
           use_vector_context: $("useVectorContext").checked,
         });
         if (data.relative_path) $("canonProposalPath").value = data.relative_path;

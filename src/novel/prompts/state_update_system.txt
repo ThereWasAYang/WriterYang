@@ -7,6 +7,6 @@ timeline_event 必须按正文实际发生顺序输出，scene 必须对应 Chap
 scene 不得超过 ChapterPlan.scenes 的最大 scene_number；不要创造 plan 中不存在的 scene。
 不要让新事件的 chapter/scene 倒退到现有 timeline 的最后事件之前。
 如果无法判断，写入 warnings，不要硬猜。
-如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围可能包括已归档正文、canon、current_state、timeline、章节产物和 FTS/embedding 检索结果。
+如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围包括外层系统选择的已归档正文、canon、current_state、timeline 和章节产物。
 只能用 ContextBundle 辅助判断状态和时间线；不要创造正文中没有发生的事件，不要伪造缺失记忆。
 这是内部任务，请直接输出 StateUpdateProposal JSON，不要向用户或上游 Agent 反问。

@@ -1,0 +1,294 @@
+{
+  "$defs": {
+    "AuditEvidence": {
+      "additionalProperties": true,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "quote": {
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "quote"
+      ],
+      "title": "AuditEvidence",
+      "type": "object"
+    },
+    "SessionAuditRevision": {
+      "additionalProperties": true,
+      "properties": {
+        "instruction": {
+          "minLength": 1,
+          "title": "Instruction",
+          "type": "string"
+        },
+        "previous_audit_path": {
+          "minLength": 1,
+          "title": "Previous Audit Path",
+          "type": "string"
+        },
+        "new_audit_path": {
+          "minLength": 1,
+          "title": "New Audit Path",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instruction",
+        "previous_audit_path",
+        "new_audit_path",
+        "created_at"
+      ],
+      "title": "SessionAuditRevision",
+      "type": "object"
+    },
+    "SessionRewriteEvent": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "default": 2,
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "minLength": 1,
+          "pattern": "^rewrite_[a-z0-9_]+$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "minLength": 1,
+          "pattern": "^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "round_number": {
+          "minimum": 1,
+          "title": "Round Number",
+          "type": "integer"
+        },
+        "action": {
+          "enum": [
+            "revision_rewrite",
+            "plot_replan"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "started",
+            "completed",
+            "unresolved",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trigger_audit_path": {
+          "minLength": 1,
+          "title": "Trigger Audit Path",
+          "type": "string"
+        },
+        "blocking_issues": {
+          "items": {
+            "$ref": "#/$defs/SessionRewriteIssue"
+          },
+          "title": "Blocking Issues",
+          "type": "array"
+        },
+        "rejected_text_snapshot_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejected Text Snapshot Path"
+        },
+        "before_output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before Output Path"
+        },
+        "after_output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Output Path"
+        },
+        "can_undo": {
+          "default": true,
+          "title": "Can Undo",
+          "type": "boolean"
+        },
+        "undo_status": {
+          "default": "not_requested",
+          "enum": [
+            "not_requested",
+            "restored",
+            "failed"
+          ],
+          "title": "Undo Status",
+          "type": "string"
+        },
+        "audit_revision_history": {
+          "items": {
+            "$ref": "#/$defs/SessionAuditRevision"
+          },
+          "title": "Audit Revision History",
+          "type": "array"
+        },
+        "restored_from_snapshot_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Restored From Snapshot Path"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "event_id",
+        "session_id",
+        "chapter_number",
+        "round_number",
+        "action",
+        "status",
+        "trigger_audit_path",
+        "created_at"
+      ],
+      "title": "SessionRewriteEvent",
+      "type": "object"
+    },
+    "SessionRewriteIssue": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/AuditEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "suggested_fix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Fix"
+        }
+      },
+      "required": [
+        "id",
+        "severity",
+        "type",
+        "description"
+      ],
+      "title": "SessionRewriteIssue",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/SessionRewriteEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    }
+  },
+  "title": "SessionRewriteEvents",
+  "type": "object"
+}

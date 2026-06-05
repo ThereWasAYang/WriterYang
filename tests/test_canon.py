@@ -11,6 +11,7 @@ from novel.core.canon import (
     CanonSuggestOptions,
     apply_canon_proposal,
     default_mock_canon_proposal_json,
+    load_canon_files,
     parse_canon_proposal,
     suggest_canon,
     validate_canon_proposal,
@@ -113,6 +114,42 @@ def test_canon_proposal_allows_foreshadowing_to_reference_world_rule() -> None:
     proposal = parse_canon_proposal(json.dumps(data, ensure_ascii=False))
 
     validate_canon_proposal(proposal)
+
+
+def test_canon_proposal_can_reference_existing_canon_ids(tmp_path: Path) -> None:
+    root = _workspace_with_inspiration(tmp_path)
+    proposal_path = tmp_path / "proposal.json"
+    proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
+    apply_canon_proposal(root, proposal_path)
+    data = {
+        "characters": [],
+        "locations": [],
+        "items": [],
+        "world_rules": [],
+        "hidden_truths": [
+            {
+                "id": "truth_new_signal",
+                "title": "新信号只在旧车站出现",
+                "description": "旧车站会触发新的隐藏信号。",
+                "visibility": "hidden",
+                "importance": "medium",
+                "related_entity_ids": ["loc_old_station"],
+                "foreshadowing_ids": [],
+            }
+        ],
+        "foreshadowing_threads": [],
+        "notes": [],
+    }
+    proposal = parse_canon_proposal(json.dumps(data, ensure_ascii=False))
+
+    try:
+        validate_canon_proposal(proposal)
+    except CanonError as exc:
+        assert "references missing entity: loc_old_station" in str(exc)
+    else:
+        raise AssertionError("expected missing existing canon reference without existing_canon")
+
+    validate_canon_proposal(proposal, existing_canon=load_canon_files(root))
 
 
 def test_canon_apply_merges_proposal_into_empty_canon(tmp_path: Path) -> None:

@@ -5,6 +5,6 @@
 不得改变 ChapterPlan 中的关键剧情目标和结尾钩子。
 必须遵守 style_guide.md。
 正文中不要出现“根据设定”“本章目标”“隐藏真相”“润色如下”等工作区语言。
-如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围可能包括已归档正文、canon、current_state、timeline、章节产物和 FTS/embedding 检索结果。
+如果 user prompt 中包含 ContextBundle，请把它视为外层系统已检索出的长期记忆参考；范围包括外层系统选择的已归档正文、canon、current_state、timeline 和章节产物。
 只能用 ContextBundle 校准事实和连续性，不得把 excluded 或 hidden_truth 原文写入润色稿；不要伪造缺失记忆。
 这是内部任务，请直接输出润色后正文，不要向用户或上游 Agent 反问；信息不足时保持原文事实不变。

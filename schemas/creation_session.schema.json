@@ -1,0 +1,279 @@
+{
+  "$defs": {
+    "RevisionRouteDecision": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "default": 2,
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "route": {
+          "enum": [
+            "plot_replan",
+            "writer_rewrite",
+            "revision_patch"
+          ],
+          "title": "Route",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "chapter_numbers": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Chapter Numbers",
+          "type": "array"
+        },
+        "instruction_for_plot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction For Plot"
+        },
+        "instruction_for_writer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction For Writer"
+        },
+        "instruction_for_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction For Revision"
+        },
+        "risk_level": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Risk Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "route",
+        "reason"
+      ],
+      "title": "RevisionRouteDecision",
+      "type": "object"
+    },
+    "RevisionRouteRecord": {
+      "additionalProperties": true,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "user_instruction": {
+          "title": "User Instruction",
+          "type": "string"
+        },
+        "from_audit": {
+          "default": false,
+          "title": "From Audit",
+          "type": "boolean"
+        },
+        "decision": {
+          "$ref": "#/$defs/RevisionRouteDecision"
+        }
+      },
+      "required": [
+        "created_at",
+        "user_instruction",
+        "decision"
+      ],
+      "title": "RevisionRouteRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "session_id": {
+      "minLength": 1,
+      "pattern": "^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "scope_type": {
+      "enum": [
+        "chapters",
+        "segments"
+      ],
+      "title": "Scope Type",
+      "type": "string"
+    },
+    "chapter_range": {
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 1,
+      "title": "Chapter Range",
+      "type": "array"
+    },
+    "segment_range": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Segment Range"
+    },
+    "user_intent": {
+      "minLength": 1,
+      "title": "User Intent",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "drafting_intent",
+        "outline_proposed",
+        "outline_approved",
+        "generating",
+        "needs_revision",
+        "needs_user_review",
+        "accepted",
+        "archived"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "outline_status": {
+      "default": "draft",
+      "enum": [
+        "draft",
+        "proposed",
+        "approved"
+      ],
+      "title": "Outline Status",
+      "type": "string"
+    },
+    "content_status": {
+      "default": "not_started",
+      "enum": [
+        "not_started",
+        "generating",
+        "needs_revision",
+        "needs_user_review",
+        "accepted",
+        "archived"
+      ],
+      "title": "Content Status",
+      "type": "string"
+    },
+    "approved_outline_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approved Outline Path"
+    },
+    "final_output_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Final Output Paths",
+      "type": "array"
+    },
+    "audit_history": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Audit History",
+      "type": "array"
+    },
+    "revision_history": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Revision History",
+      "type": "array"
+    },
+    "revision_route_history": {
+      "items": {
+        "$ref": "#/$defs/RevisionRouteRecord"
+      },
+      "title": "Revision Route History",
+      "type": "array"
+    },
+    "archive_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Archive Paths",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "max_auto_revision_rounds": {
+      "default": 3,
+      "minimum": 0,
+      "title": "Max Auto Revision Rounds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "session_id",
+    "scope_type",
+    "chapter_range",
+    "user_intent",
+    "status",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "CreationSession",
+  "type": "object"
+}

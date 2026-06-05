@@ -440,6 +440,7 @@ proposal 文件会保存为 `memory/chapters/{chapter_number}/state_update_propo
 推荐流程是先 `propose-state-update`，人工检查 proposal，再 `apply-state-update`，最后 `accept-chapter`。如果 apply log 已存在且状态为 `applied`，`accept-chapter` 只标记章节 accepted，不会重复应用 state/timeline 更新。
 如果想一步完成，可以使用 `novel accept-chapter 1 --path ./rain-station --propose --provider config`；这会在缺少 proposal 时生成并应用。
 接受章节后会写入结构化状态文件 `memory/chapters/{chapter_number}/metadata.json`，同时保留 `polished.md` front matter 中的 `status: accepted` 以兼容导出流程。
+接受章节还会尝试生成 `canon_drift_proposal.json`，用于补登本章新出现的角色、地点、物品、规则或伏笔；该 proposal 不会自动 apply，仍需要用户确认后走 `canon apply`。
 
 ## 一键生成章节流水线
 
@@ -448,13 +449,15 @@ novel generate-chapter 1 --path ./rain-station --provider config
 novel generate-chapter 1 --path ./rain-station --provider config --target-words 3000
 novel generate-chapter 1 --path ./rain-station --provider config --stop-after plan
 novel generate-chapter 1 --path ./rain-station --provider config --stop-after write
-novel generate-chapter 1 --path ./rain-station --provider config --skip-polish
+novel generate-chapter 1 --path ./rain-station --provider config --polish-mode auto
+novel generate-chapter 1 --path ./rain-station --provider config --polish-mode review-gate
 novel generate-chapter 1 --path ./rain-station --provider config --skip-audit
 novel generate-chapter 1 --path ./rain-station --provider config --resume
 novel generate-chapter 1 --path ./rain-station --provider config --force
 ```
 
 每次运行都会写入 `runs/run_*.json`。如果某一步失败，run log 会记录失败状态和错误信息。
+默认 `polish.mode` 是 `single_pass`：Writer 生成 `draft.md` 后直接提升为可审计的 `polished.md`，并标记 `polish_skipped: true`。需要 Writer -> Polish -> Audit 时使用 `--polish-mode auto`；需要停在初稿给人工审阅时使用 `--polish-mode review-gate`。旧 `--skip-polish` 仍作为 single-pass 兼容别名。
 `--resume` 会复用已经存在的步骤产物并继续执行，适合从 `plan` 或 `write` 之后恢复流水线；`--force` 会重新生成目标文件。
 
 ## 搜索和可解释上下文
@@ -478,7 +481,7 @@ novel search "旧物修复师" --path ./rain-station --use-vector --embedding-pr
 - 过滤：支持 `--type character/location/item/event/chapter/all` 和 `--chapter`。
 - 高亮：`--highlight` 会返回 `<mark>...</mark>` 标记的 excerpt。
 - SQLite FTS：`memory/search_index.sqlite` 中包含 FTS5 表。
-- freshness manifest：每个文档记录 `sha256`、`mtime`、索引时间和 FTS / embedding 状态。普通 `novel search` 会在 FTS 缺失或过期时自动刷新关键词索引；显式启用 `--use-vector` / `--use-vector-context` 时，会先刷新缺失或过期的真实 embedding 向量。
+- freshness manifest：每个文档记录 `sha256`、`mtime`、索引时间和 FTS / embedding 状态。普通 `novel search` 会在 FTS 缺失或过期时自动刷新关键词索引；显式启用 `--use-vector` 或上下文检索选择 `--vector-context on` 时，会先刷新缺失或过期的真实 embedding 向量。
 - 向量表：SQLite 中可选保存真实 embedding 向量。真实 embedding 只在用户显式刷新向量索引或显式启用 vector 检索时调用，不会作为普通 FTS 搜索的隐式成本。
 
 默认可靠路径是关键词 + SQLite FTS。`local_hash` 只用于测试和离线开发 fixture，不作为真实创作的语义检索 fallback。没有配置真实 embedding API 时，`--use-vector` 会给出清晰错误；Web UI 状态栏会标红提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。项目初始化后，也可以在 Web UI 的“模型与检索配置”页重新填写 Embedding Base URL、API Key 和模型名；保存成功会清空输入框并自动刷新语义向量索引。
@@ -527,10 +530,10 @@ providers:
 novel plan-chapter 1 --path ./rain-station --provider config --use-search-context
 novel write-chapter 1 --path ./rain-station --provider config --use-search-context
 novel audit-chapter 1 --path ./rain-station --provider config --use-search-context
-novel write-chapter 1 --path ./rain-station --provider config --use-search-context --use-vector-context
+novel write-chapter 1 --path ./rain-station --provider config --use-search-context --vector-context auto
 ```
 
-`--use-search-context` 默认只使用结构化实体扩展 + FTS 补充。只有同时传入 `--use-vector-context`，才会加入语义向量召回；如果真实 embedding 向量缺失或过期，工具会先自动刷新向量索引。没有配置真实 embedding API 时会给出清晰错误或 warning，不会用 `local_hash` 冒充真实语义检索。
+`--use-search-context` 默认使用结构化实体扩展 + FTS 补充。`--vector-context auto` 只在真实 embedding 配置完整时加入语义召回；`--vector-context on` 会强制尝试，旧 `--use-vector-context` 是兼容别名；`off` 会关闭语义召回。如果真实 embedding 向量缺失或过期，工具会先自动刷新向量索引。没有配置真实 embedding API 时会给出清晰错误或 warning，不会用 `local_hash` 冒充真实语义检索。
 
 ## 受控编排
 
@@ -609,7 +612,7 @@ web:
 - Audit 定位：读取 `audit.json` 的 evidence quote，定位到正文中的行列位置；找不到时显示无法定位。
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
-- 项目搜索：在 Web UI 中搜索角色、地点、物品、时间线事件和章节文本。默认使用 FTS；只有勾选“使用 embedding 语义检索”时才会调用真实 embedding。
+- 项目搜索：在 Web UI 中搜索角色、地点、物品、时间线事件和章节文本。默认使用 FTS；语义检索模式为 `auto` 时只在 embedding 配置完整时启用，兼容勾选“强制使用 embedding 语义检索”时会按 `on` 处理。
 - 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Agent / Provider / Model 的统计。
 - 项目迁移：项目检查后会 dry-run 检查 schema 是否需要迁移；如需迁移，主页会显示“一键迁移项目 Schema”按钮，执行时使用项目锁、备份和现有迁移逻辑。
 - Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。“恢复继承 default”会删除该 Agent 在 `config/agents.yaml` 中的覆盖配置。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。

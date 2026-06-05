@@ -177,10 +177,18 @@ def _print(payload: dict[str, object], json_output: bool) -> None:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     print(f"Provider ping {'passed' if payload['ok'] else 'failed'}")
-    for item in payload["agents"]:  # type: ignore[index]
-        print(f"- {item['agent']}: {item['status']} ({item.get('provider')}/{item.get('model')})")
-    for item in payload["embeddings"]:  # type: ignore[index]
-        print(f"- embedding {item['provider']}: {item['status']}")
+    agents = payload.get("agents")
+    if isinstance(agents, list):
+        for item in agents:
+            if not isinstance(item, dict):
+                continue
+            print(f"- {item['agent']}: {item['status']} ({item.get('provider')}/{item.get('model')})")
+    embeddings = payload.get("embeddings")
+    if isinstance(embeddings, list):
+        for item in embeddings:
+            if not isinstance(item, dict):
+                continue
+            print(f"- embedding {item['provider']}: {item['status']}")
 
 
 def _utc_now() -> str:

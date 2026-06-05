@@ -61,7 +61,8 @@ def _chapter_health(root: Path) -> list[dict[str, object]]:
         audit = _read_json(chapter_dir / "audit.json")
         metadata = _read_json(chapter_dir / "metadata.json")
         apply_log = _read_json(chapter_dir / "state_update_apply_log.json")
-        issues = audit.get("issues", []) if isinstance(audit, dict) else []
+        raw_issues = audit.get("issues", []) if isinstance(audit, dict) else []
+        issues = raw_issues if isinstance(raw_issues, list) else []
         blocking = [
             issue for issue in issues
             if isinstance(issue, dict) and issue.get("severity") in {"medium", "high", "critical"}
@@ -131,7 +132,12 @@ def _print(payload: dict[str, object], json_output: bool) -> None:
                 f"{validation_payload.get('warning_count', 0)} warning(s)"
             )
     print("Chapters:")
-    for chapter in payload["chapters"]:  # type: ignore[index]
+    chapters = payload.get("chapters")
+    if not isinstance(chapters, list):
+        return
+    for chapter in chapters:
+        if not isinstance(chapter, dict):
+            continue
         print(
             f"- {chapter['chapter']}: audit={chapter['audit_status']} "
             f"blocking={chapter['blocking_issue_count']} accepted={chapter['accepted']}"

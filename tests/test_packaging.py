@@ -206,6 +206,7 @@ def test_github_workflows_include_web_e2e_and_blocking_mypy() -> None:
 
     for workflow in (tests_workflow, release_workflow):
         assert "Type check" in workflow
+        assert "mypy src scripts" in workflow
         assert "continue-on-error: true" not in workflow
         assert "python -m playwright install chromium" in workflow
         assert "pytest -m web_e2e -q" in workflow
@@ -246,6 +247,29 @@ def test_user_docs_use_generic_environment_setup() -> None:
     assert local_env_name not in combined
 
 
+def test_tracked_markdown_docs_do_not_reference_local_only_internal_docs() -> None:
+    completed = subprocess.run(
+        ["git", "ls-files", "*.md"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0
+    local_only_paths = (
+        "AGENTS" + ".md",
+        "docs/" + "PRODUCT_SPEC" + ".md",
+        "docs/" + "ARCHITECTURE" + ".md",
+        "docs/" + "DATA_SCHEMA" + ".md",
+        "docs/" + "WORKFLOW" + ".md",
+        "docs/" + "ROADMAP" + ".md",
+    )
+
+    for rel_path in completed.stdout.splitlines():
+        text = Path(rel_path).read_text(encoding="utf-8")
+        for local_only_path in local_only_paths:
+            assert local_only_path not in text, f"{rel_path} references local-only internal docs"
+
+
 def test_readme_mentions_workflow_scripts() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
@@ -262,7 +286,7 @@ def test_github_workflows_cover_quality_build_and_release() -> None:
     tests_workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
     release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 
-    for phrase in ("pytest", "python -m build", "twine check", "ruff check", "mypy src", "scan_security"):
+    for phrase in ("pytest", "python -m build", "twine check", "ruff check", "mypy src scripts", "scan_security"):
         assert phrase in tests_workflow
     for phrase in ("tags:", "v*", "softprops/action-gh-release", "dist/*", "scan_security"):
         assert phrase in release_workflow

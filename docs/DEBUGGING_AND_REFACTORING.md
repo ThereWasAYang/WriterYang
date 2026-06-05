@@ -242,7 +242,7 @@ runs/agent_output_violations/{request_id}.json
 pytest tests/test_<area>.py -q
 pytest -m "not real_api and not web_e2e" -q
 ruff check .
-mypy src
+mypy src scripts
 ```
 
 ## 6. Prompt 调整 checklist

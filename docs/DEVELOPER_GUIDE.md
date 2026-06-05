@@ -337,10 +337,10 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 pytest tests/test_<area>.py -q
 pytest -m "not real_api and not web_e2e" -q
 ruff check .
-mypy src
+mypy src scripts
 ```
 
-`mypy src` 已经是阻断式类型门禁：CI 和默认 `scripts/check_local.py` 都会因为 mypy 失败而失败。需要保持新增代码 0 类型错误。
+`mypy src scripts` 已经是阻断式类型门禁：CI 和默认 `scripts/check_local.py` 都会因为 mypy 失败而失败。需要保持新增代码 0 类型错误。
 
 ## 13. 重构准则
 

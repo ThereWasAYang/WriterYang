@@ -105,6 +105,7 @@ def test_developer_docs_cover_memory_search_errors_and_tools() -> None:
         "_get_routes()",
         "_post_routes()",
         "--strict-mypy",
+        "mypy src scripts",
         "Agent 输出不合约",
         "ProviderError",
         "EmbeddingError",

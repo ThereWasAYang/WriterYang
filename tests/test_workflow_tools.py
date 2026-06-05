@@ -66,6 +66,7 @@ def test_check_local_dry_run_lists_quality_gate() -> None:
     assert payload["ok"] is True
     assert {"pytest", "ruff", "mypy", "secret-scan"} <= names
     assert checks["mypy"]["blocking"] is True
+    assert checks["mypy"]["command"][-2:] == ["src", "scripts"]
     assert "build" not in names
 
 

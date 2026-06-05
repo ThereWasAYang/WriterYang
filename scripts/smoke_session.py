@@ -116,7 +116,11 @@ def _run_step(report: dict[str, object], name: str, command: list[str]) -> dict[
         "stderr": completed.stderr[-4000:],
         "payload": payload,
     }
-    report.setdefault("steps", []).append(step)  # type: ignore[union-attr]
+    steps = report.setdefault("steps", [])
+    if not isinstance(steps, list):
+        steps = []
+        report["steps"] = steps
+    steps.append(step)
     if not step["ok"]:
         raise RuntimeError(f"smoke step failed: {name}")
     return payload

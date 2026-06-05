@@ -136,7 +136,7 @@ python scripts/check_local.py
 python scripts/check_local.py --strict-mypy
 ```
 
-`mypy src` 是阻断式类型门禁；`scripts/check_local.py` 默认会因为 mypy 失败返回非零。`--strict-mypy` 仍可使用，但现在只是兼容旧命令的显式写法。GitHub Actions 会阻断 pytest、ruff、mypy、secret scan、build 和 Web E2E。
+`mypy src scripts` 是阻断式类型门禁；`scripts/check_local.py` 默认会因为 mypy 失败返回非零。`--strict-mypy` 仍可使用，但现在只是兼容旧命令的显式写法。GitHub Actions 会阻断 pytest、ruff、mypy、secret scan、build 和 Web E2E。
 
 工作流和排障脚本：
 

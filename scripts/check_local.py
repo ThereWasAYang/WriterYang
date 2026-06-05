@@ -70,7 +70,7 @@ def _selected_checks(args: argparse.Namespace) -> list[Check]:
     checks = [
         Check("pytest", [sys.executable, "-m", "pytest", "-m", "not real_api and not web_e2e", "-q"]),
         Check("ruff", [sys.executable, "-m", "ruff", "check", "."]),
-        Check("mypy", [sys.executable, "-m", "mypy", "src"]),
+        Check("mypy", [sys.executable, "-m", "mypy", "src", "scripts"]),
         Check("secret-scan", _secret_scan_command()),
         Check("build", [sys.executable, "-m", "build"]),
         Check("twine", _twine_check_command()),
@@ -117,7 +117,12 @@ def _print_result(payload: dict[str, object], *, json_output: bool) -> None:
         return
     status = "passed" if payload["ok"] else "failed"
     print(f"Local checks {status}")
-    for item in payload["checks"]:  # type: ignore[index]
+    checks = payload.get("checks")
+    if not isinstance(checks, list):
+        return
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
         code = item.get("returncode")
         suffix = "" if code is None else f" -> {code}"
         mode = "blocking" if item.get("blocking") else "informational"

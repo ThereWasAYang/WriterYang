@@ -6,7 +6,7 @@
 
 - [ ] `pytest -m "not real_api" -q`
 - [ ] `ruff check .`
-- [ ] `mypy src`
+- [ ] `mypy src scripts`
 - [ ] `python -m build`
 - [ ] `twine check dist/*`
 

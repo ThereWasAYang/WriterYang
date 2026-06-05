@@ -18,12 +18,12 @@ python -m pip install -e ".[dev]"
 ```bash
 pytest -m "not real_api" -q
 ruff check .
-mypy src
+mypy src scripts
 python -m build
 python -m twine check dist/*
 ```
 
-`mypy src` 是阻断式类型检查；CI 和本地一键检查都会因为 mypy 失败而失败。`--strict-mypy` 保留为兼容旧命令的显式写法：
+`mypy src scripts` 是阻断式类型检查；CI 和本地一键检查都会因为 mypy 失败而失败。`--strict-mypy` 保留为兼容旧命令的显式写法：
 
 ```bash
 python scripts/check_local.py --strict-mypy
@@ -43,7 +43,6 @@ python scripts/check_local.py --strict-mypy
 
 - 面向作者和普通使用者的文档尽量用中文。
 - 示例项目必须能通过 `novel validate --path examples/<name>`。
-- `AGENTS.md` 以及 `docs/PRODUCT_SPEC.md`、`docs/ARCHITECTURE.md`、`docs/DATA_SCHEMA.md`、`docs/WORKFLOW.md`、`docs/ROADMAP.md` 是内部开发上下文，不应进入发布文档。
 
 ## Pull Request
 

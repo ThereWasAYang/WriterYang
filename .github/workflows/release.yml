@@ -25,7 +25,7 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Type check
-        run: mypy src
+        run: mypy src scripts
       - name: Install Playwright Chromium
         run: python -m playwright install chromium
       - name: Web UI E2E smoke

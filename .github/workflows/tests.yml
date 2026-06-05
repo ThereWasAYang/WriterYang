@@ -18,7 +18,7 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Type check
-        run: mypy src
+        run: mypy src scripts
       - name: Run tests without real APIs or browser E2E
         run: pytest -m "not real_api and not web_e2e" -q
       - name: Run secret scanner

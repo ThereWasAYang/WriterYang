@@ -31,11 +31,11 @@ python -m pip install -e ".[dev]"
 ```bash
 pytest
 ruff check .
-mypy src
+mypy src scripts
 pytest -m web_e2e -q
 ```
 
-测试不能依赖真实 API Key。`mypy src` 是阻断式类型门禁；发布前必须保持 0 errors。
+测试不能依赖真实 API Key。`mypy src scripts` 是阻断式类型门禁；发布前必须保持 0 errors。
 
 ## 3. API Key 安全
 

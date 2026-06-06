@@ -1035,6 +1035,8 @@ def test_frontend_basic_render() -> None:
     assert 'id="inspirationPreview"' in html
     assert 'id="regenerateInspiration"' in html
     assert 'id="openInspirationFile"' in html
+    assert ".inspiration-preview button" in app_css
+    assert "white-space: nowrap" in app_css
     assert "重新生成会覆盖 memory/inspiration.md。确认继续吗？" in app_js
     assert "loadInspirationPreview" in app_js
     assert "readWorkspaceFile(inspirationPreviewPath)" in app_js

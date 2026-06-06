@@ -10,6 +10,7 @@ from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_j
 from novel.core.memory_repair import (
     answer_setting_change_clarification,
     build_memory_repair_user_prompt,
+    generate_memory_change_clarification_decision,
     suggest_setting_change_interactive,
 )
 from novel.core.orchestrator import decide_ask_intent, route_audit_repair, route_revision_request
@@ -213,6 +214,23 @@ def test_real_deepseek_setting_change_clarifies_then_generates_pointer_proposal(
     assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
         path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
     )
+
+
+def test_real_deepseek_setting_change_rich_request_is_ready(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
+        pytest.skip("DeepSeek setting change rich clarification regression requires DeepSeek env in .env.real")
+    root = _real_project(tmp_path, env)
+
+    decision = generate_memory_change_clarification_decision(
+        root,
+        "新增人物谢蛰雨，设定为栖霞山谢氏后人；隐藏真相是她知道桃花源旧族仍存在，开篇只埋线索不要揭晓。",
+        provider_name="config",
+        stage="outline_discussion",
+    )
+
+    assert decision.status == "ready"
+    assert not decision.questions
 
 
 def _real_env_or_skip() -> dict[str, str]:

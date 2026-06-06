@@ -22,11 +22,16 @@ from novel.core.prompts import load_prompt_template
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.schemas import (
+    Character,
     CharactersFile,
     EntityState,
+    ForeshadowingThread,
     ForeshadowingFile,
+    HiddenTruth,
     HiddenTruthsFile,
+    Item,
     ItemsFile,
+    Location,
     LocationsFile,
     MemoryChangeDomain,
     MemoryChangeClarificationDecision,
@@ -41,6 +46,7 @@ from novel.core.schemas import (
     MemoryRepairOperation,
     MemoryRepairProposal,
     TimelineFile,
+    WorldRule,
     WorldFile,
 )
 from novel.core.validation import validate_project
@@ -107,77 +113,38 @@ STATE_COLLECTION_KEYS = {"character_states", "item_states", "location_states"}
 SCANNED_IMPACT_SUFFIXES = {".json", ".md"}
 
 COLLECTION_FIELD_HINTS: dict[str, list[str]] = {
-    "memory/canon/characters.json": [
-        "id",
-        "name",
-        "aliases",
-        "role",
-        "goals",
-        "conflicts",
-        "relationships",
-        "reader_visible_summary",
-        "private_notes",
-        "visibility",
-        "status",
-        "tags",
-    ],
-    "memory/canon/locations.json": [
-        "id",
-        "name",
-        "type",
-        "description",
-        "atmosphere",
-        "connected_location_ids",
-        "reader_visible_summary",
-        "private_notes",
-        "visibility",
-        "status",
-        "tags",
-    ],
-    "memory/canon/items.json": [
-        "id",
-        "name",
-        "type",
-        "description",
-        "holder_id",
-        "location_id",
-        "special_properties",
-        "reader_visible_summary",
-        "private_notes",
-        "visibility",
-        "status",
-        "tags",
-    ],
-    "memory/canon/world.json": [
-        "id",
-        "name",
-        "description",
-        "visibility",
-        "known_by_character_ids",
-        "status",
-        "tags",
-    ],
-    "memory/canon/hidden_truths.json": [
-        "id",
-        "title",
-        "truth",
-        "reader_safe_hint",
-        "related_entity_ids",
-        "visibility",
-        "status",
-        "tags",
-    ],
-    "memory/canon/foreshadowing.json": [
-        "id",
-        "title",
-        "setup",
-        "payoff",
-        "related_entity_ids",
-        "status",
-        "visibility",
-        "tags",
-    ],
+    "memory/canon/characters.json": list(Character.model_fields),
+    "memory/canon/locations.json": list(Location.model_fields),
+    "memory/canon/items.json": list(Item.model_fields),
+    "memory/canon/world.json": list(WorldRule.model_fields),
+    "memory/canon/hidden_truths.json": list(HiddenTruth.model_fields),
+    "memory/canon/foreshadowing.json": list(ForeshadowingThread.model_fields),
 }
+
+COLLECTION_PATH_FILES: dict[str, str] = {
+    collection_key: rel_path
+    for rel_path, collection_key in FILE_COLLECTION_KEYS.items()
+}
+
+POINTER_PATH_FILES: dict[str, str] = {
+    **COLLECTION_PATH_FILES,
+    "events": "memory/state/timeline.json",
+    "character_states": "memory/state/current_state.json",
+    "item_states": "memory/state/current_state.json",
+    "location_states": "memory/state/current_state.json",
+}
+
+SETTING_CHANGE_MAPPING_RULES = """设定变更默认映射规则：
+- 文件、字段、visibility 和 JSON Pointer 由系统根据下方结构负责选择，不要要求用户提供。
+- 新人物/明确姓名默认写入 memory/canon/characters.json，新增路径使用 /characters/-。
+- 新地点、宅邸、村庄、宫殿、门派驻地默认写入 memory/canon/locations.json，新增路径使用 /locations/-。
+- 家族、门派、势力背景、时代背景、武学体系、世界规则默认写入 memory/canon/world.json，新增路径使用 /world_rules/-。
+- 物品、武器、信物、法器默认写入 memory/canon/items.json，新增路径使用 /items/-。
+- 隐藏设定、真相、秘密、暂不揭晓内容默认写入 memory/canon/hidden_truths.json，visibility 默认 hidden，新增路径使用 /hidden_truths/-。
+- 伏笔、线索、开篇埋线默认写入 memory/canon/foreshadowing.json，新增路径使用 /foreshadowing_threads/-。
+- 只有 exact id、exact name 或 exact alias 匹配时才修改已有实体；不要把新姓名近似联想到现有角色。
+- 无精确匹配且用户没有明确要求替换/删除/合并时，按新增实体处理。
+"""
 
 
 def suggest_memory_repair(
@@ -589,12 +556,78 @@ def parse_memory_repair_decision(content: str) -> MemoryRepairDecision:
     if not isinstance(data, dict):
         raise MemoryRepairError("provider returned MemoryRepairDecision as a non-object JSON value")
     data = dict(data)
+    data = _normalize_memory_repair_decision_data(data)
     data["needs_user_confirmation"] = True
     data["source"] = data.get("source") or "model"
     try:
         return MemoryRepairDecision.model_validate(data)
     except ValidationError as exc:
         raise MemoryRepairError(f"provider returned invalid MemoryRepairDecision: {exc}") from exc
+
+
+def _normalize_memory_repair_decision_data(data: dict[str, object]) -> dict[str, object]:
+    data = dict(data)
+    data["target_files"] = _normalize_string_list(data.get("target_files"))
+    data["assumptions"] = _normalize_string_list(data.get("assumptions"))
+    data["notes"] = _normalize_string_list(data.get("notes"))
+    operations = data.get("operations")
+    if not isinstance(operations, list):
+        return data
+    normalized_operations: list[object] = []
+    for raw_operation in operations:
+        if not isinstance(raw_operation, dict):
+            normalized_operations.append(raw_operation)
+            continue
+        normalized_operations.append(_normalize_memory_repair_operation(raw_operation))
+    data["operations"] = normalized_operations
+    return data
+
+
+def _normalize_memory_repair_operation(raw_operation: dict[str, object]) -> dict[str, object]:
+    operation = dict(raw_operation)
+    op = operation.get("op")
+    path = operation.get("path")
+    if not isinstance(path, str) or not path.startswith("/"):
+        return operation
+    inferred_file = _infer_file_from_pointer_path(path)
+    if not isinstance(operation.get("file"), str) or not operation.get("file"):
+        if inferred_file:
+            operation["file"] = inferred_file
+    if op == "add":
+        normalized_path = _normalize_add_collection_path(path)
+        can_default_reason = normalized_path != path or _is_append_collection_path(normalized_path)
+        if normalized_path != path:
+            operation["path"] = normalized_path
+            if not isinstance(operation.get("file"), str) or not operation.get("file"):
+                operation["file"] = _infer_file_from_pointer_path(normalized_path) or inferred_file
+        if can_default_reason and (not isinstance(operation.get("reason"), str) or not operation.get("reason")):
+            operation["reason"] = "用户要求新增设定；系统根据集合路径补齐操作原因。"
+    return operation
+
+
+def _infer_file_from_pointer_path(path: str) -> str | None:
+    parts = [part for part in path.strip("/").split("/") if part]
+    if not parts:
+        return None
+    return POINTER_PATH_FILES.get(_unescape_pointer(parts[0]))
+
+
+def _normalize_add_collection_path(path: str) -> str:
+    parts = [part for part in path.strip("/").split("/") if part]
+    if len(parts) != 2:
+        return path
+    collection_key = _unescape_pointer(parts[0])
+    item_selector = _unescape_pointer(parts[1])
+    if collection_key not in COLLECTION_PATH_FILES or item_selector == "-" or item_selector.isdigit():
+        return path
+    return f"/{_escape_pointer(collection_key)}/-"
+
+
+def _is_append_collection_path(path: str) -> bool:
+    parts = [part for part in path.strip("/").split("/") if part]
+    if len(parts) != 2:
+        return False
+    return _unescape_pointer(parts[0]) in COLLECTION_PATH_FILES and _unescape_pointer(parts[1]) == "-"
 
 
 def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyResult:
@@ -771,7 +804,12 @@ def _memory_repair_user_prompt(
         task_note = (
             "本次任务是 setting_change：允许根据用户明确请求新增、修改或删除人物/背景设定。\n"
             "新增实体时必须生成稳定小写下划线 id，并填齐目标 schema 必填字段。\n"
-            "修改必须定位到明确 ID 或唯一名称；删除被引用实体必须同时安全清理引用，否则 operations 留空。\n"
+            "修改必须定位到明确 ID、exact name 或 exact alias；不要做近似联想匹配。\n"
+            "无精确匹配且用户没有明确要求替换/删除/合并时，按新增实体处理。\n"
+            "删除被引用实体必须同时安全清理引用，否则 operations 留空。\n"
+            "每个 operation 必须包含 file、path、reason；array 新增必须使用 /collection/-，不能使用 /characters/{id} 这类路径。\n"
+            "不要要求用户提供文件结构、字段、visibility 或 JSON Pointer；这些由当前结构索引决定。\n"
+            f"{SETTING_CHANGE_MAPPING_RULES}"
             f"创作阶段：{stage or 'unknown'}。\n\n"
         )
     return (
@@ -811,9 +849,12 @@ def _memory_change_clarification_user_prompt(
     ) or "- user: " + request
     return (
         "请判断本次 setting_change 是否已经足以生成安全的 MemoryRepairProposal。\n"
-        "只有同时满足以下条件才输出 ready：目标实体或新增类别明确、变更内容明确、目标文件和 JSON Pointer 可从下方结构中定位。\n"
-        "如果缺少人物/地点/物品/规则的名称或 ID、变更后的具体内容、适用范围，或同名/同类目标不唯一，输出 needs_clarification。\n"
-        "不要要求用户提供现有文件完整结构；现有文件结构和 JSON Pointer 路径索引已经在本 prompt 中提供。\n"
+        "只要用户的创作意图足够明确，就输出 ready；文件、字段、visibility 和 JSON Pointer 映射是系统责任，不是用户责任。\n"
+        "如果只是新实体属于 characters/locations/items/world/hidden_truths/foreshadowing 哪类需要系统判断，不要为此追问用户。\n"
+        "如果缺少具体新增/修改内容、用户要求替换/删除但目标不唯一，或存在会改变剧情含义的真实创作歧义，才输出 needs_clarification。\n"
+        "不要要求用户提供现有文件完整结构、目标文件、字段名、visibility 或 JSON Pointer；现有文件结构和 JSON Pointer 路径索引已经在本 prompt 中提供。\n"
+        "不要把新姓名近似联想到现有角色；只有 exact id、exact name 或 exact alias 匹配才视为已有实体。\n"
+        f"{SETTING_CHANGE_MAPPING_RULES}"
         f"创作阶段：{stage or 'unknown'}。\n\n"
         "允许 target_files：\n"
         + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES))
@@ -969,8 +1010,14 @@ def _repair_decision_repair_prompt(*, original_prompt: str, invalid_output: str,
         f"{original_prompt}\n\n"
         "上一次输出不能被解析为 MemoryRepairDecision。\n"
         f"错误：{error}\n\n"
-        "请重新只输出 JSON object。不要 Markdown 或解释。"
-        "如果无法安全定位 JSON Pointer，operations 必须为空，并在 notes 说明需要用户补充什么。\n"
+        "请重新只输出 JSON object。不要 Markdown 或解释。\n"
+        "修复规则：\n"
+        "- 每个 operation 必须包含 op、file、path、reason。\n"
+        "- 如果是新增数组条目，path 必须使用 /collection/-，例如 /characters/-、/hidden_truths/-、/foreshadowing_threads/-。\n"
+        "- 如果上次输出使用 /characters/{id}、/hidden_truths/{id}、/foreshadowing_threads/{id} 这类新增路径，请改成对应 /collection/-，并保留 value.id。\n"
+        "- 如果缺少 file，但 path 能唯一映射到允许文件，请补齐 file。\n"
+        "- 不要要求用户提供现有文件结构、目标文件、字段、visibility 或 JSON Pointer；原始 prompt 已提供这些结构上下文。\n"
+        "- 只有创作意图本身缺失、替换/删除目标不唯一或删除风险无法安全处理时，operations 才能为空。\n"
         f"上一次输出：\n{invalid_output[:3000]}\n"
     )
 
@@ -1920,6 +1967,10 @@ def _resolve_pointer_parent(data: object, pointer: str) -> tuple[Any, str]:
 
 def _unescape_pointer(value: str) -> str:
     return value.replace("~1", "/").replace("~0", "~")
+
+
+def _escape_pointer(value: str) -> str:
+    return value.replace("~", "~0").replace("/", "~1")
 
 
 def _ensure_allowed_file(rel_path: str) -> None:

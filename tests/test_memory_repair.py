@@ -5,6 +5,8 @@ from io import StringIO
 import json
 from pathlib import Path
 
+import pytest
+
 from novel.cli import main
 from novel.core.io import load_json_model
 from novel.core.memory_repair import (
@@ -12,9 +14,11 @@ from novel.core.memory_repair import (
     answer_setting_change_clarification,
     apply_memory_repair,
     build_memory_repair_user_prompt,
+    parse_memory_repair_decision,
     suggest_setting_change,
     suggest_setting_change_interactive,
 )
+from novel.core.prompts import load_prompt_template
 from novel.core.schemas import CharactersFile, MemoryChangeClarificationSession, MemoryRepairProposal, TimelineFile, WorldFile
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -210,6 +214,119 @@ def test_setting_change_prompt_includes_json_pointer_structure(tmp_path: Path) -
     assert "/events/0/event_role" in prompt
 
 
+def test_setting_change_prompt_uses_system_owned_pointer_mapping(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+
+    prompt = build_memory_repair_user_prompt(
+        root,
+        "新增人物谢蛰雨，隐藏真相是她出身桃花源旧族，并在开篇埋伏笔。",
+        change_kind="setting_change",
+    )
+    clarification_system = load_prompt_template("memory_change_clarification_system")
+
+    assert "不要要求用户提供文件结构、字段、visibility 或 JSON Pointer" in prompt
+    assert "文件、字段、visibility 和 JSON Pointer 映射由外层系统根据当前结构负责" in clarification_system
+    assert "不要询问用户该写哪个文件、字段、visibility 或 JSON Pointer" in clarification_system
+    assert "只有 exact id、exact name 或 exact alias 匹配" in prompt
+    assert "不要把新姓名近似联想到现有角色" in prompt
+
+
+def test_setting_change_pointer_context_uses_schema_fields(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+
+    prompt = build_memory_repair_user_prompt(root, "新增隐藏真相和伏笔", change_kind="setting_change")
+
+    assert "common item fields: id, title, description, visibility, importance, related_entity_ids, planned_reveal, foreshadowing_ids" in prompt
+    assert "common item fields: id, type, title, introduced_in_chapter, description, status, importance, reader_visible, hidden_truth, hidden_truth_id, planned_payoff, related_entity_ids" in prompt
+    assert "reader_safe_hint" not in prompt
+    assert "common item fields: id, title, setup" not in prompt
+    assert "common item fields: id, title, setup, payoff" not in prompt
+
+
+def test_parse_memory_repair_decision_normalizes_invalid_add_paths() -> None:
+    decision = parse_memory_repair_decision(
+        json.dumps(
+            {
+                "change_kind": "setting_change",
+                "target_files": [],
+                "operations": [
+                    {
+                        "op": "add",
+                        "path": "/characters/char_xie_zheyu",
+                        "value": {"id": "char_xie_zheyu", "name": "谢蛰雨"},
+                    },
+                    {
+                        "op": "add",
+                        "path": "/hidden_truths/truth_taohuayuan",
+                        "value": {"id": "truth_taohuayuan", "title": "桃花源旧族"},
+                    },
+                    {
+                        "op": "add",
+                        "path": "/foreshadowing_threads/thread_taohuayuan",
+                        "value": {"id": "thread_taohuayuan", "title": "开篇线索"},
+                    },
+                ],
+                "confidence": 0.7,
+                "needs_user_confirmation": True,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    assert [operation.file for operation in decision.operations] == [
+        "memory/canon/characters.json",
+        "memory/canon/hidden_truths.json",
+        "memory/canon/foreshadowing.json",
+    ]
+    assert [operation.path for operation in decision.operations] == [
+        "/characters/-",
+        "/hidden_truths/-",
+        "/foreshadowing_threads/-",
+    ]
+    assert all(operation.reason for operation in decision.operations)
+
+
+def test_parse_memory_repair_decision_does_not_rewrite_replace_paths() -> None:
+    decision = parse_memory_repair_decision(
+        json.dumps(
+            {
+                "change_kind": "setting_change",
+                "target_files": [],
+                "operations": [
+                    {
+                        "op": "replace",
+                        "file": "memory/canon/characters.json",
+                        "path": "/characters/char_xie_zheyu",
+                        "value": {"name": "谢蛰雨"},
+                        "reason": "用户要求修改人物。",
+                    }
+                ],
+                "confidence": 0.7,
+                "needs_user_confirmation": True,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    assert decision.operations[0].path == "/characters/char_xie_zheyu"
+
+    with pytest.raises(MemoryRepairError):
+        parse_memory_repair_decision(
+            json.dumps(
+                {
+                    "operations": [
+                        {
+                            "op": "remove",
+                            "path": "/characters/char_xie_zheyu",
+                        }
+                    ],
+                    "confidence": 0.7,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
 def test_setting_change_interactive_can_request_clarification(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
 
@@ -227,6 +344,19 @@ def test_setting_change_interactive_can_request_clarification(tmp_path: Path) ->
         / result.clarification.clarification_id
         / "session.json"
     ).is_file()
+
+
+def test_setting_change_interactive_ready_for_rich_new_setting(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_shen_zhou", "沈舟")
+
+    result = suggest_setting_change_interactive(
+        root,
+        "新增人物谢蛰雨，设定为栖霞山谢氏后人；隐藏真相是她知道桃花源旧族仍存在，开篇只埋线索不要揭晓。",
+        provider_name="mock",
+    )
+
+    assert result.status == "proposal_ready"
+    assert result.proposal_result is not None
 
 
 def test_setting_change_clarification_answer_generates_proposal(tmp_path: Path) -> None:

@@ -1027,6 +1027,30 @@ def test_api_setting_change_suggest_can_request_and_answer_clarification(tmp_pat
     assert answer_payload["data"]["proposal_relative_path"]  # type: ignore[index]
 
 
+def test_api_setting_change_suggest_rich_new_setting_is_ready(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    suggest_status, suggest_payload = handle_api_request(
+        "POST",
+        "/api/settings/change/suggest",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "request": "新增人物谢蛰雨，设定为栖霞山谢氏后人；隐藏真相是她知道桃花源旧族仍存在，开篇只埋线索不要揭晓。",
+                "provider": "mock",
+                "source_stage": "outline_discussion",
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    assert suggest_status == 200
+    assert suggest_payload["data"]["status"] == "proposal_ready"  # type: ignore[index]
+    assert suggest_payload["data"]["proposal"]["change_kind"] == "setting_change"  # type: ignore[index]
+    assert suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
+
+
 def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     session_id = "session_20260529_010101_000004"

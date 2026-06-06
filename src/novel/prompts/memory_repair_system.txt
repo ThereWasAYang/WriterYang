@@ -3,11 +3,16 @@
 重要原则：
 - 不要直接修改正式 memory 文件。
 - 不要只靠关键词硬猜目标文件或 patch。必须结合用户请求、当前文件摘要和可见 ID。
-- 如果缺少必要 ID、无法定位具体 JSON Pointer、或风险较高，operations 留空，写入 assumptions/notes，提示用户补充信息。
+- 文件、字段、visibility 和 JSON Pointer 映射由你根据当前结构上下文负责；不要要求用户提供现有文件完整结构、目标文件、字段名或 JSON Pointer。
+- 如果缺少必要创作内容、替换/删除目标不唯一或风险较高，operations 留空，写入 assumptions/notes，提示用户补充创作信息。
 - 只允许目标文件位于允许列表中。
 - operations 使用 JSON Pointer 风格 path，op 只能是 add/replace/remove。
+- 每个 operation 必须包含 file、path、reason。
 - 如果任务是 setting_change 且用户明确要求新增人物、地点、物品、世界规则、隐藏真相或伏笔，可以新增实体；新增实体必须生成稳定小写下划线 ID，并填齐目标 schema 必填字段。
-- 修改已有设定时必须定位到明确 ID 或唯一名称；如果同名实体不唯一，operations 留空并提示用户补充 ID。
+- 新增数组条目必须使用 /collection/-，例如 /characters/-、/locations/-、/items/-、/world_rules/-、/hidden_truths/-、/foreshadowing_threads/-；不要使用 /characters/{id} 这类路径。
+- 新人物/明确姓名默认写入 characters；新地点/宅邸/村庄/宫殿默认写入 locations；家族/门派/势力背景/武学体系默认写入 world；隐藏真相/秘密默认写入 hidden_truths 且 visibility 默认 hidden；伏笔/线索默认写入 foreshadowing。
+- 修改已有设定时必须定位到 exact id、exact name 或 exact alias；如果同名实体不唯一，operations 留空并提示用户补充 ID。
+- 不要把新姓名近似联想到现有角色；无精确匹配且用户没有明确要求替换/删除/合并时，按新增实体处理。
 - 删除被其他 canon/state/timeline/章节产物引用的实体时，默认不要硬删；只有当 proposal 能安全清理所有引用并通过校验时才输出 remove 操作。
 - 除明确新增设定外，不要创造不存在的角色、物品、地点、事件 ID。
 - 不要输出 Markdown、解释或包装语，只输出 JSON object。

@@ -365,8 +365,9 @@ Prompt 组装：
 - route decision 会写入 session 的 `revision_route_history`，并通过 Web UI/CLI 展示。
 - 当请求被识别为 memory repair 时，orchestrator 作为项目管家调用 `core/memory_repair.py`：先生成 `MemoryRepairDecision`，再写 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后通过显式 `memory-repair apply` 或结构化 `memory_repair_apply` 决策再 apply。
 - memory repair 不是创意生成。它只读取项目文件、生成白名单 JSON Pointer operations、写 proposal/apply log，并通过 `management_events.jsonl` 通知用户后台记忆刷新。
-- `setting-change suggest` 会先调用 `MemoryChangeClarificationDecision` 澄清 gate：如果目标实体、变更内容或适用范围不足，返回 `needs_clarification` 和 1-3 个问题，保存到 `memory/repairs/clarifications/{clarification_id}/session.json`；用户通过 `setting-change answer` 或 Web UI 补充后再继续。
-- 最终生成 `MemoryRepairDecision` 时仍是 internal JSON task，`allow_user_questions=False`；需要追问只能通过 clarification schema 表达。memory repair / setting change prompt 会注入当前 memory 文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径索引，模型不应再要求用户提供现有文件完整结构。
+- `setting-change suggest` 会先调用 `MemoryChangeClarificationDecision` 澄清 gate：只有创作意图本身不足、替换/删除目标不唯一或存在剧情含义歧义时，才返回 `needs_clarification` 和 1-3 个问题，保存到 `memory/repairs/clarifications/{clarification_id}/session.json`；用户通过 `setting-change answer` 或 Web UI 补充后再继续。
+- 澄清 gate 不得要求用户选择目标文件、字段、visibility 或 JSON Pointer。人物/地点/物品/world/hidden_truths/foreshadowing 的默认映射由系统根据当前结构完成；新实体无 exact id/name/alias 匹配时默认新增。
+- 最终生成 `MemoryRepairDecision` 时仍是 internal JSON task，`allow_user_questions=False`；需要追问只能通过 clarification schema 表达。memory repair / setting change prompt 会注入当前 memory 文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径索引，模型不应再要求用户提供现有文件完整结构。数组新增必须使用 `/collection/-`，例如 `/characters/-` 或 `/hidden_truths/-`。
 
 注意：
 

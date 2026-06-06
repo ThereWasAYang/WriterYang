@@ -588,6 +588,152 @@ def test_setting_change_target_schema_retry_repairs_invalid_model_value(tmp_path
     assert any(character.id == "char_retry" for character in characters.characters)
 
 
+def test_setting_change_target_schema_retries_location_description_path(tmp_path: Path) -> None:
+    root = _workspace_with_location(tmp_path)
+    target_summary = "桃花源村隐藏在山中，由秦朝避乱者组建，有奇门遁甲大阵守护。"
+    first = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/locations.json"],
+        "operations": [
+            {
+                "op": "replace",
+                "file": "memory/canon/locations.json",
+                "path": "/locations/0/reader_visible_summary",
+                "reason": "首次模型漏掉 value。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    first_repair = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/locations.json"],
+        "operations": [
+            {
+                "op": "replace",
+                "file": "memory/canon/locations.json",
+                "path": "/locations/0/description",
+                "value": target_summary,
+                "reason": "第一次 repair 误用不存在的 Location.description。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    second_repair = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/locations.json"],
+        "operations": [
+            {
+                "op": "replace",
+                "file": "memory/canon/locations.json",
+                "path": "/locations/0/reader_visible_summary",
+                "value": target_summary,
+                "reason": "改为 Location 的合法公开描述字段。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(first, ensure_ascii=False),
+            json.dumps(first_repair, ensure_ascii=False),
+            json.dumps(second_repair, ensure_ascii=False),
+        ]
+    )
+
+    result = suggest_memory_repair(
+        root,
+        "修改桃花源村地点描述",
+        provider=provider,
+        change_kind="setting_change",
+    )
+
+    assert len(provider.requests) == 3
+    assert "replace path does not exist" in provider.requests[1].user_prompt
+    assert "Location 顶层没有 description 字段" in provider.requests[1].user_prompt
+    assert "replace path does not exist: /locations/0/description" in provider.requests[2].user_prompt
+    assert "Location has no top-level description field" in provider.requests[2].user_prompt
+    assert result.proposal.operations[0].path == "/locations/0/reader_visible_summary"
+    apply_memory_repair(root, result.proposal_path)
+    locations = json.loads((root / "memory" / "canon" / "locations.json").read_text(encoding="utf-8"))
+    assert locations["locations"][0]["reader_visible_summary"] == target_summary
+    assert "description" not in locations["locations"][0]
+
+
+def test_setting_change_rejects_location_top_level_description_path(tmp_path: Path) -> None:
+    root = _workspace_with_location(tmp_path)
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=["memory/canon/locations.json"],
+        operations=[
+            {
+                "op": "replace",
+                "file": "memory/canon/locations.json",
+                "path": "/locations/0/description",
+                "value": "桃花源村隐藏在山中。",
+                "reason": "测试非法 Location.description path。",
+            }
+        ],
+        confidence=0.7,
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        suggest_memory_repair(root, "修改桃花源村地点描述", decision=decision, change_kind="setting_change")
+
+    message = str(excinfo.value)
+    assert "Location has no top-level description field" in message
+    assert "/locations/0/reader_visible_summary" in message
+    assert "/locations/0/private_author_notes" in message
+    assert "/locations/0/rules" in message
+    assert not list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
+
+
+def test_setting_change_apply_rejects_location_description_path_without_backup(tmp_path: Path) -> None:
+    root = _workspace_with_location(tmp_path)
+    locations_path = root / "memory" / "canon" / "locations.json"
+    before = locations_path.read_text(encoding="utf-8")
+    repair_id = "repair_20260606_040404_000001"
+    repair_dir = root / "memory" / "repairs" / repair_id
+    repair_dir.mkdir(parents=True)
+    proposal_path = repair_dir / "proposal.json"
+    proposal_path.write_text(
+        json.dumps(
+            {
+                "repair_id": repair_id,
+                "created_by": "orchestrator",
+                "change_kind": "setting_change",
+                "user_request": "修改桃花源村地点描述",
+                "target_files": ["memory/canon/locations.json"],
+                "operations": [
+                    {
+                        "op": "replace",
+                        "file": "memory/canon/locations.json",
+                        "path": "/locations/0/description",
+                        "value": "桃花源村隐藏在山中。",
+                        "reason": "测试 apply 阶段非法 Location.description path。",
+                    }
+                ],
+                "risk_level": "medium",
+                "validation_before": {},
+                "notes": [],
+                "created_at": "2026-06-06T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        apply_memory_repair(root, proposal_path)
+
+    assert "Location has no top-level description field" in str(excinfo.value)
+    assert locations_path.read_text(encoding="utf-8") == before
+    apply_log = json.loads((repair_dir / "apply_log.json").read_text(encoding="utf-8"))
+    assert apply_log["status"] == "failed"
+    assert apply_log["backups"] == []
+
+
 def test_setting_change_prompt_includes_lightweight_paths_after_first_twenty(tmp_path: Path) -> None:
     root = _workspace_with_twenty_one_characters(tmp_path)
 
@@ -1109,6 +1255,34 @@ def _workspace_with_character(tmp_path: Path, character_id: str, name: str) -> P
                         "name": name,
                         "role": "protagonist",
                         "reader_visible_summary": f"{name}的旧设定。",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+def _workspace_with_location(tmp_path: Path) -> Path:
+    root = _workspace_with_timeline_event(tmp_path)
+    (root / "memory" / "canon" / "locations.json").write_text(
+        json.dumps(
+            {
+                "locations": [
+                    {
+                        "id": "loc_taohuayuan_village",
+                        "name": "桃花源村",
+                        "type": "村庄",
+                        "reader_visible_summary": "桃花源村的旧设定。",
+                        "private_author_notes": "谢蛰雨可以进出。",
+                        "parent_location_id": None,
+                        "connected_location_ids": [],
+                        "rules": [],
+                        "tags": ["隐藏"],
                     }
                 ]
             },

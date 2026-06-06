@@ -10,6 +10,7 @@ from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_j
 from novel.core.io import atomic_write_model_json, load_json_model, load_yaml
 from novel.core.planning import default_mock_chapter_plan_json
 from novel.core.provider_config import resolve_agent_config
+from novel.core.providers import MockProvider
 from novel.core.schemas import (
     AuditReport,
     ChapterMemory,
@@ -1131,6 +1132,121 @@ def test_api_setting_change_suggest_rich_new_setting_is_ready(tmp_path: Path) ->
     assert suggest_payload["data"]["status"] == "proposal_ready"  # type: ignore[index]
     assert suggest_payload["data"]["proposal"]["change_kind"] == "setting_change"  # type: ignore[index]
     assert suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
+
+
+def test_api_setting_change_suggest_repairs_location_description_path(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    target_summary = "桃花源村隐藏在山中，由秦朝避乱者组建，有奇门遁甲大阵守护。"
+    (root / "memory" / "canon" / "locations.json").write_text(
+        json.dumps(
+            {
+                "locations": [
+                    {
+                        "id": "loc_taohuayuan_village",
+                        "name": "桃花源村",
+                        "type": "村庄",
+                        "reader_visible_summary": "桃花源村的旧设定。",
+                        "private_author_notes": "谢蛰雨可以进出。",
+                        "parent_location_id": None,
+                        "connected_location_ids": [],
+                        "rules": [],
+                        "tags": ["隐藏"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(
+                {
+                    "status": "ready",
+                    "questions": [],
+                    "confidence": 0.9,
+                    "assumptions": [],
+                    "notes": [],
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "target_files": ["memory/canon/locations.json"],
+                    "operations": [
+                        {
+                            "op": "replace",
+                            "file": "memory/canon/locations.json",
+                            "path": "/locations/0/reader_visible_summary",
+                            "reason": "首次模型漏掉 value。",
+                        }
+                    ],
+                    "confidence": 0.8,
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "target_files": ["memory/canon/locations.json"],
+                    "operations": [
+                        {
+                            "op": "replace",
+                            "file": "memory/canon/locations.json",
+                            "path": "/locations/0/description",
+                            "value": target_summary,
+                            "reason": "第一次 repair 误用不存在的 Location.description。",
+                        }
+                    ],
+                    "confidence": 0.8,
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "target_files": ["memory/canon/locations.json"],
+                    "operations": [
+                        {
+                            "op": "replace",
+                            "file": "memory/canon/locations.json",
+                            "path": "/locations/0/reader_visible_summary",
+                            "value": target_summary,
+                            "reason": "第二次 repair 改为 Location 的合法公开描述字段。",
+                        }
+                    ],
+                    "confidence": 0.8,
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    monkeypatch.setattr("novel.core.memory_repair.create_agent_provider", lambda *args, **kwargs: provider)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/settings/change/suggest",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "request": "修改桃花源村地点描述",
+                "provider": "config",
+                "source_stage": "outline_discussion",
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    assert status == 200
+    assert payload["data"]["status"] == "proposal_ready"  # type: ignore[index]
+    proposal = payload["data"]["proposal"]  # type: ignore[index]
+    assert proposal["operations"][0]["path"] == "/locations/0/reader_visible_summary"
+    assert "setting change proposal failed" not in json.dumps(payload, ensure_ascii=False)
+    assert len(provider.requests) == 4
 
 
 def test_api_setting_change_apply_error_includes_apply_log_details(tmp_path: Path) -> None:

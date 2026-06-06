@@ -144,6 +144,8 @@ COLLECTION_SCHEMA_HINTS: dict[str, str] = {
     "memory/canon/locations.json": (
         "strict add value schema: Location {id, name, type, reader_visible_summary, private_author_notes?, "
         "parent_location_id?, connected_location_ids[], rules: LocationRule[], tags[]}.\n"
+        "Location has no top-level description field. Public location description goes in reader_visible_summary; "
+        "hidden/author-only notes go in private_author_notes; explicit rules go in rules[].\n"
         "LocationRule {id?: snake_case|null, description: string, visibility: reader_visible|hidden|partially_revealed}; never use string arrays for rules."
     ),
     "memory/canon/items.json": (
@@ -187,6 +189,7 @@ SETTING_CHANGE_MAPPING_RULES = """设定变更默认映射规则：
 - 用户说“主要人物”时默认 role="主要人物"；明确主角用 role="主角"；明确次要/背景用 role="次要人物"；未明确时用 role="配角"。
 - 家族身份、门派身份、排行、职业/江湖身份必须写入 tags，并可写入 reader_visible_summary 或 private_author_notes；不要把“谢家长女”“谢家次子”“张家幼女”“唐门二房之女”“江湖散人”“武当俗家弟子”等写入 role。
 - 新地点、宅邸、村庄、宫殿、门派驻地默认写入 memory/canon/locations.json，新增路径使用 /locations/-。
+- 地点公开描述写入 reader_visible_summary；隐藏/作者私有说明写入 private_author_notes；地点规则写入 rules[]；Location 顶层没有 description 字段，不要使用 /locations/{i}/description。
 - 家族、门派、势力背景、时代背景、武学体系、世界规则默认写入 memory/canon/world.json，新增路径使用 /world_rules/-。
 - 物品、武器、信物、法器默认写入 memory/canon/items.json，新增路径使用 /items/-。
 - 隐藏设定、真相、秘密、暂不揭晓内容默认写入 memory/canon/hidden_truths.json，visibility 默认 hidden，新增路径使用 /hidden_truths/-。
@@ -261,7 +264,9 @@ def suggest_memory_repair(
     target_files, operations, notes = _sanitize_repair_decision(repair_decision)
     operations = _drop_unsafe_remove_operations(root, operations, notes)
     preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
-    if preflight_errors and operations and not decision_was_provided:
+    target_schema_repair_attempts = 0
+    while preflight_errors and operations and not decision_was_provided and target_schema_repair_attempts < 2:
+        target_schema_repair_attempts += 1
         repair_decision = _repair_memory_repair_decision_target_schema(
             root,
             request,
@@ -1212,15 +1217,17 @@ def _target_schema_repair_prompt(
     return (
         f"{original_prompt}\n\n"
         "上一次输出已经可以解析为 MemoryRepairDecision，但把 operations 应用到目标 memory/canon 文件后没有通过目标文件 schema/semantic preflight。\n"
-        "本次修复目标是让 operation.value 完全符合目标文件 Pydantic schema 和 setting_change 字段语义，而不只是补齐 op/file/path/reason。\n"
+        "preflight 失败可能来自 file、path 或 value；本次修复必须同时修正非法 path 和非法 value，而不只是补齐 op/file/path/reason。\n"
         "请重新只输出修复后的 MemoryRepairDecision JSON object。不要 Markdown 或解释。\n"
         "修复规则：\n"
-        "- 保留用户创作意图和安全的 file/path；修正 value 的字段类型、嵌套对象和 enum。\n"
+        "- 保留用户创作意图；只有安全且存在的 file/path 才能保留，同时修正 value 的字段类型、嵌套对象和 enum。\n"
+        "- 如果错误提示 replace path does not exist，说明 path 不存在；必须改到原始 prompt 中列出的 existing replace paths，或清空该 operation 并在 notes 写明原因。\n"
         "- add 到集合时，value 必须是对应集合元素的完整对象，且满足上方 strict add value schema。\n"
         "- visibility 只能是 reader_visible、hidden 或 partially_revealed；importance 只能是 low、medium、high 或 critical。\n"
         "- abilities、secrets、rules、special_properties 必须是对象数组，不要使用字符串数组。\n"
         "- planned_reveal 和 planned_payoff 必须是对象或 null，不要使用字符串。\n"
         "- introduced_in_chapter 必须是整数；如果用户说“开篇”，默认使用 1。\n"
+        "- Location 顶层没有 description 字段；地点公开描述写 reader_visible_summary，隐藏/作者私有说明写 private_author_notes，地点规则写 rules[]；不要使用 /locations/{i}/description。\n"
         "- Character.role 只能表示叙事角色；默认使用主角、主要人物、配角、次要人物。家族身份、门派身份、排行、职业/江湖身份必须移入 tags，并可保留在 summary/notes。\n"
         "- 不要把谢家长女、谢家次子、张家幼女、唐门二房之女、江湖散人、武当俗家弟子这类身份短语写入 Character.role。\n"
         "- 如果错误提示 add would duplicate existing ... at /collection/index 或 duplicate ... id，说明该实体已经存在；"
@@ -2221,17 +2228,40 @@ def _collection_id_index(data: object, collection_key: str) -> dict[str, int]:
 def _preflight_setting_change_semantics(operations: list[MemoryRepairOperation]) -> list[str]:
     errors: list[str] = []
     for operation in operations:
-        if operation.file != "memory/canon/characters.json":
-            continue
         parts = _pointer_parts(operation.path)
-        if len(parts) < 2 or parts[0] != "characters":
-            continue
-        location = _operation_semantic_location(operation)
-        if operation.op in {"add", "replace"} and len(parts) == 2 and isinstance(operation.value, dict):
-            errors.extend(_preflight_character_role_semantics(operation.value, location))
-        elif operation.op in {"add", "replace"} and len(parts) == 3 and parts[2] == "role" and isinstance(operation.value, str):
-            errors.extend(_preflight_character_role_value(operation.value, location))
+        if operation.file == "memory/canon/characters.json":
+            errors.extend(_preflight_character_setting_change_semantics(operation, parts))
+        elif operation.file == "memory/canon/locations.json":
+            errors.extend(_preflight_location_setting_change_semantics(operation, parts))
     return errors
+
+
+def _preflight_character_setting_change_semantics(
+    operation: MemoryRepairOperation,
+    parts: list[str],
+) -> list[str]:
+    if len(parts) < 2 or parts[0] != "characters":
+        return []
+    location = _operation_semantic_location(operation)
+    if operation.op in {"add", "replace"} and len(parts) == 2 and isinstance(operation.value, dict):
+        return _preflight_character_role_semantics(operation.value, location)
+    if operation.op in {"add", "replace"} and len(parts) == 3 and parts[2] == "role" and isinstance(operation.value, str):
+        return _preflight_character_role_value(operation.value, location)
+    return []
+
+
+def _preflight_location_setting_change_semantics(
+    operation: MemoryRepairOperation,
+    parts: list[str],
+) -> list[str]:
+    if len(parts) == 3 and parts[0] == "locations" and parts[2] == "description":
+        base_path = f"/locations/{parts[1]}"
+        return [
+            f"{_operation_semantic_location(operation)}: Location has no top-level description field. "
+            f"Use {base_path}/reader_visible_summary for public location description, "
+            f"{base_path}/private_author_notes for hidden/author-only notes, or {base_path}/rules for explicit rules."
+        ]
+    return []
 
 
 def _preflight_character_role_semantics(character: dict[str, object], location: str) -> list[str]:

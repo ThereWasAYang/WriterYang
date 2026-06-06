@@ -19,7 +19,7 @@ from novel.core.memory_repair import (
 from novel.core.orchestrator import decide_ask_intent, route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, plan_chapter
 from novel.core.providers import ModelRequest, ProviderFactory
-from novel.core.schemas import AgentConfig, AuditIssue, AuditReport, CharactersFile
+from novel.core.schemas import AgentConfig, AuditIssue, AuditReport, CharactersFile, LocationsFile
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -355,6 +355,52 @@ def test_real_setting_change_duplicate_character_id_uses_existing_path(tmp_path:
     )
 
 
+def test_real_setting_change_location_description_path_uses_location_summary(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    root = _real_project(tmp_path, env)
+    _write_taohuayuan_location(root)
+    target_summary = "桃花源村隐藏在山中，由秦朝避乱者组建，有奇门遁甲大阵守护。"
+    prompt = build_memory_repair_user_prompt(
+        root,
+        f"请只修改已有地点桃花源村（id=loc_taohuayuan_village）的 reader_visible_summary 为：{target_summary} 不要新增地点。",
+        change_kind="setting_change",
+    )
+    assert "Location has no top-level description field" in prompt
+    assert "/locations/0/reader_visible_summary" in prompt
+
+    result = suggest_setting_change_interactive(
+        root,
+        f"请只修改已有地点桃花源村（id=loc_taohuayuan_village）的 reader_visible_summary 为：{target_summary} 不要新增地点。",
+        provider_name="config",
+        stage="outline_discussion",
+    )
+
+    assert result.status == "proposal_ready"
+    assert result.proposal_result is not None
+    proposal = result.proposal_result.proposal
+    assert not any(
+        operation.file == "memory/canon/locations.json" and operation.path.endswith("/description")
+        for operation in proposal.operations
+    )
+    assert any(
+        operation.file == "memory/canon/locations.json"
+        and operation.op == "replace"
+        and operation.path == "/locations/0/reader_visible_summary"
+        for operation in proposal.operations
+    )
+
+    apply_memory_repair(root, result.proposal_result.proposal_path)
+    locations = load_json_model(root / "memory" / "canon" / "locations.json", LocationsFile)
+    persisted = [location for location in locations.locations if location.id == "loc_taohuayuan_village"]
+    assert len(persisted) == 1
+    assert "奇门遁甲大阵" in persisted[0].reader_visible_summary
+    raw_locations = json.loads((root / "memory" / "canon" / "locations.json").read_text(encoding="utf-8"))
+    assert "description" not in raw_locations["locations"][0]
+    assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
+
+
 def _real_env_or_skip() -> dict[str, str]:
     env = dict(os.environ)
     env.update(_read_env_file(ROOT / ".env.real"))
@@ -435,6 +481,32 @@ def _write_twenty_one_real_characters(root: Path) -> None:
     )
     (root / "memory" / "canon" / "characters.json").write_text(
         json.dumps({"characters": characters}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_taohuayuan_location(root: Path) -> None:
+    (root / "memory" / "canon" / "locations.json").write_text(
+        json.dumps(
+            {
+                "locations": [
+                    {
+                        "id": "loc_taohuayuan_village",
+                        "name": "桃花源村",
+                        "type": "村庄",
+                        "reader_visible_summary": "桃花源村的旧设定。",
+                        "private_author_notes": "谢蛰雨可以进出。",
+                        "parent_location_id": None,
+                        "connected_location_ids": [],
+                        "rules": [],
+                        "tags": ["隐藏"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
 

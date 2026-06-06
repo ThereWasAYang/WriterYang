@@ -16,7 +16,7 @@ import yaml
 
 from novel import __version__
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
-from novel.core.canon import apply_canon_proposal, load_canon_provider, suggest_canon, CanonSuggestOptions
+from novel.core.canon import CanonError, CanonSuggestOptions, apply_canon_proposal, load_canon_provider, suggest_canon
 from novel.core.chapter_memory import (
     ChapterMemoryOptions,
     accepted_chapter_numbers,
@@ -167,6 +167,8 @@ def handle_api_request(
         return _failure(403, "forbidden_file", str(exc), request_id=request_id)
     except json.JSONDecodeError:
         return _failure(400, "invalid_json", "request body must be valid JSON", request_id=request_id)
+    except CanonError as exc:
+        return _failure(400, "canon_error", str(exc), request_id=request_id)
     except MemoryRepairError as exc:
         return _failure(400, "memory_repair_error", str(exc), request_id=request_id)
     except SetupGuideError as exc:

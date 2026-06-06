@@ -177,6 +177,8 @@ Web UI 的 Provider 下拉框有两个常用选项：
 4. 确认后点击“应用 Canon proposal”。
 5. 再点击“项目检查”。
 
+如果还没有点击“Canon 建议”，直接点击“应用 Canon proposal”时，页面会提示先生成 Canon proposal 文件；这表示当前还没有可应用的 proposal。
+
 Canon 是小说的基础设定，包括角色、地点、物品、世界规则、隐藏真相和伏笔。隐藏真相不会被当作读者可见内容直接写进正文。
 
 ## 创建一次创作 Session

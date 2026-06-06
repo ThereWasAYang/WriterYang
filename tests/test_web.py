@@ -794,6 +794,35 @@ def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
     assert apply_payload["data"]["validation_ok"] is True  # type: ignore[index]
 
 
+def test_api_canon_apply_reports_domain_error_on_conflict(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="Web Canon Conflict", root=root))
+    proposal_path = root / "runs" / "canon_proposal_test.json"
+    proposal_path.parent.mkdir(parents=True, exist_ok=True)
+    proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
+
+    first_status, first_payload = handle_api_request(
+        "POST",
+        "/api/canon/apply",
+        "",
+        json.dumps({"path": str(root), "proposal_file": "runs/canon_proposal_test.json"}),
+    )
+    second_status, second_payload = handle_api_request(
+        "POST",
+        "/api/canon/apply",
+        "",
+        json.dumps({"path": str(root), "proposal_file": "runs/canon_proposal_test.json"}),
+    )
+
+    assert first_status == 200
+    assert first_payload["ok"] is True
+    assert second_status == 400
+    assert second_payload["ok"] is False
+    assert second_payload["error"]["code"] == "canon_error"  # type: ignore[index]
+    assert "id conflict" in second_payload["error"]["message"]  # type: ignore[index]
+    assert "char_lin_che" in second_payload["error"]["message"]  # type: ignore[index]
+
+
 def test_api_inspire_overwrites_default_placeholder_without_force(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="Web Inspiration", root=root))
@@ -1003,6 +1032,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="inspireProject"' in html
     assert 'id="canonSuggest"' in html
     assert 'id="canonApply"' in html
+    assert "请先点击“Canon 建议”，生成 Canon proposal 文件后再应用。" in app_js
     assert 'id="memoryRepairSuggest"' in html
     assert 'id="memoryRepairApply"' in html
     assert 'id="rebuildChapterMemory"' in html

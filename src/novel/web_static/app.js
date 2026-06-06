@@ -560,9 +560,13 @@
 
     async function canonApply() {
       return withBusy("应用 Canon proposal", async () => {
+        const proposalFile = $("canonProposalPath").value.trim();
+        if (!proposalFile) {
+          throw new Error("请先点击“Canon 建议”，生成 Canon proposal 文件后再应用。");
+        }
         const data = await apiPost("/api/canon/apply", {
           path: projectPath(),
-          proposal_file: $("canonProposalPath").value.trim(),
+          proposal_file: proposalFile,
         });
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });

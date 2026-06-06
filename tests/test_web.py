@@ -1249,6 +1249,140 @@ def test_api_setting_change_suggest_repairs_location_description_path(tmp_path: 
     assert len(provider.requests) == 4
 
 
+def test_api_setting_change_suggest_restores_regressed_duplicate_context_adds(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    _write_hidden_truth_regression_context(root)
+    provider = MockProvider(
+        fake_response=[
+            json.dumps({"status": "ready", "questions": [], "confidence": 0.9}, ensure_ascii=False),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "target_files": ["memory/canon/hidden_truths.json"],
+                    "operations": [
+                        {
+                            "op": "replace",
+                            "file": "memory/canon/hidden_truths.json",
+                            "path": "/hidden_truths/0",
+                            "reason": "首次模型漏掉 value。",
+                        }
+                    ],
+                    "confidence": 0.8,
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "target_files": [
+                        "memory/canon/characters.json",
+                        "memory/canon/hidden_truths.json",
+                        "memory/canon/foreshadowing.json",
+                    ],
+                    "operations": [
+                        {
+                            "op": "replace",
+                            "file": "memory/canon/characters.json",
+                            "path": "/characters/0",
+                            "value": {
+                                "id": "char_xie_huaiyun",
+                                "name": "谢怀云",
+                                "role": "主要人物",
+                                "reader_visible_summary": "谢怀云是武当俗家弟子。",
+                                "tags": [],
+                            },
+                            "reason": "第一次 repair 仍缺 identity tags。",
+                        },
+                        {
+                            "op": "replace",
+                            "file": "memory/canon/hidden_truths.json",
+                            "path": "/hidden_truths/0",
+                            "value": _web_hidden_truth_value("桃花源村由秦朝避乱者组建。"),
+                            "reason": "正确更新已有隐藏真相。",
+                        },
+                        {
+                            "op": "replace",
+                            "file": "memory/canon/foreshadowing.json",
+                            "path": "/foreshadowing_threads/0",
+                            "value": _web_foreshadowing_value("第一章只留下桃花源村传闻。"),
+                            "reason": "正确更新已有伏笔。",
+                        },
+                    ],
+                    "confidence": 0.8,
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "target_files": [
+                        "memory/canon/characters.json",
+                        "memory/canon/hidden_truths.json",
+                        "memory/canon/foreshadowing.json",
+                    ],
+                    "operations": [
+                        {
+                            "op": "replace",
+                            "file": "memory/canon/characters.json",
+                            "path": "/characters/0",
+                            "value": {
+                                "id": "char_xie_huaiyun",
+                                "name": "谢怀云",
+                                "role": "主要人物",
+                                "reader_visible_summary": "谢怀云是武当俗家弟子。",
+                                "tags": ["俗家弟子"],
+                            },
+                            "reason": "第二次 repair 修复角色 tags。",
+                        },
+                        {
+                            "op": "add",
+                            "file": "memory/canon/hidden_truths.json",
+                            "path": "/hidden_truths/-",
+                            "value": _web_hidden_truth_value("桃花源村由秦朝避乱者组建。"),
+                            "reason": "第二次 repair 错误重复新增隐藏真相。",
+                        },
+                        {
+                            "op": "add",
+                            "file": "memory/canon/foreshadowing.json",
+                            "path": "/foreshadowing_threads/-",
+                            "value": _web_foreshadowing_value("第一章只留下桃花源村传闻。"),
+                            "reason": "第二次 repair 错误重复新增伏笔。",
+                        },
+                    ],
+                    "confidence": 0.8,
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    monkeypatch.setattr("novel.core.memory_repair.create_agent_provider", lambda *args, **kwargs: provider)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/settings/change/suggest",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "request": "修改已有桃花源村隐藏真相和伏笔",
+                "provider": "config",
+                "source_stage": "outline_discussion",
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    assert status == 200
+    proposal = payload["data"]["proposal"]  # type: ignore[index]
+    operations = proposal["operations"]
+    assert not any(operation["op"] == "add" and operation["file"] == "memory/canon/hidden_truths.json" for operation in operations)
+    assert not any(operation["op"] == "add" and operation["file"] == "memory/canon/foreshadowing.json" for operation in operations)
+    assert any(operation["path"] == "/hidden_truths/0" for operation in operations)
+    assert any(operation["path"] == "/foreshadowing_threads/0" for operation in operations)
+    assert any("已还原 target-schema repair 退化的重复新增操作" in note for note in proposal["notes"])
+    assert len(provider.requests) == 4
+
+
 def test_api_setting_change_apply_error_includes_apply_log_details(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     repair_id = "repair_20260606_010101_000001"
@@ -2112,6 +2246,72 @@ def _workspace_with_accepted_chapter_memory_sources(tmp_path: Path, chapter_numb
             encoding="utf-8",
         )
     return root
+
+
+def _write_hidden_truth_regression_context(root: Path) -> None:
+    (root / "memory" / "canon" / "characters.json").write_text(
+        json.dumps(
+            {
+                "characters": [
+                    {
+                        "id": "char_xie_huaiyun",
+                        "name": "谢怀云",
+                        "role": "主要人物",
+                        "reader_visible_summary": "谢怀云的旧设定。",
+                        "tags": [],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (root / "memory" / "canon" / "hidden_truths.json").write_text(
+        json.dumps({"hidden_truths": [_web_hidden_truth_value("桃花源村的旧隐藏真相。")]}, ensure_ascii=False, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    (root / "memory" / "canon" / "foreshadowing.json").write_text(
+        json.dumps(
+            {"foreshadowing_threads": [_web_foreshadowing_value("桃花源村旧伏笔。")]},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _web_hidden_truth_value(description: str) -> dict[str, object]:
+    return {
+        "id": "truth_taohuayuan_village",
+        "title": "桃花源村",
+        "description": description,
+        "visibility": "hidden",
+        "importance": "high",
+        "related_entity_ids": [],
+        "planned_reveal": None,
+        "foreshadowing_ids": ["thread_taohuayuan"],
+    }
+
+
+def _web_foreshadowing_value(description: str) -> dict[str, object]:
+    return {
+        "id": "thread_taohuayuan",
+        "type": "clue",
+        "title": "桃花源村伏笔",
+        "introduced_in_chapter": 1,
+        "description": description,
+        "status": "active",
+        "importance": "high",
+        "reader_visible": False,
+        "hidden_truth": "桃花源村",
+        "hidden_truth_id": "truth_taohuayuan_village",
+        "planned_payoff": None,
+        "related_entity_ids": [],
+    }
 
 
 def _write_chapter_file(root: Path, file_name: str, body: str) -> Path:

@@ -267,6 +267,7 @@ def suggest_memory_repair(
     target_schema_repair_attempts = 0
     while preflight_errors and operations and not decision_was_provided and target_schema_repair_attempts < 2:
         target_schema_repair_attempts += 1
+        previous_operations = list(operations)
         repair_decision = _repair_memory_repair_decision_target_schema(
             root,
             request,
@@ -280,6 +281,10 @@ def suggest_memory_repair(
         resolved_preflight_kind = change_kind or repair_decision.change_kind
         target_files, operations, notes = _sanitize_repair_decision(repair_decision)
         operations = _drop_unsafe_remove_operations(root, operations, notes)
+        operations, regression_notes = _restore_regressed_existing_add_operations(root, previous_operations, operations)
+        if regression_notes:
+            notes.extend(regression_notes)
+            target_files = sorted({*target_files, *(operation.file for operation in operations)})
         preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
     if preflight_errors and operations:
         raise MemoryRepairError(
@@ -1220,6 +1225,7 @@ def _target_schema_repair_prompt(
         "preflight 失败可能来自 file、path 或 value；本次修复必须同时修正非法 path 和非法 value，而不只是补齐 op/file/path/reason。\n"
         "请重新只输出修复后的 MemoryRepairDecision JSON object。不要 Markdown 或解释。\n"
         "修复规则：\n"
+        "- 只修改下方 preflight 错误直接涉及的 operation；未被错误涉及的 operation 必须原样保留，包括 file、path、op、value、reason。\n"
         "- 保留用户创作意图；只有安全且存在的 file/path 才能保留，同时修正 value 的字段类型、嵌套对象和 enum。\n"
         "- 如果错误提示 replace path does not exist，说明 path 不存在；必须改到原始 prompt 中列出的 existing replace paths，或清空该 operation 并在 notes 写明原因。\n"
         "- add 到集合时，value 必须是对应集合元素的完整对象，且满足上方 strict add value schema。\n"
@@ -2131,6 +2137,9 @@ def _preflight_memory_repair_operations(
 ) -> list[str]:
     if not operations:
         return []
+    contract_errors = _preflight_operation_contract_errors(operations)
+    if contract_errors:
+        return contract_errors
     errors: list[str] = []
     try:
         grouped = _group_operations(operations)
@@ -2148,6 +2157,133 @@ def _preflight_memory_repair_operations(
         errors.extend(_preflight_setting_change_add_id_conflicts(root, operations))
         errors.extend(_preflight_setting_change_semantics(operations))
     return errors
+
+
+def _preflight_operation_contract_errors(operations: list[MemoryRepairOperation]) -> list[str]:
+    errors: list[str] = []
+    for operation in operations:
+        if operation.op in {"add", "replace"} and "value" not in operation.model_fields_set:
+            errors.append(
+                f"{operation.file} {operation.path}: {operation.op} operation must include value; "
+                "use explicit null only when null is the intended value"
+            )
+    return errors
+
+
+def _restore_regressed_existing_add_operations(
+    root: Path,
+    previous_operations: list[MemoryRepairOperation],
+    operations: list[MemoryRepairOperation],
+) -> tuple[list[MemoryRepairOperation], list[str]]:
+    previous_replace_operations = _existing_replace_operations_by_entity_id(root, previous_operations)
+    if not previous_replace_operations:
+        return operations, []
+    current_replace_keys = {
+        key
+        for operation in operations
+        if operation.op == "replace"
+        for key in [_existing_replace_operation_key(root, operation)]
+        if key is not None
+    }
+    restored: list[MemoryRepairOperation] = []
+    restored_keys: set[tuple[str, str]] = set()
+    notes: list[str] = []
+    for operation in operations:
+        add_key = _duplicate_existing_add_operation_key(root, operation)
+        if add_key is None or add_key not in previous_replace_operations:
+            restored.append(operation)
+            continue
+        if add_key not in current_replace_keys and add_key not in restored_keys:
+            restored.extend(previous_replace_operations[add_key])
+        restored_keys.add(add_key)
+    if restored_keys:
+        restored_labels = ", ".join(f"{rel_path} {entity_id}" for rel_path, entity_id in sorted(restored_keys))
+        notes.append("已还原 target-schema repair 退化的重复新增操作：" + restored_labels)
+    return restored, notes
+
+
+def _existing_replace_operations_by_entity_id(
+    root: Path,
+    operations: list[MemoryRepairOperation],
+) -> dict[tuple[str, str], list[MemoryRepairOperation]]:
+    grouped: dict[tuple[str, str], list[MemoryRepairOperation]] = {}
+    for operation in operations:
+        if operation.op != "replace":
+            continue
+        key = _existing_replace_operation_key(root, operation)
+        if key is None:
+            continue
+        grouped.setdefault(key, []).append(operation)
+    return grouped
+
+
+def _existing_replace_operation_key(root: Path, operation: MemoryRepairOperation) -> tuple[str, str] | None:
+    collection_info = UNIQUE_ID_COLLECTIONS.get(operation.file)
+    if collection_info is None:
+        return None
+    collection_key, _label = collection_info
+    parts = _pointer_parts(operation.path)
+    if len(parts) < 2 or parts[0] != collection_key or not parts[1].isdigit():
+        return None
+    item_id = _operation_existing_collection_item_id(root, operation, collection_key, int(parts[1]))
+    if item_id is None:
+        return None
+    existing_indexes = _existing_collection_id_index(root, operation.file, collection_key)
+    if item_id not in existing_indexes:
+        return None
+    return (operation.file, item_id)
+
+
+def _duplicate_existing_add_operation_key(root: Path, operation: MemoryRepairOperation) -> tuple[str, str] | None:
+    if operation.op != "add" or not isinstance(operation.value, dict):
+        return None
+    collection_info = UNIQUE_ID_COLLECTIONS.get(operation.file)
+    if collection_info is None:
+        return None
+    collection_key, _label = collection_info
+    if _pointer_parts(operation.path) != [collection_key, "-"]:
+        return None
+    item_id = operation.value.get("id")
+    if not isinstance(item_id, str) or not item_id:
+        return None
+    existing_indexes = _existing_collection_id_index(root, operation.file, collection_key)
+    if item_id not in existing_indexes:
+        return None
+    return (operation.file, item_id)
+
+
+def _operation_existing_collection_item_id(
+    root: Path,
+    operation: MemoryRepairOperation,
+    collection_key: str,
+    index: int,
+) -> str | None:
+    if isinstance(operation.value, dict):
+        item_id = operation.value.get("id")
+        if isinstance(item_id, str) and item_id:
+            return item_id
+    try:
+        data = load_json(root / operation.file)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    collection = data.get(collection_key)
+    if not isinstance(collection, list) or index >= len(collection):
+        return None
+    item = collection[index]
+    if not isinstance(item, dict):
+        return None
+    item_id = item.get("id")
+    return item_id if isinstance(item_id, str) and item_id else None
+
+
+def _existing_collection_id_index(root: Path, rel_path: str, collection_key: str) -> dict[str, int]:
+    try:
+        data = load_json(root / rel_path)
+    except Exception:
+        return {}
+    return _collection_id_index(data, collection_key)
 
 
 def _preflight_unique_collection_id_errors(rel_path: str, data: object) -> list[str]:

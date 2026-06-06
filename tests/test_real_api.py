@@ -401,6 +401,52 @@ def test_real_setting_change_location_description_path_uses_location_summary(tmp
     )
 
 
+def test_real_setting_change_duplicate_hidden_truth_id_uses_existing_path(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    root = _real_project(tmp_path, env)
+    _write_hidden_truth_real_context(root)
+    target_description = "桃花源村由秦朝避乱者组建，谢家每代仅两人知晓其存在。"
+
+    result = suggest_setting_change_interactive(
+        root,
+        (
+            "请只修改已有隐藏真相 truth_taohuayuan_village 的 description 为："
+            f"{target_description} 不要新增隐藏真相或伏笔。"
+        ),
+        provider_name="config",
+        stage="outline_discussion",
+    )
+
+    assert result.status == "proposal_ready"
+    assert result.proposal_result is not None
+    proposal = result.proposal_result.proposal
+    assert proposal.operations
+    assert not any(
+        operation.op == "add"
+        and operation.file == "memory/canon/hidden_truths.json"
+        and isinstance(operation.value, dict)
+        and operation.value.get("id") == "truth_taohuayuan_village"
+        for operation in proposal.operations
+    )
+    assert not any(
+        operation.op == "add"
+        and operation.file == "memory/canon/foreshadowing.json"
+        and isinstance(operation.value, dict)
+        and operation.value.get("id") == "thread_taohuayuan"
+        for operation in proposal.operations
+    )
+
+    apply_memory_repair(root, result.proposal_result.proposal_path)
+    hidden_truths = json.loads((root / "memory" / "canon" / "hidden_truths.json").read_text(encoding="utf-8"))
+    foreshadowing = json.loads((root / "memory" / "canon" / "foreshadowing.json").read_text(encoding="utf-8"))
+    assert [item["id"] for item in hidden_truths["hidden_truths"]].count("truth_taohuayuan_village") == 1
+    assert [item["id"] for item in foreshadowing["foreshadowing_threads"]].count("thread_taohuayuan") == 1
+    assert target_description in json.dumps(hidden_truths, ensure_ascii=False)
+    assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
+
+
 def _real_env_or_skip() -> dict[str, str]:
     env = dict(os.environ)
     env.update(_read_env_file(ROOT / ".env.real"))
@@ -500,6 +546,57 @@ def _write_taohuayuan_location(root: Path) -> None:
                         "connected_location_ids": [],
                         "rules": [],
                         "tags": ["隐藏"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_hidden_truth_real_context(root: Path) -> None:
+    (root / "memory" / "canon" / "hidden_truths.json").write_text(
+        json.dumps(
+            {
+                "hidden_truths": [
+                    {
+                        "id": "truth_taohuayuan_village",
+                        "title": "桃花源村",
+                        "description": "桃花源村的旧隐藏真相。",
+                        "visibility": "hidden",
+                        "importance": "high",
+                        "related_entity_ids": [],
+                        "planned_reveal": None,
+                        "foreshadowing_ids": ["thread_taohuayuan"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (root / "memory" / "canon" / "foreshadowing.json").write_text(
+        json.dumps(
+            {
+                "foreshadowing_threads": [
+                    {
+                        "id": "thread_taohuayuan",
+                        "type": "clue",
+                        "title": "桃花源村伏笔",
+                        "introduced_in_chapter": 1,
+                        "description": "桃花源村旧伏笔。",
+                        "status": "active",
+                        "importance": "high",
+                        "reader_visible": False,
+                        "hidden_truth": "桃花源村",
+                        "hidden_truth_id": "truth_taohuayuan_village",
+                        "planned_payoff": None,
+                        "related_entity_ids": [],
                     }
                 ]
             },

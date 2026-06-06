@@ -64,7 +64,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 
 “模型与检索配置”页可以在项目初始化后重新配置 embedding API。填写新的 Embedding Base URL、API Key 和模型名后点击“测试并保存 embedding API”，工具会先做连通性测试，成功后把 API Key 写入项目 `.env`、把模型名等非密钥配置写入 `config/embeddings.yaml`，清空输入框，随后自动刷新语义向量索引。关键词检索是默认可用能力；如果 embedding API 没有配置好，页面会用红色提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。工具只会在三种情况下调用外部 embedding API：你保存 embedding API 后的自动刷新、你明确点击“刷新语义向量索引”，或你启用“使用 embedding 语义检索”且当前语义向量缺失或过期。未启用 embedding 的普通关键词/FTS 检索不会调用外部 embedding API。
 
-如果页面弹出或标红提示“Web UI 后台版本不匹配”，说明浏览器里的前端文件和正在运行的后台接口不是同一版本，常见原因是更新代码后没有重启 Web UI 后台。请停止旧后台，重新用 `py312` 环境启动 Web UI，再刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 的配置状态。
+如果页面弹出或标红提示“Web UI 后台版本不匹配”，说明浏览器里的前端文件和正在运行的后台接口不是同一版本，常见原因是更新代码后没有重启 Web UI 后台。请停止旧后台，按项目的 Web UI 启动命令重新启动后台，再刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 的配置状态。
 
 ## Web UI 界面元素速查
 

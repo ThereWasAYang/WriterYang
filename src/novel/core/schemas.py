@@ -24,6 +24,7 @@ ManagementEventType = Literal[
     "chapter_accepted",
     "chapter_memory_generated",
     "chapter_memory_failed",
+    "canon_proposal_applied",
     "state_update_proposed",
     "state_update_applied",
     "timeline_updated",
@@ -553,6 +554,26 @@ class StateUpdateApplyLog(SchemaVersionedModel):
     applied_at: datetime
     status: Literal["applied", "rolled_back"]
     errors: list[str] = Field(default_factory=list)
+
+
+class CanonProposalCounts(FlexibleModel):
+    characters: int = Field(default=0, ge=0)
+    locations: int = Field(default=0, ge=0)
+    items: int = Field(default=0, ge=0)
+    world_rules: int = Field(default=0, ge=0)
+    hidden_truths: int = Field(default=0, ge=0)
+    foreshadowing_threads: int = Field(default=0, ge=0)
+
+
+class CanonApplyLog(SchemaVersionedModel):
+    id: str = Field(min_length=1, pattern=r"^canon_apply_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
+    original_proposal_path: str = Field(min_length=1)
+    proposal_snapshot_path: str = Field(min_length=1)
+    target_files: list[str] = Field(default_factory=list)
+    proposal_counts: CanonProposalCounts = Field(default_factory=CanonProposalCounts)
+    validation_warning_count: int = Field(default=0, ge=0)
+    applied_at: datetime
+    status: Literal["applied"] = "applied"
 
 
 class ChapterMetadata(SchemaVersionedModel):

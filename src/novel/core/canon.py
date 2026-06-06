@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
@@ -14,14 +15,17 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
-from novel.core.io import atomic_write_text, backup_file, load_json_model, load_yaml_model
+from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, load_json_model, load_yaml_model
+from novel.core.management import record_management_event
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
+    CanonApplyLog,
     CanonProposal,
+    CanonProposalCounts,
     ChapterPlan,
     CharactersFile,
     EntityState,
@@ -60,6 +64,15 @@ class CanonSuggestResult:
 @dataclass(frozen=True)
 class CanonApplyResult:
     validation_report: ValidationReport
+    apply_log: CanonApplyLog
+    apply_log_path: Path
+    proposal_snapshot_path: Path
+
+
+@dataclass(frozen=True)
+class CanonAppliedProposalRecord:
+    apply_log: CanonApplyLog
+    apply_log_path: Path
 
 
 @dataclass(frozen=True)
@@ -144,10 +157,37 @@ def apply_canon_proposal(root: Path, proposal_path: Path) -> CanonApplyResult:
         report = validate_canon(root)
         if not report.ok:
             raise CanonError(format_canon_validation_report(report))
+        apply_log_path, proposal_snapshot_path, apply_log = _write_canon_apply_record(
+            root,
+            proposal_path=proposal_path,
+            proposal=proposal,
+            validation_report=report,
+        )
     except Exception:
         _restore_backups(backups)
         raise
-    return CanonApplyResult(validation_report=report)
+    return CanonApplyResult(
+        validation_report=report,
+        apply_log=apply_log,
+        apply_log_path=apply_log_path,
+        proposal_snapshot_path=proposal_snapshot_path,
+    )
+
+
+def load_canon_applied_proposals(root: Path, *, limit: int = 20) -> list[CanonAppliedProposalRecord]:
+    root = root.resolve()
+    base_dir = _canon_applied_proposals_dir(root)
+    if not base_dir.exists():
+        return []
+    records: list[CanonAppliedProposalRecord] = []
+    for log_path in base_dir.glob("*/apply_log.json"):
+        try:
+            log = load_json_model(log_path, CanonApplyLog)
+        except Exception:
+            continue
+        records.append(CanonAppliedProposalRecord(apply_log=log, apply_log_path=log_path))
+    records.sort(key=lambda record: record.apply_log.applied_at, reverse=True)
+    return records[:limit]
 
 
 def load_canon_provider(
@@ -760,6 +800,84 @@ def _backup_existing_canon_files(root: Path) -> dict[Path, Path]:
 def _restore_backups(backups: dict[Path, Path]) -> None:
     for path, backup_path in backups.items():
         shutil.copy2(backup_path, path)
+
+
+def _write_canon_apply_record(
+    root: Path,
+    *,
+    proposal_path: Path,
+    proposal: CanonProposal,
+    validation_report: ValidationReport,
+) -> tuple[Path, Path, CanonApplyLog]:
+    apply_id = _new_canon_apply_id()
+    record_dir = _canon_applied_proposals_dir(root) / apply_id
+    record_dir.mkdir(parents=True, exist_ok=False)
+    proposal_snapshot_path = record_dir / "proposal.json"
+    apply_log_path = record_dir / "apply_log.json"
+    target_files = [str(path.relative_to(root)) for path in _canon_file_paths(root)]
+    counts = _canon_proposal_counts(proposal)
+    atomic_write_text(proposal_snapshot_path, proposal.model_dump_json(indent=2) + "\n")
+    apply_log = CanonApplyLog(
+        id=apply_id,
+        original_proposal_path=_path_for_apply_log(root, proposal_path),
+        proposal_snapshot_path=str(proposal_snapshot_path.relative_to(root)),
+        target_files=target_files,
+        proposal_counts=counts,
+        validation_warning_count=len(validation_report.warnings),
+        applied_at=_utc_now(),
+        status="applied",
+    )
+    atomic_write_model_json(apply_log_path, apply_log)
+    record_management_event(
+        root,
+        "canon_proposal_applied",
+        f"已应用 Canon proposal：{apply_log.proposal_snapshot_path}",
+        source="canon",
+        target_files=[
+            *target_files,
+            str(apply_log_path.relative_to(root)),
+            str(proposal_snapshot_path.relative_to(root)),
+        ],
+        status="success",
+        details={
+            "apply_log_path": str(apply_log_path.relative_to(root)),
+            "proposal_snapshot_path": str(proposal_snapshot_path.relative_to(root)),
+            "original_proposal_path": apply_log.original_proposal_path,
+            "proposal_counts": counts.model_dump(mode="json"),
+        },
+    )
+    return apply_log_path, proposal_snapshot_path, apply_log
+
+
+def _canon_applied_proposals_dir(root: Path) -> Path:
+    return root / "memory" / "canon" / "applied_proposals"
+
+
+def _canon_proposal_counts(proposal: CanonProposal) -> CanonProposalCounts:
+    return CanonProposalCounts(
+        characters=len(proposal.characters),
+        locations=len(proposal.locations),
+        items=len(proposal.items),
+        world_rules=len(proposal.world_rules),
+        hidden_truths=len(proposal.hidden_truths),
+        foreshadowing_threads=len(proposal.foreshadowing_threads),
+    )
+
+
+def _path_for_apply_log(root: Path, path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(root))
+    except ValueError:
+        return str(resolved)
+
+
+def _new_canon_apply_id() -> str:
+    return "canon_apply_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def _to_json(data: object) -> str:

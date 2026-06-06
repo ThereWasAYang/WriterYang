@@ -21,6 +21,7 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "hidden_truths",
         "foreshadowing",
         "canon_proposal",
+        "canon_apply_log",
         "current_state",
         "timeline",
         "chapter_plan",

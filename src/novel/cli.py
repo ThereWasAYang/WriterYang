@@ -3009,11 +3009,15 @@ def _cmd_canon(args: argparse.Namespace) -> int:
                     "ok": apply_result.validation_report.ok,
                     "command": "canon apply",
                     "validation": _validation_payload(apply_result.validation_report),
+                    "apply_log_path": str(apply_result.apply_log_path),
+                    "proposal_snapshot_path": str(apply_result.proposal_snapshot_path),
                 }
             )
             return 0 if apply_result.validation_report.ok else 1
         if not _quiet(args):
             print(format_canon_validation_report(apply_result.validation_report))
+            print(f"Canon apply log: {apply_result.apply_log_path}")
+            print(f"Canon proposal snapshot: {apply_result.proposal_snapshot_path}")
         return 0 if apply_result.validation_report.ok else 1
 
     if args.canon_command == "validate":

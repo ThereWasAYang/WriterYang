@@ -16,7 +16,15 @@ import yaml
 
 from novel import __version__
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
-from novel.core.canon import CanonError, CanonSuggestOptions, apply_canon_proposal, load_canon_provider, suggest_canon
+from novel.core.canon import (
+    CanonAppliedProposalRecord,
+    CanonError,
+    CanonSuggestOptions,
+    apply_canon_proposal,
+    load_canon_applied_proposals,
+    load_canon_provider,
+    suggest_canon,
+)
 from novel.core.chapter_memory import (
     ChapterMemoryOptions,
     accepted_chapter_numbers,
@@ -192,6 +200,7 @@ def _get_routes():
         "/api/validate": lambda query: _validate_project(_root_from_query(query)),
         "/api/migration-status": lambda query: _migration_status(_root_from_query(query)),
         "/api/canon": lambda query: {"summary": format_canon(_root_from_query(query))},
+        "/api/canon/applied-proposals": _canon_applied_proposals,
         "/api/chapters": lambda query: {"chapters": _list_chapters(_root_from_query(query))},
         "/api/chapter-file": lambda query: _read_chapter_file(_root_from_query(query), query),
         "/api/file-tree": lambda query: {"files": _file_tree(_root_from_query(query))},
@@ -819,9 +828,41 @@ def _canon_apply(data: dict[str, object]) -> dict[str, object]:
     result = apply_canon_proposal(root, proposal_path)
     return {
         "proposal_path": str(proposal_path),
+        "apply_log": result.apply_log.model_dump(mode="json"),
+        "apply_log_path": str(result.apply_log_path),
+        "apply_log_relative_path": _relative(root, result.apply_log_path),
+        "proposal_snapshot_path": str(result.proposal_snapshot_path),
+        "proposal_snapshot_relative_path": _relative(root, result.proposal_snapshot_path),
         "validation_ok": result.validation_report.ok,
         "errors": [message.message for message in result.validation_report.errors],
         "warnings": [message.message for message in result.validation_report.warnings],
+    }
+
+
+def _canon_applied_proposals(query: dict[str, str]) -> dict[str, object]:
+    root = _root_from_query(query)
+    _require_workspace(root)
+    limit = _optional_int(query.get("limit")) or 20
+    return {
+        "applied_proposals": [
+            _canon_applied_proposal_payload(root, record)
+            for record in load_canon_applied_proposals(root, limit=limit)
+        ]
+    }
+
+
+def _canon_applied_proposal_payload(root: Path, record: CanonAppliedProposalRecord) -> dict[str, object]:
+    log = record.apply_log
+    return {
+        "id": log.id,
+        "apply_log_path": _relative(root, record.apply_log_path),
+        "original_proposal_path": log.original_proposal_path,
+        "proposal_snapshot_path": log.proposal_snapshot_path,
+        "target_files": log.target_files,
+        "proposal_counts": log.proposal_counts.model_dump(mode="json"),
+        "validation_warning_count": log.validation_warning_count,
+        "applied_at": log.applied_at.isoformat(),
+        "status": log.status,
     }
 
 

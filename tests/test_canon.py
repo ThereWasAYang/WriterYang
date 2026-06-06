@@ -7,10 +7,12 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import (
+    CanonApplyLog,
     CanonError,
     CanonSuggestOptions,
     apply_canon_proposal,
     default_mock_canon_proposal_json,
+    load_canon_applied_proposals,
     load_canon_files,
     parse_canon_proposal,
     suggest_canon,
@@ -172,6 +174,24 @@ def test_canon_apply_merges_proposal_into_empty_canon(tmp_path: Path) -> None:
     assert characters["characters"][0]["id"] == "char_lin_che"
     assert hidden_truths["hidden_truths"][0]["id"] == "truth_station_overlap"
     assert foreshadowing["foreshadowing_threads"][0]["hidden_truth_id"] == "truth_station_overlap"
+    records = load_canon_applied_proposals(root)
+    assert len(records) == 1
+    apply_log = records[0].apply_log
+    assert isinstance(apply_log, CanonApplyLog)
+    assert apply_log.status == "applied"
+    assert apply_log.original_proposal_path == str(proposal_path)
+    assert apply_log.proposal_counts.characters == 1
+    assert apply_log.proposal_counts.locations == 1
+    assert apply_log.proposal_counts.items == 1
+    assert apply_log.proposal_counts.world_rules == 1
+    assert apply_log.proposal_counts.hidden_truths == 1
+    assert apply_log.proposal_counts.foreshadowing_threads == 1
+    snapshot_path = root / apply_log.proposal_snapshot_path
+    assert snapshot_path.is_file()
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot["characters"][0]["id"] == "char_lin_che"
+    events_text = (root / "memory" / "management_events.jsonl").read_text(encoding="utf-8")
+    assert "canon_proposal_applied" in events_text
 
 
 def test_canon_apply_fails_on_duplicate_id(tmp_path: Path) -> None:
@@ -211,6 +231,10 @@ def test_canon_apply_rolls_back_when_post_write_validation_fails(tmp_path: Path,
         raise AssertionError("expected CanonError")
 
     assert (root / "memory" / "canon" / "characters.json").read_text(encoding="utf-8") == original_characters
+    assert load_canon_applied_proposals(root) == []
+    events_path = root / "memory" / "management_events.jsonl"
+    if events_path.exists():
+        assert "canon_proposal_applied" not in events_path.read_text(encoding="utf-8")
 
 
 def test_canon_proposal_rejects_cross_type_duplicate_ids() -> None:

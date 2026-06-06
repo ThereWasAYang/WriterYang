@@ -792,6 +792,27 @@ def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
     assert str(proposal_path).startswith("runs/canon_proposal_")
     assert apply_status == 200
     assert apply_payload["data"]["validation_ok"] is True  # type: ignore[index]
+    apply_data = apply_payload["data"]  # type: ignore[assignment]
+    assert str(apply_data["apply_log_relative_path"]).startswith("memory/canon/applied_proposals/")
+    assert str(apply_data["proposal_snapshot_relative_path"]).startswith("memory/canon/applied_proposals/")
+    applied_status, applied_payload = handle_api_request(
+        "GET",
+        "/api/canon/applied-proposals",
+        f"path={root}",
+        None,
+    )
+    assert applied_status == 200
+    records = applied_payload["data"]["applied_proposals"]  # type: ignore[index]
+    assert records[0]["proposal_snapshot_path"] == apply_data["proposal_snapshot_relative_path"]
+    assert records[0]["proposal_counts"]["characters"] == 1
+    read_status, read_payload = handle_api_request(
+        "GET",
+        "/api/read-file",
+        f"path={root}&file={apply_data['proposal_snapshot_relative_path']}",
+        None,
+    )
+    assert read_status == 200
+    assert "char_lin_che" in read_payload["data"]["content"]  # type: ignore[index]
 
 
 def test_api_canon_apply_reports_domain_error_on_conflict(tmp_path: Path) -> None:
@@ -1042,7 +1063,12 @@ def test_frontend_basic_render() -> None:
     assert "readWorkspaceFile(inspirationPreviewPath)" in app_js
     assert 'id="canonSuggest"' in html
     assert 'id="canonApply"' in html
+    assert 'id="canonAppliedProposalPanel"' in html
+    assert 'id="viewLatestCanonProposal"' in html
     assert "请先点击“Canon 建议”，生成 Canon proposal 文件后再应用。" in app_js
+    assert "/api/canon/applied-proposals" in app_js
+    assert "renderCanonAppliedProposals" in app_js
+    assert "latestCanonProposalSnapshotPath" in app_js
     assert 'id="memoryRepairSuggest"' in html
     assert 'id="memoryRepairApply"' in html
     assert 'id="rebuildChapterMemory"' in html

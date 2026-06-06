@@ -23,6 +23,7 @@
     let currentBusyStartedAt = null;
     let currentBusyLabel = "";
     let recentOperations = [];
+    let latestCanonProposalSnapshotPath = "";
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -147,13 +148,14 @@
     async function refreshAll(options = {}) {
       try {
         const path = projectPath();
-        const [status, canon, chapters, files, management, searchStatus] = await Promise.all([
+        const [status, canon, chapters, files, management, searchStatus, canonApplied] = await Promise.all([
           apiGet("/api/project/status", { path }),
           apiGet("/api/canon", { path }),
           apiGet("/api/chapters", { path }),
           apiGet("/api/file-tree", { path }),
           apiGet("/api/management-events", { path, limit: 10 }),
           apiGet("/api/search-status", { path }),
+          apiGet("/api/canon/applied-proposals", { path, limit: 5 }),
         ]);
         renderStatus(status.status);
         $("canonPanel").textContent = canon.summary || "无";
@@ -161,6 +163,7 @@
         renderFileTree(files.files || []);
         renderManagementEvents(management.events || []);
         renderSearchStatus(searchStatus.search || {});
+        renderCanonAppliedProposals(canonApplied.applied_proposals || []);
         renderNextStep({ status: status.status, chapters: chapters.chapters || [] });
         if (options.hideProjectInitOnSuccess) setProjectInitVisible(false);
         if (options.hideSetupGuideOnSuccess) showSetupGuide(false);
@@ -206,6 +209,37 @@
             ${(event.target_files || []).length ? `<div>files: ${escapeHtml((event.target_files || []).join(", "))}</div>` : ""}
           </div>
         `).join("")}
+      `;
+    }
+
+    function renderCanonAppliedProposals(records) {
+      const panel = $("canonAppliedProposalPanel");
+      const button = $("viewLatestCanonProposal");
+      if (!panel || !button) return;
+      if (!records.length) {
+        latestCanonProposalSnapshotPath = "";
+        panel.innerHTML = "已应用 Canon proposal：暂无";
+        button.classList.add("hidden");
+        return;
+      }
+      const latest = records[0];
+      const counts = latest.proposal_counts || {};
+      latestCanonProposalSnapshotPath = latest.proposal_snapshot_path || "";
+      button.classList.toggle("hidden", !latestCanonProposalSnapshotPath);
+      panel.innerHTML = `
+        <b>已应用 Canon proposal</b>
+        <div>最近应用：${escapeHtml(formatDateTime(latest.applied_at))}</div>
+        <div>原始 proposal：${escapeHtml(latest.original_proposal_path || "")}</div>
+        <div>内容快照：${escapeHtml(latest.proposal_snapshot_path || "")}</div>
+        <div>变更数量：
+          characters ${escapeHtml(counts.characters ?? 0)} /
+          locations ${escapeHtml(counts.locations ?? 0)} /
+          items ${escapeHtml(counts.items ?? 0)} /
+          world_rules ${escapeHtml(counts.world_rules ?? 0)} /
+          hidden_truths ${escapeHtml(counts.hidden_truths ?? 0)} /
+          foreshadowing_threads ${escapeHtml(counts.foreshadowing_threads ?? 0)}
+        </div>
+        <div>validation warnings：${escapeHtml(latest.validation_warning_count ?? 0)}</div>
       `;
     }
 
@@ -1326,6 +1360,13 @@
       return escapeHtml(value).replace(/`/g, "&#96;");
     }
 
+    function formatDateTime(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString();
+    }
+
     function safeHighlightedExcerpt(value) {
       return escapeHtml(value)
         .replace(/&lt;mark&gt;/g, "<mark>")
@@ -1783,6 +1824,13 @@
     $("openInspirationFile").addEventListener("click", () => readWorkspaceFile(inspirationPreviewPath));
     $("canonSuggest").addEventListener("click", canonSuggest);
     $("canonApply").addEventListener("click", canonApply);
+    $("viewLatestCanonProposal").addEventListener("click", () => {
+      if (!latestCanonProposalSnapshotPath) {
+        setMessage("暂无可查看的 Canon proposal 快照。", true);
+        return;
+      }
+      readWorkspaceFile(latestCanonProposalSnapshotPath);
+    });
     $("refreshFtsIndex").addEventListener("click", () => refreshIndex(false));
     $("refreshEmbeddingIndex").addEventListener("click", () => refreshIndex(true));
     $("saveEmbeddingConfig").addEventListener("click", saveEmbeddingConfig);

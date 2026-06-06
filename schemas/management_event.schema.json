@@ -18,6 +18,7 @@
         "chapter_accepted",
         "chapter_memory_generated",
         "chapter_memory_failed",
+        "canon_proposal_applied",
         "state_update_proposed",
         "state_update_applied",
         "timeline_updated",

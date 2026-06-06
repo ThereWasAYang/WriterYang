@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "CanonProposalCounts": {
+      "additionalProperties": true,
+      "properties": {
+        "characters": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Characters",
+          "type": "integer"
+        },
+        "locations": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Locations",
+          "type": "integer"
+        },
+        "items": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Items",
+          "type": "integer"
+        },
+        "world_rules": {
+          "default": 0,
+          "minimum": 0,
+          "title": "World Rules",
+          "type": "integer"
+        },
+        "hidden_truths": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Hidden Truths",
+          "type": "integer"
+        },
+        "foreshadowing_threads": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Foreshadowing Threads",
+          "type": "integer"
+        }
+      },
+      "title": "CanonProposalCounts",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "^canon_apply_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "original_proposal_path": {
+      "minLength": 1,
+      "title": "Original Proposal Path",
+      "type": "string"
+    },
+    "proposal_snapshot_path": {
+      "minLength": 1,
+      "title": "Proposal Snapshot Path",
+      "type": "string"
+    },
+    "target_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Target Files",
+      "type": "array"
+    },
+    "proposal_counts": {
+      "$ref": "#/$defs/CanonProposalCounts"
+    },
+    "validation_warning_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Validation Warning Count",
+      "type": "integer"
+    },
+    "applied_at": {
+      "format": "date-time",
+      "title": "Applied At",
+      "type": "string"
+    },
+    "status": {
+      "const": "applied",
+      "default": "applied",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "original_proposal_path",
+    "proposal_snapshot_path",
+    "applied_at"
+  ],
+  "title": "CanonApplyLog",
+  "type": "object"
+}

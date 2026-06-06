@@ -15,7 +15,7 @@ from novel.core.state_update import build_state_update_system_prompt
 
 
 def test_prompt_templates_are_versioned_and_loadable() -> None:
-    assert PROMPT_VERSION == "2026-06-05"
+    assert PROMPT_VERSION == "2026-06-07"
     assert "Writer Agent" in load_prompt_template("writer_system")
 
 

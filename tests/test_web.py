@@ -1134,6 +1134,112 @@ def test_api_setting_change_suggest_rich_new_setting_is_ready(tmp_path: Path) ->
     assert suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
 
 
+def test_api_setting_change_suggest_batches_and_returns_single_merged_proposal(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    provider = MockProvider(
+        fake_response=[
+            json.dumps({"status": "ready", "questions": [], "confidence": 0.9}, ensure_ascii=False),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "stage": "outline_discussion",
+                    "batches": [
+                        {
+                            "batch_id": "batch_characters",
+                            "instruction": "新增人物沈微。",
+                            "target_files": ["memory/canon/characters.json"],
+                            "domains": ["characters"],
+                            "reason": "人物设定独立生成。",
+                        },
+                        {
+                            "batch_id": "batch_items",
+                            "instruction": "新增物品青铜铃。",
+                            "target_files": ["memory/canon/items.json"],
+                            "domains": ["items"],
+                            "reason": "物品设定独立生成。",
+                        },
+                    ],
+                    "confidence": 0.9,
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "target_files": ["memory/canon/characters.json"],
+                    "domains": ["characters"],
+                    "operations": [
+                        {
+                            "op": "add",
+                            "file": "memory/canon/characters.json",
+                            "path": "/characters/-",
+                            "value": {
+                                "id": "char_shen_wei",
+                                "name": "沈微",
+                                "role": "主要人物",
+                                "reader_visible_summary": "沈微是新登场人物。",
+                                "tags": ["新人物"],
+                            },
+                            "reason": "新增人物沈微。",
+                        }
+                    ],
+                    "confidence": 0.8,
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "target_files": ["memory/canon/items.json"],
+                    "domains": ["items"],
+                    "operations": [
+                        {
+                            "op": "add",
+                            "file": "memory/canon/items.json",
+                            "path": "/items/-",
+                            "value": {
+                                "id": "item_bronze_bell",
+                                "name": "青铜铃",
+                                "type": "信物",
+                                "reader_visible_summary": "青铜铃是一枚旧信物。",
+                                "special_properties": [],
+                                "tags": ["信物"],
+                            },
+                            "reason": "新增物品青铜铃。",
+                        }
+                    ],
+                    "confidence": 0.85,
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    monkeypatch.setattr("novel.core.memory_repair.create_agent_provider", lambda *args, **kwargs: provider)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/settings/change/suggest",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "request": "新增人物沈微，并新增物品青铜铃。",
+                "provider": "config",
+                "source_stage": "outline_discussion",
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    assert status == 200
+    proposal = payload["data"]["proposal"]  # type: ignore[index]
+    assert payload["data"]["status"] == "proposal_ready"  # type: ignore[index]
+    assert len(proposal["operations"]) == 2
+    assert proposal["domains"] == ["characters", "items"]
+    assert any("已按 2 个批次生成设定变更建议" in note for note in proposal["notes"])
+    assert len(provider.requests) == 4
+
+
 def test_api_setting_change_suggest_repairs_location_description_path(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     target_summary = "桃花源村隐藏在山中，由秦朝避乱者组建，有奇门遁甲大阵守护。"
@@ -1169,6 +1275,23 @@ def test_api_setting_change_suggest_repairs_location_description_path(tmp_path: 
                     "confidence": 0.9,
                     "assumptions": [],
                     "notes": [],
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "stage": "outline_discussion",
+                    "batches": [
+                        {
+                            "batch_id": "batch_locations",
+                            "instruction": "修改桃花源村地点描述",
+                            "target_files": ["memory/canon/locations.json"],
+                            "domains": ["locations"],
+                            "reason": "地点描述独立生成。",
+                        }
+                    ],
+                    "confidence": 0.9,
                 },
                 ensure_ascii=False,
             ),
@@ -1246,7 +1369,7 @@ def test_api_setting_change_suggest_repairs_location_description_path(tmp_path: 
     proposal = payload["data"]["proposal"]  # type: ignore[index]
     assert proposal["operations"][0]["path"] == "/locations/0/reader_visible_summary"
     assert "setting change proposal failed" not in json.dumps(payload, ensure_ascii=False)
-    assert len(provider.requests) == 4
+    assert len(provider.requests) == 5
 
 
 def test_api_setting_change_suggest_restores_regressed_duplicate_context_adds(tmp_path: Path, monkeypatch) -> None:
@@ -1255,6 +1378,27 @@ def test_api_setting_change_suggest_restores_regressed_duplicate_context_adds(tm
     provider = MockProvider(
         fake_response=[
             json.dumps({"status": "ready", "questions": [], "confidence": 0.9}, ensure_ascii=False),
+            json.dumps(
+                {
+                    "change_kind": "setting_change",
+                    "stage": "outline_discussion",
+                    "batches": [
+                        {
+                            "batch_id": "batch_hidden_truths",
+                            "instruction": "修改已有桃花源村隐藏真相和伏笔",
+                            "target_files": [
+                                "memory/canon/characters.json",
+                                "memory/canon/hidden_truths.json",
+                                "memory/canon/foreshadowing.json",
+                            ],
+                            "domains": ["characters", "hidden_truths", "foreshadowing"],
+                            "reason": "隐藏真相、伏笔和相关角色说明需要保持一致。",
+                        }
+                    ],
+                    "confidence": 0.9,
+                },
+                ensure_ascii=False,
+            ),
             json.dumps(
                 {
                     "change_kind": "setting_change",
@@ -1287,11 +1431,11 @@ def test_api_setting_change_suggest_restores_regressed_duplicate_context_adds(tm
                             "value": {
                                 "id": "char_xie_huaiyun",
                                 "name": "谢怀云",
-                                "role": "主要人物",
+                                "role": "谢家长女",
                                 "reader_visible_summary": "谢怀云是武当俗家弟子。",
-                                "tags": [],
+                                "tags": ["谢家长女"],
                             },
-                            "reason": "第一次 repair 仍缺 identity tags。",
+                            "reason": "第一次 repair 仍含非法 Character.role。",
                         },
                         {
                             "op": "replace",
@@ -1380,7 +1524,7 @@ def test_api_setting_change_suggest_restores_regressed_duplicate_context_adds(tm
     assert any(operation["path"] == "/hidden_truths/0" for operation in operations)
     assert any(operation["path"] == "/foreshadowing_threads/0" for operation in operations)
     assert any("已还原 target-schema repair 退化的重复新增操作" in note for note in proposal["notes"])
-    assert len(provider.requests) == 4
+    assert len(provider.requests) == 5
 
 
 def test_api_setting_change_apply_error_includes_apply_log_details(tmp_path: Path) -> None:

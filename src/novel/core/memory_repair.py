@@ -33,6 +33,8 @@ from novel.core.schemas import (
     ItemsFile,
     Location,
     LocationsFile,
+    MemoryChangeBatch,
+    MemoryChangeBatchPlan,
     MemoryChangeDomain,
     MemoryChangeClarificationDecision,
     MemoryChangeClarificationSession,
@@ -78,6 +80,15 @@ class SettingChangeSuggestionResult:
     clarification: MemoryChangeClarificationSession | None = None
 
 
+@dataclass(frozen=True)
+class _PreparedMemoryRepairDecision:
+    decision: MemoryRepairDecision
+    target_files: list[str]
+    operations: list[MemoryRepairOperation]
+    notes: list[str]
+    change_kind: MemoryChangeKind
+
+
 ALLOWED_MEMORY_FILES: dict[str, type[BaseModel]] = {
     "memory/state/timeline.json": TimelineFile,
     "memory/state/current_state.json": EntityState,
@@ -98,6 +109,11 @@ FILE_DOMAINS: dict[str, MemoryChangeDomain] = {
     "memory/canon/foreshadowing.json": "foreshadowing",
     "memory/state/current_state.json": "current_state",
     "memory/state/timeline.json": "timeline",
+}
+
+DOMAIN_FILES: dict[MemoryChangeDomain, str] = {
+    domain: rel_path
+    for rel_path, domain in FILE_DOMAINS.items()
 }
 
 FILE_COLLECTION_KEYS: dict[str, str] = {
@@ -260,38 +276,21 @@ def suggest_memory_repair(
         change_kind=change_kind,
         stage=stage,
     )
-    resolved_preflight_kind: MemoryChangeKind = change_kind or repair_decision.change_kind
-    target_files, operations, notes = _sanitize_repair_decision(repair_decision)
-    operations = _drop_unsafe_remove_operations(root, operations, notes)
-    preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
-    target_schema_repair_attempts = 0
-    while preflight_errors and operations and not decision_was_provided and target_schema_repair_attempts < 2:
-        target_schema_repair_attempts += 1
-        previous_operations = list(operations)
-        repair_decision = _repair_memory_repair_decision_target_schema(
-            root,
-            request,
-            invalid_decision=repair_decision,
-            preflight_errors=preflight_errors,
-            provider_name=provider_name,
-            provider=provider,
-            change_kind=change_kind,
-            stage=stage,
-        )
-        resolved_preflight_kind = change_kind or repair_decision.change_kind
-        target_files, operations, notes = _sanitize_repair_decision(repair_decision)
-        operations = _drop_unsafe_remove_operations(root, operations, notes)
-        operations, regression_notes = _restore_regressed_existing_add_operations(root, previous_operations, operations)
-        if regression_notes:
-            notes.extend(regression_notes)
-            target_files = sorted({*target_files, *(operation.file for operation in operations)})
-        preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
-    if preflight_errors and operations:
-        raise MemoryRepairError(
-            "setting change proposal failed target schema preflight or semantic preflight: "
-            + _format_preflight_errors(preflight_errors)
-        )
-    resolved_kind: MemoryChangeKind = change_kind or repair_decision.change_kind
+    prepared = _prepare_memory_repair_decision(
+        root,
+        request,
+        repair_decision,
+        decision_was_provided=decision_was_provided,
+        provider_name=provider_name,
+        provider=provider,
+        change_kind=change_kind,
+        stage=stage,
+    )
+    repair_decision = prepared.decision
+    target_files = prepared.target_files
+    operations = prepared.operations
+    notes = prepared.notes
+    resolved_kind = prepared.change_kind
     resolved_stage: MemoryChangeStage = stage or repair_decision.stage or "unknown"
     domains = _dedupe_domains([*repair_decision.domains, *_domains_from_files(target_files)])
     impact = _analyze_memory_change_impact(
@@ -356,6 +355,100 @@ def suggest_memory_repair(
     return MemoryRepairSuggestResult(proposal=proposal, proposal_path=proposal_path, markdown_path=markdown_path)
 
 
+def _prepare_memory_repair_decision(
+    root: Path,
+    request: str,
+    repair_decision: MemoryRepairDecision,
+    *,
+    decision_was_provided: bool,
+    provider_name: str,
+    provider: ModelProvider | None,
+    change_kind: MemoryChangeKind | None,
+    stage: MemoryChangeStage | None,
+    prompt_target_files: list[str] | None = None,
+    batch_label: str | None = None,
+) -> _PreparedMemoryRepairDecision:
+    resolved_preflight_kind: MemoryChangeKind = change_kind or repair_decision.change_kind
+    target_files, operations, notes = _sanitize_repair_decision(repair_decision)
+    operations = _drop_unsafe_remove_operations(root, operations, notes)
+    preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
+    operations, local_notes, preflight_errors = _auto_repair_setting_change_semantics(
+        root,
+        operations,
+        preflight_errors,
+        change_kind=resolved_preflight_kind,
+    )
+    if local_notes:
+        notes.extend(local_notes)
+        target_files = sorted({*target_files, *(operation.file for operation in operations)})
+    target_schema_repair_attempts = 0
+    while preflight_errors and operations and not decision_was_provided and target_schema_repair_attempts < 2:
+        target_schema_repair_attempts += 1
+        previous_operations = list(operations)
+        repair_decision = repair_decision.model_copy(
+            update={
+                "target_files": target_files,
+                "operations": operations,
+                "notes": notes,
+            }
+        )
+        try:
+            repair_decision = _repair_memory_repair_decision_target_schema(
+                root,
+                request,
+                invalid_decision=repair_decision,
+                preflight_errors=preflight_errors,
+                provider_name=provider_name,
+                provider=provider,
+                change_kind=change_kind,
+                stage=stage,
+                target_files=prompt_target_files,
+            )
+        except Exception as exc:
+            if batch_label:
+                raise MemoryRepairError(f"setting change batch {batch_label} target-schema repair failed: {exc}") from exc
+            raise
+        resolved_preflight_kind = change_kind or repair_decision.change_kind
+        target_files, operations, notes = _sanitize_repair_decision(repair_decision)
+        operations = _drop_unsafe_remove_operations(root, operations, notes)
+        operations, regression_notes = _restore_regressed_existing_add_operations(root, previous_operations, operations)
+        if regression_notes:
+            notes.extend(regression_notes)
+            target_files = sorted({*target_files, *(operation.file for operation in operations)})
+        preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
+        operations, local_notes, preflight_errors = _auto_repair_setting_change_semantics(
+            root,
+            operations,
+            preflight_errors,
+            change_kind=resolved_preflight_kind,
+        )
+        if local_notes:
+            notes.extend(local_notes)
+            target_files = sorted({*target_files, *(operation.file for operation in operations)})
+    if preflight_errors and operations:
+        prefix = f"setting change batch {batch_label} " if batch_label else "setting change proposal "
+        raise MemoryRepairError(
+            prefix
+            + "failed target schema preflight or semantic preflight: "
+            + _format_preflight_errors(preflight_errors)
+        )
+    target_files = sorted({*target_files, *(operation.file for operation in operations)})
+    repair_decision = repair_decision.model_copy(
+        update={
+            "target_files": target_files,
+            "operations": operations,
+            "notes": notes,
+        }
+    )
+    return _PreparedMemoryRepairDecision(
+        decision=repair_decision,
+        target_files=target_files,
+        operations=operations,
+        notes=notes,
+        change_kind=change_kind or repair_decision.change_kind,
+    )
+
+
 def suggest_setting_change(
     root: Path,
     user_request: str,
@@ -367,11 +460,54 @@ def suggest_setting_change(
     chapter_number: int | None = None,
     audit_issue_ids: list[str] | None = None,
 ) -> MemoryRepairSuggestResult:
-    return suggest_memory_repair(
+    root = root.resolve()
+    request = user_request.strip()
+    if not request:
+        raise MemoryRepairError("setting change request must not be empty")
+    batch_plan = generate_memory_change_batch_plan(
         root,
-        user_request,
+        request,
         provider_name=provider_name,
         provider=provider,
+        stage=stage,
+    )
+    prepared_batches: list[_PreparedMemoryRepairDecision] = []
+    for batch in batch_plan.batches:
+        batch_files = _target_files_for_batch(batch)
+        batch_request = _batch_memory_repair_request(request, batch)
+        try:
+            batch_decision = generate_memory_repair_decision(
+                root,
+                batch_request,
+                provider_name=provider_name,
+                provider=provider,
+                change_kind="setting_change",
+                stage=stage,
+                target_files=batch_files,
+            )
+        except Exception as exc:
+            raise MemoryRepairError(f"setting change batch {batch.batch_id} failed: {exc}") from exc
+        prepared_batches.append(
+            _prepare_memory_repair_decision(
+                root,
+                batch_request,
+                batch_decision,
+                decision_was_provided=False,
+                provider_name=provider_name,
+                provider=provider,
+                change_kind="setting_change",
+                stage=stage,
+                prompt_target_files=batch_files,
+                batch_label=batch.batch_id,
+            )
+        )
+    merged_decision = _merge_batched_memory_repair_decisions(batch_plan, prepared_batches, stage=stage)
+    return suggest_memory_repair(
+        root,
+        request,
+        provider_name=provider_name,
+        provider=provider,
+        decision=merged_decision,
         change_kind="setting_change",
         stage=stage,
         session_id=session_id,
@@ -584,6 +720,111 @@ def parse_memory_change_clarification_decision(content: str) -> MemoryChangeClar
         raise MemoryRepairError(f"provider returned invalid MemoryChangeClarificationDecision: {exc}") from exc
 
 
+def generate_memory_change_batch_plan(
+    root: Path,
+    user_request: str,
+    *,
+    provider_name: str = "config",
+    provider: ModelProvider | None = None,
+    stage: MemoryChangeStage = "unknown",
+) -> MemoryChangeBatchPlan:
+    request = user_request.strip()
+    if provider is None and provider_name.lower() == "mock":
+        return _mock_memory_change_batch_plan(request, stage=stage)
+    repair_provider = provider or create_agent_provider(
+        default_agent_config_path(root),
+        "orchestrator",
+        overrides=ProviderOverrides(provider_name=provider_name),
+    )
+    user_prompt = _memory_change_batch_plan_user_prompt(root, request, stage=stage)
+    try:
+        content = generate_with_output_guard(
+            repair_provider,
+            ModelRequest(
+                system_prompt=load_prompt_template("memory_change_batch_plan_system"),
+                user_prompt=user_prompt,
+                json_schema_name="MemoryChangeBatchPlan",
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="memory_repair",
+                interaction_mode="internal_task",
+                task="memory_change_batch_plan",
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="MemoryChangeBatchPlan",
+                json_schema_name="MemoryChangeBatchPlan",
+                allow_user_questions=False,
+            ),
+        )
+    except Exception as exc:
+        raise MemoryRepairError(f"setting change batch planner failed: {exc}") from exc
+    try:
+        return parse_memory_change_batch_plan(content)
+    except MemoryRepairError as exc:
+        raise MemoryRepairError(f"setting change batch planner returned invalid output: {exc}") from exc
+
+
+def parse_memory_change_batch_plan(content: str) -> MemoryChangeBatchPlan:
+    raw = _extract_json_object(content)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise MemoryRepairError(f"provider returned invalid MemoryChangeBatchPlan JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise MemoryRepairError("provider returned MemoryChangeBatchPlan as a non-object JSON value")
+    if "operations" in data:
+        raise MemoryRepairError("MemoryChangeBatchPlan must not include operations")
+    batches = data.get("batches")
+    if isinstance(batches, list):
+        normalized_batches: list[object] = []
+        for index, batch in enumerate(batches):
+            if isinstance(batch, dict) and "operations" in batch:
+                raise MemoryRepairError(f"MemoryChangeBatchPlan batch {index + 1} must not include operations")
+            if not isinstance(batch, dict):
+                normalized_batches.append(batch)
+                continue
+            normalized_batches.append(_normalize_memory_change_batch_data(batch, index=index))
+        data = dict(data)
+        data["batches"] = normalized_batches
+    else:
+        data = dict(data)
+    data["assumptions"] = _normalize_string_list(data.get("assumptions"))
+    data["notes"] = _normalize_string_list(data.get("notes"))
+    data["source"] = data.get("source") or "model"
+    try:
+        plan = MemoryChangeBatchPlan.model_validate(data)
+    except ValidationError as exc:
+        raise MemoryRepairError(f"provider returned invalid MemoryChangeBatchPlan: {exc}") from exc
+    _validate_memory_change_batch_plan(plan)
+    return plan
+
+
+def _normalize_memory_change_batch_data(batch: dict[str, object], *, index: int) -> dict[str, object]:
+    normalized = dict(batch)
+    normalized["target_files"] = _normalize_string_list(normalized.get("target_files"))
+    normalized["domains"] = _normalize_string_list(normalized.get("domains"))
+    instruction = normalized.get("instruction")
+    if not isinstance(instruction, str):
+        instruction_parts = _normalize_string_list(instruction)
+        if instruction_parts:
+            normalized["instruction"] = "\n".join(instruction_parts)
+    if not isinstance(normalized.get("batch_id"), str) or not str(normalized.get("batch_id")).strip():
+        normalized["batch_id"] = f"batch_{index + 1}"
+    if not isinstance(normalized.get("reason"), str) or not str(normalized.get("reason")).strip():
+        candidates = [
+            *_normalize_string_list(normalized.get("notes")),
+            *_normalize_string_list(normalized.get("assumptions")),
+        ]
+        instruction_text = normalized.get("instruction")
+        if isinstance(instruction_text, str) and instruction_text.strip():
+            candidates.append(instruction_text.strip())
+        normalized["reason"] = candidates[0] if candidates else f"按第 {index + 1} 个批次生成设定变更。"
+    return normalized
+
+
 def generate_memory_repair_decision(
     root: Path,
     user_request: str,
@@ -592,16 +833,23 @@ def generate_memory_repair_decision(
     provider: ModelProvider | None = None,
     change_kind: MemoryChangeKind | None = None,
     stage: MemoryChangeStage | None = None,
+    target_files: list[str] | None = None,
 ) -> MemoryRepairDecision:
     request = user_request.strip()
     if provider is None and provider_name.lower() == "mock":
-        return _mock_memory_repair_decision(root, request, change_kind=change_kind, stage=stage)
+        return _mock_memory_repair_decision(
+            root,
+            request,
+            change_kind=change_kind,
+            stage=stage,
+            target_files=target_files,
+        )
     repair_provider = provider or create_agent_provider(
         default_agent_config_path(root),
         "orchestrator",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
-    user_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage)
+    user_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage, target_files=target_files)
     try:
         content = generate_with_output_guard(
             repair_provider,
@@ -673,6 +921,7 @@ def _repair_memory_repair_decision_target_schema(
     provider: ModelProvider | None = None,
     change_kind: MemoryChangeKind | None = None,
     stage: MemoryChangeStage | None = None,
+    target_files: list[str] | None = None,
 ) -> MemoryRepairDecision:
     request = user_request.strip()
     repair_provider = provider or create_agent_provider(
@@ -680,7 +929,7 @@ def _repair_memory_repair_decision_target_schema(
         "orchestrator",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
-    original_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage)
+    original_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage, target_files=target_files)
     try:
         content = generate_with_output_guard(
             repair_provider,
@@ -975,7 +1224,9 @@ def _memory_repair_user_prompt(
     *,
     change_kind: MemoryChangeKind | None = None,
     stage: MemoryChangeStage | None = None,
+    target_files: list[str] | None = None,
 ) -> str:
+    allowed_files = _normalize_allowed_target_files(target_files)
     task_note = ""
     if change_kind == "setting_change":
         task_note = (
@@ -993,12 +1244,12 @@ def _memory_repair_user_prompt(
         "请生成 MemoryRepairDecision JSON。\n"
         f"{task_note}"
         "允许 target_files：\n"
-        + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES))
+        + "\n".join(f"- {path}" for path in allowed_files)
         + "\n\n"
         "当前文件结构与 JSON Pointer 路径索引：\n"
-        f"{_memory_pointer_index(root)}\n\n"
+        f"{_memory_pointer_index(root, target_files=allowed_files)}\n\n"
         "当前可见 ID 摘要：\n"
-        f"{_memory_id_summary(root)}\n\n"
+        f"{_memory_id_summary(root, target_files=allowed_files)}\n\n"
         f"用户请求：\n{request}\n"
     )
 
@@ -1011,6 +1262,28 @@ def build_memory_repair_user_prompt(
     stage: MemoryChangeStage | None = None,
 ) -> str:
     return _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage)
+
+
+def _memory_change_batch_plan_user_prompt(
+    root: Path,
+    request: str,
+    *,
+    stage: MemoryChangeStage,
+) -> str:
+    return (
+        "请生成 MemoryChangeBatchPlan JSON。\n"
+        "本次任务是 setting_change 的分批规划：只拆分批次，不生成 operations。\n"
+        f"{SETTING_CHANGE_MAPPING_RULES}"
+        f"创作阶段：{stage or 'unknown'}。\n\n"
+        "允许 target_files：\n"
+        + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES))
+        + "\n\n"
+        "当前文件结构与 JSON Pointer 路径索引：\n"
+        f"{_memory_pointer_index(root)}\n\n"
+        "当前可见 ID 摘要：\n"
+        f"{_memory_id_summary(root)}\n\n"
+        f"用户请求：\n{request}\n"
+    )
 
 
 def _memory_change_clarification_user_prompt(
@@ -1046,9 +1319,16 @@ def _memory_change_clarification_user_prompt(
     )
 
 
-def _memory_pointer_index(root: Path) -> str:
+def _normalize_allowed_target_files(target_files: list[str] | None) -> list[str]:
+    if not target_files:
+        return sorted(ALLOWED_MEMORY_FILES)
+    allowed = [path for path in target_files if path in ALLOWED_MEMORY_FILES]
+    return sorted(dict.fromkeys(allowed)) or sorted(ALLOWED_MEMORY_FILES)
+
+
+def _memory_pointer_index(root: Path, *, target_files: list[str] | None = None) -> str:
     sections: list[str] = []
-    for rel_path in sorted(ALLOWED_MEMORY_FILES):
+    for rel_path in _normalize_allowed_target_files(target_files):
         sections.append(_file_pointer_index(root, rel_path))
     return "\n".join(sections)
 
@@ -1157,9 +1437,9 @@ def _timeline_pointer_index(data: dict[str, object]) -> list[str]:
     return lines
 
 
-def _memory_id_summary(root: Path) -> str:
+def _memory_id_summary(root: Path, *, target_files: list[str] | None = None) -> str:
     lines: list[str] = []
-    for rel_path in sorted(ALLOWED_MEMORY_FILES):
+    for rel_path in _normalize_allowed_target_files(target_files):
         path = root / rel_path
         if not path.exists():
             lines.append(f"- {rel_path}: missing")
@@ -1236,13 +1516,14 @@ def _target_schema_repair_prompt(
         "- Location 顶层没有 description 字段；地点公开描述写 reader_visible_summary，隐藏/作者私有说明写 private_author_notes，地点规则写 rules[]；不要使用 /locations/{i}/description。\n"
         "- Character.role 只能表示叙事角色；默认使用主角、主要人物、配角、次要人物。家族身份、门派身份、排行、职业/江湖身份必须移入 tags，并可保留在 summary/notes。\n"
         "- 不要把谢家长女、谢家次子、张家幼女、唐门二房之女、江湖散人、武当俗家弟子这类身份短语写入 Character.role。\n"
+        "- reader_visible_summary 只能写读者可见信息；如果错误提示 hidden truth appears in reader_visible_summary，必须把隐藏内容移到 private_author_notes 或 hidden_truths.json，不要放在 reader_visible_summary。\n"
         "- 如果错误提示 add would duplicate existing ... at /collection/index 或 duplicate ... id，说明该实体已经存在；"
         "不要保留 add /collection/-，请改成对应已有 path 的 replace（字段级 replace 优先），"
         "或在无法确定时清空 operations 并在 notes 写明原因。\n"
         "- 如果仍无法安全修复，operations 置空并在 notes 中写明 target schema 缺失信息；不要向用户提问。\n\n"
         "目标 schema preflight 错误 / semantic preflight 错误：\n"
         f"{_format_preflight_errors(preflight_errors, max_chars=6000)}\n\n"
-        f"上一次 MemoryRepairDecision：\n{invalid_json[:5000]}\n"
+        f"上一次 MemoryRepairDecision：\n{invalid_json}\n"
     )
 
 
@@ -1255,6 +1536,91 @@ def _empty_memory_repair_decision(note: str) -> MemoryRepairDecision:
         needs_user_confirmation=True,
         notes=[note, "没有生成可安全自动应用的 patch；请提供具体 event/entity id 或手动编辑 proposal。"],
         source="fallback",
+    )
+
+
+def _validate_memory_change_batch_plan(plan: MemoryChangeBatchPlan) -> None:
+    if plan.change_kind != "setting_change":
+        raise MemoryRepairError("MemoryChangeBatchPlan.change_kind must be setting_change")
+    for batch in plan.batches:
+        _target_files_for_batch(batch)
+
+
+def _target_files_for_batch(batch: MemoryChangeBatch) -> list[str]:
+    target_files = [path for path in batch.target_files if path in ALLOWED_MEMORY_FILES]
+    invalid_files = sorted({path for path in batch.target_files if path not in ALLOWED_MEMORY_FILES})
+    if invalid_files:
+        raise MemoryRepairError(
+            f"MemoryChangeBatch {batch.batch_id} targets non-allowed file(s): " + ", ".join(invalid_files)
+        )
+    for domain in batch.domains:
+        rel_path = DOMAIN_FILES.get(domain)
+        if rel_path:
+            target_files.append(rel_path)
+    target_files = sorted(dict.fromkeys(target_files))
+    if not target_files:
+        raise MemoryRepairError(f"MemoryChangeBatch {batch.batch_id} has no allowed target_files")
+    return target_files
+
+
+def _batch_memory_repair_request(original_request: str, batch: MemoryChangeBatch) -> str:
+    return (
+        "原始设定变更请求：\n"
+        f"{original_request}\n\n"
+        f"当前批次：{batch.batch_id}\n"
+        f"批次原因：{batch.reason}\n"
+        "本批次只生成下列领域/文件相关 operations；不要处理其他批次内容。\n"
+        f"domains: {', '.join(batch.domains) or 'none'}\n"
+        f"target_files: {', '.join(_target_files_for_batch(batch))}\n\n"
+        "本批次具体指令：\n"
+        f"{batch.instruction}\n"
+    )
+
+
+def _merge_batched_memory_repair_decisions(
+    plan: MemoryChangeBatchPlan,
+    prepared_batches: list[_PreparedMemoryRepairDecision],
+    *,
+    stage: MemoryChangeStage,
+) -> MemoryRepairDecision:
+    operations: list[MemoryRepairOperation] = []
+    target_files: list[str] = []
+    domains: list[MemoryChangeDomain] = [domain for batch in plan.batches for domain in batch.domains]
+    notes: list[str] = []
+    assumptions: list[str] = list(plan.assumptions)
+    followups: list[MemoryChangeFollowupAction] = []
+    confidences = [plan.confidence]
+    notes.extend(plan.notes)
+    notes.append(f"已按 {len(plan.batches)} 个批次生成设定变更建议，并合并为单个 proposal。")
+    for batch, prepared in zip(plan.batches, prepared_batches):
+        decision = prepared.decision
+        batch_prefix = f"批次 {batch.batch_id}"
+        operations.extend(prepared.operations)
+        target_files.extend(prepared.target_files)
+        domains.extend(decision.domains)
+        domains.extend(_domains_from_files(prepared.target_files))
+        assumptions.extend(decision.assumptions)
+        followups.extend(decision.followup_actions)
+        confidences.append(decision.confidence)
+        if prepared.operations:
+            notes.append(f"{batch_prefix} 生成 {len(prepared.operations)} 条 operations。")
+        else:
+            notes.append(f"{batch_prefix} 未生成可安全自动应用的 operations。")
+        notes.extend(prepared.notes)
+    confidence_values = [value for value in confidences if value > 0]
+    confidence = min(confidence_values) if confidence_values else 0.0
+    return MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=sorted(set(target_files)),
+        operations=operations,
+        domains=_dedupe_domains(domains),
+        stage=stage or plan.stage or "unknown",
+        followup_actions=followups,
+        confidence=confidence,
+        assumptions=_dedupe_preserve_order(assumptions),
+        needs_user_confirmation=True,
+        notes=_dedupe_preserve_order(notes),
+        source=plan.source,
     )
 
 
@@ -1299,6 +1665,28 @@ def _mock_memory_change_clarification_decision(request: str) -> MemoryChangeClar
     return MemoryChangeClarificationDecision(
         status="ready",
         questions=[],
+        confidence=0.8,
+        assumptions=["mock provider fixture only; not used as real business inference"],
+        notes=[],
+        source="mock",
+    )
+
+
+def _mock_memory_change_batch_plan(request: str, *, stage: MemoryChangeStage) -> MemoryChangeBatchPlan:
+    target_files = _mock_infer_target_files(request) or ["memory/canon/characters.json"]
+    batches = [
+        MemoryChangeBatch(
+            batch_id=f"batch_{FILE_DOMAINS.get(rel_path, 'memory')}",
+            instruction=request,
+            target_files=[rel_path],
+            domains=_domains_from_files([rel_path]),
+            reason="mock provider fixture only; not used as real business inference",
+        )
+        for rel_path in target_files
+    ]
+    return MemoryChangeBatchPlan(
+        stage=stage,
+        batches=batches,
         confidence=0.8,
         assumptions=["mock provider fixture only; not used as real business inference"],
         notes=[],
@@ -1398,14 +1786,16 @@ def _mock_memory_repair_decision(
     *,
     change_kind: MemoryChangeKind | None = None,
     stage: MemoryChangeStage | None = None,
+    target_files: list[str] | None = None,
 ) -> MemoryRepairDecision:
-    target_files = _mock_infer_target_files(request)
-    operations = _mock_infer_operations(root, request, target_files)
+    request = _mock_effective_memory_repair_request(request)
+    resolved_target_files = _normalize_allowed_target_files(target_files) if target_files else _mock_infer_target_files(request)
+    operations = _mock_infer_operations(root, request, resolved_target_files)
     return MemoryRepairDecision(
         change_kind=change_kind or ("setting_change" if _looks_like_setting_change(request) else "memory_repair"),
-        target_files=target_files,
+        target_files=resolved_target_files,
         operations=operations,
-        domains=_domains_from_files(target_files),
+        domains=_domains_from_files(resolved_target_files),
         stage=stage or "unknown",
         confidence=0.8 if operations else 0.2,
         assumptions=["mock provider fixture only; not used as real business inference"],
@@ -1413,6 +1803,13 @@ def _mock_memory_repair_decision(
         notes=["mock provider generated deterministic repair proposal for tests."],
         source="mock",
     )
+
+
+def _mock_effective_memory_repair_request(request: str) -> str:
+    marker = "本批次具体指令：\n"
+    if marker not in request:
+        return request
+    return request.rsplit(marker, 1)[-1].strip() or request
 
 
 def _mock_infer_target_files(request: str) -> list[str]:
@@ -2156,6 +2553,7 @@ def _preflight_memory_repair_operations(
     if change_kind == "setting_change":
         errors.extend(_preflight_setting_change_add_id_conflicts(root, operations))
         errors.extend(_preflight_setting_change_semantics(operations))
+        errors.extend(_preflight_hidden_truth_reader_visible_leaks(root, operations))
     return errors
 
 
@@ -2359,6 +2757,123 @@ def _collection_id_index(data: object, collection_key: str) -> dict[str, int]:
         if isinstance(item_id, str) and item_id not in indexes:
             indexes[item_id] = index
     return indexes
+
+
+def _auto_repair_setting_change_semantics(
+    root: Path,
+    operations: list[MemoryRepairOperation],
+    preflight_errors: list[str],
+    *,
+    change_kind: MemoryChangeKind | None,
+) -> tuple[list[MemoryRepairOperation], list[str], list[str]]:
+    if change_kind != "setting_change" or not preflight_errors:
+        return operations, [], preflight_errors
+    operations, notes = _auto_repair_character_identity_tags(operations, preflight_errors)
+    if not notes:
+        return operations, [], preflight_errors
+    updated_errors = _preflight_memory_repair_operations(root, operations, change_kind=change_kind)
+    return operations, notes, updated_errors
+
+
+def _auto_repair_character_identity_tags(
+    operations: list[MemoryRepairOperation],
+    preflight_errors: list[str],
+) -> tuple[list[MemoryRepairOperation], list[str]]:
+    if not any("Character identity phrase(s) must be in tags" in error for error in preflight_errors):
+        return operations, []
+    repaired: list[MemoryRepairOperation] = []
+    note_details: list[str] = []
+    for operation in operations:
+        parts = _pointer_parts(operation.path)
+        if (
+            operation.file != "memory/canon/characters.json"
+            or operation.op not in {"add", "replace"}
+            or len(parts) != 2
+            or parts[0] != "characters"
+            or not isinstance(operation.value, dict)
+        ):
+            repaired.append(operation)
+            continue
+        value = json.loads(json.dumps(operation.value, ensure_ascii=False))
+        tags = _string_values(value.get("tags"))
+        missing_tags = [
+            phrase
+            for phrase in _character_identity_phrases_from_fields(value)
+            if phrase not in tags
+        ]
+        if not missing_tags:
+            repaired.append(operation)
+            continue
+        value["tags"] = [*tags, *missing_tags]
+        repaired.append(operation.model_copy(update={"value": value}))
+        label = _operation_semantic_location(operation)
+        note_details.append(f"{label}: " + ", ".join(missing_tags))
+    if not note_details:
+        return operations, []
+    return repaired, ["已本地补齐 Character.tags 中缺失的身份短语：" + "；".join(note_details)]
+
+
+def _preflight_hidden_truth_reader_visible_leaks(
+    root: Path,
+    operations: list[MemoryRepairOperation],
+) -> list[str]:
+    try:
+        data_by_file = _memory_data_after_operations(root, operations)
+    except Exception:
+        return []
+    hidden_truths = _collection_items(data_by_file.get("memory/canon/hidden_truths.json"), "hidden_truths")
+    if not hidden_truths:
+        return []
+    visible_sources: list[tuple[str, str, str]] = []
+    for rel_path, collection_key in (
+        ("memory/canon/characters.json", "characters"),
+        ("memory/canon/locations.json", "locations"),
+        ("memory/canon/items.json", "items"),
+    ):
+        for item in _collection_items(data_by_file.get(rel_path), collection_key):
+            item_id = item.get("id")
+            summary = item.get("reader_visible_summary")
+            if isinstance(item_id, str) and isinstance(summary, str):
+                visible_sources.append((rel_path, item_id, summary))
+    errors: list[str] = []
+    for truth in hidden_truths:
+        truth_id = truth.get("id")
+        fragments = [
+            fragment.strip()
+            for fragment in (truth.get("description"), truth.get("title"))
+            if isinstance(fragment, str) and fragment.strip()
+        ]
+        if not isinstance(truth_id, str) or not fragments:
+            continue
+        for rel_path, entity_id, summary in visible_sources:
+            for fragment in fragments:
+                if fragment in summary:
+                    errors.append(
+                        f"{rel_path}: hidden truth {truth_id} appears in reader_visible_summary for {entity_id}. "
+                        "Move hidden information into private_author_notes or hidden_truths.json only."
+                    )
+                    break
+    return errors
+
+
+def _memory_data_after_operations(root: Path, operations: list[MemoryRepairOperation]) -> dict[str, object]:
+    data_by_file: dict[str, object] = {
+        rel_path: load_json(root / rel_path)
+        for rel_path in ALLOWED_MEMORY_FILES
+        if (root / rel_path).exists()
+    }
+    for rel_path, file_operations in _group_operations(operations).items():
+        data_by_file[rel_path] = _apply_operations_to_data(data_by_file[rel_path], file_operations)
+    return data_by_file
+
+
+def _collection_items(data: object, collection_key: str) -> list[dict[str, object]]:
+    if not isinstance(data, dict):
+        return []
+    collection = data.get(collection_key)
+    if not isinstance(collection, list):
+        return []
+    return [item for item in collection if isinstance(item, dict)]
 
 
 def _preflight_setting_change_semantics(operations: list[MemoryRepairOperation]) -> list[str]:

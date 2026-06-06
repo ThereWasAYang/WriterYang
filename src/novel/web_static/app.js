@@ -933,8 +933,11 @@
     function renderSettingChangeImpact(proposal) {
       const impact = proposal.impact || {};
       const actions = proposal.followup_actions || [];
+      const operations = proposal.operations || [];
+      const notes = (proposal.notes || []).filter((note) => String(note).includes("批次") || String(note).includes("分批")).slice(0, 4);
       const html = `
         <b>设定变更影响分析</b>
+        <div>operations: ${escapeHtml(String(operations.length || 0))}</div>
         <div>domains: ${escapeHtml((proposal.domains || impact.domains || []).join(", ") || "none")}</div>
         <div>risk: ${escapeHtml(proposal.risk_level || impact.risk_level || "")}</div>
         <div>entities: ${escapeHtml((impact.entity_ids || []).join(", ") || "none")}</div>
@@ -942,6 +945,7 @@
         <div>sessions: ${escapeHtml((impact.affected_sessions || []).join(", ") || "none")}</div>
         <div>stale accepted: ${escapeHtml((impact.stale_chapters || []).join(", ") || "none")}</div>
         ${impact.summary ? `<div>${escapeHtml(impact.summary)}</div>` : ""}
+        ${notes.length ? `<div style="margin-top: 6px;">${escapeHtml(notes.join(" / "))}</div>` : ""}
         ${actions.length ? `<div style="margin-top: 6px;">follow-up: ${escapeHtml(actions.map((item) => item.action).join(", "))}</div>` : ""}
       `;
       if ($("settingChangeImpactPanel")) $("settingChangeImpactPanel").innerHTML = html;

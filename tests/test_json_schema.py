@@ -39,6 +39,7 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "memory_change_followup_action",
         "memory_change_clarification_decision",
         "memory_change_clarification_session",
+        "memory_change_batch_plan",
         "memory_repair_proposal",
         "memory_repair_apply_log",
         "management_event",
@@ -50,6 +51,7 @@ def test_schema_payloads_cover_project_json_files() -> None:
     assert set(payloads) == expected
     assert len(SCHEMA_DEFINITIONS) == len(expected)
     assert payloads["chapter_plan"]["title"] == "ChapterPlan"
+    assert payloads["memory_change_batch_plan"]["title"] == "MemoryChangeBatchPlan"
     assert "schema_version" in payloads["characters"]["properties"]
     assert "schema_version" in payloads["audit_report"]["properties"]
     timeline_defs = payloads["timeline"]["$defs"]

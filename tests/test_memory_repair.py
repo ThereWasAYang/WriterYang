@@ -358,7 +358,6 @@ def test_setting_change_preflights_character_role_semantics(tmp_path: Path) -> N
     message = str(excinfo.value)
     assert "Character.role semantic preflight" in message
     assert "谢家长女" in message
-    assert "must be in tags" in message
     assert not list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
 
 
@@ -430,6 +429,206 @@ def test_setting_change_role_semantic_retry_repairs_tags(tmp_path: Path) -> None
     apply_memory_repair(root, result.proposal_path)
     characters = load_json_model(root / "memory" / "canon" / "characters.json", CharactersFile)
     assert any(character.name == "谢蛰雨" and character.role == "主要人物" for character in characters.characters)
+
+
+def test_setting_change_local_repair_adds_missing_identity_tags_without_provider_retry(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    first = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_xie_huaiyun",
+                    "name": "谢怀云",
+                    "role": "主要人物",
+                    "reader_visible_summary": "谢怀云是武当俗家弟子。",
+                    "tags": ["武当俗家弟子"],
+                },
+                "reason": "首次模型输出已有叙事角色，但缺 exact identity tag。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    provider = MockProvider(fake_response=json.dumps(first, ensure_ascii=False))
+
+    result = suggest_memory_repair(
+        root,
+        "新增主要人物谢怀云，设定为武当俗家弟子。",
+        provider=provider,
+        change_kind="setting_change",
+    )
+
+    assert len(provider.requests) == 1
+    value = result.proposal.operations[0].value
+    assert isinstance(value, dict)
+    assert value["role"] == "主要人物"
+    assert "武当俗家弟子" in value["tags"]
+    assert "俗家弟子" in value["tags"]
+    assert any("已本地补齐 Character.tags" in note for note in result.proposal.notes)
+
+
+def test_setting_change_suggest_batches_and_merges_single_proposal(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    batch_plan = {
+        "change_kind": "setting_change",
+        "stage": "pre_creation",
+        "batches": [
+            {
+                "batch_id": "batch_characters",
+                "instruction": "新增人物沈微。",
+                "target_files": ["memory/canon/characters.json"],
+                "domains": ["characters"],
+                "reason": "人物设定独立生成。",
+            },
+            {
+                "batch_id": "batch_items",
+                "instruction": "新增物品青铜铃。",
+                "target_files": ["memory/canon/items.json"],
+                "domains": ["items"],
+                "reason": "物品设定独立生成。",
+            },
+        ],
+        "confidence": 0.9,
+    }
+    character_decision = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "domains": ["characters"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_shen_wei",
+                    "name": "沈微",
+                    "role": "主要人物",
+                    "reader_visible_summary": "沈微是新登场人物。",
+                    "tags": ["新人物"],
+                },
+                "reason": "新增人物沈微。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    item_decision = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/items.json"],
+        "domains": ["items"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/items.json",
+                "path": "/items/-",
+                "value": {
+                    "id": "item_bronze_bell",
+                    "name": "青铜铃",
+                    "type": "信物",
+                    "reader_visible_summary": "青铜铃是一枚旧信物。",
+                    "special_properties": [],
+                    "tags": ["信物"],
+                },
+                "reason": "新增物品青铜铃。",
+            }
+        ],
+        "confidence": 0.85,
+    }
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(batch_plan, ensure_ascii=False),
+            json.dumps(character_decision, ensure_ascii=False),
+            json.dumps(item_decision, ensure_ascii=False),
+        ]
+    )
+
+    result = suggest_setting_change(
+        root,
+        "新增人物沈微，并新增物品青铜铃。",
+        provider=provider,
+        stage="pre_creation",
+    )
+
+    assert len(provider.requests) == 3
+    assert "MemoryChangeBatchPlan" in provider.requests[0].json_schema_name
+    assert "允许 target_files：\n- memory/canon/characters.json\n\n当前文件结构" in provider.requests[1].user_prompt
+    assert "允许 target_files：\n- memory/canon/items.json\n\n当前文件结构" in provider.requests[2].user_prompt
+    proposal = result.proposal
+    assert len(proposal.operations) == 2
+    assert proposal.domains == ["characters", "items"]
+    assert any("已按 2 个批次生成设定变更建议" in note for note in proposal.notes)
+    assert proposal.operations[0].file == "memory/canon/characters.json"
+    assert proposal.operations[1].file == "memory/canon/items.json"
+
+
+def test_setting_change_repairs_hidden_truth_leak_before_apply(tmp_path: Path) -> None:
+    root = _workspace_with_hidden_truth_and_thread(tmp_path)
+    first = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_bai_shuanghan",
+                    "name": "白霜瀚",
+                    "role": "主要人物",
+                    "reader_visible_summary": "白霜瀚知道桃花源村的旧隐藏真相。",
+                    "private_author_notes": None,
+                    "tags": ["江湖散人"],
+                },
+                "reason": "首次模型把隐藏真相写进 reader-visible summary。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    repaired = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_bai_shuanghan",
+                    "name": "白霜瀚",
+                    "role": "主要人物",
+                    "reader_visible_summary": "白霜瀚正在调查一桩旧事。",
+                    "private_author_notes": "白霜瀚知道桃花源村的旧隐藏真相。",
+                    "tags": ["江湖散人"],
+                },
+                "reason": "把隐藏信息移入 private_author_notes。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(first, ensure_ascii=False),
+            json.dumps(repaired, ensure_ascii=False),
+        ]
+    )
+
+    result = suggest_memory_repair(
+        root,
+        "新增主要人物白霜瀚，隐藏知道桃花源村旧真相。",
+        provider=provider,
+        change_kind="setting_change",
+    )
+
+    assert len(provider.requests) == 2
+    assert "hidden truth" in provider.requests[1].user_prompt
+    value = result.proposal.operations[0].value
+    assert isinstance(value, dict)
+    assert "旧隐藏真相" not in value["reader_visible_summary"]
+    assert "旧隐藏真相" in value["private_author_notes"]
+    apply_memory_repair(root, result.proposal_path)
 
 
 def test_setting_change_apply_rejects_existing_bad_character_role_proposal(tmp_path: Path) -> None:
@@ -693,11 +892,11 @@ def test_setting_change_repair_restores_regressed_duplicate_context_adds(tmp_pat
                 "value": {
                     "id": "char_xie_huaiyun",
                     "name": "谢怀云",
-                    "role": "主要人物",
+                    "role": "谢家长女",
                     "reader_visible_summary": "谢怀云是武当俗家弟子。",
-                    "tags": [],
+                    "tags": ["谢家长女"],
                 },
-                "reason": "第一次 repair 仍缺 identity tags。",
+                "reason": "第一次 repair 仍含非法 Character.role。",
             },
             {
                 "op": "replace",
@@ -772,7 +971,7 @@ def test_setting_change_repair_restores_regressed_duplicate_context_adds(tmp_pat
     assert len(provider.requests) == 3
     assert "只修改下方 preflight 错误直接涉及的 operation" in provider.requests[1].user_prompt
     assert "replace operation must include value" in provider.requests[1].user_prompt
-    assert "Character identity phrase" in provider.requests[2].user_prompt
+    assert "Character.role semantic preflight" in provider.requests[2].user_prompt
     operations = result.proposal.operations
     assert not any(operation.op == "add" and operation.file == "memory/canon/hidden_truths.json" for operation in operations)
     assert not any(operation.op == "add" and operation.file == "memory/canon/foreshadowing.json" for operation in operations)

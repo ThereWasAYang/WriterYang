@@ -1153,6 +1153,30 @@ class MemoryChangeClarificationSession(SchemaVersionedModel):
     updated_at: datetime
 
 
+class MemoryChangeBatch(FlexibleModel):
+    batch_id: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    instruction: str = Field(min_length=1)
+    target_files: list[str] = Field(default_factory=list)
+    domains: list[MemoryChangeDomain] = Field(default_factory=list)
+    reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_scope(self) -> "MemoryChangeBatch":
+        if not self.target_files and not self.domains:
+            raise ValueError("batch requires target_files or domains")
+        return self
+
+
+class MemoryChangeBatchPlan(SchemaVersionedModel):
+    change_kind: Literal["setting_change"] = "setting_change"
+    stage: MemoryChangeStage = "unknown"
+    batches: list[MemoryChangeBatch] = Field(min_length=1, max_length=8)
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    assumptions: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    source: DecisionSource = "model"
+
+
 class MemoryRepairDecision(SchemaVersionedModel):
     change_kind: MemoryChangeKind = "memory_repair"
     target_files: list[str] = Field(default_factory=list)

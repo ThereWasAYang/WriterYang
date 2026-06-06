@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "MemoryChangeBatch": {
+      "additionalProperties": true,
+      "properties": {
+        "batch_id": {
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "instruction": {
+          "minLength": 1,
+          "title": "Instruction",
+          "type": "string"
+        },
+        "target_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Files",
+          "type": "array"
+        },
+        "domains": {
+          "items": {
+            "enum": [
+              "characters",
+              "locations",
+              "items",
+              "world",
+              "hidden_truths",
+              "foreshadowing",
+              "current_state",
+              "timeline"
+            ],
+            "type": "string"
+          },
+          "title": "Domains",
+          "type": "array"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "batch_id",
+        "instruction",
+        "reason"
+      ],
+      "title": "MemoryChangeBatch",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "change_kind": {
+      "const": "setting_change",
+      "default": "setting_change",
+      "title": "Change Kind",
+      "type": "string"
+    },
+    "stage": {
+      "default": "unknown",
+      "enum": [
+        "pre_creation",
+        "outline_discussion",
+        "content_review",
+        "post_chapter",
+        "unknown"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "batches": {
+      "items": {
+        "$ref": "#/$defs/MemoryChangeBatch"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Batches",
+      "type": "array"
+    },
+    "confidence": {
+      "default": 0.0,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "source": {
+      "default": "model",
+      "enum": [
+        "model",
+        "fallback",
+        "mock",
+        "deterministic"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "batches"
+  ],
+  "title": "MemoryChangeBatchPlan",
+  "type": "object"
+}

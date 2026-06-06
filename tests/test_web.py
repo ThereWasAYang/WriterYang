@@ -1133,6 +1133,65 @@ def test_api_setting_change_suggest_rich_new_setting_is_ready(tmp_path: Path) ->
     assert suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
 
 
+def test_api_setting_change_apply_error_includes_apply_log_details(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    repair_id = "repair_20260606_010101_000001"
+    repair_dir = root / "memory" / "repairs" / repair_id
+    repair_dir.mkdir(parents=True)
+    proposal_path = repair_dir / "proposal.json"
+    proposal_path.write_text(
+        json.dumps(
+            {
+                "repair_id": repair_id,
+                "created_by": "orchestrator",
+                "change_kind": "setting_change",
+                "user_request": "新增坏字段人物",
+                "target_files": ["memory/canon/characters.json"],
+                "operations": [
+                    {
+                        "op": "add",
+                        "file": "memory/canon/characters.json",
+                        "path": "/characters/-",
+                        "value": {
+                            "id": "char_bad_schema",
+                            "name": "坏字段人物",
+                            "role": "supporting",
+                            "reader_visible_summary": "字段类型不符合 schema。",
+                            "abilities": ["字符串能力"],
+                        },
+                        "reason": "测试 Web apply schema failure details。",
+                    }
+                ],
+                "risk_level": "medium",
+                "validation_before": {},
+                "notes": [],
+                "created_at": "2026-06-06T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/settings/change/apply",
+        "",
+        json.dumps({"path": str(root), "proposal_path": f"memory/repairs/{repair_id}/proposal.json"}),
+    )
+
+    assert status == 400
+    assert payload["ok"] is False
+    error = payload["error"]  # type: ignore[index]
+    assert error["code"] == "memory_repair_error"
+    assert error["request_id"]
+    assert "schema validation failed" in error["message"]
+    assert error["details"]["repair_id"] == repair_id
+    assert error["details"]["apply_log_relative_path"] == f"memory/repairs/{repair_id}/apply_log.json"
+    assert (repair_dir / "apply_log.json").is_file()
+
+
 def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     session_id = "session_20260529_010101_000004"
@@ -1224,6 +1283,13 @@ def test_frontend_basic_render() -> None:
     assert "latestHeaderMessageDetails" in app_js
     assert "summarizedMessage(text)" in app_js
     assert "openLatestMessageDetails" in app_js
+    assert "apiFailureError(errorPayload" in app_js
+    assert "error.detailText = apiErrorDetailText(error)" in app_js
+    assert "throw apiFailureError(payload.error" in app_js
+    assert "throw apiFailureError(data.error" in app_js
+    assert "setMessage(error.message, true, error.detailText || \"\")" in app_js
+    assert "if (button.id !== \"messageDetails\") button.disabled = disabled;" in app_js
+    assert "syncMessageDetailsButton();" in app_js
     assert "showMainPage(\"logsPage\")" in app_js
     assert "showTab(\"singleFileView\")" in app_js
     assert "$(\"fileViewer\").textContent = latestHeaderMessageDetails" in app_js

@@ -15,11 +15,13 @@ from novel.core.memory_repair import (
     apply_memory_repair,
     build_memory_repair_user_prompt,
     parse_memory_repair_decision,
+    suggest_memory_repair,
     suggest_setting_change,
     suggest_setting_change_interactive,
 )
 from novel.core.prompts import load_prompt_template
-from novel.core.schemas import CharactersFile, MemoryChangeClarificationSession, MemoryRepairProposal, TimelineFile, WorldFile
+from novel.core.providers import MockProvider
+from novel.core.schemas import CharactersFile, MemoryChangeClarificationSession, MemoryRepairDecision, MemoryRepairProposal, TimelineFile, WorldFile
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -183,6 +185,224 @@ def test_setting_change_suggest_adds_character_proposal_and_apply(tmp_path: Path
     assert any(character.name == "沈微" for character in characters.characters)
 
 
+def test_setting_change_suggest_preflights_operation_value_schema(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=["memory/canon/characters.json"],
+        operations=[
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_bad_schema",
+                    "name": "坏字段人物",
+                    "role": "supporting",
+                    "reader_visible_summary": "字段类型不符合 schema。",
+                    "appearance": "字符串外貌",
+                    "personality": "字符串性格",
+                    "abilities": ["字符串能力"],
+                    "secrets": ["字符串秘密"],
+                },
+                "reason": "测试非法嵌套字段。",
+            }
+        ],
+        confidence=0.7,
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        suggest_memory_repair(root, "新增坏字段人物", decision=decision, change_kind="setting_change")
+
+    message = str(excinfo.value)
+    assert "target schema preflight" in message
+    assert "memory/canon/characters.json" in message
+    assert "abilities.0" in message
+    assert not list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
+
+
+def test_setting_change_preflight_reports_all_invalid_target_files(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=[
+            "memory/canon/characters.json",
+            "memory/canon/locations.json",
+            "memory/canon/world.json",
+            "memory/canon/hidden_truths.json",
+            "memory/canon/foreshadowing.json",
+            "memory/canon/items.json",
+        ],
+        operations=[
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_bad",
+                    "name": "坏人物",
+                    "role": "supporting",
+                    "reader_visible_summary": "坏人物。",
+                    "abilities": ["字符串能力"],
+                },
+                "reason": "非法 abilities。",
+            },
+            {
+                "op": "add",
+                "file": "memory/canon/locations.json",
+                "path": "/locations/-",
+                "value": {
+                    "id": "loc_bad",
+                    "name": "坏地点",
+                    "type": "village",
+                    "reader_visible_summary": "坏地点。",
+                    "rules": ["字符串规则"],
+                },
+                "reason": "非法 rules。",
+            },
+            {
+                "op": "add",
+                "file": "memory/canon/world.json",
+                "path": "/world_rules/-",
+                "value": {
+                    "id": "world_bad",
+                    "name": "坏世界规则",
+                    "description": "坏世界规则。",
+                    "visibility": "visible",
+                },
+                "reason": "非法 visibility。",
+            },
+            {
+                "op": "add",
+                "file": "memory/canon/hidden_truths.json",
+                "path": "/hidden_truths/-",
+                "value": {
+                    "id": "truth_bad",
+                    "title": "坏隐藏真相",
+                    "description": "坏隐藏真相。",
+                    "visibility": "hidden",
+                    "importance": "major",
+                    "planned_reveal": "后期",
+                },
+                "reason": "非法 importance/planned_reveal。",
+            },
+            {
+                "op": "add",
+                "file": "memory/canon/foreshadowing.json",
+                "path": "/foreshadowing_threads/-",
+                "value": {
+                    "id": "thread_bad",
+                    "type": "clue",
+                    "title": "坏伏笔",
+                    "introduced_in_chapter": "开篇",
+                    "description": "坏伏笔。",
+                    "status": "active",
+                    "importance": "medium",
+                    "planned_payoff": "后期揭晓",
+                },
+                "reason": "非法 introduced_in_chapter/planned_payoff。",
+            },
+            {
+                "op": "add",
+                "file": "memory/canon/items.json",
+                "path": "/items/-",
+                "value": {
+                    "id": "item_bad",
+                    "name": "坏物品",
+                    "type": "weapon",
+                    "reader_visible_summary": "坏物品。",
+                    "special_properties": ["字符串属性"],
+                },
+                "reason": "非法 special_properties。",
+            },
+        ],
+        confidence=0.7,
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        suggest_memory_repair(root, "新增多文件坏设定", decision=decision, change_kind="setting_change")
+
+    message = str(excinfo.value)
+    for rel_path in decision.target_files:
+        assert rel_path in message
+    assert "major" in message
+    assert "visible" in message
+
+
+def test_setting_change_target_schema_retry_repairs_invalid_model_value(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    first = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_retry",
+                    "name": "重试人物",
+                    "role": "supporting",
+                    "reader_visible_summary": "需要修复字段类型。",
+                    "abilities": ["剑法"],
+                },
+                "reason": "首次模型输出非法 abilities。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    repaired = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_retry",
+                    "name": "重试人物",
+                    "role": "supporting",
+                    "reader_visible_summary": "需要修复字段类型。",
+                    "appearance": {"summary": "未详述"},
+                    "personality": {"summary": "谨慎"},
+                    "abilities": [{"name": "剑法", "description": "擅长剑法。"}],
+                    "secrets": [
+                        {
+                            "id": "secret_retry",
+                            "visibility": "hidden",
+                            "description": "有隐藏身份。",
+                            "planned_reveal": None,
+                        }
+                    ],
+                },
+                "reason": "修复为目标 Character schema。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(first, ensure_ascii=False),
+            json.dumps(repaired, ensure_ascii=False),
+        ]
+    )
+
+    result = suggest_memory_repair(
+        root,
+        "新增重试人物",
+        provider=provider,
+        change_kind="setting_change",
+    )
+
+    assert len(provider.requests) == 2
+    assert "目标 schema preflight 错误" in provider.requests[1].user_prompt
+    assert result.proposal.operations[0].value["abilities"][0]["description"] == "擅长剑法。"  # type: ignore[index]
+    apply_memory_repair(root, result.proposal_path)
+    characters = load_json_model(root / "memory" / "canon" / "characters.json", CharactersFile)
+    assert any(character.id == "char_retry" for character in characters.characters)
+
+
 def test_setting_change_modifies_character_summary(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
 
@@ -238,6 +458,16 @@ def test_setting_change_pointer_context_uses_schema_fields(tmp_path: Path) -> No
 
     assert "common item fields: id, title, description, visibility, importance, related_entity_ids, planned_reveal, foreshadowing_ids" in prompt
     assert "common item fields: id, type, title, introduced_in_chapter, description, status, importance, reader_visible, hidden_truth, hidden_truth_id, planned_payoff, related_entity_ids" in prompt
+    assert "Ability {name: string, description: string, limitations?: string|null}" in prompt
+    assert "Secret {id: snake_case, visibility: reader_visible|hidden|partially_revealed" in prompt
+    assert "LocationRule {id?: snake_case|null, description: string, visibility: reader_visible|hidden|partially_revealed}" in prompt
+    assert "SpecialProperty {description: string, visibility: reader_visible|hidden|partially_revealed}" in prompt
+    assert "PlannedReveal {chapter: integer >= 1, method?: string|null}" in prompt
+    assert "PlannedPayoff {chapter: integer >= 1, description: string}" in prompt
+    assert "Visibility enum is exactly reader_visible | hidden | partially_revealed" in prompt
+    assert "Importance enum is exactly low | medium | high | critical" in prompt
+    assert "never use visible" in prompt
+    assert "never use major" in prompt
     assert "reader_safe_hint" not in prompt
     assert "common item fields: id, title, setup" not in prompt
     assert "common item fields: id, title, setup, payoff" not in prompt

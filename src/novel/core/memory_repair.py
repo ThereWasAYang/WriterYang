@@ -121,6 +121,39 @@ COLLECTION_FIELD_HINTS: dict[str, list[str]] = {
     "memory/canon/foreshadowing.json": list(ForeshadowingThread.model_fields),
 }
 
+COLLECTION_SCHEMA_HINTS: dict[str, str] = {
+    "memory/canon/characters.json": (
+        "strict add value schema: Character {id, name, role, reader_visible_summary, aliases[], private_author_notes?, "
+        "appearance: object|null, personality: object|null, relationships: Relationship[], abilities: Ability[], secrets: Secret[], tags[]}.\n"
+        "Ability {name: string, description: string, limitations?: string|null}; never use string arrays for abilities.\n"
+        "Secret {id: snake_case, visibility: reader_visible|hidden|partially_revealed, description: string, planned_reveal?: string|null}; never use string arrays for secrets."
+    ),
+    "memory/canon/locations.json": (
+        "strict add value schema: Location {id, name, type, reader_visible_summary, private_author_notes?, "
+        "parent_location_id?, connected_location_ids[], rules: LocationRule[], tags[]}.\n"
+        "LocationRule {id?: snake_case|null, description: string, visibility: reader_visible|hidden|partially_revealed}; never use string arrays for rules."
+    ),
+    "memory/canon/items.json": (
+        "strict add value schema: Item {id, name, type, reader_visible_summary, private_author_notes?, origin?, special_properties: SpecialProperty[], tags[]}.\n"
+        "SpecialProperty {description: string, visibility: reader_visible|hidden|partially_revealed}; never use string arrays for special_properties."
+    ),
+    "memory/canon/world.json": (
+        "strict add value schema: WorldRule {id, name, description, visibility: reader_visible|hidden|partially_revealed, limitations[], known_by_character_ids[]}.\n"
+        "Visibility enum is exactly reader_visible | hidden | partially_revealed; never use visible."
+    ),
+    "memory/canon/hidden_truths.json": (
+        "strict add value schema: HiddenTruth {id, title, description, visibility: reader_visible|hidden|partially_revealed, "
+        "importance: low|medium|high|critical, related_entity_ids[], planned_reveal: PlannedReveal|null, foreshadowing_ids[]}.\n"
+        "PlannedReveal {chapter: integer >= 1, method?: string|null}; never use string values such as 后期 for planned_reveal.\n"
+        "Importance enum is exactly low | medium | high | critical; never use major."
+    ),
+    "memory/canon/foreshadowing.json": (
+        "strict add value schema: ForeshadowingThread {id, type, title, introduced_in_chapter: integer >= 1, description, status, "
+        "importance: low|medium|high|critical, reader_visible?: bool|null, hidden_truth?, hidden_truth_id?, planned_payoff: PlannedPayoff|null, related_entity_ids[]}.\n"
+        "PlannedPayoff {chapter: integer >= 1, description: string}; never use string values for planned_payoff or introduced_in_chapter."
+    ),
+}
+
 COLLECTION_PATH_FILES: dict[str, str] = {
     collection_key: rel_path
     for rel_path, collection_key in FILE_COLLECTION_KEYS.items()
@@ -165,6 +198,7 @@ def suggest_memory_repair(
     if not request:
         raise MemoryRepairError("memory repair request must not be empty")
     repair_id = _new_repair_id()
+    decision_was_provided = decision is not None
     repair_decision = decision or generate_memory_repair_decision(
         root,
         request,
@@ -175,6 +209,26 @@ def suggest_memory_repair(
     )
     target_files, operations, notes = _sanitize_repair_decision(repair_decision)
     operations = _drop_unsafe_remove_operations(root, operations, notes)
+    preflight_errors = _preflight_memory_repair_operations(root, operations)
+    if preflight_errors and operations and not decision_was_provided:
+        repair_decision = _repair_memory_repair_decision_target_schema(
+            root,
+            request,
+            invalid_decision=repair_decision,
+            preflight_errors=preflight_errors,
+            provider_name=provider_name,
+            provider=provider,
+            change_kind=change_kind,
+            stage=stage,
+        )
+        target_files, operations, notes = _sanitize_repair_decision(repair_decision)
+        operations = _drop_unsafe_remove_operations(root, operations, notes)
+        preflight_errors = _preflight_memory_repair_operations(root, operations)
+    if preflight_errors and operations:
+        raise MemoryRepairError(
+            "setting change proposal failed target schema preflight: "
+            + _format_preflight_errors(preflight_errors)
+        )
     resolved_kind: MemoryChangeKind = change_kind or repair_decision.change_kind
     resolved_stage: MemoryChangeStage = stage or repair_decision.stage or "unknown"
     domains = _dedupe_domains([*repair_decision.domains, *_domains_from_files(target_files)])
@@ -547,6 +601,61 @@ def generate_memory_repair_decision(
             return _empty_memory_repair_decision(f"provider returned invalid MemoryRepairDecision: {second_error}")
 
 
+def _repair_memory_repair_decision_target_schema(
+    root: Path,
+    user_request: str,
+    *,
+    invalid_decision: MemoryRepairDecision,
+    preflight_errors: list[str],
+    provider_name: str = "config",
+    provider: ModelProvider | None = None,
+    change_kind: MemoryChangeKind | None = None,
+    stage: MemoryChangeStage | None = None,
+) -> MemoryRepairDecision:
+    request = user_request.strip()
+    repair_provider = provider or create_agent_provider(
+        default_agent_config_path(root),
+        "orchestrator",
+        overrides=ProviderOverrides(provider_name=provider_name),
+    )
+    original_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage)
+    try:
+        content = generate_with_output_guard(
+            repair_provider,
+            ModelRequest(
+                system_prompt=load_prompt_template("memory_repair_system"),
+                user_prompt=_target_schema_repair_prompt(
+                    original_prompt=original_prompt,
+                    invalid_decision=invalid_decision,
+                    preflight_errors=preflight_errors,
+                ),
+                json_schema_name="MemoryRepairDecision",
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="memory_repair",
+                interaction_mode="internal_task",
+                task="memory_repair_target_schema_repair",
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="MemoryRepairDecision",
+                json_schema_name="MemoryRepairDecision",
+                allow_user_questions=False,
+            ),
+        )
+    except AgentOutputContractError as exc:
+        raise MemoryRepairError(
+            "provider target-schema repair output violated MemoryRepairDecision contract: "
+            + ", ".join(exc.reason_codes)
+        ) from exc
+    try:
+        return parse_memory_repair_decision(content)
+    except MemoryRepairError as exc:
+        raise MemoryRepairError(f"provider returned invalid target-schema repair decision: {exc}") from exc
+
+
 def parse_memory_repair_decision(content: str) -> MemoryRepairDecision:
     raw = _extract_json_object(content)
     try:
@@ -895,6 +1004,9 @@ def _file_pointer_index(root: Path, rel_path: str) -> str:
         lines.append(f"  add new item path: /{collection_key}/-")
         if fields:
             lines.append("  common item fields: " + ", ".join(fields))
+        schema_hint = COLLECTION_SCHEMA_HINTS.get(rel_path)
+        if schema_hint:
+            lines.extend(f"  {line}" for line in schema_hint.splitlines())
         if isinstance(collection, list) and collection:
             for index, item in enumerate(collection[:20]):
                 if not isinstance(item, dict):
@@ -1019,6 +1131,32 @@ def _repair_decision_repair_prompt(*, original_prompt: str, invalid_output: str,
         "- 不要要求用户提供现有文件结构、目标文件、字段、visibility 或 JSON Pointer；原始 prompt 已提供这些结构上下文。\n"
         "- 只有创作意图本身缺失、替换/删除目标不唯一或删除风险无法安全处理时，operations 才能为空。\n"
         f"上一次输出：\n{invalid_output[:3000]}\n"
+    )
+
+
+def _target_schema_repair_prompt(
+    *,
+    original_prompt: str,
+    invalid_decision: MemoryRepairDecision,
+    preflight_errors: list[str],
+) -> str:
+    invalid_json = json.dumps(invalid_decision.model_dump(mode="json"), ensure_ascii=False, indent=2)
+    return (
+        f"{original_prompt}\n\n"
+        "上一次输出已经可以解析为 MemoryRepairDecision，但把 operations 应用到目标 memory/canon 文件后没有通过目标文件 schema preflight。\n"
+        "本次修复目标是让 operation.value 完全符合目标文件 Pydantic schema，而不只是补齐 op/file/path/reason。\n"
+        "请重新只输出修复后的 MemoryRepairDecision JSON object。不要 Markdown 或解释。\n"
+        "修复规则：\n"
+        "- 保留用户创作意图和安全的 file/path；修正 value 的字段类型、嵌套对象和 enum。\n"
+        "- add 到集合时，value 必须是对应集合元素的完整对象，且满足上方 strict add value schema。\n"
+        "- visibility 只能是 reader_visible、hidden 或 partially_revealed；importance 只能是 low、medium、high 或 critical。\n"
+        "- abilities、secrets、rules、special_properties 必须是对象数组，不要使用字符串数组。\n"
+        "- planned_reveal 和 planned_payoff 必须是对象或 null，不要使用字符串。\n"
+        "- introduced_in_chapter 必须是整数；如果用户说“开篇”，默认使用 1。\n"
+        "- 如果仍无法安全修复，operations 置空并在 notes 中写明 target schema 缺失信息；不要向用户提问。\n\n"
+        "目标 schema preflight 错误：\n"
+        f"{_format_preflight_errors(preflight_errors, max_chars=6000)}\n\n"
+        f"上一次 MemoryRepairDecision：\n{invalid_json[:5000]}\n"
     )
 
 
@@ -1903,6 +2041,31 @@ def _preview_operations(root: Path, proposal: MemoryRepairProposal) -> dict[str,
         except Exception as exc:
             preview[rel_path] = {"error": str(exc)}
     return preview
+
+
+def _preflight_memory_repair_operations(root: Path, operations: list[MemoryRepairOperation]) -> list[str]:
+    if not operations:
+        return []
+    errors: list[str] = []
+    try:
+        grouped = _group_operations(operations)
+    except Exception as exc:
+        return [str(exc)]
+    for rel_path, file_operations in grouped.items():
+        try:
+            data = load_json(root / rel_path)
+            updated = _apply_operations_to_data(data, file_operations)
+            _validate_file_model(rel_path, updated)
+        except Exception as exc:
+            errors.append(f"{rel_path}: {exc}")
+    return errors
+
+
+def _format_preflight_errors(errors: list[str], *, max_chars: int = 10000) -> str:
+    text = "\n".join(f"- {error}" for error in errors)
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 20].rstrip() + "\n... truncated ..."
 
 
 def _group_operations(operations: list[MemoryRepairOperation]) -> dict[str, list[MemoryRepairOperation]]:

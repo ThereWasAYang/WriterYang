@@ -59,16 +59,22 @@
       };
     }
 
-    function setMessage(text, isError = false) {
+    function syncMessageDetailsButton() {
       const detailsButton = $("messageDetails");
+      if (!detailsButton) return;
+      const hasDetails = Boolean(latestHeaderMessageDetails);
+      detailsButton.classList.toggle("hidden", !hasDetails);
+      detailsButton.disabled = !hasDetails;
+    }
+
+    function setMessage(text, isError = false, detailsText = "") {
       const display = summarizedMessage(text);
-      latestHeaderMessageDetails = display.isLong ? String(text ?? "") : "";
-      $("message").textContent = display.text;
+      const explicitDetails = String(detailsText || "");
+      const hasDetails = Boolean(explicitDetails) || display.isLong;
+      latestHeaderMessageDetails = hasDetails ? (explicitDetails || String(text ?? "")) : "";
+      $("message").textContent = hasDetails && !display.isLong ? `${display.text}（点击查看详情）` : display.text;
       $("message").className = isError ? "message error" : "message";
-      if (detailsButton) {
-        detailsButton.classList.toggle("hidden", !display.isLong);
-        detailsButton.disabled = !display.isLong;
-      }
+      syncMessageDetailsButton();
     }
 
     function openLatestMessageDetails() {
@@ -174,12 +180,30 @@
       `;
     }
 
+    function apiFailureError(errorPayload, fallbackMessage) {
+      const error = new Error(errorPayload?.message || fallbackMessage || "API request failed");
+      error.code = errorPayload?.code || "";
+      error.requestId = errorPayload?.request_id || "";
+      error.details = errorPayload?.details || {};
+      error.detailText = apiErrorDetailText(error);
+      return error;
+    }
+
+    function apiErrorDetailText(error) {
+      const meta = {};
+      if (error.code) meta.code = error.code;
+      if (error.requestId) meta.request_id = error.requestId;
+      if (error.details && Object.keys(error.details).length) meta.details = error.details;
+      if (!Object.keys(meta).length) return error.message || "";
+      return `${error.message || ""}\n\n${JSON.stringify(meta, null, 2)}`;
+    }
+
     async function apiGet(path, params) {
       const query = new URLSearchParams(params);
       const response = await fetch(`${path}?${query}`);
       const payload = await response.json();
       if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error?.message || "API request failed");
+        throw apiFailureError(payload.error, "API request failed");
       }
       return payload.data || {};
     }
@@ -192,7 +216,7 @@
       });
       const data = await response.json();
       if (!response.ok || data.ok === false) {
-        throw new Error(data.error?.message || "API request failed");
+        throw apiFailureError(data.error, "API request failed");
       }
       return data.data || {};
     }
@@ -1719,14 +1743,17 @@
         return result;
       } catch (error) {
         addRecentOperation(label, "失败", error.message);
-        setMessage(error.message, true);
+        setMessage(error.message, true, error.detailText || "");
       } finally {
         if (sessionProgressTimer) window.clearInterval(sessionProgressTimer);
         sessionProgressTimer = null;
         currentBusyStartedAt = null;
         currentBusyLabel = "";
         setBusyBanner("");
-        previousStates.forEach(([button, disabled]) => { button.disabled = disabled; });
+        previousStates.forEach(([button, disabled]) => {
+          if (button.id !== "messageDetails") button.disabled = disabled;
+        });
+        syncMessageDetailsButton();
       }
     }
 

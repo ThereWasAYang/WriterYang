@@ -9,6 +9,7 @@ import yaml
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.memory_repair import (
     answer_setting_change_clarification,
+    apply_memory_repair,
     build_memory_repair_user_prompt,
     generate_memory_change_clarification_decision,
     suggest_setting_change_interactive,
@@ -231,6 +232,33 @@ def test_real_deepseek_setting_change_rich_request_is_ready(tmp_path: Path) -> N
 
     assert decision.status == "ready"
     assert not decision.questions
+
+
+def test_real_deepseek_setting_change_complex_proposal_preflights(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
+        pytest.skip("DeepSeek complex setting change preflight regression requires DeepSeek env in .env.real")
+    root = _real_project(tmp_path, env)
+
+    result = suggest_setting_change_interactive(
+        root,
+        (
+            "新增人物顾听雪：顾家年轻剑客，擅长快剑，表面洒脱但暗中调查家族旧案。"
+            "新增顾家背景：江南二流武林世家，开篇时保持低调。"
+            "隐藏真相：顾听雪知道旧案与一条私运线索有关，开篇不要揭晓。"
+            "伏笔：第一章只让他注意到一枚残缺账册印记，后续再 payoff。"
+        ),
+        provider_name="config",
+        stage="outline_discussion",
+    )
+
+    assert result.status == "proposal_ready"
+    assert result.proposal_result is not None
+    assert result.proposal_result.proposal.operations
+    apply_memory_repair(root, result.proposal_result.proposal_path)
+    assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
 
 
 def _real_env_or_skip() -> dict[str, str]:

@@ -994,7 +994,15 @@ def _memory_repair_apply(data: dict[str, object]) -> dict[str, object]:
     if not proposal_path_text:
         raise WebAPIError("invalid_request", "proposal_path is required", status=400)
     proposal_path = _safe_workspace_file(root, proposal_path_text)
-    result = apply_memory_repair(root, proposal_path)
+    try:
+        result = apply_memory_repair(root, proposal_path)
+    except MemoryRepairError as exc:
+        raise WebAPIError(
+            "memory_repair_error",
+            str(exc),
+            status=400,
+            details=_memory_repair_apply_error_details(root, proposal_path),
+        ) from exc
     return {
         "proposal": result.proposal.model_dump(mode="json"),
         "apply_log": result.apply_log.model_dump(mode="json"),
@@ -1073,7 +1081,15 @@ def _settings_change_apply(data: dict[str, object]) -> dict[str, object]:
     if not proposal_path_text:
         raise WebAPIError("invalid_request", "proposal_path is required", status=400)
     proposal_path = _safe_workspace_file(root, proposal_path_text)
-    result = apply_memory_repair(root, proposal_path)
+    try:
+        result = apply_memory_repair(root, proposal_path)
+    except MemoryRepairError as exc:
+        raise WebAPIError(
+            "memory_repair_error",
+            str(exc),
+            status=400,
+            details=_memory_repair_apply_error_details(root, proposal_path),
+        ) from exc
     sync_result = {"status": "skipped", "reason": "sync_session is false"}
     if bool(data.get("sync_session")):
         sync_result = _sync_setting_change_session(
@@ -1093,6 +1109,36 @@ def _settings_change_apply(data: dict[str, object]) -> dict[str, object]:
         "sync_result": sync_result,
         "management_events": _management_event_summary(root),
     }
+
+
+def _memory_repair_apply_error_details(root: Path, proposal_path: Path) -> dict[str, object]:
+    details: dict[str, object] = {}
+    try:
+        proposal = load_json(proposal_path)
+    except Exception:
+        return details
+    if not isinstance(proposal, dict):
+        return details
+    repair_id = proposal.get("repair_id")
+    if not isinstance(repair_id, str) or not repair_id:
+        return details
+    details["repair_id"] = repair_id
+    apply_log_path = root / "memory" / "repairs" / repair_id / "apply_log.json"
+    if not apply_log_path.exists():
+        return details
+    details["apply_log_path"] = str(apply_log_path)
+    details["apply_log_relative_path"] = _relative(root, apply_log_path)
+    try:
+        apply_log = load_json(apply_log_path)
+    except Exception:
+        return details
+    if isinstance(apply_log, dict):
+        if isinstance(apply_log.get("status"), str):
+            details["apply_log_status"] = apply_log["status"]
+        errors = apply_log.get("errors")
+        if isinstance(errors, list):
+            details["apply_log_error_count"] = len(errors)
+    return details
 
 
 def _sync_setting_change_session(

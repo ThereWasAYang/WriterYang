@@ -329,6 +329,191 @@ def test_setting_change_preflight_reports_all_invalid_target_files(tmp_path: Pat
     assert "visible" in message
 
 
+def test_setting_change_preflights_character_role_semantics(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=["memory/canon/characters.json"],
+        operations=[
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_xie_zheyu",
+                    "name": "谢蛰雨",
+                    "role": "谢家长女",
+                    "reader_visible_summary": "谢蛰雨是谢家长女。",
+                    "tags": ["谢家"],
+                },
+                "reason": "测试 role 字段语义错位。",
+            }
+        ],
+        confidence=0.7,
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        suggest_memory_repair(root, "新增主要人物谢蛰雨，谢家长女", decision=decision, change_kind="setting_change")
+
+    message = str(excinfo.value)
+    assert "Character.role semantic preflight" in message
+    assert "谢家长女" in message
+    assert "must be in tags" in message
+    assert not list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
+
+
+def test_setting_change_role_semantic_retry_repairs_tags(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    first = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_xie_zheyu",
+                    "name": "谢蛰雨",
+                    "role": "谢家长女",
+                    "reader_visible_summary": "谢蛰雨是谢家长女，出身栖霞山谢氏。",
+                    "tags": ["谢家"],
+                },
+                "reason": "首次模型把身份短语放入 role。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    repaired = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_xie_zheyu",
+                    "name": "谢蛰雨",
+                    "role": "主要人物",
+                    "reader_visible_summary": "谢蛰雨是谢家长女，出身栖霞山谢氏。",
+                    "tags": ["谢家", "谢家长女"],
+                    "abilities": [],
+                    "secrets": [],
+                },
+                "reason": "修复 Character.role 为叙事角色，并把身份短语移入 tags。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(first, ensure_ascii=False),
+            json.dumps(repaired, ensure_ascii=False),
+        ]
+    )
+
+    result = suggest_memory_repair(
+        root,
+        "新增主要人物谢蛰雨，女性，谢家长女。",
+        provider=provider,
+        change_kind="setting_change",
+    )
+
+    assert len(provider.requests) == 2
+    assert "Character.role" in provider.requests[1].user_prompt
+    assert "semantic preflight" in provider.requests[1].user_prompt
+    value = result.proposal.operations[0].value
+    assert isinstance(value, dict)
+    assert value["role"] == "主要人物"
+    assert "谢家长女" in value["tags"]
+    apply_memory_repair(root, result.proposal_path)
+    characters = load_json_model(root / "memory" / "canon" / "characters.json", CharactersFile)
+    assert any(character.name == "谢蛰雨" and character.role == "主要人物" for character in characters.characters)
+
+
+def test_setting_change_apply_rejects_existing_bad_character_role_proposal(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    characters_path = root / "memory" / "canon" / "characters.json"
+    before = characters_path.read_text(encoding="utf-8")
+    repair_id = "repair_20260606_020202_000001"
+    repair_dir = root / "memory" / "repairs" / repair_id
+    repair_dir.mkdir(parents=True)
+    proposal_path = repair_dir / "proposal.json"
+    proposal_path.write_text(
+        json.dumps(
+            {
+                "repair_id": repair_id,
+                "created_by": "orchestrator",
+                "change_kind": "setting_change",
+                "user_request": "新增主要人物谢蛰雨，谢家长女。",
+                "target_files": ["memory/canon/characters.json"],
+                "operations": [
+                    {
+                        "op": "add",
+                        "file": "memory/canon/characters.json",
+                        "path": "/characters/-",
+                        "value": {
+                            "id": "char_xie_zheyu",
+                            "name": "谢蛰雨",
+                            "role": "谢家长女",
+                            "reader_visible_summary": "谢蛰雨是谢家长女。",
+                            "tags": ["谢家"],
+                        },
+                        "reason": "测试 apply 语义 preflight。",
+                    }
+                ],
+                "risk_level": "medium",
+                "validation_before": {},
+                "notes": [],
+                "created_at": "2026-06-06T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        apply_memory_repair(root, proposal_path)
+
+    assert "Character.role semantic preflight" in str(excinfo.value)
+    assert characters_path.read_text(encoding="utf-8") == before
+    apply_log = json.loads((repair_dir / "apply_log.json").read_text(encoding="utf-8"))
+    assert apply_log["status"] == "failed"
+    assert apply_log["backups"] == []
+
+
+def test_setting_change_allows_narrative_role_with_identity_tags(tmp_path: Path) -> None:
+    root = _workspace_with_timeline_event(tmp_path)
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=["memory/canon/characters.json"],
+        operations=[
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_xie_zheyu",
+                    "name": "谢蛰雨",
+                    "role": "主要人物",
+                    "reader_visible_summary": "谢蛰雨是谢家长女。",
+                    "tags": ["谢家", "谢家长女"],
+                },
+                "reason": "新增合法叙事角色人物。",
+            }
+        ],
+        confidence=0.7,
+    )
+
+    result = suggest_memory_repair(root, "新增主要人物谢蛰雨，谢家长女", decision=decision, change_kind="setting_change")
+    apply_memory_repair(root, result.proposal_path)
+    characters = load_json_model(root / "memory" / "canon" / "characters.json", CharactersFile)
+    assert any(character.name == "谢蛰雨" and "谢家长女" in character.tags for character in characters.characters)
+
+
 def test_setting_change_target_schema_retry_repairs_invalid_model_value(tmp_path: Path) -> None:
     root = _workspace_with_timeline_event(tmp_path)
     first = {
@@ -449,6 +634,10 @@ def test_setting_change_prompt_uses_system_owned_pointer_mapping(tmp_path: Path)
     assert "不要询问用户该写哪个文件、字段、visibility 或 JSON Pointer" in clarification_system
     assert "只有 exact id、exact name 或 exact alias 匹配" in prompt
     assert "不要把新姓名近似联想到现有角色" in prompt
+    assert "Character.role 只表示叙事角色" in prompt
+    assert "role=\"主要人物\"" in prompt
+    assert "谢家长女" in prompt
+    assert "必须写入 tags" in prompt
 
 
 def test_setting_change_pointer_context_uses_schema_fields(tmp_path: Path) -> None:
@@ -459,6 +648,8 @@ def test_setting_change_pointer_context_uses_schema_fields(tmp_path: Path) -> No
     assert "common item fields: id, title, description, visibility, importance, related_entity_ids, planned_reveal, foreshadowing_ids" in prompt
     assert "common item fields: id, type, title, introduced_in_chapter, description, status, importance, reader_visible, hidden_truth, hidden_truth_id, planned_payoff, related_entity_ids" in prompt
     assert "Ability {name: string, description: string, limitations?: string|null}" in prompt
+    assert "Character.role is narrative role only" in prompt
+    assert "Never put family rank, sect identity, profession, or jianghu identity in role" in prompt
     assert "Secret {id: snake_case, visibility: reader_visible|hidden|partially_revealed" in prompt
     assert "LocationRule {id?: snake_case|null, description: string, visibility: reader_visible|hidden|partially_revealed}" in prompt
     assert "SpecialProperty {description: string, visibility: reader_visible|hidden|partially_revealed}" in prompt

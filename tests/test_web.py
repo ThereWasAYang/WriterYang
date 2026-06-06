@@ -1192,6 +1192,66 @@ def test_api_setting_change_apply_error_includes_apply_log_details(tmp_path: Pat
     assert (repair_dir / "apply_log.json").is_file()
 
 
+def test_api_setting_change_apply_rejects_bad_character_role_semantics(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    repair_id = "repair_20260606_010101_000002"
+    repair_dir = root / "memory" / "repairs" / repair_id
+    repair_dir.mkdir(parents=True)
+    proposal_path = repair_dir / "proposal.json"
+    proposal_path.write_text(
+        json.dumps(
+            {
+                "repair_id": repair_id,
+                "created_by": "orchestrator",
+                "change_kind": "setting_change",
+                "user_request": "新增主要人物谢蛰雨，谢家长女。",
+                "target_files": ["memory/canon/characters.json"],
+                "operations": [
+                    {
+                        "op": "add",
+                        "file": "memory/canon/characters.json",
+                        "path": "/characters/-",
+                        "value": {
+                            "id": "char_xie_zheyu",
+                            "name": "谢蛰雨",
+                            "role": "谢家长女",
+                            "reader_visible_summary": "谢蛰雨是谢家长女。",
+                            "tags": ["谢家"],
+                        },
+                        "reason": "测试 Web apply role semantic failure details。",
+                    }
+                ],
+                "risk_level": "medium",
+                "validation_before": {},
+                "notes": [],
+                "created_at": "2026-06-06T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/settings/change/apply",
+        "",
+        json.dumps({"path": str(root), "proposal_path": f"memory/repairs/{repair_id}/proposal.json"}),
+    )
+
+    assert status == 400
+    assert payload["ok"] is False
+    error = payload["error"]  # type: ignore[index]
+    assert error["code"] == "memory_repair_error"
+    assert "Character.role semantic preflight" in error["message"]
+    assert error["details"]["repair_id"] == repair_id
+    assert error["details"]["apply_log_relative_path"] == f"memory/repairs/{repair_id}/apply_log.json"
+    apply_log = json.loads((repair_dir / "apply_log.json").read_text(encoding="utf-8"))
+    assert apply_log["status"] == "failed"
+    assert apply_log["backups"] == []
+
+
 def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     session_id = "session_20260529_010101_000004"

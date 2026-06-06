@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.io import load_json_model
 from novel.core.memory_repair import (
     answer_setting_change_clarification,
     apply_memory_repair,
@@ -17,7 +18,7 @@ from novel.core.memory_repair import (
 from novel.core.orchestrator import decide_ask_intent, route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, plan_chapter
 from novel.core.providers import ModelRequest, ProviderFactory
-from novel.core.schemas import AgentConfig, AuditIssue, AuditReport
+from novel.core.schemas import AgentConfig, AuditIssue, AuditReport, CharactersFile
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -256,6 +257,51 @@ def test_real_deepseek_setting_change_complex_proposal_preflights(tmp_path: Path
     assert result.proposal_result is not None
     assert result.proposal_result.proposal.operations
     apply_memory_repair(root, result.proposal_result.proposal_path)
+    assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
+
+
+def test_real_deepseek_setting_change_character_role_semantics(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
+        pytest.skip("DeepSeek setting change role semantic regression requires DeepSeek env in .env.real")
+    root = _real_project(tmp_path, env)
+
+    result = suggest_setting_change_interactive(
+        root,
+        (
+            "新增主要人物：谢蛰雨，女性，谢家长女，擅长谢家剑法；"
+            "谢怀云，男性，谢家次子，行事谨慎；"
+            "白霜瀚，男性，江湖散人，暗中调查桃花源旧族。"
+        ),
+        provider_name="config",
+        stage="outline_discussion",
+    )
+
+    assert result.status == "proposal_ready"
+    assert result.proposal_result is not None
+    proposal = result.proposal_result.proposal
+    values = [
+        operation.value
+        for operation in proposal.operations
+        if operation.file == "memory/canon/characters.json"
+        and operation.path == "/characters/-"
+        and isinstance(operation.value, dict)
+    ]
+    expected_tags = {"谢蛰雨": "谢家长女", "谢怀云": "谢家次子", "白霜瀚": "江湖散人"}
+    values_by_name = {str(value.get("name")): value for value in values}
+    for name, identity_tag in expected_tags.items():
+        assert name in values_by_name
+        value = values_by_name[name]
+        assert value.get("role") not in {identity_tag, "谢家长女", "谢家次子", "江湖散人"}
+        assert identity_tag in value.get("tags", [])
+
+    apply_memory_repair(root, result.proposal_result.proposal_path)
+    characters = load_json_model(root / "memory" / "canon" / "characters.json", CharactersFile)
+    persisted = {character.name: character for character in characters.characters}
+    for name, identity_tag in expected_tags.items():
+        assert identity_tag in persisted[name].tags
     assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
         path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
     )

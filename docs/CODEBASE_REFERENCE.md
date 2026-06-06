@@ -573,12 +573,12 @@ orchestrator 项目管家修复 proposal：
 
 - `MemoryRepairError`：proposal/apply 失败。
 - `MemoryRepairSuggestResult` / `MemoryRepairApplyResult` / `SettingChangeSuggestionResult`：service 返回结构。
-- `suggest_memory_repair()`：根据结构化 `MemoryRepairDecision` 和当前项目文件生成 `MemoryRepairProposal`、Markdown 摘要和 diff 预览；默认不修改正式 memory。
+- `suggest_memory_repair()`：根据结构化 `MemoryRepairDecision` 和当前项目文件生成 `MemoryRepairProposal`、Markdown 摘要和 diff 预览；默认不修改正式 memory。写 proposal 前会执行目标 schema preflight；setting_change 还会执行 Character.role 语义 preflight，阻止身份/排行/职业短语写入叙事角色字段。
 - `suggest_setting_change_interactive()` / `answer_setting_change_clarification()`：设定变更多轮澄清入口；只有创作意图不足、替换/删除目标不唯一或剧情含义存在真实歧义时保存 `memory/repairs/clarifications/{clarification_id}/session.json`，补充后再生成 proposal。
 - `generate_memory_change_clarification_decision()` / `parse_memory_change_clarification_decision()`：调用 Orchestrator/Memory Manager provider 输出结构化 clarification gate；提问只通过 schema 返回，不在最终 patch 阶段自然语言提问。澄清问题不得要求用户提供目标文件、字段、visibility、JSON Pointer 或完整文件结构。
 - `generate_memory_repair_decision()` / `parse_memory_repair_decision()`：调用 Orchestrator/Memory Manager provider 输出 target files、JSON Pointer operations、confidence 和 assumptions。信息不足时返回空 operations，不用关键词硬猜正式 patch；对模型常见的安全 add 路径错误会在 Pydantic 校验前归一，例如 `/characters/char_x` 转为 `/characters/-` 并补齐可推断的 `file/reason`。
-- `apply_memory_repair()`：校验 proposal，限制白名单文件，按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
-- `build_memory_repair_user_prompt()` / `_memory_pointer_index()`：组装 MemoryRepairDecision prompt，注入目标文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径示例；集合字段提示来自当前 schema，避免 hidden_truths/foreshadowing 字段漂移。
+- `apply_memory_repair()`：校验 proposal，限制白名单文件，先执行 schema/semantic preflight，再按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
+- `build_memory_repair_user_prompt()` / `_memory_pointer_index()`：组装 MemoryRepairDecision prompt，注入目标文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径示例；集合字段提示来自当前 schema，避免 hidden_truths/foreshadowing 字段漂移，并说明 `Character.role` 只表示叙事角色、身份短语应进入 `tags`。
 - `render_memory_repair_markdown()`：把 proposal 渲染为用户可读说明。
 - `_mock_infer_target_files()` / `_mock_infer_operations()`：仅用于 mock 测试 fixture，不作为真实业务推断路径。
 - `_apply_operations_to_data()` / `_apply_operation()` / `_resolve_pointer_parent()`：JSON Pointer patch 执行器。

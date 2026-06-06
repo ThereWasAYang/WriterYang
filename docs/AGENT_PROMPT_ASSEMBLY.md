@@ -368,6 +368,7 @@ Prompt 组装：
 - `setting-change suggest` 会先调用 `MemoryChangeClarificationDecision` 澄清 gate：只有创作意图本身不足、替换/删除目标不唯一或存在剧情含义歧义时，才返回 `needs_clarification` 和 1-3 个问题，保存到 `memory/repairs/clarifications/{clarification_id}/session.json`；用户通过 `setting-change answer` 或 Web UI 补充后再继续。
 - 澄清 gate 不得要求用户选择目标文件、字段、visibility 或 JSON Pointer。人物/地点/物品/world/hidden_truths/foreshadowing 的默认映射由系统根据当前结构完成；新实体无 exact id/name/alias 匹配时默认新增。
 - 最终生成 `MemoryRepairDecision` 时仍是 internal JSON task，`allow_user_questions=False`；需要追问只能通过 clarification schema 表达。memory repair / setting change prompt 会注入当前 memory 文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径索引，模型不应再要求用户提供现有文件完整结构。数组新增必须使用 `/collection/-`，例如 `/characters/-` 或 `/hidden_truths/-`。
+- setting change prompt 明确 `Character.role` 只表示叙事角色，新生成内容默认用 `主角`、`主要人物`、`配角`、`次要人物`；`谢家长女`、`唐门二房之女`、`江湖散人`、`武当俗家弟子` 等家族/门派/排行/职业身份必须进入 `tags`，可同步写入摘要或作者备注。生成和 apply 前都会做 setting_change 专用 semantic preflight；该 guard 只拦已知字段语义漂移，不用于用户意图路由。
 
 注意：
 

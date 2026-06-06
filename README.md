@@ -228,7 +228,7 @@ novel export markdown --path ./my-novel --toc --force
 - `session accept` 后才应用状态更新并标记章节 accepted；`session archive` 会复制本次创作文件并记录 sha256。
 - `state/timeline` 默认通过 proposal 更新；不建议直接改正式 state/timeline，除非你清楚引用关系。
 - 发现 timeline/state/canon 等项目记忆写错时，推荐把问题交给 orchestrator 项目管家：`novel ask "第2章 event_x 其实是回忆，不是当前行动"`。它会生成 `memory/repairs/{repair_id}/proposal.json` 和 `proposal.md`，用户确认后用显式命令 `novel memory-repair apply <repair_id>` 应用；普通自然语言 fallback 不会执行 apply，以避免误操作。所有后台状态/时间线/记忆刷新会写入 `memory/management_events.jsonl` 并在 CLI/Web UI 中展示。
-- 自然语言设定变更推荐使用 `novel setting-change suggest "..." --path ./rain-station --provider config`。如果创作意图、替换/删除目标或剧情含义不清楚，Agent 会先生成 `clarify_...` 澄清问题；用 `novel setting-change answer clarify_... --answer "..."` 继续，直到生成可审查的 `memory/repairs/{repair_id}/proposal.json`。提示词会包含当前 memory 文件结构和 JSON Pointer 路径索引，目标文件、字段、visibility 和 JSON Pointer 由系统负责选择，用户不需要手动提供。
+- 自然语言设定变更推荐使用 `novel setting-change suggest "..." --path ./rain-station --provider config`。如果创作意图、替换/删除目标或剧情含义不清楚，Agent 会先生成 `clarify_...` 澄清问题；用 `novel setting-change answer clarify_... --answer "..."` 继续，直到生成可审查的 `memory/repairs/{repair_id}/proposal.json`。提示词会包含当前 memory 文件结构和 JSON Pointer 路径索引，目标文件、字段、visibility 和 JSON Pointer 由系统负责选择，用户不需要手动提供。新增人物的 `role` 只表示叙事角色；“谢家长女”“江湖散人”这类身份信息应进入 `tags`，生成和应用前都会做对应 preflight。
 - 归档后的内容默认不可变；如需修改，应创建新的 revision session。
 - 底层 `plan-chapter/write-chapter/polish-chapter/audit-chapter` 仍保留给调试和高级用户，但日常创作推荐用 `novel ask` / `novel session`。
 - 真实 API 的结构化输出可能第一次不符合 schema；Canon、ChapterPlan、Audit、StateUpdate 会自动做一次 repair retry。仍失败时，先看错误摘要和 `runs/` 日志。

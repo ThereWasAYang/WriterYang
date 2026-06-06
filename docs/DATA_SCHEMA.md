@@ -550,6 +550,9 @@ memory/canon/characters.json
 - `id`
 - `name`
 - `role`
+  - 语义：叙事角色，不是家族身份、门派身份、排行、职业或江湖身份。
+  - 新生成设定默认使用中文叙事角色值：`主角`、`主要人物`、`配角`、`次要人物`；历史数据中的 `protagonist`、`supporting`、`minor`、`antagonist` 仍兼容。
+  - 例如 `谢家长女`、`谢家次子`、`唐门二房之女`、`江湖散人`、`武当俗家弟子` 应写入 `tags`，并可保留在 `reader_visible_summary` 或 `private_author_notes`。
 - `reader_visible_summary`
 
 角色推荐字段：
@@ -568,6 +571,7 @@ Validation 规则：
 - `id` 必须唯一。
 - Relationship 的 `target_id` 应引用已有角色。
 - Secret ID 在角色内部必须唯一。
+- 设定变更 proposal 会额外做 Character.role 语义 preflight：明显身份短语不得写入 `role`，出现在摘要/备注中的身份短语应同步进入 `tags`。
 
 ---
 

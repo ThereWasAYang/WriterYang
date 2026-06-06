@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -125,6 +125,8 @@ COLLECTION_SCHEMA_HINTS: dict[str, str] = {
     "memory/canon/characters.json": (
         "strict add value schema: Character {id, name, role, reader_visible_summary, aliases[], private_author_notes?, "
         "appearance: object|null, personality: object|null, relationships: Relationship[], abilities: Ability[], secrets: Secret[], tags[]}.\n"
+        "Character.role is narrative role only: use 主角, 主要人物, 配角, 次要人物 by default; legacy protagonist/supporting/minor/antagonist are compatible.\n"
+        "Never put family rank, sect identity, profession, or jianghu identity in role; phrases such as 谢家长女, 谢家次子, 张家幼女, 唐门二房之女, 江湖散人, 武当俗家弟子 must go into tags and summary/notes.\n"
         "Ability {name: string, description: string, limitations?: string|null}; never use string arrays for abilities.\n"
         "Secret {id: snake_case, visibility: reader_visible|hidden|partially_revealed, description: string, planned_reveal?: string|null}; never use string arrays for secrets."
     ),
@@ -170,6 +172,9 @@ POINTER_PATH_FILES: dict[str, str] = {
 SETTING_CHANGE_MAPPING_RULES = """设定变更默认映射规则：
 - 文件、字段、visibility 和 JSON Pointer 由系统根据下方结构负责选择，不要要求用户提供。
 - 新人物/明确姓名默认写入 memory/canon/characters.json，新增路径使用 /characters/-。
+- Character.role 只表示叙事角色；新增人物默认使用中文叙事角色值：主角、主要人物、配角、次要人物。
+- 用户说“主要人物”时默认 role="主要人物"；明确主角用 role="主角"；明确次要/背景用 role="次要人物"；未明确时用 role="配角"。
+- 家族身份、门派身份、排行、职业/江湖身份必须写入 tags，并可写入 reader_visible_summary 或 private_author_notes；不要把“谢家长女”“谢家次子”“张家幼女”“唐门二房之女”“江湖散人”“武当俗家弟子”等写入 role。
 - 新地点、宅邸、村庄、宫殿、门派驻地默认写入 memory/canon/locations.json，新增路径使用 /locations/-。
 - 家族、门派、势力背景、时代背景、武学体系、世界规则默认写入 memory/canon/world.json，新增路径使用 /world_rules/-。
 - 物品、武器、信物、法器默认写入 memory/canon/items.json，新增路径使用 /items/-。
@@ -178,6 +183,40 @@ SETTING_CHANGE_MAPPING_RULES = """设定变更默认映射规则：
 - 只有 exact id、exact name 或 exact alias 匹配时才修改已有实体；不要把新姓名近似联想到现有角色。
 - 无精确匹配且用户没有明确要求替换/删除/合并时，按新增实体处理。
 """
+
+NARRATIVE_CHARACTER_ROLES = {
+    "主角",
+    "主人公",
+    "男主",
+    "女主",
+    "主要人物",
+    "核心人物",
+    "配角",
+    "重要配角",
+    "次要人物",
+    "背景人物",
+    "反派",
+    "对手",
+    "盟友",
+    "导师",
+    "线索人物",
+    "群像主角",
+    "protagonist",
+    "main",
+    "main_character",
+    "supporting",
+    "minor",
+    "antagonist",
+}
+
+CHARACTER_ROLE_IDENTITY_PATTERNS = (
+    re.compile(r"([\u4e00-\u9fff]{1,4}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?[子女])"),
+    re.compile(r"([\u4e00-\u9fff]{0,8}[一二三四五六七八九十]房之[子女])"),
+    re.compile(r"([\u4e00-\u9fff]{1,8}(?:门|派|宗|宫|教|帮|寨|庄|阁|楼|堂|会)(?:弟子|门人|传人|少主|掌门|门主|长老|护法|客卿))"),
+    re.compile(
+        r"(江湖散人|武林散人|俗家弟子|弟子|散人|剑客|刀客|刺客|医师|药师|捕快|镖师|商人|匠人|书生|先生|客卿|护卫|侍女|仆从|丫鬟|公子|小姐|少侠|侠客|道士|和尚|僧人|术士|修士|家主|门主|掌门|长老|少主|后人|族人|遗孤)"
+    ),
+)
 
 
 def suggest_memory_repair(
@@ -207,9 +246,10 @@ def suggest_memory_repair(
         change_kind=change_kind,
         stage=stage,
     )
+    resolved_preflight_kind: MemoryChangeKind = change_kind or repair_decision.change_kind
     target_files, operations, notes = _sanitize_repair_decision(repair_decision)
     operations = _drop_unsafe_remove_operations(root, operations, notes)
-    preflight_errors = _preflight_memory_repair_operations(root, operations)
+    preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
     if preflight_errors and operations and not decision_was_provided:
         repair_decision = _repair_memory_repair_decision_target_schema(
             root,
@@ -221,12 +261,13 @@ def suggest_memory_repair(
             change_kind=change_kind,
             stage=stage,
         )
+        resolved_preflight_kind = change_kind or repair_decision.change_kind
         target_files, operations, notes = _sanitize_repair_decision(repair_decision)
         operations = _drop_unsafe_remove_operations(root, operations, notes)
-        preflight_errors = _preflight_memory_repair_operations(root, operations)
+        preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
     if preflight_errors and operations:
         raise MemoryRepairError(
-            "setting change proposal failed target schema preflight: "
+            "setting change proposal failed target schema preflight or semantic preflight: "
             + _format_preflight_errors(preflight_errors)
         )
     resolved_kind: MemoryChangeKind = change_kind or repair_decision.change_kind
@@ -748,6 +789,12 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
     try:
         if not proposal.operations:
             raise MemoryRepairError("memory repair proposal has no operations to apply")
+        preflight_errors = _preflight_memory_repair_operations(root, proposal.operations, change_kind=proposal.change_kind)
+        if preflight_errors:
+            raise MemoryRepairError(
+                "memory repair proposal failed target schema preflight or semantic preflight: "
+                + _format_preflight_errors(preflight_errors)
+            )
         grouped = _group_operations(proposal.operations)
         for rel_path, operations in grouped.items():
             _ensure_allowed_file(rel_path)
@@ -1143,8 +1190,8 @@ def _target_schema_repair_prompt(
     invalid_json = json.dumps(invalid_decision.model_dump(mode="json"), ensure_ascii=False, indent=2)
     return (
         f"{original_prompt}\n\n"
-        "上一次输出已经可以解析为 MemoryRepairDecision，但把 operations 应用到目标 memory/canon 文件后没有通过目标文件 schema preflight。\n"
-        "本次修复目标是让 operation.value 完全符合目标文件 Pydantic schema，而不只是补齐 op/file/path/reason。\n"
+        "上一次输出已经可以解析为 MemoryRepairDecision，但把 operations 应用到目标 memory/canon 文件后没有通过目标文件 schema/semantic preflight。\n"
+        "本次修复目标是让 operation.value 完全符合目标文件 Pydantic schema 和 setting_change 字段语义，而不只是补齐 op/file/path/reason。\n"
         "请重新只输出修复后的 MemoryRepairDecision JSON object。不要 Markdown 或解释。\n"
         "修复规则：\n"
         "- 保留用户创作意图和安全的 file/path；修正 value 的字段类型、嵌套对象和 enum。\n"
@@ -1153,8 +1200,10 @@ def _target_schema_repair_prompt(
         "- abilities、secrets、rules、special_properties 必须是对象数组，不要使用字符串数组。\n"
         "- planned_reveal 和 planned_payoff 必须是对象或 null，不要使用字符串。\n"
         "- introduced_in_chapter 必须是整数；如果用户说“开篇”，默认使用 1。\n"
+        "- Character.role 只能表示叙事角色；默认使用主角、主要人物、配角、次要人物。家族身份、门派身份、排行、职业/江湖身份必须移入 tags，并可保留在 summary/notes。\n"
+        "- 不要把谢家长女、谢家次子、张家幼女、唐门二房之女、江湖散人、武当俗家弟子这类身份短语写入 Character.role。\n"
         "- 如果仍无法安全修复，operations 置空并在 notes 中写明 target schema 缺失信息；不要向用户提问。\n\n"
-        "目标 schema preflight 错误：\n"
+        "目标 schema preflight 错误 / semantic preflight 错误：\n"
         f"{_format_preflight_errors(preflight_errors, max_chars=6000)}\n\n"
         f"上一次 MemoryRepairDecision：\n{invalid_json[:5000]}\n"
     )
@@ -2043,7 +2092,12 @@ def _preview_operations(root: Path, proposal: MemoryRepairProposal) -> dict[str,
     return preview
 
 
-def _preflight_memory_repair_operations(root: Path, operations: list[MemoryRepairOperation]) -> list[str]:
+def _preflight_memory_repair_operations(
+    root: Path,
+    operations: list[MemoryRepairOperation],
+    *,
+    change_kind: MemoryChangeKind | None = None,
+) -> list[str]:
     if not operations:
         return []
     errors: list[str] = []
@@ -2058,7 +2112,117 @@ def _preflight_memory_repair_operations(root: Path, operations: list[MemoryRepai
             _validate_file_model(rel_path, updated)
         except Exception as exc:
             errors.append(f"{rel_path}: {exc}")
+    if change_kind == "setting_change":
+        errors.extend(_preflight_setting_change_semantics(operations))
     return errors
+
+
+def _preflight_setting_change_semantics(operations: list[MemoryRepairOperation]) -> list[str]:
+    errors: list[str] = []
+    for operation in operations:
+        if operation.file != "memory/canon/characters.json":
+            continue
+        parts = _pointer_parts(operation.path)
+        if len(parts) < 2 or parts[0] != "characters":
+            continue
+        location = _operation_semantic_location(operation)
+        if operation.op in {"add", "replace"} and len(parts) == 2 and isinstance(operation.value, dict):
+            errors.extend(_preflight_character_role_semantics(operation.value, location))
+        elif operation.op in {"add", "replace"} and len(parts) == 3 and parts[2] == "role" and isinstance(operation.value, str):
+            errors.extend(_preflight_character_role_value(operation.value, location))
+    return errors
+
+
+def _preflight_character_role_semantics(character: dict[str, object], location: str) -> list[str]:
+    errors = _preflight_character_role_value(character.get("role"), location)
+    tags = _string_values(character.get("tags"))
+    identity_phrases = _character_identity_phrases_from_fields(character)
+    missing_tags = [phrase for phrase in identity_phrases if phrase not in tags]
+    if missing_tags:
+        errors.append(
+            f"{location}: Character identity phrase(s) must be in tags, not only summary/notes/role: "
+            + ", ".join(missing_tags[:8])
+        )
+    return errors
+
+
+def _preflight_character_role_value(value: object, location: str) -> list[str]:
+    if not isinstance(value, str):
+        return []
+    role = value.strip()
+    if not role:
+        return []
+    if role.lower() in NARRATIVE_CHARACTER_ROLES:
+        return []
+    phrases = _identity_phrases(role)
+    if not phrases:
+        return []
+    return [
+        f"{location}: Character.role semantic preflight failed: role={role!r} looks like identity/rank/profession, "
+        "but role must be narrative role only. Use 主角/主要人物/配角/次要人物 or compatible legacy protagonist/supporting/minor/antagonist, "
+        "and move identity phrase(s) into tags: "
+        + ", ".join(phrases[:8])
+    ]
+
+
+def _character_identity_phrases_from_fields(character: dict[str, object]) -> list[str]:
+    phrases: list[str] = []
+    for key in ("role", "reader_visible_summary", "private_author_notes"):
+        value = character.get(key)
+        if isinstance(value, str):
+            phrases.extend(_identity_phrases(value))
+    return _dedupe_preserve_order(phrases)
+
+
+def _identity_phrases(text: str) -> list[str]:
+    phrases: list[str] = []
+    for pattern in CHARACTER_ROLE_IDENTITY_PATTERNS:
+        for match in pattern.finditer(text):
+            phrase = next((group for group in reversed(match.groups()) if group), match.group(0)).strip()
+            phrases.append(_trim_identity_phrase(phrase))
+    return _dedupe_preserve_order(phrase for phrase in phrases if phrase and phrase.lower() not in NARRATIVE_CHARACTER_ROLES)
+
+
+def _trim_identity_phrase(phrase: str) -> str:
+    cleaned = phrase.strip()
+    for marker in ("身为", "作为", "是", "为", "乃"):
+        if marker in cleaned:
+            cleaned = cleaned.rsplit(marker, 1)[-1].strip()
+    return cleaned
+
+
+def _string_values(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _operation_semantic_location(operation: MemoryRepairOperation) -> str:
+    label = f"{operation.file} {operation.path}"
+    if isinstance(operation.value, dict):
+        item_id = operation.value.get("id")
+        name = operation.value.get("name")
+        details = [str(value) for value in (item_id, name) if isinstance(value, str) and value]
+        if details:
+            label += f" ({'/'.join(details)})"
+    return label
+
+
+def _pointer_parts(pointer: str) -> list[str]:
+    if not pointer.startswith("/"):
+        return []
+    return [_unescape_pointer(part) for part in pointer.strip("/").split("/") if part]
+
+
+def _dedupe_preserve_order(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def _format_preflight_errors(errors: list[str], *, max_chars: int = 10000) -> str:

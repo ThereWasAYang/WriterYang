@@ -440,7 +440,7 @@ proposal 文件会保存为 `memory/chapters/{chapter_number}/state_update_propo
 推荐流程是先 `propose-state-update`，人工检查 proposal，再 `apply-state-update`，最后 `accept-chapter`。如果 apply log 已存在且状态为 `applied`，`accept-chapter` 只标记章节 accepted，不会重复应用 state/timeline 更新。
 如果想一步完成，可以使用 `novel accept-chapter 1 --path ./rain-station --propose --provider config`；这会在缺少 proposal 时生成并应用。
 接受章节后会写入结构化状态文件 `memory/chapters/{chapter_number}/metadata.json`，同时保留 `polished.md` front matter 中的 `status: accepted` 以兼容导出流程。
-接受章节还会 best-effort 生成 `memory/chapters/{chapter_number}/chapter_memory.json`。它会记录读者可见摘要、剧情节点、状态变化、时间线事件、未解决线索和检索指针，并注入后续 `plot` / `writer` 上下文；如果模型配置不可用或输出无效，会降级为 deterministic fallback 并写入 warnings。ChapterMemory 只用于压缩上下文和引导检索，不能替代 `canon`、`current_state`、`timeline` 或 accepted `polished.md`。`accepted` 就是章节进入正式小说事实源；`session archive` 只是复制快照，不会把 ChapterMemory 改成另一种正式状态。
+接受章节还会 best-effort 生成 `memory/chapters/{chapter_number}/chapter_memory.json`。它会记录读者可见摘要、剧情节点、状态变化、时间线事件、未解决线索和检索指针，并注入后续 `plot` / `writer` 上下文；如果模型配置不可用或输出无效，会降级为 deterministic fallback 并写入 warnings。ChapterMemory 只用于压缩上下文和引导检索，不能替代 `canon`、`current_state`、`timeline` 或 accepted `polished.md`。`accepted` 就是章节进入正式小说事实源；`session archive` 只是复制快照，不会把 ChapterMemory 改成另一种正式状态。`chapter_memory.strict_accept: true` 只会把生成失败升级为 error 级管理事件和醒目 warning，不会回滚或阻断已经完成的章节接受；修复方式是重新运行 `chapter-memory generate`，或在 Web UI 中刷新章节记忆。
 接受章节还会尝试生成 `canon_drift_proposal.json`，用于补登本章新出现的角色、地点、物品、规则或伏笔；该 proposal 不会自动 apply，仍需要用户确认后走 `canon apply`。
 
 可以手动查看或重建章节记忆：

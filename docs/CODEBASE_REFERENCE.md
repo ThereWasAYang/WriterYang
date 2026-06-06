@@ -499,7 +499,7 @@ ChapterPlan 引用提取：
 - `StateUpdateProposeResult` / `StateUpdateApplyResult` / `AcceptChapterResult`。
 - `propose_state_update()`：生成 proposal，不改正式 state/timeline。
 - `apply_state_update()`：校验 proposal、备份、应用 state/timeline、失败回滚。
-- `accept_chapter()`：检查 audit、必要时 propose/apply、标记 accepted，并 best-effort 生成 ChapterMemory。
+- `accept_chapter()`：检查 audit、必要时 propose/apply、标记 accepted，并 best-effort 生成 ChapterMemory。`chapter_memory.strict_accept=true` 只把记忆失败升级为 error 事件/警告，不阻断已经完成的 accepted 状态。
 - `validate_state_update_proposal()`：引用和冲突校验。
 - `apply_state_changes_to_state()`：把 state_changes 应用到 EntityState。
 - `mark_chapter_accepted()` / `write_chapter_metadata()`。
@@ -513,8 +513,8 @@ ChapterPlan 引用提取：
 - `generate_chapter_memory()`：读取 accepted `polished.md`、plan、audit、state proposal/apply log 和 timeline，生成 `chapter_memory.json`。
 - `load_chapter_memory_provider()`：读取 `chapter_memory` agent 配置，缺省可继承 `state_update` / `audit`。
 - `build_deterministic_chapter_memory()`：provider 不可用或模型输出无效时的保守 fallback。
-- `validate_chapter_memory()`：检查章节状态、source path、正文 sha、timeline id 和 source_refs。
-- `chapter_memory_freshness_warnings()`：热路径轻量检查 source polished 是否存在、accepted、sha 是否匹配。
+- `validate_chapter_memory()`：检查章节状态、source path、正文 sha、timeline id 和 source_refs，并强制重算 source sha。
+- `chapter_memory_freshness_warnings()`：热路径轻量检查 source polished 是否存在、accepted、sha 是否匹配；当 `chapter_memory.json` 比 source `polished.md` 新时用 mtime 快捷路径跳过整篇 sha。
 - `load_chapter_memories()`：按章节加载历史记忆，默认跳过 stale 记忆。
 - `render_chapter_memory_prompt_text()`：为 Plot 渲染全局/重点记忆，为 Writer 渲染读者可见和安全连续性视图。
 

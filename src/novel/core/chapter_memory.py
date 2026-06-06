@@ -230,7 +230,7 @@ def build_deterministic_chapter_memory(
 
 def validate_chapter_memory(root: Path, memory: ChapterMemory) -> list[str]:
     root = root.resolve()
-    warnings: list[str] = chapter_memory_freshness_warnings(root, memory)
+    warnings: list[str] = chapter_memory_freshness_warnings(root, memory, force_hash=True)
     chapter_dir = _chapter_dir(root, memory.chapter_number)
     metadata_path = chapter_dir / "metadata.json"
     if metadata_path.exists():
@@ -253,18 +253,24 @@ def validate_chapter_memory(root: Path, memory: ChapterMemory) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
-def chapter_memory_freshness_warnings(root: Path, memory: ChapterMemory) -> list[str]:
+def chapter_memory_freshness_warnings(
+    root: Path,
+    memory: ChapterMemory,
+    *,
+    force_hash: bool = False,
+) -> list[str]:
     root = root.resolve()
     warnings: list[str] = []
     polished_path = root / memory.source.polished_path
     if not polished_path.exists():
         return [f"source polished file is missing: {memory.source.polished_path}"]
-    actual_sha = _sha256(polished_path)
-    if actual_sha != memory.source.polished_sha256:
-        warnings.append("stale chapter memory: polished_sha256 does not match accepted polished.md")
+    if force_hash or _polished_may_be_newer_than_memory(root, memory, polished_path):
+        actual_sha = _sha256(polished_path)
+        if actual_sha != memory.source.polished_sha256:
+            warnings.append("stale chapter memory: polished_sha256 does not match accepted polished.md")
     try:
-        polished = _read_markdown_with_front_matter(polished_path)
-        if polished.metadata.get("status") != "accepted":
+        metadata = _read_markdown_front_matter_metadata(polished_path)
+        if metadata.get("status") != "accepted":
             warnings.append("chapter memory source polished.md is not marked accepted")
     except Exception as exc:
         warnings.append(f"could not read source polished.md front matter: {exc}")
@@ -684,6 +690,32 @@ def _read_markdown_with_front_matter(path: Path) -> ChapterMemoryDocument:
     if not isinstance(metadata, dict):
         raise ChapterMemoryError(f"{path} YAML front matter must be a mapping")
     return ChapterMemoryDocument(metadata=metadata, body=body.strip())
+
+
+def _read_markdown_front_matter_metadata(path: Path) -> dict[str, object]:
+    with path.open("r", encoding="utf-8") as handle:
+        first_line = handle.readline()
+        if first_line.strip() != "---":
+            raise ChapterMemoryError(f"{path} is missing YAML front matter")
+        metadata_lines: list[str] = []
+        for line in handle:
+            if line.strip() == "---":
+                break
+            metadata_lines.append(line)
+        else:
+            raise ChapterMemoryError(f"{path} has invalid YAML front matter")
+    metadata = yaml.safe_load("".join(metadata_lines)) or {}
+    if not isinstance(metadata, dict):
+        raise ChapterMemoryError(f"{path} YAML front matter must be a mapping")
+    return metadata
+
+
+def _polished_may_be_newer_than_memory(root: Path, memory: ChapterMemory, polished_path: Path) -> bool:
+    memory_path = chapter_memory_path(root, memory.chapter_number)
+    try:
+        return polished_path.stat().st_mtime >= memory_path.stat().st_mtime
+    except OSError:
+        return True
 
 
 def _reader_visible_summary_from_polished(context: ChapterMemoryContext, *, limit: int = 360) -> str:

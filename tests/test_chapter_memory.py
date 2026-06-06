@@ -4,9 +4,11 @@ from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 from io import StringIO
 import json
+import os
 from pathlib import Path
 
 from novel.cli import _accepted_chapter_numbers, main
+from novel.core import chapter_memory as chapter_memory_module
 from novel.core import state_update as state_update_module
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, default_mock_audit_report_json
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
@@ -93,6 +95,8 @@ def test_chapter_memory_stale_sha_is_detected(tmp_path: Path) -> None:
     memory = load_json_model(memory_path, ChapterMemory)
     polished_path = root / "memory" / "chapters" / "001" / "polished.md"
     polished_path.write_text(polished_path.read_text(encoding="utf-8") + "\n补写一句。\n", encoding="utf-8")
+    newer_time = memory_path.stat().st_mtime + 10
+    os.utime(polished_path, (newer_time, newer_time))
 
     warnings = validate_chapter_memory(root, memory)
     memories, load_warnings = load_chapter_memories(root, before_chapter_number=2)
@@ -100,6 +104,30 @@ def test_chapter_memory_stale_sha_is_detected(tmp_path: Path) -> None:
     assert any("stale chapter memory" in warning for warning in warnings)
     assert memories == []
     assert any("stale chapter memory" in warning for warning in load_warnings)
+
+
+def test_chapter_memory_hot_path_skips_hash_when_memory_is_newer(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_with_accepted_memory(tmp_path)
+    memory_path = root / "memory" / "chapters" / "001" / "chapter_memory.json"
+    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
+    memory = load_json_model(memory_path, ChapterMemory)
+    newer_time = polished_path.stat().st_mtime + 10
+    os.utime(memory_path, (newer_time, newer_time))
+    hash_calls: list[Path] = []
+
+    def fake_sha256(path: Path) -> str:
+        hash_calls.append(path)
+        return memory.source.polished_sha256
+
+    monkeypatch.setattr(chapter_memory_module, "_sha256", fake_sha256)
+
+    memories, load_warnings = load_chapter_memories(root, before_chapter_number=2)
+    validation_warnings = validate_chapter_memory(root, memory)
+
+    assert len(memories) == 1
+    assert load_warnings == []
+    assert validation_warnings == []
+    assert hash_calls == [polished_path]
 
 
 def test_chapter_memory_prompt_redacts_hidden_items_for_writer(tmp_path: Path) -> None:

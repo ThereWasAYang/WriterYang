@@ -191,6 +191,15 @@
             <label for="canonProposalPath">Canon proposal</label>
             <input id="canonProposalPath" placeholder="runs/canon_proposal_....json">
             <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
+            <div id="inspirationPreviewPanel" class="inspiration-preview" aria-live="polite">
+              <div class="row">
+                <h3 style="margin: 0;">灵感预览</h3>
+                <button id="regenerateInspiration">重新生成灵感</button>
+                <button id="openInspirationFile">打开文件</button>
+              </div>
+              <div id="inspirationPreviewMeta" class="preview-meta">当前文件：memory/inspiration.md</div>
+              <pre id="inspirationPreview" class="inspiration-pre">生成灵感后，Agent 写入的内容会显示在这里。</pre>
+            </div>
           </div>
 
           <div class="panel">

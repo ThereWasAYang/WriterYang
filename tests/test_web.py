@@ -1030,6 +1030,14 @@ def test_frontend_basic_render() -> None:
     assert 'id="setupWebPort"' in html
     assert 'id="setupOpenWeb"' in html
     assert 'id="inspireProject"' in html
+    assert 'id="inspirationPreviewPanel"' in html
+    assert 'id="inspirationPreviewMeta"' in html
+    assert 'id="inspirationPreview"' in html
+    assert 'id="regenerateInspiration"' in html
+    assert 'id="openInspirationFile"' in html
+    assert "重新生成会覆盖 memory/inspiration.md。确认继续吗？" in app_js
+    assert "loadInspirationPreview" in app_js
+    assert "readWorkspaceFile(inspirationPreviewPath)" in app_js
     assert 'id="canonSuggest"' in html
     assert 'id="canonApply"' in html
     assert "请先点击“Canon 建议”，生成 Canon proposal 文件后再应用。" in app_js
@@ -1066,6 +1074,7 @@ def test_frontend_basic_render() -> None:
     assert "/api/setup/web-port" in app_js
     assert "/api/setup/open-web" in app_js
     assert "/api/inspire" in app_js
+    assert "/api/read-file" in app_js
     assert "/api/canon/suggest" in app_js
     assert "/api/validate" in app_js
     assert "/api/runtime" in app_js

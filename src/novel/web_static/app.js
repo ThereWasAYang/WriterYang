@@ -1,5 +1,6 @@
     const $ = (id) => document.getElementById(id);
     const chapterFileTypes = ["plan", "draft", "polished", "audit", "chapter_memory"];
+    const inspirationPreviewPath = "memory/inspiration.md";
     const providerAgentNames = [
       "orchestrator", "inspiration", "canon", "plot", "writer",
       "polish", "audit", "state_update", "chapter_memory", "revision",
@@ -524,22 +525,61 @@
       }
     }
 
-    async function inspireProject() {
-      return withBusy("生成灵感", async () => {
-        const data = await apiPost("/api/inspire", {
-          path: projectPath(),
-          text: $("instruction").value.trim(),
-          provider: $("provider").value,
-          force: $("forceWrites").checked,
-          write_json: false,
-          use_search_context: $("useSearchContext").checked,
-          vector_context: $("vectorContextMode").value,
-          use_vector_context: $("useVectorContext").checked,
-        });
+    function inspirationPayload(force) {
+      return {
+        path: projectPath(),
+        text: $("instruction").value.trim(),
+        provider: $("provider").value,
+        force,
+        write_json: false,
+        use_search_context: $("useSearchContext").checked,
+        vector_context: $("vectorContextMode").value,
+        use_vector_context: $("useVectorContext").checked,
+      };
+    }
+
+    function renderInspirationPreview(data) {
+      $("inspirationPreviewMeta").textContent = `当前文件：${data.path || inspirationPreviewPath}`;
+      $("inspirationPreview").textContent = data.content || "memory/inspiration.md 为空。";
+    }
+
+    async function loadInspirationPreview(options = {}) {
+      try {
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: inspirationPreviewPath });
+        renderInspirationPreview(data);
+        if (!options.silent) setMessage(`已读取灵感：${data.path || inspirationPreviewPath}`);
+        return data;
+      } catch (error) {
+        $("inspirationPreviewMeta").textContent = `当前文件：${inspirationPreviewPath}`;
+        $("inspirationPreview").textContent = `无法读取灵感文件：${error.message}`;
+        if (!options.silent) setMessage(error.message, true);
+        return null;
+      }
+    }
+
+    async function generateInspiration(options = {}) {
+      const label = options.label || "生成灵感";
+      const force = Object.prototype.hasOwnProperty.call(options, "force") ? options.force : $("forceWrites").checked;
+      return withBusy(label, async () => {
+        const data = await apiPost("/api/inspire", inspirationPayload(force));
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
-        setMessage(actionMessage("生成灵感", data));
+        const previewData = await loadInspirationPreview({ silent: true });
+        setMessage(
+          previewData ? actionMessage(label, data) : `${actionMessage(label, data)}；预览读取失败，请到“运行日志 / 项目文件”查看。`,
+          !previewData
+        );
       });
+    }
+
+    async function inspireProject() {
+      return generateInspiration();
+    }
+
+    async function regenerateInspiration() {
+      const confirmed = window.confirm("重新生成会覆盖 memory/inspiration.md。确认继续吗？");
+      if (!confirmed) return;
+      return generateInspiration({ label: "重新生成灵感", force: true });
     }
 
     async function canonSuggest() {
@@ -1739,6 +1779,8 @@
     $("polishChapter").addEventListener("click", () => runAction("/api/polish-chapter", "润色"));
     $("auditChapter").addEventListener("click", () => runAction("/api/audit-chapter", "审核"));
     $("inspireProject").addEventListener("click", inspireProject);
+    $("regenerateInspiration").addEventListener("click", regenerateInspiration);
+    $("openInspirationFile").addEventListener("click", () => readWorkspaceFile(inspirationPreviewPath));
     $("canonSuggest").addEventListener("click", canonSuggest);
     $("canonApply").addEventListener("click", canonApply);
     $("refreshFtsIndex").addEventListener("click", () => refreshIndex(false));

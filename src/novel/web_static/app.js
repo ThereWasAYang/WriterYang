@@ -798,6 +798,23 @@
         || "";
     }
 
+    function settingChangeProposalPathFor(source = "auto") {
+      const memoryPath = $("memoryRepairProposalPath")?.value.trim() || "";
+      const workbenchPath = $("workbenchSettingChangeProposalPath")?.value.trim() || "";
+      if (source === "memory") return memoryPath || workbenchPath;
+      if (source === "workbench") return workbenchPath || memoryPath;
+      return workbenchPath || memoryPath;
+    }
+
+    function openSettingChangeProposalFile(source = "auto") {
+      const proposalPath = settingChangeProposalPathFor(source);
+      if (!proposalPath) {
+        setMessage("请先生成设定变更 proposal。", true);
+        return;
+      }
+      readWorkspaceFile(proposalPath);
+    }
+
     function syncSettingChangeProposalPath(path) {
       if (!path) return;
       if ($("workbenchSettingChangeProposalPath")) $("workbenchSettingChangeProposalPath").value = path;
@@ -1600,7 +1617,7 @@
 
     function setBusyMessage() {
       if (!currentBusyStartedAt || !currentBusyLabel) return;
-      setBusyBanner(`${currentBusyLabel}执行中，已用时 ${formatElapsed(Date.now() - currentBusyStartedAt)}。真实 API 可能需要较长时间...`);
+      setBusyBanner(`${currentBusyLabel}执行中，已用时 ${formatElapsed(Date.now() - currentBusyStartedAt)}`);
     }
 
     function canUseButtonDuringBusy(button) {
@@ -1695,11 +1712,27 @@
       if (Array.isArray(data.management_events) && data.management_events.length) {
         parts.push(`management events=${data.management_events.length}`);
       }
+      const usageText = apiCallUsageText(data.api_call_usage);
+      if (usageText) parts.push(usageText);
       if (data.proposal?.repair_id) parts.push(`repair=${data.proposal.repair_id}`);
       if (data.overall_status) parts.push(`audit=${data.overall_status}`);
       if (Array.isArray(data.warnings) && data.warnings.length) {
         parts.push(`warnings=${data.warnings.length}`);
       }
+      return parts.join("；");
+    }
+
+    function apiCallUsageText(usage) {
+      if (!usage || !usage.call_count) return "";
+      const parts = [`messages chars=${usage.messages_char_count ?? 0}`];
+      const prompt = usage.prompt_tokens ?? 0;
+      const completion = usage.completion_tokens ?? 0;
+      const total = usage.total_tokens ?? 0;
+      const unknown = usage.unknown_token_call_count ?? 0;
+      if (prompt || completion || total || unknown < usage.call_count) {
+        parts.push(`tokens prompt=${prompt} completion=${completion} total=${total}`);
+      }
+      if (unknown) parts.push(`unknown token calls=${unknown}`);
       return parts.join("；");
     }
 
@@ -2048,10 +2081,12 @@
     $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
     $("memoryRepairClarificationSubmit").addEventListener("click", memoryRepairAnswer);
     $("memoryRepairReset").addEventListener("click", () => resetSettingChangeState("memoryRepairInstruction"));
+    $("openMemoryRepairProposal").addEventListener("click", () => openSettingChangeProposalFile("memory"));
     $("memoryRepairApply").addEventListener("click", memoryRepairApply);
     $("settingChangeWorkbenchSuggest").addEventListener("click", () => settingChangeSuggest(currentSettingChangeStage()));
     $("settingChangeClarificationSubmit").addEventListener("click", () => settingChangeAnswer());
     $("settingChangeWorkbenchReset").addEventListener("click", () => resetSettingChangeState("instruction"));
+    $("openWorkbenchSettingChangeProposal").addEventListener("click", () => openSettingChangeProposalFile("workbench"));
     $("settingChangeWorkbenchApply").addEventListener("click", () => settingChangeApply({ syncSession: $("settingChangeSyncSession").checked }));
     $("rebuildChapterMemory").addEventListener("click", rebuildChapterMemory);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));

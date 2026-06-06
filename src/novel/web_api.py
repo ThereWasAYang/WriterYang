@@ -277,7 +277,101 @@ def _post_routes():
 def _locked_write(data: dict[str, object], task: str, handler) -> dict[str, object]:
     root = _root_from_body(data)
     with ProjectLock(root, task=task):
-        return handler(data)
+        usage_marker = _provider_call_log_line_count(root)
+        result = handler(data)
+        _attach_api_call_usage(root, result, usage_marker)
+        return result
+
+
+def _provider_call_log_line_count(root: Path) -> int:
+    path = root / "runs" / "provider_calls.jsonl"
+    if not path.exists():
+        return 0
+    try:
+        return len(path.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return 0
+
+
+def _attach_api_call_usage(root: Path, data: dict[str, object], start_line: int) -> None:
+    usage = _api_call_usage_since(root, start_line)
+    if usage["call_count"]:
+        data["api_call_usage"] = usage
+
+
+def _api_call_usage_since(root: Path, start_line: int) -> dict[str, int]:
+    path = root / "runs" / "provider_calls.jsonl"
+    usage = {
+        "call_count": 0,
+        "messages_char_count": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "unknown_token_call_count": 0,
+    }
+    if not path.exists():
+        return usage
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[max(start_line, 0):]
+    except OSError:
+        return usage
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        usage["call_count"] += 1
+        usage["messages_char_count"] += _model_io_messages_char_count(root, entry.get("model_io_path"))
+        prompt = _optional_int(entry.get("prompt_tokens"))
+        completion = _optional_int(entry.get("completion_tokens"))
+        total = _optional_int(entry.get("total_tokens"))
+        if prompt is None and completion is None and total is None:
+            usage["unknown_token_call_count"] += 1
+            continue
+        usage["prompt_tokens"] += prompt or 0
+        usage["completion_tokens"] += completion or 0
+        usage["total_tokens"] += total if total is not None else (prompt or 0) + (completion or 0)
+    return usage
+
+
+def _model_io_messages_char_count(root: Path, rel_path: object) -> int:
+    if not isinstance(rel_path, str) or not rel_path.startswith("runs/model_io/") or not rel_path.endswith(".json"):
+        return 0
+    path = (root / rel_path).resolve()
+    try:
+        path.relative_to((root / "runs" / "model_io").resolve())
+    except ValueError:
+        return 0
+    try:
+        data = load_json(path)
+    except Exception:
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    request_data = data.get("request")
+    if not isinstance(request_data, dict):
+        return 0
+    payload = request_data.get("payload")
+    if not isinstance(payload, dict):
+        return 0
+    return _messages_char_count(payload.get("messages"))
+
+
+def _messages_char_count(messages: object) -> int:
+    if not isinstance(messages, list):
+        return 0
+    total = 0
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            total += len(content)
+        elif content is not None:
+            total += len(json.dumps(content, ensure_ascii=False, sort_keys=True))
+    return total
 
 
 def _success(data: dict[str, object], status: int = 200) -> APIResponse:

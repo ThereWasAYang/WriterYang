@@ -21,7 +21,7 @@ from novel.core.schemas import (
 )
 from novel.core.session import SessionResult
 from novel.core.workspace import InitOptions, init_workspace
-from novel.web_api import handle_api_request
+from novel.web_api import _locked_write, handle_api_request
 from novel.web_server import WebServerError, index_html, run_web_server, static_asset_bytes
 
 
@@ -317,6 +317,88 @@ def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
     assert "timeline_event_count" in state_payload["data"]["summary"]  # type: ignore[index]
     assert "visual" in state_payload["data"]  # type: ignore[operator]
     assert "timeline_events" in state_payload["data"]["visual"]  # type: ignore[index]
+
+
+def test_locked_web_write_attaches_api_call_usage_from_new_provider_logs(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    secret_prompt = "系统提示不要返回"
+
+    def handler(_: dict[str, object]) -> dict[str, object]:
+        runs_dir = root / "runs"
+        model_io_dir = runs_dir / "model_io"
+        model_io_dir.mkdir(parents=True, exist_ok=True)
+        (model_io_dir / "agent_usage_1.json").write_text(
+            json.dumps(
+                {
+                    "request": {
+                        "payload": {
+                            "messages": [
+                                {"role": "system", "content": secret_prompt},
+                                {"role": "user", "content": "用户输入"},
+                            ]
+                        }
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (model_io_dir / "agent_usage_2.json").write_text(
+            json.dumps(
+                {
+                    "request": {
+                        "payload": {
+                            "messages": [
+                                {"role": "system", "content": "第二次"},
+                                {"role": "user", "content": {"text": "结构化内容"}},
+                            ]
+                        }
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (runs_dir / "provider_calls.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "request_id": "agent_usage_1",
+                            "status": "success",
+                            "prompt_tokens": 11,
+                            "completion_tokens": 7,
+                            "total_tokens": 18,
+                            "model_io_path": "runs/model_io/agent_usage_1.json",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        {
+                            "request_id": "agent_usage_2",
+                            "status": "success",
+                            "model_io_path": "runs/model_io/agent_usage_2.json",
+                        },
+                        ensure_ascii=False,
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return {"status": "ok"}
+
+    result = _locked_write({"path": str(root)}, "test api usage", handler)
+
+    usage = result["api_call_usage"]  # type: ignore[index]
+    expected_chars = len(secret_prompt) + len("用户输入") + len("第二次") + len(json.dumps({"text": "结构化内容"}, ensure_ascii=False, sort_keys=True))
+    assert usage["call_count"] == 2  # type: ignore[index]
+    assert usage["messages_char_count"] == expected_chars  # type: ignore[index]
+    assert usage["prompt_tokens"] == 11  # type: ignore[index]
+    assert usage["completion_tokens"] == 7  # type: ignore[index]
+    assert usage["total_tokens"] == 18  # type: ignore[index]
+    assert usage["unknown_token_call_count"] == 1  # type: ignore[index]
+    assert secret_prompt not in json.dumps(result, ensure_ascii=False)
 
 
 def test_api_diff_endpoint_returns_unified_diff(tmp_path: Path) -> None:
@@ -1219,6 +1301,7 @@ def test_frontend_basic_render() -> None:
     assert "setBusyBanner(`${currentBusyLabel}执行中" in app_js
     assert "setBusyBanner(\"\")" in app_js
     assert "setMessage(`${currentBusyLabel}执行中" not in app_js
+    assert "真实 API 可能需要较长时间" not in app_js
     assert "beforeunload" in app_js
     assert "metaKey" in app_js
     assert "ctrlKey" in app_js
@@ -1260,6 +1343,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="memoryRepairSuggest"' in html
     assert 'id="memoryRepairApply"' in html
     assert 'id="memoryRepairReset"' in html
+    assert 'id="openMemoryRepairProposal"' in html
     assert 'id="memoryRepairClarificationControls" class="hidden"' in html
     assert 'id="memoryRepairClarificationAnswer"' in html
     assert 'id="memoryRepairClarificationSubmit"' in html
@@ -1315,6 +1399,7 @@ def test_frontend_basic_render() -> None:
     assert "/api/settings/change/apply" in app_js
     assert 'id="settingChangeWorkbenchSuggest"' in html
     assert 'id="settingChangeWorkbenchReset"' in html
+    assert 'id="openWorkbenchSettingChangeProposal"' in html
     assert 'id="settingChangeClarificationControls" class="hidden"' in html
     assert 'id="settingChangeClarificationAnswer"' in html
     assert 'id="settingChangeClarificationSubmit"' in html
@@ -1323,6 +1408,12 @@ def test_frontend_basic_render() -> None:
     assert "resetSettingChangeState(\"instruction\")" in app_js
     assert "resetSettingChangeState(\"memoryRepairInstruction\")" in app_js
     assert "latestSettingChangeClarificationId = \"\";" in app_js
+    assert "apiCallUsageText(data.api_call_usage)" in app_js
+    assert "messages chars=" in app_js
+    assert "tokens prompt=" in app_js
+    assert "readWorkspaceFile(proposalPath)" in app_js
+    assert "openSettingChangeProposalFile(\"workbench\")" in app_js
+    assert "openSettingChangeProposalFile(\"memory\")" in app_js
     assert 'id="auditIssueAsSettingChange"' in html
     assert "/api/chapter-memory/generate" in app_js
     assert "/api/chapter-memory/rebuild" in app_js

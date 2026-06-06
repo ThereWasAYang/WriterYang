@@ -149,7 +149,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
 - `_session_progress_api()` / `_session_cancel()`：读取 `progress.json` 的脱敏进度摘要，并写入协作式取消请求；取消接口不走项目写锁，避免被正在运行的 `session run` 阻塞。
 - `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
-- `_memory_repair_suggest()` / `_memory_repair_apply()`：项目管家 proposal 和 apply API，调用 `core/memory_repair.py`，不在 Web 层直接 patch 文件。
+- `_memory_repair_suggest()` / `_memory_repair_apply()` / `_settings_change_suggest()` / `_settings_change_answer()`：项目管家 proposal、设定变更澄清和 apply API，调用 `core/memory_repair.py`，不在 Web 层直接 patch 文件。
 - `_session_revise_audit()` / `_session_retry_rewrite()` / `_session_undo_rewrite()`：Audit 复审、基于新审核重试打回、撤回打回并恢复快照。
 - `_management_events()` / `_management_event_summary()`：读取 `memory/management_events.jsonl`，供 Web 显示后台状态/时间线/记忆刷新。
 - `_file_tree()`：列出 workspace 白名单文件，排除 `.env*`、缓存、索引、备份。
@@ -176,7 +176,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 运行日志 / 项目文件：安全文件树、只读文件预览、运行日志和章节文件查看。
 - 项目初始引导面板支持保存默认 API、可选 embedding API、推荐并保存 Web 端口，以及打开当前 Web UI 地址。
 - Session 面板支持创建大纲、修改大纲、批准大纲、开始写作、当前任务进度、协作式取消、按 Audit/用户意见修订、认可和归档。
-- 项目管家面板支持生成 memory repair proposal、确认 apply，并显示后台管理动态。
+- 项目管家面板支持生成 memory repair / setting change proposal；设定变更信息不足时展示 clarification 问题，补充后继续生成 proposal；确认 apply 前不会改正式 memory。
 - 检索索引面板显示 FTS / embedding 状态，支持本地刷新关键词索引，也支持显式刷新真实 embedding 向量索引。
 
 ### `src/novel/web_static/app.css`
@@ -572,10 +572,13 @@ ChapterPlan 引用提取：
 orchestrator 项目管家修复 proposal：
 
 - `MemoryRepairError`：proposal/apply 失败。
-- `MemoryRepairSuggestResult` / `MemoryRepairApplyResult`：service 返回结构。
+- `MemoryRepairSuggestResult` / `MemoryRepairApplyResult` / `SettingChangeSuggestionResult`：service 返回结构。
 - `suggest_memory_repair()`：根据结构化 `MemoryRepairDecision` 和当前项目文件生成 `MemoryRepairProposal`、Markdown 摘要和 diff 预览；默认不修改正式 memory。
+- `suggest_setting_change_interactive()` / `answer_setting_change_clarification()`：设定变更多轮澄清入口；信息不足时保存 `memory/repairs/clarifications/{clarification_id}/session.json`，补充后再生成 proposal。
+- `generate_memory_change_clarification_decision()` / `parse_memory_change_clarification_decision()`：调用 Orchestrator/Memory Manager provider 输出结构化 clarification gate；提问只通过 schema 返回，不在最终 patch 阶段自然语言提问。
 - `generate_memory_repair_decision()` / `parse_memory_repair_decision()`：调用 Orchestrator/Memory Manager provider 输出 target files、JSON Pointer operations、confidence 和 assumptions。信息不足时返回空 operations，不用关键词硬猜正式 patch。
 - `apply_memory_repair()`：校验 proposal，限制白名单文件，按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
+- `build_memory_repair_user_prompt()` / `_memory_pointer_index()`：组装 MemoryRepairDecision prompt，注入目标文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径示例。
 - `render_memory_repair_markdown()`：把 proposal 渲染为用户可读说明。
 - `_mock_infer_target_files()` / `_mock_infer_operations()`：仅用于 mock 测试 fixture，不作为真实业务推断路径。
 - `_apply_operations_to_data()` / `_apply_operation()` / `_resolve_pointer_parent()`：JSON Pointer patch 执行器。

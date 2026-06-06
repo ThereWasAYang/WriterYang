@@ -76,7 +76,14 @@ from novel.core.revision import (
     revise_chapter_loop,
 )
 from novel.core.management import load_management_events
-from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair, suggest_setting_change
+from novel.core.memory_repair import (
+    MemoryRepairError,
+    SettingChangeSuggestionResult,
+    answer_setting_change_clarification,
+    apply_memory_repair,
+    suggest_memory_repair,
+    suggest_setting_change_interactive,
+)
 from novel.core.search import SearchError, rebuild_search_index, refresh_search_index, search_index_status, search_project
 from novel.core.session import (
     CreationSessionError,
@@ -1373,6 +1380,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setting_change_suggest.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
     setting_change_suggest.add_argument("--quiet", action="store_true", help="Suppress normal output.")
+    setting_change_answer = setting_change_subparsers.add_parser(
+        "answer",
+        help="Answer a setting change clarification question and continue proposal generation",
+    )
+    setting_change_answer.add_argument("clarification_id", help="clarify_... id returned by setting-change suggest")
+    setting_change_answer.add_argument("--answer", required=True, help="User clarification answer")
+    setting_change_answer.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    setting_change_answer.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for structured setting change proposal generation.",
+    )
+    setting_change_answer.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
+    setting_change_answer.add_argument("--quiet", action="store_true", help="Suppress normal output.")
     setting_change_apply = setting_change_subparsers.add_parser("apply", help="Apply a setting change proposal explicitly")
     setting_change_apply.add_argument("proposal", help="repair_id or path to memory/repairs/{repair_id}/proposal.json")
     setting_change_apply.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
@@ -2589,12 +2611,74 @@ def _cmd_memory_repair(args: argparse.Namespace) -> int:
         return _failure(args, str(exc), error_type="memory_repair_error")
 
 
+def _setting_change_suggestion_success(
+    args: argparse.Namespace,
+    root: Path,
+    result: SettingChangeSuggestionResult,
+    *,
+    command: str,
+) -> int:
+    if result.status == "needs_clarification":
+        clarification = result.clarification
+        if clarification is None:
+            return _failure(args, "missing setting change clarification result", error_type="memory_repair_error")
+        payload: dict[str, object] = {
+            "command": command,
+            "status": "needs_clarification",
+            "clarification_id": clarification.clarification_id,
+            "questions": clarification.questions,
+            "conversation_turns": [turn.model_dump(mode="json") for turn in clarification.conversation_turns],
+            "clarification_path": str((root / "memory" / "repairs" / "clarifications" / clarification.clarification_id / "session.json").resolve()),
+            "management_events": _management_event_payload(root),
+        }
+        lines = [
+            f"Setting change needs clarification: {clarification.clarification_id}",
+            *[f"Question: {question}" for question in clarification.questions],
+            f"Continue: novel setting-change answer {clarification.clarification_id} --path {root} --answer <your-answer>",
+        ]
+        return _success(args, payload, lines)
+    proposal_result = result.proposal_result
+    if proposal_result is None:
+        return _failure(args, "missing setting change proposal result", error_type="memory_repair_error")
+    proposal = proposal_result.proposal
+    impact = proposal.impact
+    payload = {
+        "command": command,
+        "status": "proposal_ready",
+        "repair_id": proposal.repair_id,
+        "proposal_path": str(proposal_result.proposal_path),
+        "markdown_path": str(proposal_result.markdown_path),
+        "target_files": proposal.target_files,
+        "domains": proposal.domains,
+        "operation_count": len(proposal.operations),
+        "confidence": proposal.confidence,
+        "impact": impact.model_dump(mode="json") if impact else None,
+        "followup_actions": [
+            action.model_dump(mode="json") for action in proposal.followup_actions
+        ],
+        "management_events": _management_event_payload(root),
+    }
+    affected = ", ".join(str(number) for number in impact.affected_chapters) if impact else ""
+    return _success(
+        args,
+        payload,
+        [
+            f"Setting change proposal: {proposal_result.proposal_path}",
+            f"Targets: {', '.join(proposal.target_files) or 'none'}",
+            f"Domains: {', '.join(proposal.domains) or 'none'}",
+            f"Operations: {len(proposal.operations)}",
+            f"Affected chapters: {affected or 'none'}",
+            *_management_event_lines(root),
+        ],
+    )
+
+
 def _cmd_setting_change(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
         with _command_lock(args, root, f"setting-change {args.setting_change_command}"):
             if args.setting_change_command == "suggest":
-                result = suggest_setting_change(
+                result = suggest_setting_change_interactive(
                     root,
                     args.request,
                     provider_name=args.provider,
@@ -2603,35 +2687,15 @@ def _cmd_setting_change(args: argparse.Namespace) -> int:
                     chapter_number=args.chapter,
                     audit_issue_ids=list(args.audit_issue_id or []),
                 )
-                impact = result.proposal.impact
-                payload: dict[str, object] = {
-                    "command": "setting-change suggest",
-                    "repair_id": result.proposal.repair_id,
-                    "proposal_path": str(result.proposal_path),
-                    "markdown_path": str(result.markdown_path),
-                    "target_files": result.proposal.target_files,
-                    "domains": result.proposal.domains,
-                    "operation_count": len(result.proposal.operations),
-                    "confidence": result.proposal.confidence,
-                    "impact": impact.model_dump(mode="json") if impact else None,
-                    "followup_actions": [
-                        action.model_dump(mode="json") for action in result.proposal.followup_actions
-                    ],
-                    "management_events": _management_event_payload(root),
-                }
-                affected = ", ".join(str(number) for number in impact.affected_chapters) if impact else ""
-                return _success(
-                    args,
-                    payload,
-                    [
-                        f"Setting change proposal: {result.proposal_path}",
-                        f"Targets: {', '.join(result.proposal.target_files) or 'none'}",
-                        f"Domains: {', '.join(result.proposal.domains) or 'none'}",
-                        f"Operations: {len(result.proposal.operations)}",
-                        f"Affected chapters: {affected or 'none'}",
-                        *_management_event_lines(root),
-                    ],
+                return _setting_change_suggestion_success(args, root, result, command="setting-change suggest")
+            if args.setting_change_command == "answer":
+                result = answer_setting_change_clarification(
+                    root,
+                    args.clarification_id,
+                    args.answer,
+                    provider_name=args.provider,
                 )
+                return _setting_change_suggestion_success(args, root, result, command="setting-change answer")
             apply_result = apply_memory_repair(root, _resolve_memory_repair_proposal_arg(args.proposal))
             payload = {
                 "command": "setting-change apply",

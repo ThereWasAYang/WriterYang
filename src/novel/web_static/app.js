@@ -28,6 +28,7 @@
     let latestCanonProposalSnapshotPath = "";
     let latestAuditAnnotations = null;
     let latestSelectedAuditIssue = null;
+    let latestSettingChangeClarificationId = "";
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -673,6 +674,10 @@
       return settingChangeApply({ syncSession: false });
     }
 
+    async function memoryRepairAnswer() {
+      return settingChangeAnswer({ preferMemoryInput: true });
+    }
+
     async function settingChangeSuggest(sourceStage = "unknown", options = {}) {
       return withBusy("生成设定变更建议", async () => {
         const data = await apiPost("/api/settings/change/suggest", {
@@ -684,13 +689,59 @@
           source_stage: sourceStage,
           audit_issue_ids: options.auditIssueIds || [],
         });
-        syncSettingChangeProposalPath(data.proposal_relative_path || "");
-        $("fileViewer").textContent = JSON.stringify(data, null, 2);
-        renderSettingChangeImpact(data.proposal || {});
-        renderManagementEvents(data.management_events || []);
+        handleSettingChangeSuggestion(data);
         await refreshAll({ silent: true });
-        setMessage(actionMessage("设定变更建议", data));
+        setMessage(settingChangeSuggestionMessage(data));
       });
+    }
+
+    async function settingChangeAnswer(options = {}) {
+      return withBusy("继续生成设定变更建议", async () => {
+        const answer = settingChangeClarificationAnswer(options);
+        if (!latestSettingChangeClarificationId) {
+          throw new Error("当前没有等待补充的设定变更问题。");
+        }
+        if (!answer) {
+          throw new Error("请先填写补充说明。");
+        }
+        const data = await apiPost("/api/settings/change/answer", {
+          path: projectPath(),
+          clarification_id: latestSettingChangeClarificationId,
+          answer,
+          provider: $("provider").value,
+        });
+        handleSettingChangeSuggestion(data);
+        await refreshAll({ silent: true });
+        setMessage(settingChangeSuggestionMessage(data));
+      });
+    }
+
+    function handleSettingChangeSuggestion(data) {
+      if (data.status === "needs_clarification") {
+        latestSettingChangeClarificationId = data.clarification_id || "";
+        renderSettingChangeClarification(data);
+      } else {
+        latestSettingChangeClarificationId = "";
+        clearSettingChangeClarification();
+        syncSettingChangeProposalPath(data.proposal_relative_path || "");
+        renderSettingChangeImpact(data.proposal || {});
+      }
+      $("fileViewer").textContent = JSON.stringify(data, null, 2);
+      renderManagementEvents(data.management_events || []);
+    }
+
+    function settingChangeSuggestionMessage(data) {
+      if (data.status === "needs_clarification") {
+        return `设定变更需要补充信息：${(data.questions || []).join("；")}`;
+      }
+      return actionMessage("设定变更建议", data);
+    }
+
+    function settingChangeClarificationAnswer(options = {}) {
+      const memoryAnswer = $("memoryRepairClarificationAnswer")?.value.trim() || "";
+      const workbenchAnswer = $("settingChangeClarificationAnswer")?.value.trim() || "";
+      if (options.preferMemoryInput) return memoryAnswer || workbenchAnswer;
+      return workbenchAnswer || memoryAnswer;
     }
 
     async function settingChangeApply(options = {}) {
@@ -737,6 +788,35 @@
       if (!path) return;
       if ($("workbenchSettingChangeProposalPath")) $("workbenchSettingChangeProposalPath").value = path;
       if ($("memoryRepairProposalPath")) $("memoryRepairProposalPath").value = path;
+    }
+
+    function renderSettingChangeClarification(data) {
+      const questions = data.questions || [];
+      const turns = data.conversation_turns || [];
+      const html = `
+        <b>设定变更需要补充</b>
+        <div>clarification: ${escapeHtml(data.clarification_id || "")}</div>
+        ${questions.map((question) => `<div>问题：${escapeHtml(question)}</div>`).join("")}
+        ${turns.length ? `<div style="margin-top: 6px;">对话：${escapeHtml(turns.map((turn) => `${turn.role}: ${turn.content}`).join(" / "))}</div>` : ""}
+      `;
+      ["settingChangeClarificationPanel", "memoryRepairClarificationPanel"].forEach((id) => {
+        if ($(id)) {
+          $(id).innerHTML = html;
+          $(id).classList.remove("hidden");
+        }
+      });
+    }
+
+    function clearSettingChangeClarification() {
+      ["settingChangeClarificationPanel", "memoryRepairClarificationPanel"].forEach((id) => {
+        if ($(id)) {
+          $(id).innerHTML = "设定变更澄清：暂无";
+          $(id).classList.add("hidden");
+        }
+      });
+      ["settingChangeClarificationAnswer", "memoryRepairClarificationAnswer"].forEach((id) => {
+        if ($(id)) $(id).value = "";
+      });
     }
 
     function renderSettingChangeImpact(proposal) {
@@ -1930,8 +2010,10 @@
     $("refreshEmbeddingIndex").addEventListener("click", () => refreshIndex(true));
     $("saveEmbeddingConfig").addEventListener("click", saveEmbeddingConfig);
     $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
+    $("memoryRepairClarificationSubmit").addEventListener("click", memoryRepairAnswer);
     $("memoryRepairApply").addEventListener("click", memoryRepairApply);
     $("settingChangeWorkbenchSuggest").addEventListener("click", () => settingChangeSuggest(currentSettingChangeStage()));
+    $("settingChangeClarificationSubmit").addEventListener("click", () => settingChangeAnswer());
     $("settingChangeWorkbenchApply").addEventListener("click", () => settingChangeApply({ syncSession: $("settingChangeSyncSession").checked }));
     $("rebuildChapterMemory").addEventListener("click", rebuildChapterMemory);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));

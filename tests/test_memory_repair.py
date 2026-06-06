@@ -7,8 +7,15 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.io import load_json_model
-from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_setting_change
-from novel.core.schemas import CharactersFile, MemoryRepairProposal, TimelineFile, WorldFile
+from novel.core.memory_repair import (
+    MemoryRepairError,
+    answer_setting_change_clarification,
+    apply_memory_repair,
+    build_memory_repair_user_prompt,
+    suggest_setting_change,
+    suggest_setting_change_interactive,
+)
+from novel.core.schemas import CharactersFile, MemoryChangeClarificationSession, MemoryRepairProposal, TimelineFile, WorldFile
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -188,6 +195,57 @@ def test_setting_change_modifies_character_summary(tmp_path: Path) -> None:
     assert characters.characters[0].reader_visible_summary == "林澈表面温和但做决定非常谨慎"
 
 
+def test_setting_change_prompt_includes_json_pointer_structure(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+
+    prompt = build_memory_repair_user_prompt(
+        root,
+        "把 char_lin_che 设定为林澈表面温和但做决定非常谨慎",
+        change_kind="setting_change",
+    )
+
+    assert "当前文件结构与 JSON Pointer 路径索引" in prompt
+    assert "/characters/-" in prompt
+    assert "/characters/0/reader_visible_summary" in prompt
+    assert "/events/0/event_role" in prompt
+
+
+def test_setting_change_interactive_can_request_clarification(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+
+    result = suggest_setting_change_interactive(root, "把某个人物改一下", provider_name="mock")
+
+    assert result.status == "needs_clarification"
+    assert result.clarification is not None
+    assert result.clarification.questions
+    assert not list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
+    assert (
+        root
+        / "memory"
+        / "repairs"
+        / "clarifications"
+        / result.clarification.clarification_id
+        / "session.json"
+    ).is_file()
+
+
+def test_setting_change_clarification_answer_generates_proposal(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+    first = suggest_setting_change_interactive(root, "把某个人物改一下", provider_name="mock")
+    assert first.clarification is not None
+
+    result = answer_setting_change_clarification(
+        root,
+        first.clarification.clarification_id,
+        "目标是 char_lin_che，改成林澈表面温和但做决定非常谨慎。",
+        provider_name="mock",
+    )
+
+    assert result.status == "proposal_ready"
+    assert result.proposal_result is not None
+    assert result.proposal_result.proposal.operations[0].path == "/characters/0/reader_visible_summary"
+
+
 def test_setting_change_modifies_world_rule(tmp_path: Path) -> None:
     root = _workspace_with_timeline_event(tmp_path)
     (root / "memory" / "canon" / "world.json").write_text(
@@ -271,6 +329,38 @@ def test_setting_change_cli_alias_creates_proposal(tmp_path: Path) -> None:
     assert "Setting change proposal:" in stdout
     proposal = load_json_model(next((root / "memory" / "repairs").glob("repair_*/proposal.json")), MemoryRepairProposal)
     assert proposal.change_kind == "setting_change"
+
+
+def test_setting_change_cli_can_answer_clarification(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+
+    suggest_code, suggest_stdout, suggest_stderr = _run_cli(
+        ["setting-change", "suggest", "把某个人物改一下", "--path", str(root), "--provider", "mock"]
+    )
+    clarification = load_json_model(
+        next((root / "memory" / "repairs" / "clarifications").glob("clarify_*/session.json")),
+        MemoryChangeClarificationSession,
+    )
+    answer_code, answer_stdout, answer_stderr = _run_cli(
+        [
+            "setting-change",
+            "answer",
+            clarification.clarification_id,
+            "--answer",
+            "目标是 char_lin_che，改成林澈表面温和但做决定非常谨慎。",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+        ]
+    )
+
+    assert suggest_code == 0
+    assert suggest_stderr == ""
+    assert "needs clarification" in suggest_stdout
+    assert answer_code == 0
+    assert answer_stderr == ""
+    assert "Setting change proposal:" in answer_stdout
 
 
 def _workspace_with_timeline_event(tmp_path: Path) -> Path:

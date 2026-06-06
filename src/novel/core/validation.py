@@ -33,6 +33,7 @@ from novel.core.schemas import (
     ItemsFile,
     LocationsFile,
     MemoryRepairApplyLog,
+    MemoryChangeClarificationSession,
     MemoryRepairProposal,
     ProjectConfig,
     AgentRunLog,
@@ -854,6 +855,10 @@ def _validate_memory_repair_outputs(report: ValidationReport, root: Path) -> Non
     for repair_dir in sorted(path for path in repairs_dir.glob("repair_*") if path.is_dir()):
         _validate_optional_chapter_json(report, repair_dir / "proposal.json", MemoryRepairProposal)
         _validate_optional_chapter_json(report, repair_dir / "apply_log.json", MemoryRepairApplyLog)
+    clarifications_dir = repairs_dir / "clarifications"
+    if clarifications_dir.exists():
+        for clarification_path in sorted(clarifications_dir.glob("clarify_*/session.json")):
+            _validate_optional_chapter_json(report, clarification_path, MemoryChangeClarificationSession)
 
 
 def _validate_consistency_findings(report: ValidationReport, root: Path) -> None:

@@ -7,6 +7,11 @@ import pytest
 import yaml
 
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.memory_repair import (
+    answer_setting_change_clarification,
+    build_memory_repair_user_prompt,
+    suggest_setting_change_interactive,
+)
 from novel.core.orchestrator import decide_ask_intent, route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, plan_chapter
 from novel.core.providers import ModelRequest, ProviderFactory
@@ -168,6 +173,46 @@ def test_real_deepseek_audit_repair_route_manual_review_for_unstructured_issue(t
 
     assert decision.route in {"manual_review", "writer_rewrite", "revision_rewrite", "plot_replan"}
     assert decision.source == "model"
+
+
+def test_real_deepseek_setting_change_clarifies_then_generates_pointer_proposal(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
+        pytest.skip("DeepSeek setting change clarification smoke requires DeepSeek env in .env.real")
+    root = _real_project(tmp_path, env)
+    prompt = build_memory_repair_user_prompt(
+        root,
+        "把 char_lin_che 设定为林澈表面温和但做决定非常谨慎",
+        change_kind="setting_change",
+    )
+    assert "/characters/-" in prompt
+    assert "/characters/0/reader_visible_summary" in prompt
+    assert "/world_rules/-" in prompt
+
+    first = suggest_setting_change_interactive(
+        root,
+        "把某个人物的背景改一下，但目标和内容我还没想好",
+        provider_name="config",
+        stage="outline_discussion",
+    )
+    assert first.status == "needs_clarification"
+    assert first.clarification is not None
+    assert first.clarification.questions
+
+    second = answer_setting_change_clarification(
+        root,
+        first.clarification.clarification_id,
+        "目标是 char_lin_che，把 reader_visible_summary 改为：林澈表面温和但做决定非常谨慎。",
+        provider_name="config",
+    )
+    assert second.status == "proposal_ready"
+    assert second.proposal_result is not None
+    assert second.proposal_result.proposal.operations
+    assert second.proposal_result.proposal.operations[0].file == "memory/canon/characters.json"
+    assert second.proposal_result.proposal.operations[0].path == "/characters/0/reader_visible_summary"
+    assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
 
 
 def _real_env_or_skip() -> dict[str, str]:

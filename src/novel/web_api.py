@@ -41,7 +41,14 @@ from novel.core.inspection import format_canon, get_project_status
 from novel.core.io import atomic_write_model_json, atomic_write_text, atomic_write_yaml, backup_if_exists, load_json, load_json_model, load_yaml
 from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.management import load_management_events
-from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair, suggest_setting_change
+from novel.core.memory_repair import (
+    MemoryRepairError,
+    SettingChangeSuggestionResult,
+    answer_setting_change_clarification,
+    apply_memory_repair,
+    suggest_memory_repair,
+    suggest_setting_change_interactive,
+)
 from novel.core.migration import MigrationError, migrate_project
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
@@ -249,6 +256,7 @@ def _post_routes():
         "/api/orchestrator/memory-repair/suggest": ("web memory repair suggest", _memory_repair_suggest, True),
         "/api/orchestrator/memory-repair/apply": ("web memory repair apply", _memory_repair_apply, True),
         "/api/settings/change/suggest": ("web setting change suggest", _settings_change_suggest, True),
+        "/api/settings/change/answer": ("web setting change answer", _settings_change_answer, True),
         "/api/settings/change/apply": ("web setting change apply", _settings_change_apply, True),
         "/api/chapter-memory/generate": ("web chapter memory generate", _chapter_memory_generate, True),
         "/api/chapter-memory/rebuild": ("web chapter memory rebuild", _chapter_memory_rebuild, True),
@@ -909,7 +917,7 @@ def _settings_change_suggest(data: dict[str, object]) -> dict[str, object]:
         raise WebAPIError("invalid_request", "request is required", status=400)
     provider = _optional_string(data.get("provider")) or "config"
     audit_issue_ids = _string_list(data.get("audit_issue_ids"))
-    result = suggest_setting_change(
+    result = suggest_setting_change_interactive(
         root,
         request,
         provider_name=provider,
@@ -918,12 +926,49 @@ def _settings_change_suggest(data: dict[str, object]) -> dict[str, object]:
         chapter_number=_optional_int(data.get("chapter_number")) or _optional_int(data.get("chapter")),
         audit_issue_ids=audit_issue_ids,
     )
+    return _setting_change_suggestion_payload(root, result)
+
+
+def _settings_change_answer(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    clarification_id = _optional_string(data.get("clarification_id"))
+    answer = _optional_string(data.get("answer")) or _optional_string(data.get("message"))
+    if not clarification_id:
+        raise WebAPIError("invalid_request", "clarification_id is required", status=400)
+    if not answer:
+        raise WebAPIError("invalid_request", "answer is required", status=400)
+    result = answer_setting_change_clarification(
+        root,
+        clarification_id,
+        answer,
+        provider_name=_optional_string(data.get("provider")) or "config",
+    )
+    return _setting_change_suggestion_payload(root, result)
+
+
+def _setting_change_suggestion_payload(root: Path, result: SettingChangeSuggestionResult) -> dict[str, object]:
+    if result.status == "needs_clarification":
+        if result.clarification is None:
+            raise WebAPIError("internal_error", "missing clarification result", status=500)
+        clarification = result.clarification
+        return {
+            "status": "needs_clarification",
+            "clarification": clarification.model_dump(mode="json"),
+            "clarification_id": clarification.clarification_id,
+            "questions": clarification.questions,
+            "conversation_turns": [turn.model_dump(mode="json") for turn in clarification.conversation_turns],
+            "management_events": _management_event_summary(root),
+        }
+    if result.proposal_result is None:
+        raise WebAPIError("internal_error", "missing setting change proposal result", status=500)
+    proposal_result = result.proposal_result
     return {
-        "proposal": result.proposal.model_dump(mode="json"),
-        "proposal_path": str(result.proposal_path),
-        "proposal_relative_path": _relative(root, result.proposal_path),
-        "markdown_path": str(result.markdown_path),
-        "markdown_relative_path": _relative(root, result.markdown_path),
+        "status": "proposal_ready",
+        "proposal": proposal_result.proposal.model_dump(mode="json"),
+        "proposal_path": str(proposal_result.proposal_path),
+        "proposal_relative_path": _relative(root, proposal_result.proposal_path),
+        "markdown_path": str(proposal_result.markdown_path),
+        "markdown_relative_path": _relative(root, proposal_result.markdown_path),
         "management_events": _management_event_summary(root),
     }
 

@@ -228,6 +228,7 @@ novel export markdown --path ./my-novel --toc --force
 - `session accept` 后才应用状态更新并标记章节 accepted；`session archive` 会复制本次创作文件并记录 sha256。
 - `state/timeline` 默认通过 proposal 更新；不建议直接改正式 state/timeline，除非你清楚引用关系。
 - 发现 timeline/state/canon 等项目记忆写错时，推荐把问题交给 orchestrator 项目管家：`novel ask "第2章 event_x 其实是回忆，不是当前行动"`。它会生成 `memory/repairs/{repair_id}/proposal.json` 和 `proposal.md`，用户确认后用显式命令 `novel memory-repair apply <repair_id>` 应用；普通自然语言 fallback 不会执行 apply，以避免误操作。所有后台状态/时间线/记忆刷新会写入 `memory/management_events.jsonl` 并在 CLI/Web UI 中展示。
+- 自然语言设定变更推荐使用 `novel setting-change suggest "..." --path ./rain-station --provider config`。如果目标、内容或范围不清楚，Agent 会先生成 `clarify_...` 澄清问题；用 `novel setting-change answer clarify_... --answer "..."` 继续，直到生成可审查的 `memory/repairs/{repair_id}/proposal.json`。提示词会包含当前 memory 文件结构和 JSON Pointer 路径索引，用户不需要手动提供现有文件完整结构。
 - 归档后的内容默认不可变；如需修改，应创建新的 revision session。
 - 底层 `plan-chapter/write-chapter/polish-chapter/audit-chapter` 仍保留给调试和高级用户，但日常创作推荐用 `novel ask` / `novel session`。
 - 真实 API 的结构化输出可能第一次不符合 schema；Canon、ChapterPlan、Audit、StateUpdate 会自动做一次 repair retry。仍失败时，先看错误摘要和 `runs/` 日志。
@@ -635,7 +636,7 @@ web:
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
 - 当前任务进度：Session 写作期间显示阶段、章节、轮次、已用时和最近事件；“取消当前 Session 任务”只会在安全边界生效，不会立刻打断当前 LLM 请求。
 - 自动打回重写记录：当 Audit 把正文打回重写时，显示第几章第几轮、打回原因、系统动作和“查看被打回原文”按钮；如果你认为打回不合理，应检查对应 `audit.json`、`memory/state/timeline.json`、`current_state.json` 和 canon 文件。
-- 项目管家：用自然语言说明 timeline/state/canon 的错误，生成可审查 repair proposal；确认应用前不会改正式 memory 文件。后台管理动态会显示状态更新、时间线更新、记忆修复 proposal/apply 等事件。
+- 项目管家：用自然语言说明 timeline/state/canon 的错误，生成可审查 repair proposal；设定变更描述不清楚时会先展示 Agent 的澄清问题，补充后再生成 proposal。确认应用前不会改正式 memory 文件。后台管理动态会显示状态更新、时间线更新、记忆修复 proposal/apply 等事件。
 - Audit 复审控制：选择 rewrite event 后，可以纠正 Audit 理解并重新审核、根据新审核重新打回，或撤回本次打回并恢复原文快照。
 - 下一步提示：根据项目状态、session 状态和项目检查结果提示下一步操作，降低误点旧 session 或跳过审核的风险。
 - Session 大纲修订：大纲不满意时，在聊天 / 指令框输入修改意见并点击“修改大纲”；满意后再批准大纲。

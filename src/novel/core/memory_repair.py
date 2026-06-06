@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -29,6 +29,9 @@ from novel.core.schemas import (
     ItemsFile,
     LocationsFile,
     MemoryChangeDomain,
+    MemoryChangeClarificationDecision,
+    MemoryChangeClarificationSession,
+    MemoryChangeConversationTurn,
     MemoryChangeFollowupAction,
     MemoryChangeImpact,
     MemoryChangeKind,
@@ -59,6 +62,13 @@ class MemoryRepairApplyResult:
     proposal: MemoryRepairProposal
     apply_log: MemoryRepairApplyLog
     apply_log_path: Path
+
+
+@dataclass(frozen=True)
+class SettingChangeSuggestionResult:
+    status: Literal["proposal_ready", "needs_clarification"]
+    proposal_result: MemoryRepairSuggestResult | None = None
+    clarification: MemoryChangeClarificationSession | None = None
 
 
 ALLOWED_MEMORY_FILES: dict[str, type[BaseModel]] = {
@@ -95,6 +105,79 @@ FILE_COLLECTION_KEYS: dict[str, str] = {
 STATE_COLLECTION_KEYS = {"character_states", "item_states", "location_states"}
 
 SCANNED_IMPACT_SUFFIXES = {".json", ".md"}
+
+COLLECTION_FIELD_HINTS: dict[str, list[str]] = {
+    "memory/canon/characters.json": [
+        "id",
+        "name",
+        "aliases",
+        "role",
+        "goals",
+        "conflicts",
+        "relationships",
+        "reader_visible_summary",
+        "private_notes",
+        "visibility",
+        "status",
+        "tags",
+    ],
+    "memory/canon/locations.json": [
+        "id",
+        "name",
+        "type",
+        "description",
+        "atmosphere",
+        "connected_location_ids",
+        "reader_visible_summary",
+        "private_notes",
+        "visibility",
+        "status",
+        "tags",
+    ],
+    "memory/canon/items.json": [
+        "id",
+        "name",
+        "type",
+        "description",
+        "holder_id",
+        "location_id",
+        "special_properties",
+        "reader_visible_summary",
+        "private_notes",
+        "visibility",
+        "status",
+        "tags",
+    ],
+    "memory/canon/world.json": [
+        "id",
+        "name",
+        "description",
+        "visibility",
+        "known_by_character_ids",
+        "status",
+        "tags",
+    ],
+    "memory/canon/hidden_truths.json": [
+        "id",
+        "title",
+        "truth",
+        "reader_safe_hint",
+        "related_entity_ids",
+        "visibility",
+        "status",
+        "tags",
+    ],
+    "memory/canon/foreshadowing.json": [
+        "id",
+        "title",
+        "setup",
+        "payoff",
+        "related_entity_ids",
+        "status",
+        "visibility",
+        "tags",
+    ],
+}
 
 
 def suggest_memory_repair(
@@ -212,6 +295,210 @@ def suggest_setting_change(
         chapter_number=chapter_number,
         audit_issue_ids=audit_issue_ids,
     )
+
+
+def suggest_setting_change_interactive(
+    root: Path,
+    user_request: str,
+    *,
+    provider_name: str = "config",
+    provider: ModelProvider | None = None,
+    stage: MemoryChangeStage = "unknown",
+    session_id: str | None = None,
+    chapter_number: int | None = None,
+    audit_issue_ids: list[str] | None = None,
+    max_clarification_rounds: int = 3,
+) -> SettingChangeSuggestionResult:
+    root = root.resolve()
+    request = user_request.strip()
+    if not request:
+        raise MemoryRepairError("setting change request must not be empty")
+    decision = generate_memory_change_clarification_decision(
+        root,
+        request,
+        provider_name=provider_name,
+        provider=provider,
+        stage=stage,
+        conversation_turns=[
+            MemoryChangeConversationTurn(role="user", content=request, created_at=_utc_now()),
+        ],
+    )
+    if decision.status == "needs_clarification" and max_clarification_rounds > 0:
+        clarification = _new_clarification_session(
+            root,
+            request,
+            decision=decision,
+            stage=stage,
+            session_id=session_id,
+            chapter_number=chapter_number,
+            audit_issue_ids=audit_issue_ids or [],
+        )
+        return SettingChangeSuggestionResult(status="needs_clarification", clarification=clarification)
+    proposal_result = suggest_setting_change(
+        root,
+        request,
+        provider_name=provider_name,
+        provider=provider,
+        stage=stage,
+        session_id=session_id,
+        chapter_number=chapter_number,
+        audit_issue_ids=audit_issue_ids,
+    )
+    return SettingChangeSuggestionResult(status="proposal_ready", proposal_result=proposal_result)
+
+
+def answer_setting_change_clarification(
+    root: Path,
+    clarification_id: str,
+    answer: str,
+    *,
+    provider_name: str = "config",
+    provider: ModelProvider | None = None,
+    max_clarification_rounds: int = 3,
+) -> SettingChangeSuggestionResult:
+    root = root.resolve()
+    clean_answer = answer.strip()
+    if not clean_answer:
+        raise MemoryRepairError("setting change clarification answer must not be empty")
+    clarification = load_setting_change_clarification(root, clarification_id)
+    if clarification.status != "needs_clarification":
+        raise MemoryRepairError(f"setting change clarification is not waiting for input: {clarification_id}")
+    now = _utc_now()
+    turns = [
+        *clarification.conversation_turns,
+        MemoryChangeConversationTurn(role="user", content=clean_answer, created_at=now),
+    ]
+    combined_request = _combined_setting_change_request(clarification.original_request, turns)
+    decision = generate_memory_change_clarification_decision(
+        root,
+        combined_request,
+        provider_name=provider_name,
+        provider=provider,
+        stage=clarification.stage,
+        conversation_turns=turns,
+    )
+    user_answer_count = sum(1 for turn in turns if turn.role == "user") - 1
+    if decision.status == "needs_clarification" and user_answer_count < max_clarification_rounds:
+        clarification.conversation_turns = [
+            *turns,
+            MemoryChangeConversationTurn(
+                role="agent",
+                content="\n".join(decision.questions),
+                created_at=_utc_now(),
+            ),
+        ]
+        clarification.questions = decision.questions
+        clarification.updated_at = _utc_now()
+        _write_clarification_session(root, clarification)
+        return SettingChangeSuggestionResult(status="needs_clarification", clarification=clarification)
+    if decision.status == "needs_clarification":
+        proposal_result = _no_op_setting_change_proposal(
+            root,
+            combined_request,
+            stage=clarification.stage,
+            session_id=clarification.session_id,
+            chapter_number=clarification.chapter_number,
+            audit_issue_ids=clarification.audit_issue_ids,
+            notes=[
+                "设定变更澄清已达到最大轮数，仍无法安全定位可应用 patch。",
+                *decision.questions,
+                *decision.notes,
+            ],
+        )
+    else:
+        proposal_result = suggest_setting_change(
+            root,
+            combined_request,
+            provider_name=provider_name,
+            provider=provider,
+            stage=clarification.stage,
+            session_id=clarification.session_id,
+            chapter_number=clarification.chapter_number,
+            audit_issue_ids=clarification.audit_issue_ids,
+        )
+    clarification.status = "proposal_ready"
+    clarification.proposal_path = str(proposal_result.proposal_path.relative_to(root))
+    clarification.questions = []
+    clarification.updated_at = _utc_now()
+    clarification.conversation_turns = turns
+    _write_clarification_session(root, clarification)
+    return SettingChangeSuggestionResult(status="proposal_ready", proposal_result=proposal_result, clarification=clarification)
+
+
+def load_setting_change_clarification(root: Path, clarification_id: str) -> MemoryChangeClarificationSession:
+    return load_json_model(_clarification_path(root.resolve(), clarification_id), MemoryChangeClarificationSession)
+
+
+def generate_memory_change_clarification_decision(
+    root: Path,
+    user_request: str,
+    *,
+    provider_name: str = "config",
+    provider: ModelProvider | None = None,
+    stage: MemoryChangeStage = "unknown",
+    conversation_turns: list[MemoryChangeConversationTurn] | None = None,
+) -> MemoryChangeClarificationDecision:
+    request = user_request.strip()
+    if provider is None and provider_name.lower() == "mock":
+        return _mock_memory_change_clarification_decision(request)
+    repair_provider = provider or create_agent_provider(
+        default_agent_config_path(root),
+        "orchestrator",
+        overrides=ProviderOverrides(provider_name=provider_name),
+    )
+    user_prompt = _memory_change_clarification_user_prompt(
+        root,
+        request,
+        stage=stage,
+        conversation_turns=conversation_turns or [],
+    )
+    try:
+        content = generate_with_output_guard(
+            repair_provider,
+            ModelRequest(
+                system_prompt=load_prompt_template("memory_change_clarification_system"),
+                user_prompt=user_prompt,
+                json_schema_name="MemoryChangeClarificationDecision",
+            ),
+            root=root,
+            invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="memory_repair",
+                interaction_mode="internal_task",
+                task="memory_change_clarification",
+            ),
+            contract=AgentOutputContract(
+                output_kind="json",
+                target_name="MemoryChangeClarificationDecision",
+                json_schema_name="MemoryChangeClarificationDecision",
+                allow_user_questions=False,
+            ),
+        )
+    except AgentOutputContractError:
+        return _fallback_clarification_decision("provider output violated MemoryChangeClarificationDecision contract")
+    try:
+        return parse_memory_change_clarification_decision(content)
+    except MemoryRepairError as exc:
+        return _fallback_clarification_decision(f"provider returned invalid clarification decision: {exc}")
+
+
+def parse_memory_change_clarification_decision(content: str) -> MemoryChangeClarificationDecision:
+    raw = _extract_json_object(content)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise MemoryRepairError(f"provider returned invalid MemoryChangeClarificationDecision JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise MemoryRepairError("provider returned MemoryChangeClarificationDecision as a non-object JSON value")
+    data = dict(data)
+    data["source"] = data.get("source") or "model"
+    data["questions"] = _normalize_string_list(data.get("questions"))
+    data["assumptions"] = _normalize_string_list(data.get("assumptions"))
+    data["notes"] = _normalize_string_list(data.get("notes"))
+    try:
+        return MemoryChangeClarificationDecision.model_validate(data)
+    except ValidationError as exc:
+        raise MemoryRepairError(f"provider returned invalid MemoryChangeClarificationDecision: {exc}") from exc
 
 
 def generate_memory_repair_decision(
@@ -493,10 +780,150 @@ def _memory_repair_user_prompt(
         "允许 target_files：\n"
         + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES))
         + "\n\n"
+        "当前文件结构与 JSON Pointer 路径索引：\n"
+        f"{_memory_pointer_index(root)}\n\n"
         "当前可见 ID 摘要：\n"
         f"{_memory_id_summary(root)}\n\n"
         f"用户请求：\n{request}\n"
     )
+
+
+def build_memory_repair_user_prompt(
+    root: Path,
+    request: str,
+    *,
+    change_kind: MemoryChangeKind | None = None,
+    stage: MemoryChangeStage | None = None,
+) -> str:
+    return _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage)
+
+
+def _memory_change_clarification_user_prompt(
+    root: Path,
+    request: str,
+    *,
+    stage: MemoryChangeStage,
+    conversation_turns: list[MemoryChangeConversationTurn],
+) -> str:
+    transcript = "\n".join(
+        f"- {turn.role}: {turn.content}"
+        for turn in conversation_turns
+    ) or "- user: " + request
+    return (
+        "请判断本次 setting_change 是否已经足以生成安全的 MemoryRepairProposal。\n"
+        "只有同时满足以下条件才输出 ready：目标实体或新增类别明确、变更内容明确、目标文件和 JSON Pointer 可从下方结构中定位。\n"
+        "如果缺少人物/地点/物品/规则的名称或 ID、变更后的具体内容、适用范围，或同名/同类目标不唯一，输出 needs_clarification。\n"
+        "不要要求用户提供现有文件完整结构；现有文件结构和 JSON Pointer 路径索引已经在本 prompt 中提供。\n"
+        f"创作阶段：{stage or 'unknown'}。\n\n"
+        "允许 target_files：\n"
+        + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES))
+        + "\n\n"
+        "当前文件结构与 JSON Pointer 路径索引：\n"
+        f"{_memory_pointer_index(root)}\n\n"
+        "当前可见 ID 摘要：\n"
+        f"{_memory_id_summary(root)}\n\n"
+        "对话记录：\n"
+        f"{transcript}\n\n"
+        f"合并后的用户请求：\n{request}\n"
+    )
+
+
+def _memory_pointer_index(root: Path) -> str:
+    sections: list[str] = []
+    for rel_path in sorted(ALLOWED_MEMORY_FILES):
+        sections.append(_file_pointer_index(root, rel_path))
+    return "\n".join(sections)
+
+
+def _file_pointer_index(root: Path, rel_path: str) -> str:
+    path = root / rel_path
+    if not path.exists():
+        return f"- {rel_path}: missing"
+    try:
+        data = load_json(path)
+    except Exception as exc:
+        return f"- {rel_path}: unreadable ({exc.__class__.__name__})"
+    lines = [f"- {rel_path}"]
+    if isinstance(data, dict):
+        lines.append("  top-level keys: " + ", ".join(sorted(str(key) for key in data)))
+    collection_key = FILE_COLLECTION_KEYS.get(rel_path)
+    if collection_key and isinstance(data, dict):
+        collection = data.get(collection_key)
+        fields = COLLECTION_FIELD_HINTS.get(rel_path, [])
+        lines.append(f"  collection: /{collection_key}")
+        lines.append(f"  add new item path: /{collection_key}/-")
+        if fields:
+            lines.append("  common item fields: " + ", ".join(fields))
+        if isinstance(collection, list) and collection:
+            for index, item in enumerate(collection[:20]):
+                if not isinstance(item, dict):
+                    lines.append(f"  existing[{index}] path: /{collection_key}/{index}")
+                    continue
+                item_id = item.get("id") if isinstance(item.get("id"), str) else "-"
+                name = item.get("name") or item.get("title") or "-"
+                item_fields = sorted(str(key) for key in item)
+                examples = [
+                    f"/{collection_key}/{index}/{field}"
+                    for field in item_fields
+                    if field != "id"
+                ][:8]
+                lines.append(f"  existing[{index}]: id={item_id}; name/title={name}; path=/{collection_key}/{index}")
+                lines.append("    fields: " + ", ".join(item_fields))
+                if examples:
+                    lines.append("    replace paths: " + ", ".join(examples))
+        else:
+            lines.append(f"  existing items: none; use /{collection_key}/- for add")
+        return "\n".join(lines)
+    if rel_path == "memory/state/current_state.json" and isinstance(data, dict):
+        lines.extend(_state_pointer_index(data))
+    elif rel_path == "memory/state/timeline.json" and isinstance(data, dict):
+        lines.extend(_timeline_pointer_index(data))
+    return "\n".join(lines)
+
+
+def _state_pointer_index(data: dict[str, object]) -> list[str]:
+    lines = [
+        "  story position paths: /story_position/latest_chapter, /story_position/current_arc",
+        "  add state paths: /character_states/-, /item_states/-, /location_states/-",
+    ]
+    for key in sorted(STATE_COLLECTION_KEYS):
+        collection = data.get(key)
+        if not isinstance(collection, list):
+            continue
+        lines.append(f"  collection: /{key}")
+        for index, item in enumerate(collection[:20]):
+            if not isinstance(item, dict):
+                continue
+            entity_id = item.get("entity_id") or item.get("id") or "-"
+            fields = sorted(str(field) for field in item)
+            examples = [f"/{key}/{index}/{field}" for field in fields if field not in {"entity_id", "id"}][:8]
+            lines.append(f"  existing[{index}]: entity_id={entity_id}; path=/{key}/{index}")
+            if examples:
+                lines.append("    replace paths: " + ", ".join(examples))
+    return lines
+
+
+def _timeline_pointer_index(data: dict[str, object]) -> list[str]:
+    events = data.get("events")
+    lines = [
+        "  collection: /events",
+        "  add event path: /events/-",
+        "  common event fields: id, chapter, summary, narrative_position, story_position, event_role, certainty, causes, effects, state_change_ids",
+    ]
+    if not isinstance(events, list) or not events:
+        lines.append("  existing events: none; use /events/- for add")
+        return lines
+    for index, item in enumerate(events[:40]):
+        if not isinstance(item, dict):
+            continue
+        event_id = item.get("id") if isinstance(item.get("id"), str) else "-"
+        summary = item.get("summary") if isinstance(item.get("summary"), str) else "-"
+        fields = sorted(str(field) for field in item)
+        examples = [f"/events/{index}/{field}" for field in fields if field != "id"][:8]
+        lines.append(f"  existing[{index}]: id={event_id}; summary={summary}; path=/events/{index}")
+        if examples:
+            lines.append("    replace paths: " + ", ".join(examples))
+    return lines
 
 
 def _memory_id_summary(root: Path) -> str:
@@ -557,6 +984,140 @@ def _empty_memory_repair_decision(note: str) -> MemoryRepairDecision:
         needs_user_confirmation=True,
         notes=[note, "没有生成可安全自动应用的 patch；请提供具体 event/entity id 或手动编辑 proposal。"],
         source="fallback",
+    )
+
+
+def _fallback_clarification_decision(note: str) -> MemoryChangeClarificationDecision:
+    return MemoryChangeClarificationDecision(
+        status="needs_clarification",
+        questions=["请补充目标设定的名称或 ID，以及希望改成的具体内容。"],
+        confidence=0.0,
+        assumptions=[],
+        notes=[note],
+        source="fallback",
+    )
+
+
+def _mock_memory_change_clarification_decision(request: str) -> MemoryChangeClarificationDecision:
+    normalized = request.strip()
+    if not normalized:
+        return _fallback_clarification_decision("empty request")
+    unclear_patterns = (
+        "还没想好",
+        "随便",
+        "某个",
+        "某人",
+        "一个人物",
+        "一个角色",
+        "改一下",
+        "优化一下",
+    )
+    has_specific_target = bool(re.search(r"\b(char|loc|item|world|truth|thread)_[a-z0-9_]+\b", normalized)) or any(
+        marker in normalized for marker in ("沈微", "林澈", "world_")
+    )
+    has_specific_change = any(marker in normalized for marker in ("新增", "删除", "设定为", "改成", "规则为", "背景是"))
+    if any(pattern in normalized for pattern in unclear_patterns) and not (has_specific_target and has_specific_change):
+        return MemoryChangeClarificationDecision(
+            status="needs_clarification",
+            questions=["请补充目标设定的名称或 ID，以及希望新增/修改后的具体内容。"],
+            confidence=0.35,
+            assumptions=["mock provider fixture only; not used as real business inference"],
+            notes=[],
+            source="mock",
+        )
+    return MemoryChangeClarificationDecision(
+        status="ready",
+        questions=[],
+        confidence=0.8,
+        assumptions=["mock provider fixture only; not used as real business inference"],
+        notes=[],
+        source="mock",
+    )
+
+
+def _new_clarification_session(
+    root: Path,
+    request: str,
+    *,
+    decision: MemoryChangeClarificationDecision,
+    stage: MemoryChangeStage,
+    session_id: str | None,
+    chapter_number: int | None,
+    audit_issue_ids: list[str],
+) -> MemoryChangeClarificationSession:
+    now = _utc_now()
+    clarification = MemoryChangeClarificationSession(
+        clarification_id=_new_clarification_id(),
+        original_request=request,
+        stage=stage,
+        session_id=session_id,
+        chapter_number=chapter_number,
+        audit_issue_ids=audit_issue_ids,
+        status="needs_clarification",
+        questions=decision.questions,
+        conversation_turns=[
+            MemoryChangeConversationTurn(role="user", content=request, created_at=now),
+            MemoryChangeConversationTurn(role="agent", content="\n".join(decision.questions), created_at=now),
+        ],
+        created_at=now,
+        updated_at=now,
+    )
+    _write_clarification_session(root, clarification)
+    return clarification
+
+
+def _write_clarification_session(root: Path, clarification: MemoryChangeClarificationSession) -> None:
+    atomic_write_model_json(_clarification_path(root, clarification.clarification_id), clarification)
+
+
+def _no_op_setting_change_proposal(
+    root: Path,
+    request: str,
+    *,
+    stage: MemoryChangeStage,
+    session_id: str | None,
+    chapter_number: int | None,
+    audit_issue_ids: list[str],
+    notes: list[str],
+) -> MemoryRepairSuggestResult:
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=[],
+        operations=[],
+        domains=[],
+        stage=stage,
+        confidence=0.0,
+        assumptions=[],
+        needs_user_confirmation=True,
+        notes=notes,
+        source="fallback",
+    )
+    return suggest_memory_repair(
+        root,
+        request,
+        provider_name="mock",
+        decision=decision,
+        change_kind="setting_change",
+        stage=stage,
+        session_id=session_id,
+        chapter_number=chapter_number,
+        audit_issue_ids=audit_issue_ids,
+    )
+
+
+def _combined_setting_change_request(original_request: str, turns: list[MemoryChangeConversationTurn]) -> str:
+    answer_lines = [
+        f"{index}. {turn.content}"
+        for index, turn in enumerate(turns, start=1)
+        if turn.role == "user" and turn.content != original_request
+    ]
+    if not answer_lines:
+        return original_request
+    return (
+        "原始设定变更请求：\n"
+        f"{original_request}\n\n"
+        "用户补充信息：\n"
+        + "\n".join(answer_lines)
     )
 
 
@@ -1268,6 +1829,25 @@ def _extract_json_object(content: str) -> str:
     return stripped[start : end + 1]
 
 
+def _normalize_string_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list):
+        normalized: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    normalized.append(text)
+            elif item is not None:
+                normalized.append(json.dumps(item, ensure_ascii=False, sort_keys=True))
+        return normalized
+    return [json.dumps(value, ensure_ascii=False, sort_keys=True)]
+
+
 def _preview_operations(root: Path, proposal: MemoryRepairProposal) -> dict[str, object]:
     preview: dict[str, object] = {}
     for rel_path, operations in _group_operations(proposal.operations).items():
@@ -1378,8 +1958,28 @@ def _repair_dir(root: Path, repair_id: str) -> Path:
     return root / "memory" / "repairs" / repair_id
 
 
+def _clarification_dir(root: Path, clarification_id: str) -> Path:
+    if not re.fullmatch(r"clarify_[0-9]{8}_[0-9]{6}_[0-9]{6}", clarification_id):
+        raise MemoryRepairError("invalid setting change clarification id")
+    return root / "memory" / "repairs" / "clarifications" / clarification_id
+
+
+def _clarification_path(root: Path, clarification_id: str) -> Path:
+    path = _clarification_dir(root, clarification_id) / "session.json"
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(root.resolve())
+    except ValueError as exc:
+        raise MemoryRepairError("setting change clarification must be inside the project workspace") from exc
+    return resolved
+
+
 def _new_repair_id() -> str:
     return "repair_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _new_clarification_id() -> str:
+    return "clarify_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
 
 
 def _utc_now() -> datetime:

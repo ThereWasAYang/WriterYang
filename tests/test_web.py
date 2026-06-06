@@ -987,6 +987,46 @@ def test_api_setting_change_suggest_apply_syncs_outline_session(tmp_path: Path) 
     assert apply_payload["data"]["sync_result"]["action"] == "revise_outline"  # type: ignore[index]
 
 
+def test_api_setting_change_suggest_can_request_and_answer_clarification(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    suggest_status, suggest_payload = handle_api_request(
+        "POST",
+        "/api/settings/change/suggest",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "request": "把某个人物改一下",
+                "provider": "mock",
+                "source_stage": "outline_discussion",
+            }
+        ),
+    )
+    clarification_id = suggest_payload["data"]["clarification_id"]  # type: ignore[index]
+    answer_status, answer_payload = handle_api_request(
+        "POST",
+        "/api/settings/change/answer",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "clarification_id": clarification_id,
+                "answer": "新增人物沈微",
+                "provider": "mock",
+            }
+        ),
+    )
+
+    assert suggest_status == 200
+    assert suggest_payload["data"]["status"] == "needs_clarification"  # type: ignore[index]
+    assert suggest_payload["data"]["questions"]  # type: ignore[index]
+    assert answer_status == 200
+    assert answer_payload["data"]["status"] == "proposal_ready"  # type: ignore[index]
+    assert answer_payload["data"]["proposal"]["change_kind"] == "setting_change"  # type: ignore[index]
+    assert answer_payload["data"]["proposal_relative_path"]  # type: ignore[index]
+
+
 def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     session_id = "session_20260529_010101_000004"
@@ -1190,6 +1230,8 @@ def test_frontend_basic_render() -> None:
     assert "latestCanonProposalSnapshotPath" in app_js
     assert 'id="memoryRepairSuggest"' in html
     assert 'id="memoryRepairApply"' in html
+    assert 'id="memoryRepairClarificationAnswer"' in html
+    assert 'id="memoryRepairClarificationSubmit"' in html
     assert 'id="rebuildChapterMemory"' in html
     assert 'id="memoryRepairProposalPath"' in html
     assert 'id="managementEventsPanel"' in html
@@ -1238,8 +1280,11 @@ def test_frontend_basic_render() -> None:
     assert "/api/orchestrator/memory-repair/suggest" in app_js
     assert "/api/orchestrator/memory-repair/apply" in app_js
     assert "/api/settings/change/suggest" in app_js
+    assert "/api/settings/change/answer" in app_js
     assert "/api/settings/change/apply" in app_js
     assert 'id="settingChangeWorkbenchSuggest"' in html
+    assert 'id="settingChangeClarificationAnswer"' in html
+    assert 'id="settingChangeClarificationSubmit"' in html
     assert 'id="auditIssueAsSettingChange"' in html
     assert "/api/chapter-memory/generate" in app_js
     assert "/api/chapter-memory/rebuild" in app_js

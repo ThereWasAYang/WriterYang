@@ -365,6 +365,8 @@ Prompt 组装：
 - route decision 会写入 session 的 `revision_route_history`，并通过 Web UI/CLI 展示。
 - 当请求被识别为 memory repair 时，orchestrator 作为项目管家调用 `core/memory_repair.py`：先生成 `MemoryRepairDecision`，再写 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后通过显式 `memory-repair apply` 或结构化 `memory_repair_apply` 决策再 apply。
 - memory repair 不是创意生成。它只读取项目文件、生成白名单 JSON Pointer operations、写 proposal/apply log，并通过 `management_events.jsonl` 通知用户后台记忆刷新。
+- `setting-change suggest` 会先调用 `MemoryChangeClarificationDecision` 澄清 gate：如果目标实体、变更内容或适用范围不足，返回 `needs_clarification` 和 1-3 个问题，保存到 `memory/repairs/clarifications/{clarification_id}/session.json`；用户通过 `setting-change answer` 或 Web UI 补充后再继续。
+- 最终生成 `MemoryRepairDecision` 时仍是 internal JSON task，`allow_user_questions=False`；需要追问只能通过 clarification schema 表达。memory repair / setting change prompt 会注入当前 memory 文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径索引，模型不应再要求用户提供现有文件完整结构。
 
 注意：
 

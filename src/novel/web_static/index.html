@@ -217,6 +217,10 @@
             </div>
             <label for="workbenchSettingChangeProposalPath">Setting change proposal</label>
             <input id="workbenchSettingChangeProposalPath" placeholder="memory/repairs/repair_.../proposal.json">
+            <div id="settingChangeClarificationPanel" class="metric hidden" style="margin-top: 10px;">设定变更澄清：暂无</div>
+            <label for="settingChangeClarificationAnswer">补充说明</label>
+            <textarea id="settingChangeClarificationAnswer" placeholder="回答 Agent 的设定变更问题，例如目标人物 ID、变更后的具体设定、影响范围。"></textarea>
+            <button id="settingChangeClarificationSubmit" style="width: 100%; margin-top: 8px;">继续生成设定变更建议</button>
             <div id="settingChangeImpactPanel" class="metric" style="margin-top: 10px;">设定变更影响分析：暂无</div>
           </div>
 
@@ -364,6 +368,10 @@
           <label for="memoryRepairInstruction">记忆修复说明</label>
           <textarea id="memoryRepairInstruction" placeholder="例如：新增一名叫沈微的人物；或：第2章 event_wrong_current 其实是回忆。"></textarea>
           <button id="memoryRepairSuggest" style="width: 100%; margin-top: 8px;">生成设定变更建议</button>
+          <div id="memoryRepairClarificationPanel" class="metric hidden" style="margin-top: 10px;">设定变更澄清：暂无</div>
+          <label for="memoryRepairClarificationAnswer">补充说明</label>
+          <textarea id="memoryRepairClarificationAnswer" placeholder="回答 Agent 的设定变更问题，例如目标人物 ID、变更后的具体设定、影响范围。"></textarea>
+          <button id="memoryRepairClarificationSubmit" style="width: 100%; margin-top: 8px;">继续生成设定变更建议</button>
           <label for="memoryRepairProposalPath">Repair proposal</label>
           <input id="memoryRepairProposalPath" placeholder="memory/repairs/repair_.../proposal.json">
           <button id="memoryRepairApply" style="width: 100%; margin-top: 8px;">确认应用设定变更</button>

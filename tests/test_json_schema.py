@@ -37,6 +37,8 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "session_rewrite_events",
         "memory_change_impact",
         "memory_change_followup_action",
+        "memory_change_clarification_decision",
+        "memory_change_clarification_session",
         "memory_repair_proposal",
         "memory_repair_apply_log",
         "management_event",

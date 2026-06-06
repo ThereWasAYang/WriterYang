@@ -13,6 +13,7 @@ PROMPT_VERSIONS: dict[str, str] = {
     "canon_system": "2026-06-05",
     "chapter_memory_system": "2026-06-05",
     "inspiration_system": "2026-06-05",
+    "memory_change_clarification_system": "2026-06-05",
     "memory_repair_system": "2026-05-31",
     "orchestrator_ask_intent_system": "2026-05-31",
     "orchestrator_revision_route_system": "2026-05-31",

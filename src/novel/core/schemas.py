@@ -48,6 +48,8 @@ MemoryChangeFollowupActionType = Literal[
     "start_revision_session",
     "manual_review",
 ]
+MemoryChangeClarificationStatus = Literal["needs_clarification", "ready"]
+MemoryChangeConversationRole = Literal["user", "agent"]
 ManagementEventType = Literal[
     "chapter_accepted",
     "chapter_memory_generated",
@@ -1112,6 +1114,43 @@ class MemoryChangeFollowupAction(FlexibleModel):
     chapter_numbers: list[int] = Field(default_factory=list)
     session_id: str | None = None
     auto: bool = False
+
+
+class MemoryChangeConversationTurn(FlexibleModel):
+    role: MemoryChangeConversationRole
+    content: str = Field(min_length=1)
+    created_at: datetime
+
+
+class MemoryChangeClarificationDecision(SchemaVersionedModel):
+    status: MemoryChangeClarificationStatus
+    questions: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    assumptions: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    source: DecisionSource = "model"
+
+    @model_validator(mode="after")
+    def require_questions_when_needed(self) -> "MemoryChangeClarificationDecision":
+        if self.status == "needs_clarification" and not any(_has_text(question) for question in self.questions):
+            raise ValueError("needs_clarification requires at least one question")
+        return self
+
+
+class MemoryChangeClarificationSession(SchemaVersionedModel):
+    clarification_id: str = Field(min_length=1, pattern=r"^clarify_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
+    change_kind: Literal["setting_change"] = "setting_change"
+    original_request: str = Field(min_length=1)
+    stage: MemoryChangeStage = "unknown"
+    session_id: str | None = None
+    chapter_number: int | None = Field(default=None, ge=1)
+    audit_issue_ids: list[str] = Field(default_factory=list)
+    status: Literal["needs_clarification", "proposal_ready", "closed"] = "needs_clarification"
+    questions: list[str] = Field(default_factory=list)
+    conversation_turns: list[MemoryChangeConversationTurn] = Field(default_factory=list)
+    proposal_path: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class MemoryRepairDecision(SchemaVersionedModel):

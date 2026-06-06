@@ -42,6 +42,7 @@ from novel.core.schemas import (
     MemoryChangeKind,
     MemoryChangeStage,
     MemoryRepairDecision,
+    MemoryRepairRiskLevel,
     MemoryRepairApplyLog,
     MemoryRepairOperation,
     MemoryRepairProposal,
@@ -106,6 +107,16 @@ FILE_COLLECTION_KEYS: dict[str, str] = {
     "memory/canon/world.json": "world_rules",
     "memory/canon/hidden_truths.json": "hidden_truths",
     "memory/canon/foreshadowing.json": "foreshadowing_threads",
+}
+
+UNIQUE_ID_COLLECTIONS: dict[str, tuple[str, str]] = {
+    "memory/canon/characters.json": ("characters", "character id"),
+    "memory/canon/locations.json": ("locations", "location id"),
+    "memory/canon/items.json": ("items", "item id"),
+    "memory/canon/world.json": ("world_rules", "world rule id"),
+    "memory/canon/hidden_truths.json": ("hidden_truths", "hidden truth id"),
+    "memory/canon/foreshadowing.json": ("foreshadowing_threads", "foreshadowing thread id"),
+    "memory/state/timeline.json": ("events", "timeline event id"),
 }
 
 STATE_COLLECTION_KEYS = {"character_states", "item_states", "location_states"}
@@ -1055,7 +1066,8 @@ def _file_pointer_index(root: Path, rel_path: str) -> str:
         if schema_hint:
             lines.extend(f"  {line}" for line in schema_hint.splitlines())
         if isinstance(collection, list) and collection:
-            for index, item in enumerate(collection[:20]):
+            detailed_limit = 20
+            for index, item in enumerate(collection[:detailed_limit]):
                 if not isinstance(item, dict):
                     lines.append(f"  existing[{index}] path: /{collection_key}/{index}")
                     continue
@@ -1071,6 +1083,15 @@ def _file_pointer_index(root: Path, rel_path: str) -> str:
                 lines.append("    fields: " + ", ".join(item_fields))
                 if examples:
                     lines.append("    replace paths: " + ", ".join(examples))
+            if len(collection) > detailed_limit:
+                lines.append("  additional existing id/path index:")
+                for index, item in enumerate(collection[detailed_limit:], start=detailed_limit):
+                    if not isinstance(item, dict):
+                        lines.append(f"  existing[{index}] path: /{collection_key}/{index}")
+                        continue
+                    item_id = item.get("id") if isinstance(item.get("id"), str) else "-"
+                    name = item.get("name") or item.get("title") or "-"
+                    lines.append(f"  existing[{index}]: id={item_id}; name/title={name}; path=/{collection_key}/{index}")
         else:
             lines.append(f"  existing items: none; use /{collection_key}/- for add")
         return "\n".join(lines)
@@ -1202,6 +1223,9 @@ def _target_schema_repair_prompt(
         "- introduced_in_chapter 必须是整数；如果用户说“开篇”，默认使用 1。\n"
         "- Character.role 只能表示叙事角色；默认使用主角、主要人物、配角、次要人物。家族身份、门派身份、排行、职业/江湖身份必须移入 tags，并可保留在 summary/notes。\n"
         "- 不要把谢家长女、谢家次子、张家幼女、唐门二房之女、江湖散人、武当俗家弟子这类身份短语写入 Character.role。\n"
+        "- 如果错误提示 add would duplicate existing ... at /collection/index 或 duplicate ... id，说明该实体已经存在；"
+        "不要保留 add /collection/-，请改成对应已有 path 的 replace（字段级 replace 优先），"
+        "或在无法确定时清空 operations 并在 notes 写明原因。\n"
         "- 如果仍无法安全修复，operations 置空并在 notes 中写明 target schema 缺失信息；不要向用户提问。\n\n"
         "目标 schema preflight 错误 / semantic preflight 错误：\n"
         f"{_format_preflight_errors(preflight_errors, max_chars=6000)}\n\n"
@@ -2110,11 +2134,88 @@ def _preflight_memory_repair_operations(
             data = load_json(root / rel_path)
             updated = _apply_operations_to_data(data, file_operations)
             _validate_file_model(rel_path, updated)
+            errors.extend(_preflight_unique_collection_id_errors(rel_path, updated))
         except Exception as exc:
             errors.append(f"{rel_path}: {exc}")
     if change_kind == "setting_change":
+        errors.extend(_preflight_setting_change_add_id_conflicts(root, operations))
         errors.extend(_preflight_setting_change_semantics(operations))
     return errors
+
+
+def _preflight_unique_collection_id_errors(rel_path: str, data: object) -> list[str]:
+    collection_info = UNIQUE_ID_COLLECTIONS.get(rel_path)
+    if collection_info is None or not isinstance(data, dict):
+        return []
+    collection_key, label = collection_info
+    collection = data.get(collection_key)
+    if not isinstance(collection, list):
+        return []
+    seen: dict[str, int] = {}
+    errors: list[str] = []
+    for index, item in enumerate(collection):
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("id")
+        if not isinstance(item_id, str):
+            continue
+        if item_id in seen:
+            errors.append(
+                f"{rel_path}: duplicate {label}: {item_id} at /{collection_key}/{index}; "
+                f"first occurrence at /{collection_key}/{seen[item_id]}"
+            )
+            continue
+        seen[item_id] = index
+    return errors
+
+
+def _preflight_setting_change_add_id_conflicts(root: Path, operations: list[MemoryRepairOperation]) -> list[str]:
+    errors: list[str] = []
+    cached_existing_indexes: dict[str, dict[str, int]] = {}
+    for operation in operations:
+        if operation.op != "add" or not isinstance(operation.value, dict):
+            continue
+        collection_info = UNIQUE_ID_COLLECTIONS.get(operation.file)
+        if collection_info is None:
+            continue
+        collection_key, label = collection_info
+        parts = _pointer_parts(operation.path)
+        if parts != [collection_key, "-"]:
+            continue
+        item_id = operation.value.get("id")
+        if not isinstance(item_id, str) or not item_id:
+            continue
+        if operation.file not in cached_existing_indexes:
+            try:
+                data = load_json(root / operation.file)
+            except Exception:
+                cached_existing_indexes[operation.file] = {}
+            else:
+                cached_existing_indexes[operation.file] = _collection_id_index(data, collection_key)
+        existing_index = cached_existing_indexes[operation.file].get(item_id)
+        if existing_index is None:
+            continue
+        errors.append(
+            f"{operation.file} {operation.path}: add would duplicate existing {label}: {item_id} "
+            f"at /{collection_key}/{existing_index}; use replace with the existing path instead of add"
+        )
+    return errors
+
+
+def _collection_id_index(data: object, collection_key: str) -> dict[str, int]:
+    if not isinstance(data, dict):
+        return {}
+    collection = data.get(collection_key)
+    if not isinstance(collection, list):
+        return {}
+    indexes: dict[str, int] = {}
+    for index, item in enumerate(collection):
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("id")
+        if isinstance(item_id, str) and item_id not in indexes:
+            indexes[item_id] = index
+    return indexes
 
 
 def _preflight_setting_change_semantics(operations: list[MemoryRepairOperation]) -> list[str]:

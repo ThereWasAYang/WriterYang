@@ -588,6 +588,162 @@ def test_setting_change_target_schema_retry_repairs_invalid_model_value(tmp_path
     assert any(character.id == "char_retry" for character in characters.characters)
 
 
+def test_setting_change_prompt_includes_lightweight_paths_after_first_twenty(tmp_path: Path) -> None:
+    root = _workspace_with_twenty_one_characters(tmp_path)
+
+    prompt = build_memory_repair_user_prompt(
+        root,
+        "把白霜瀚开篇设定改成暗中调查桃花源旧族。",
+        change_kind="setting_change",
+    )
+
+    assert "additional existing id/path index" in prompt
+    assert "existing[20]: id=char_bai_shuanghan; name/title=白霜瀚; path=/characters/20" in prompt
+
+
+def test_setting_change_suggest_rejects_duplicate_existing_character_add(tmp_path: Path) -> None:
+    root = _workspace_with_twenty_one_characters(tmp_path)
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=["memory/canon/characters.json"],
+        operations=[
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_bai_shuanghan",
+                    "name": "白霜瀚",
+                    "role": "主要人物",
+                    "reader_visible_summary": "白霜瀚开篇暗中调查桃花源旧族。",
+                },
+                "reason": "错误地把已有人物当成新增人物。",
+            }
+        ],
+        confidence=0.7,
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        suggest_memory_repair(root, "修改白霜瀚开篇设定", decision=decision, change_kind="setting_change")
+
+    message = str(excinfo.value)
+    assert "add would duplicate existing character id: char_bai_shuanghan" in message
+    assert "/characters/20" in message
+    assert "duplicate character id: char_bai_shuanghan" in message
+    assert not list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
+
+
+def test_setting_change_duplicate_add_retry_can_replace_existing_character(tmp_path: Path) -> None:
+    root = _workspace_with_twenty_one_characters(tmp_path)
+    target_summary = "白霜瀚开篇伪装成云游书生，暗中调查桃花源旧族线索。"
+    first = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "add",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/-",
+                "value": {
+                    "id": "char_bai_shuanghan",
+                    "name": "白霜瀚",
+                    "role": "主要人物",
+                    "reader_visible_summary": target_summary,
+                },
+                "reason": "首次模型误把已有人物当成新增人物。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    repaired = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "replace",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/20/reader_visible_summary",
+                "value": target_summary,
+                "reason": "白霜瀚已存在，改为字段级 replace。",
+            }
+        ],
+        "confidence": 0.8,
+    }
+    provider = MockProvider(
+        fake_response=[
+            json.dumps(first, ensure_ascii=False),
+            json.dumps(repaired, ensure_ascii=False),
+        ]
+    )
+
+    result = suggest_memory_repair(
+        root,
+        "修改白霜瀚开篇设定",
+        provider=provider,
+        change_kind="setting_change",
+    )
+
+    assert len(provider.requests) == 2
+    assert "add would duplicate existing character id: char_bai_shuanghan" in provider.requests[1].user_prompt
+    assert result.proposal.operations[0].path == "/characters/20/reader_visible_summary"
+    apply_memory_repair(root, result.proposal_path)
+    characters = load_json_model(root / "memory" / "canon" / "characters.json", CharactersFile)
+    assert [character.id for character in characters.characters].count("char_bai_shuanghan") == 1
+    assert characters.characters[20].reader_visible_summary == target_summary
+
+
+def test_setting_change_apply_rejects_duplicate_existing_character_add_without_backup(tmp_path: Path) -> None:
+    root = _workspace_with_twenty_one_characters(tmp_path)
+    characters_path = root / "memory" / "canon" / "characters.json"
+    before = characters_path.read_text(encoding="utf-8")
+    repair_id = "repair_20260606_030303_000001"
+    repair_dir = root / "memory" / "repairs" / repair_id
+    repair_dir.mkdir(parents=True)
+    proposal_path = repair_dir / "proposal.json"
+    proposal_path.write_text(
+        json.dumps(
+            {
+                "repair_id": repair_id,
+                "created_by": "orchestrator",
+                "change_kind": "setting_change",
+                "user_request": "修改白霜瀚开篇设定",
+                "target_files": ["memory/canon/characters.json"],
+                "operations": [
+                    {
+                        "op": "add",
+                        "file": "memory/canon/characters.json",
+                        "path": "/characters/-",
+                        "value": {
+                            "id": "char_bai_shuanghan",
+                            "name": "白霜瀚",
+                            "role": "主要人物",
+                            "reader_visible_summary": "白霜瀚开篇暗中调查桃花源旧族。",
+                        },
+                        "reason": "错误地把已有人物当成新增人物。",
+                    }
+                ],
+                "risk_level": "medium",
+                "validation_before": {},
+                "notes": [],
+                "created_at": "2026-06-06T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        apply_memory_repair(root, proposal_path)
+
+    assert "add would duplicate existing character id: char_bai_shuanghan" in str(excinfo.value)
+    assert characters_path.read_text(encoding="utf-8") == before
+    apply_log = json.loads((repair_dir / "apply_log.json").read_text(encoding="utf-8"))
+    assert apply_log["status"] == "failed"
+    assert apply_log["backups"] == []
+
+
 def test_setting_change_modifies_character_summary(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
 
@@ -960,6 +1116,32 @@ def _workspace_with_character(tmp_path: Path, character_id: str, name: str) -> P
             indent=2,
         )
         + "\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+def _workspace_with_twenty_one_characters(tmp_path: Path) -> Path:
+    root = _workspace_with_timeline_event(tmp_path)
+    characters = [
+        {
+            "id": f"char_existing_{index:02d}",
+            "name": f"既有人物{index:02d}",
+            "role": "配角",
+            "reader_visible_summary": f"既有人物{index:02d}的旧设定。",
+        }
+        for index in range(20)
+    ]
+    characters.append(
+        {
+            "id": "char_bai_shuanghan",
+            "name": "白霜瀚",
+            "role": "主要人物",
+            "reader_visible_summary": "白霜瀚的旧设定。",
+        }
+    )
+    (root / "memory" / "canon" / "characters.json").write_text(
+        json.dumps({"characters": characters}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     return root

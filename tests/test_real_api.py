@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -307,6 +308,53 @@ def test_real_deepseek_setting_change_character_role_semantics(tmp_path: Path) -
     )
 
 
+def test_real_setting_change_duplicate_character_id_uses_existing_path(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    root = _real_project(tmp_path, env)
+    _write_twenty_one_real_characters(root)
+    target_summary = "白霜瀚开篇伪装成云游书生，暗中调查桃花源旧族线索。"
+    prompt = build_memory_repair_user_prompt(
+        root,
+        f"请只修改已有人物白霜瀚（id=char_bai_shuanghan）的 reader_visible_summary 为：{target_summary} 不要新增人物。",
+        change_kind="setting_change",
+    )
+    assert "existing[20]: id=char_bai_shuanghan; name/title=白霜瀚; path=/characters/20" in prompt
+
+    result = suggest_setting_change_interactive(
+        root,
+        f"请只修改已有人物白霜瀚（id=char_bai_shuanghan）的 reader_visible_summary 为：{target_summary} 不要新增人物。",
+        provider_name="config",
+        stage="outline_discussion",
+    )
+
+    assert result.status == "proposal_ready"
+    assert result.proposal_result is not None
+    proposal = result.proposal_result.proposal
+    assert any(
+        operation.file == "memory/canon/characters.json"
+        and operation.op == "replace"
+        and operation.path.startswith("/characters/20")
+        for operation in proposal.operations
+    )
+    assert not any(
+        operation.file == "memory/canon/characters.json"
+        and operation.op == "add"
+        and operation.path == "/characters/-"
+        and isinstance(operation.value, dict)
+        and operation.value.get("id") == "char_bai_shuanghan"
+        for operation in proposal.operations
+    )
+
+    apply_memory_repair(root, result.proposal_result.proposal_path)
+    characters = load_json_model(root / "memory" / "canon" / "characters.json", CharactersFile)
+    persisted = [character for character in characters.characters if character.id == "char_bai_shuanghan"]
+    assert len(persisted) == 1
+    assert "云游书生" in persisted[0].reader_visible_summary
+    assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
+
+
 def _real_env_or_skip() -> dict[str, str]:
     env = dict(os.environ)
     env.update(_read_env_file(ROOT / ".env.real"))
@@ -365,6 +413,30 @@ def _real_project(tmp_path: Path, env: dict[str, str]) -> Path:
         encoding="utf-8",
     )
     return root
+
+
+def _write_twenty_one_real_characters(root: Path) -> None:
+    characters = [
+        {
+            "id": f"char_existing_{index:02d}",
+            "name": f"既有人物{index:02d}",
+            "role": "配角",
+            "reader_visible_summary": f"既有人物{index:02d}的旧设定。",
+        }
+        for index in range(20)
+    ]
+    characters.append(
+        {
+            "id": "char_bai_shuanghan",
+            "name": "白霜瀚",
+            "role": "主要人物",
+            "reader_visible_summary": "白霜瀚的旧设定。",
+        }
+    )
+    (root / "memory" / "canon" / "characters.json").write_text(
+        json.dumps({"characters": characters}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _write_real_agents_config(path: Path, env: dict[str, str]) -> None:

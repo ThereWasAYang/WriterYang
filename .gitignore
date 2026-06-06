@@ -20,10 +20,8 @@ WriterYang_WebUI.command
 **/.writeryang.lock
 *.bak_*
 
-# Internal agent/project-planning docs. Keep these local; do not publish.
-AGENTS.md
+# Internal legacy project-planning docs. Keep these local; do not publish.
 docs/PRODUCT_SPEC.md
 docs/ARCHITECTURE.md
-docs/DATA_SCHEMA.md
 docs/WORKFLOW.md
 docs/ROADMAP.md

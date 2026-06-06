@@ -1210,11 +1210,24 @@ def test_frontend_basic_render() -> None:
 
     assert 'id="projectPath"' in html
     assert 'id="runtimePanel"' in html
+    assert 'id="messageDetails" class="message-detail-button hidden"' in html
     assert '<link rel="stylesheet" href="/static/app.css">' in html
     assert '<script src="/static/app.js"></script>' in html
     assert "<style>" not in html
     assert "<script>\n" not in html
     assert "runtime-panel" in frontend
+    assert ".header-status" in app_css
+    assert ".header-message-row .message" in app_css
+    assert "max-height: 38px" in app_css
+    assert "overflow: hidden" in app_css
+    assert "min-width: 0" in app_css
+    assert "latestHeaderMessageDetails" in app_js
+    assert "summarizedMessage(text)" in app_js
+    assert "openLatestMessageDetails" in app_js
+    assert "showMainPage(\"logsPage\")" in app_js
+    assert "showTab(\"singleFileView\")" in app_js
+    assert "$(\"fileViewer\").textContent = latestHeaderMessageDetails" in app_js
+    assert "summarizedMessage(item.detail, \"已省略\")" in app_js
     assert ".config-layout" in frontend
     assert ".provider-form-grid" in frontend
     assert 'id="currentProjectSummary"' in html

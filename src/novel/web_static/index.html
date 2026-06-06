@@ -22,7 +22,10 @@
     </nav>
     <div class="header-status">
       <div id="runtimePanel" class="metric runtime-panel status-warn">运行环境：检测中</div>
-      <div id="message" class="message"></div>
+      <div class="header-message-row">
+        <div id="message" class="message"></div>
+        <button id="messageDetails" class="message-detail-button hidden" type="button">查看详情</button>
+      </div>
     </div>
   </header>
   <div id="busyBanner" class="busy-banner hidden" role="status" aria-live="polite"></div>

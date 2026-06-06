@@ -29,6 +29,7 @@
     let latestAuditAnnotations = null;
     let latestSelectedAuditIssue = null;
     let latestSettingChangeClarificationId = "";
+    let latestHeaderMessageDetails = "";
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -38,9 +39,43 @@
       return Number($("chapterNumber").value || "1");
     }
 
+    function truncateText(value, maxLength = 120) {
+      const text = String(value ?? "").trim();
+      if (text.length <= maxLength) return text;
+      return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
+    }
+
+    function summarizedMessage(text, detailSuffix = "点击查看详情") {
+      const value = String(text ?? "");
+      const lines = value.split(/\r?\n/);
+      const hasMultipleLines = lines.length > 1;
+      const isLong = hasMultipleLines || value.length > 180;
+      if (!isLong) return { text: value, isLong: false };
+      const firstLine = lines.find((line) => line.trim()) || value;
+      const suffix = hasMultipleLines ? `${lines.length} 行` : `${value.length} 字`;
+      return {
+        text: `${truncateText(firstLine, 120)}（${suffix}，${detailSuffix}）`,
+        isLong: true,
+      };
+    }
+
     function setMessage(text, isError = false) {
-      $("message").textContent = text;
+      const detailsButton = $("messageDetails");
+      const display = summarizedMessage(text);
+      latestHeaderMessageDetails = display.isLong ? String(text ?? "") : "";
+      $("message").textContent = display.text;
       $("message").className = isError ? "message error" : "message";
+      if (detailsButton) {
+        detailsButton.classList.toggle("hidden", !display.isLong);
+        detailsButton.disabled = !display.isLong;
+      }
+    }
+
+    function openLatestMessageDetails() {
+      if (!latestHeaderMessageDetails) return;
+      showMainPage("logsPage");
+      showTab("singleFileView");
+      $("fileViewer").textContent = latestHeaderMessageDetails;
     }
 
     function setBusyBanner(text) {
@@ -1662,7 +1697,7 @@
         ${recentOperations.map((item) => `
           <div style="margin-top: 6px;">
             <span>${escapeHtml(item.label)}：${escapeHtml(item.status)}</span>
-            ${item.detail ? `<div>${escapeHtml(item.detail)}</div>` : ""}
+            ${item.detail ? `<div>${escapeHtml(summarizedMessage(item.detail, "已省略").text)}</div>` : ""}
           </div>
         `).join("")}
       `;
@@ -2047,6 +2082,7 @@
     }
 
     $("openProject").addEventListener("click", openProject);
+    $("messageDetails").addEventListener("click", openLatestMessageDetails);
     $("refreshProject").addEventListener("click", refreshAll);
     $("refreshProjectFiles").addEventListener("click", refreshAll);
     $("validateProject").addEventListener("click", validateProject);

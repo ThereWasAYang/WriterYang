@@ -76,6 +76,13 @@
     }
     .message { min-height: 22px; color: #435160; font-size: 13px; margin-top: 10px; }
     .error { color: #b42318; }
+    .busy-banner {
+      position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+      z-index: 30; width: min(720px, calc(100vw - 32px));
+      border: 1px solid #d97706; border-radius: 8px; padding: 12px 14px;
+      background: #fffbeb; color: #7c2d12; box-shadow: 0 12px 32px rgba(124, 45, 18, .18);
+      font-size: 14px; font-weight: 700; text-align: center;
+    }
     .file-tree { max-height: 38vh; overflow: auto; border: 1px solid #e4e8ed; border-radius: 6px; padding: 8px; background: #fbfcfd; }
     .file-row { width: 100%; display: block; text-align: left; border: 0; background: transparent; padding: 4px 6px; font-size: 12px; }
     .editor { min-height: 56vh; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.55; }

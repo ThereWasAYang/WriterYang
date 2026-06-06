@@ -43,6 +43,18 @@
       $("message").className = isError ? "message error" : "message";
     }
 
+    function setBusyBanner(text) {
+      const banner = $("busyBanner");
+      if (!banner) return;
+      if (!text) {
+        banner.textContent = "";
+        banner.classList.add("hidden");
+        return;
+      }
+      banner.textContent = text;
+      banner.classList.remove("hidden");
+    }
+
     function hasResponseField(data, field) {
       return Boolean(data) && Object.prototype.hasOwnProperty.call(data, field);
     }
@@ -680,6 +692,8 @@
 
     async function settingChangeSuggest(sourceStage = "unknown", options = {}) {
       return withBusy("生成设定变更建议", async () => {
+        latestSettingChangeClarificationId = "";
+        clearSettingChangeClarification();
         const data = await apiPost("/api/settings/change/suggest", {
           path: projectPath(),
           request: settingChangeInstruction(options),
@@ -805,6 +819,7 @@
           $(id).classList.remove("hidden");
         }
       });
+      setSettingChangeClarificationControlsVisible(true);
     }
 
     function clearSettingChangeClarification() {
@@ -817,6 +832,26 @@
       ["settingChangeClarificationAnswer", "memoryRepairClarificationAnswer"].forEach((id) => {
         if ($(id)) $(id).value = "";
       });
+      setSettingChangeClarificationControlsVisible(false);
+    }
+
+    function setSettingChangeClarificationControlsVisible(visible) {
+      ["settingChangeClarificationControls", "memoryRepairClarificationControls"].forEach((id) => {
+        if ($(id)) $(id).classList.toggle("hidden", !visible);
+      });
+    }
+
+    function resetSettingChangeState(focusId = "") {
+      latestSettingChangeClarificationId = "";
+      clearSettingChangeClarification();
+      ["workbenchSettingChangeProposalPath", "memoryRepairProposalPath"].forEach((id) => {
+        if ($(id)) $(id).value = "";
+      });
+      if ($("settingChangeImpactPanel")) $("settingChangeImpactPanel").textContent = "设定变更影响分析：暂无";
+      if ($("memoryRepairImpactPanel")) $("memoryRepairImpactPanel").textContent = "设定变更影响分析：暂无";
+      if ($("fileViewer")) $("fileViewer").textContent = "";
+      setMessage("设定变更前端状态已重置。");
+      if (focusId && $(focusId)) $(focusId).focus();
     }
 
     function renderSettingChangeImpact(proposal) {
@@ -1565,7 +1600,7 @@
 
     function setBusyMessage() {
       if (!currentBusyStartedAt || !currentBusyLabel) return;
-      setMessage(`${currentBusyLabel}执行中，已用时 ${formatElapsed(Date.now() - currentBusyStartedAt)}。真实 API 可能需要较长时间...`);
+      setBusyBanner(`${currentBusyLabel}执行中，已用时 ${formatElapsed(Date.now() - currentBusyStartedAt)}。真实 API 可能需要较长时间...`);
     }
 
     function canUseButtonDuringBusy(button) {
@@ -1638,6 +1673,7 @@
         sessionProgressTimer = null;
         currentBusyStartedAt = null;
         currentBusyLabel = "";
+        setBusyBanner("");
         previousStates.forEach(([button, disabled]) => { button.disabled = disabled; });
       }
     }
@@ -2011,9 +2047,11 @@
     $("saveEmbeddingConfig").addEventListener("click", saveEmbeddingConfig);
     $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
     $("memoryRepairClarificationSubmit").addEventListener("click", memoryRepairAnswer);
+    $("memoryRepairReset").addEventListener("click", () => resetSettingChangeState("memoryRepairInstruction"));
     $("memoryRepairApply").addEventListener("click", memoryRepairApply);
     $("settingChangeWorkbenchSuggest").addEventListener("click", () => settingChangeSuggest(currentSettingChangeStage()));
     $("settingChangeClarificationSubmit").addEventListener("click", () => settingChangeAnswer());
+    $("settingChangeWorkbenchReset").addEventListener("click", () => resetSettingChangeState("instruction"));
     $("settingChangeWorkbenchApply").addEventListener("click", () => settingChangeApply({ syncSession: $("settingChangeSyncSession").checked }));
     $("rebuildChapterMemory").addEventListener("click", rebuildChapterMemory);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));

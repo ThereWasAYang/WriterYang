@@ -1214,6 +1214,11 @@ def test_frontend_basic_render() -> None:
     assert "startSessionProgressPolling" in app_js
     assert "renderSessionProgress" in app_js
     assert "cancelSessionTask" in app_js
+    assert 'id="busyBanner" class="busy-banner hidden"' in html
+    assert ".busy-banner" in app_css
+    assert "setBusyBanner(`${currentBusyLabel}执行中" in app_js
+    assert "setBusyBanner(\"\")" in app_js
+    assert "setMessage(`${currentBusyLabel}执行中" not in app_js
     assert "beforeunload" in app_js
     assert "metaKey" in app_js
     assert "ctrlKey" in app_js
@@ -1254,6 +1259,8 @@ def test_frontend_basic_render() -> None:
     assert "latestCanonProposalSnapshotPath" in app_js
     assert 'id="memoryRepairSuggest"' in html
     assert 'id="memoryRepairApply"' in html
+    assert 'id="memoryRepairReset"' in html
+    assert 'id="memoryRepairClarificationControls" class="hidden"' in html
     assert 'id="memoryRepairClarificationAnswer"' in html
     assert 'id="memoryRepairClarificationSubmit"' in html
     assert 'id="rebuildChapterMemory"' in html
@@ -1307,8 +1314,15 @@ def test_frontend_basic_render() -> None:
     assert "/api/settings/change/answer" in app_js
     assert "/api/settings/change/apply" in app_js
     assert 'id="settingChangeWorkbenchSuggest"' in html
+    assert 'id="settingChangeWorkbenchReset"' in html
+    assert 'id="settingChangeClarificationControls" class="hidden"' in html
     assert 'id="settingChangeClarificationAnswer"' in html
     assert 'id="settingChangeClarificationSubmit"' in html
+    assert "setSettingChangeClarificationControlsVisible(true)" in app_js
+    assert "setSettingChangeClarificationControlsVisible(false)" in app_js
+    assert "resetSettingChangeState(\"instruction\")" in app_js
+    assert "resetSettingChangeState(\"memoryRepairInstruction\")" in app_js
+    assert "latestSettingChangeClarificationId = \"\";" in app_js
     assert 'id="auditIssueAsSettingChange"' in html
     assert "/api/chapter-memory/generate" in app_js
     assert "/api/chapter-memory/rebuild" in app_js

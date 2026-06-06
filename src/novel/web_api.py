@@ -41,7 +41,7 @@ from novel.core.inspection import format_canon, get_project_status
 from novel.core.io import atomic_write_model_json, atomic_write_text, atomic_write_yaml, backup_if_exists, load_json, load_json_model, load_yaml
 from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core.management import load_management_events
-from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair
+from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair, suggest_setting_change
 from novel.core.migration import MigrationError, migrate_project
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
@@ -65,6 +65,7 @@ from novel.core.schemas import (
     RevisionRecord,
     SessionProgress,
     VectorContextMode,
+    MemoryChangeStage,
 )
 from novel.core.security import validate_secret_config_file
 from novel.core.session import (
@@ -247,6 +248,8 @@ def _post_routes():
         "/api/canon/apply": ("web canon apply", _canon_apply, True),
         "/api/orchestrator/memory-repair/suggest": ("web memory repair suggest", _memory_repair_suggest, True),
         "/api/orchestrator/memory-repair/apply": ("web memory repair apply", _memory_repair_apply, True),
+        "/api/settings/change/suggest": ("web setting change suggest", _settings_change_suggest, True),
+        "/api/settings/change/apply": ("web setting change apply", _settings_change_apply, True),
         "/api/chapter-memory/generate": ("web chapter memory generate", _chapter_memory_generate, True),
         "/api/chapter-memory/rebuild": ("web chapter memory rebuild", _chapter_memory_rebuild, True),
         "/api/session/start": ("web session start", _session_start, True),
@@ -897,6 +900,125 @@ def _memory_repair_apply(data: dict[str, object]) -> dict[str, object]:
         "apply_log_relative_path": _relative(root, result.apply_log_path),
         "management_events": _management_event_summary(root),
     }
+
+
+def _settings_change_suggest(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    request = _optional_string(data.get("request")) or _optional_string(data.get("instruction"))
+    if not request:
+        raise WebAPIError("invalid_request", "request is required", status=400)
+    provider = _optional_string(data.get("provider")) or "config"
+    audit_issue_ids = _string_list(data.get("audit_issue_ids"))
+    result = suggest_setting_change(
+        root,
+        request,
+        provider_name=provider,
+        stage=_memory_change_stage(data.get("source_stage") or data.get("stage")),
+        session_id=_optional_string(data.get("session_id")),
+        chapter_number=_optional_int(data.get("chapter_number")) or _optional_int(data.get("chapter")),
+        audit_issue_ids=audit_issue_ids,
+    )
+    return {
+        "proposal": result.proposal.model_dump(mode="json"),
+        "proposal_path": str(result.proposal_path),
+        "proposal_relative_path": _relative(root, result.proposal_path),
+        "markdown_path": str(result.markdown_path),
+        "markdown_relative_path": _relative(root, result.markdown_path),
+        "management_events": _management_event_summary(root),
+    }
+
+
+def _settings_change_apply(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    proposal_path_text = _optional_string(data.get("proposal_path")) or _optional_string(data.get("proposal_file"))
+    if not proposal_path_text:
+        raise WebAPIError("invalid_request", "proposal_path is required", status=400)
+    proposal_path = _safe_workspace_file(root, proposal_path_text)
+    result = apply_memory_repair(root, proposal_path)
+    sync_result = {"status": "skipped", "reason": "sync_session is false"}
+    if bool(data.get("sync_session")):
+        sync_result = _sync_setting_change_session(
+            root,
+            result.proposal,
+            session_id=_optional_string(data.get("session_id")),
+            provider_name=_optional_string(data.get("provider")) or "config",
+            use_search_context=bool(data.get("use_search_context", True)),
+            use_vector_context=_vector_context_mode(data),
+            polish_mode=_polish_mode(data),
+        )
+    return {
+        "proposal": result.proposal.model_dump(mode="json"),
+        "apply_log": result.apply_log.model_dump(mode="json"),
+        "apply_log_path": str(result.apply_log_path),
+        "apply_log_relative_path": _relative(root, result.apply_log_path),
+        "sync_result": sync_result,
+        "management_events": _management_event_summary(root),
+    }
+
+
+def _sync_setting_change_session(
+    root: Path,
+    proposal,
+    *,
+    session_id: str | None,
+    provider_name: str,
+    use_search_context: bool,
+    use_vector_context: VectorContextMode,
+    polish_mode: PolishMode | None,
+) -> dict[str, object]:
+    if not session_id:
+        return {"status": "skipped", "reason": "session_id is missing"}
+    try:
+        session = load_session(root, session_id)
+    except Exception as exc:
+        return {"status": "failed", "reason": f"could not load session: {exc}"}
+    if session.status in {"accepted", "archived"} or session.content_status in {"accepted", "archived"}:
+        return {
+            "status": "manual_review",
+            "reason": "accepted or archived sessions are not rewritten automatically",
+            "session_id": session_id,
+        }
+    instruction = (
+        "设定变更已应用，请基于最新项目 memory 同步当前创作。\n"
+        f"原始设定变更请求：{proposal.user_request}\n"
+        f"影响分析：{proposal.impact.summary if proposal.impact else '无'}"
+    )
+    try:
+        if session.content_status == "not_started":
+            result = revise_outline(
+                SessionInstructionOptions(
+                    root=root,
+                    session_id=session_id,
+                    instruction=instruction,
+                    provider_name=provider_name,
+                    force=True,
+                    use_search_context=use_search_context,
+                    use_vector_context=use_vector_context,
+                    polish_mode=polish_mode,
+                )
+            )
+            return {"status": "synced", "action": "revise_outline", "session": _session_result_payload(result)}
+        if session.content_status in {"needs_user_review", "needs_revision"}:
+            result = revise_content(
+                SessionInstructionOptions(
+                    root=root,
+                    session_id=session_id,
+                    instruction=instruction,
+                    provider_name=provider_name,
+                    force=True,
+                    use_search_context=use_search_context,
+                    use_vector_context=use_vector_context,
+                    polish_mode=polish_mode,
+                )
+            )
+            return {"status": "synced", "action": "revise_content", "session": _session_result_payload(result)}
+        return {
+            "status": "manual_review",
+            "reason": f"session status {session.status}/{session.content_status} is not safe for automatic sync",
+            "session_id": session_id,
+        }
+    except Exception as exc:
+        return {"status": "failed", "reason": str(exc), "session_id": session_id}
 
 
 def _session_start(data: dict[str, object]) -> dict[str, object]:
@@ -2158,6 +2280,24 @@ def _optional_string(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _string_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    return [item.strip() for item in text.split(",") if item.strip()]
+
+
+def _memory_change_stage(value: object) -> MemoryChangeStage:
+    text = _optional_string(value)
+    if text in {"pre_creation", "outline_discussion", "content_review", "post_chapter", "unknown"}:
+        return cast(MemoryChangeStage, text)
+    return "unknown"
 
 
 def _vector_context_mode(data: dict[str, object]) -> VectorContextMode:

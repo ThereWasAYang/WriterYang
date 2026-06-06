@@ -1,5 +1,145 @@
 {
   "$defs": {
+    "MemoryChangeFollowupAction": {
+      "additionalProperties": true,
+      "properties": {
+        "action": {
+          "enum": [
+            "none",
+            "revise_outline",
+            "reapprove_outline",
+            "revise_content",
+            "reaudit_chapters",
+            "rebuild_state_proposal",
+            "start_revision_session",
+            "manual_review"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "chapter_numbers": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Chapter Numbers",
+          "type": "array"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "auto": {
+          "default": false,
+          "title": "Auto",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action",
+        "reason"
+      ],
+      "title": "MemoryChangeFollowupAction",
+      "type": "object"
+    },
+    "MemoryChangeImpact": {
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "default": 2,
+          "minimum": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "domains": {
+          "items": {
+            "enum": [
+              "characters",
+              "locations",
+              "items",
+              "world",
+              "hidden_truths",
+              "foreshadowing",
+              "current_state",
+              "timeline"
+            ],
+            "type": "string"
+          },
+          "title": "Domains",
+          "type": "array"
+        },
+        "entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Ids",
+          "type": "array"
+        },
+        "affected_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Files",
+          "type": "array"
+        },
+        "affected_chapters": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Affected Chapters",
+          "type": "array"
+        },
+        "affected_sessions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Sessions",
+          "type": "array"
+        },
+        "stale_chapters": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Stale Chapters",
+          "type": "array"
+        },
+        "risk_level": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "reference_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Reference Count",
+          "type": "integer"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "title": "MemoryChangeImpact",
+      "type": "object"
+    },
     "MemoryRepairOperation": {
       "additionalProperties": true,
       "properties": {
@@ -68,6 +208,15 @@
       "title": "Created By",
       "type": "string"
     },
+    "change_kind": {
+      "default": "memory_repair",
+      "enum": [
+        "memory_repair",
+        "setting_change"
+      ],
+      "title": "Change Kind",
+      "type": "string"
+    },
     "user_request": {
       "minLength": 1,
       "title": "User Request",
@@ -85,6 +234,53 @@
         "$ref": "#/$defs/MemoryRepairOperation"
       },
       "title": "Operations",
+      "type": "array"
+    },
+    "domains": {
+      "items": {
+        "enum": [
+          "characters",
+          "locations",
+          "items",
+          "world",
+          "hidden_truths",
+          "foreshadowing",
+          "current_state",
+          "timeline"
+        ],
+        "type": "string"
+      },
+      "title": "Domains",
+      "type": "array"
+    },
+    "stage": {
+      "default": "unknown",
+      "enum": [
+        "pre_creation",
+        "outline_discussion",
+        "content_review",
+        "post_chapter",
+        "unknown"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "impact": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryChangeImpact"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "followup_actions": {
+      "items": {
+        "$ref": "#/$defs/MemoryChangeFollowupAction"
+      },
+      "title": "Followup Actions",
       "type": "array"
     },
     "risk_level": {

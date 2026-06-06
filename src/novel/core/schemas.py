@@ -20,6 +20,34 @@ SessionRewriteUndoStatus = Literal["not_requested", "restored", "failed"]
 SessionProgressStatus = Literal["idle", "running", "cancel_requested", "cancelled", "completed", "failed"]
 MemoryRepairOperationType = Literal["add", "replace", "remove"]
 MemoryRepairRiskLevel = Literal["low", "medium", "high"]
+MemoryChangeKind = Literal["memory_repair", "setting_change"]
+MemoryChangeDomain = Literal[
+    "characters",
+    "locations",
+    "items",
+    "world",
+    "hidden_truths",
+    "foreshadowing",
+    "current_state",
+    "timeline",
+]
+MemoryChangeStage = Literal[
+    "pre_creation",
+    "outline_discussion",
+    "content_review",
+    "post_chapter",
+    "unknown",
+]
+MemoryChangeFollowupActionType = Literal[
+    "none",
+    "revise_outline",
+    "reapprove_outline",
+    "revise_content",
+    "reaudit_chapters",
+    "rebuild_state_proposal",
+    "start_revision_session",
+    "manual_review",
+]
 ManagementEventType = Literal[
     "chapter_accepted",
     "chapter_memory_generated",
@@ -1066,9 +1094,34 @@ class MemoryRepairOperation(FlexibleModel):
     reason: str = Field(min_length=1)
 
 
+class MemoryChangeImpact(SchemaVersionedModel):
+    domains: list[MemoryChangeDomain] = Field(default_factory=list)
+    entity_ids: list[EntityId] = Field(default_factory=list)
+    affected_files: list[str] = Field(default_factory=list)
+    affected_chapters: list[int] = Field(default_factory=list)
+    affected_sessions: list[str] = Field(default_factory=list)
+    stale_chapters: list[int] = Field(default_factory=list)
+    risk_level: MemoryRepairRiskLevel = "medium"
+    reference_count: int = Field(default=0, ge=0)
+    summary: str = Field(default="")
+
+
+class MemoryChangeFollowupAction(FlexibleModel):
+    action: MemoryChangeFollowupActionType
+    reason: str = Field(min_length=1)
+    chapter_numbers: list[int] = Field(default_factory=list)
+    session_id: str | None = None
+    auto: bool = False
+
+
 class MemoryRepairDecision(SchemaVersionedModel):
+    change_kind: MemoryChangeKind = "memory_repair"
     target_files: list[str] = Field(default_factory=list)
     operations: list[MemoryRepairOperation] = Field(default_factory=list)
+    domains: list[MemoryChangeDomain] = Field(default_factory=list)
+    stage: MemoryChangeStage = "unknown"
+    impact: MemoryChangeImpact | None = None
+    followup_actions: list[MemoryChangeFollowupAction] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0, le=1)
     assumptions: list[str] = Field(default_factory=list)
     needs_user_confirmation: bool = True
@@ -1079,9 +1132,14 @@ class MemoryRepairDecision(SchemaVersionedModel):
 class MemoryRepairProposal(SchemaVersionedModel):
     repair_id: str = Field(min_length=1, pattern=r"^repair_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
     created_by: Literal["orchestrator"] = "orchestrator"
+    change_kind: MemoryChangeKind = "memory_repair"
     user_request: str = Field(min_length=1)
     target_files: list[str] = Field(default_factory=list)
     operations: list[MemoryRepairOperation] = Field(default_factory=list)
+    domains: list[MemoryChangeDomain] = Field(default_factory=list)
+    stage: MemoryChangeStage = "unknown"
+    impact: MemoryChangeImpact | None = None
+    followup_actions: list[MemoryChangeFollowupAction] = Field(default_factory=list)
     risk_level: MemoryRepairRiskLevel = "medium"
     confidence: float = Field(default=0.0, ge=0, le=1)
     assumptions: list[str] = Field(default_factory=list)

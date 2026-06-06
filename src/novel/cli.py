@@ -76,7 +76,7 @@ from novel.core.revision import (
     revise_chapter_loop,
 )
 from novel.core.management import load_management_events
-from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair
+from novel.core.memory_repair import MemoryRepairError, apply_memory_repair, suggest_memory_repair, suggest_setting_change
 from novel.core.search import SearchError, rebuild_search_index, refresh_search_index, search_index_status, search_project
 from novel.core.session import (
     CreationSessionError,
@@ -150,7 +150,15 @@ from novel.core.setup_guide import (
     find_available_port,
     is_port_available,
 )
-from novel.core.schemas import AgentsConfig, AuditReport, CreationSession, PolishMode, ProjectConfig, VectorContextMode
+from novel.core.schemas import (
+    AgentsConfig,
+    AuditReport,
+    CreationSession,
+    MemoryChangeStage,
+    PolishMode,
+    ProjectConfig,
+    VectorContextMode,
+)
 from novel.core.usage import UsageError, summarize_provider_usage
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
@@ -856,7 +864,7 @@ def _prompt_yes_no(label: str, *, default: bool) -> bool:
 
 def completion_script(shell: str) -> str:
     commands = (
-        "init validate migrate schema index search ask memory-repair chapter-memory session status usage show inspire canon plan-chapter "
+        "init validate migrate schema index search ask memory-repair setting-change chapter-memory session status usage show inspire canon plan-chapter "
         "write-chapter polish-chapter audit-chapter revise-chapter propose-state-update "
         "apply-state-update accept-chapter generate-chapter export web doctor completion"
     )
@@ -1334,6 +1342,42 @@ def build_parser() -> argparse.ArgumentParser:
     memory_repair_apply.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
     memory_repair_apply.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
     memory_repair_apply.add_argument("--quiet", action="store_true", help="Suppress normal output.")
+
+    setting_change_parser = subparsers.add_parser(
+        "setting-change",
+        help="Suggest or apply natural-language character/background setting changes",
+    )
+    setting_change_subparsers = setting_change_parser.add_subparsers(dest="setting_change_command", required=True)
+    setting_change_suggest = setting_change_subparsers.add_parser("suggest", help="Create a setting change proposal")
+    setting_change_suggest.add_argument("request", help="Natural language setting change request")
+    setting_change_suggest.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    setting_change_suggest.add_argument(
+        "--provider",
+        default="config",
+        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
+        help="Provider to use for structured setting change proposal generation.",
+    )
+    setting_change_suggest.add_argument(
+        "--stage",
+        default="unknown",
+        choices=("pre_creation", "outline_discussion", "content_review", "post_chapter", "unknown"),
+        help="Current creative stage for impact/follow-up analysis.",
+    )
+    setting_change_suggest.add_argument("--session-id", help="Active session id, if any.")
+    setting_change_suggest.add_argument("--chapter", type=int, help="Current chapter number, if any.")
+    setting_change_suggest.add_argument(
+        "--audit-issue-id",
+        action="append",
+        default=[],
+        help="Audit issue id that triggered this setting change. Can be repeated.",
+    )
+    setting_change_suggest.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
+    setting_change_suggest.add_argument("--quiet", action="store_true", help="Suppress normal output.")
+    setting_change_apply = setting_change_subparsers.add_parser("apply", help="Apply a setting change proposal explicitly")
+    setting_change_apply.add_argument("proposal", help="repair_id or path to memory/repairs/{repair_id}/proposal.json")
+    setting_change_apply.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    setting_change_apply.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
+    setting_change_apply.add_argument("--quiet", action="store_true", help="Suppress normal output.")
 
     chapter_memory_parser = subparsers.add_parser("chapter-memory", help="Manage accepted chapter memory")
     chapter_memory_subparsers = chapter_memory_parser.add_subparsers(dest="chapter_memory_command", required=True)
@@ -2545,6 +2589,72 @@ def _cmd_memory_repair(args: argparse.Namespace) -> int:
         return _failure(args, str(exc), error_type="memory_repair_error")
 
 
+def _cmd_setting_change(args: argparse.Namespace) -> int:
+    root = Path(args.path)
+    try:
+        with _command_lock(args, root, f"setting-change {args.setting_change_command}"):
+            if args.setting_change_command == "suggest":
+                result = suggest_setting_change(
+                    root,
+                    args.request,
+                    provider_name=args.provider,
+                    stage=cast(MemoryChangeStage, args.stage),
+                    session_id=args.session_id,
+                    chapter_number=args.chapter,
+                    audit_issue_ids=list(args.audit_issue_id or []),
+                )
+                impact = result.proposal.impact
+                payload: dict[str, object] = {
+                    "command": "setting-change suggest",
+                    "repair_id": result.proposal.repair_id,
+                    "proposal_path": str(result.proposal_path),
+                    "markdown_path": str(result.markdown_path),
+                    "target_files": result.proposal.target_files,
+                    "domains": result.proposal.domains,
+                    "operation_count": len(result.proposal.operations),
+                    "confidence": result.proposal.confidence,
+                    "impact": impact.model_dump(mode="json") if impact else None,
+                    "followup_actions": [
+                        action.model_dump(mode="json") for action in result.proposal.followup_actions
+                    ],
+                    "management_events": _management_event_payload(root),
+                }
+                affected = ", ".join(str(number) for number in impact.affected_chapters) if impact else ""
+                return _success(
+                    args,
+                    payload,
+                    [
+                        f"Setting change proposal: {result.proposal_path}",
+                        f"Targets: {', '.join(result.proposal.target_files) or 'none'}",
+                        f"Domains: {', '.join(result.proposal.domains) or 'none'}",
+                        f"Operations: {len(result.proposal.operations)}",
+                        f"Affected chapters: {affected or 'none'}",
+                        *_management_event_lines(root),
+                    ],
+                )
+            apply_result = apply_memory_repair(root, _resolve_memory_repair_proposal_arg(args.proposal))
+            payload = {
+                "command": "setting-change apply",
+                "repair_id": apply_result.proposal.repair_id,
+                "apply_log_path": str(apply_result.apply_log_path),
+                "status": apply_result.apply_log.status,
+                "management_events": _management_event_payload(root),
+            }
+            return _success(
+                args,
+                payload,
+                [
+                    f"Applied setting change: {apply_result.proposal.repair_id}",
+                    f"Apply log: {apply_result.apply_log_path}",
+                    *_management_event_lines(root),
+                ],
+            )
+    except ProjectLockError as exc:
+        return _failure(args, str(exc), error_type="project_locked")
+    except MemoryRepairError as exc:
+        return _failure(args, str(exc), error_type="memory_repair_error")
+
+
 def _cmd_chapter_memory(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
@@ -3730,6 +3840,7 @@ _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "index": _cmd_index,
     "search": _cmd_search,
     "memory-repair": _cmd_memory_repair,
+    "setting-change": _cmd_setting_change,
     "chapter-memory": _cmd_chapter_memory,
     "ask": _cmd_ask,
     "session": _cmd_session,

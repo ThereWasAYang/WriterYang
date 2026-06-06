@@ -937,6 +937,125 @@ def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -
     assert "memory_repair_applied" in serialized_events
 
 
+def test_api_setting_change_suggest_apply_syncs_outline_session(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    start_status, start_payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "写第1章", "chapters": "1", "provider": "mock"}),
+    )
+    session_id = start_payload["data"]["session"]["session_id"]  # type: ignore[index]
+
+    suggest_status, suggest_payload = handle_api_request(
+        "POST",
+        "/api/settings/change/suggest",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "request": "新增人物沈微",
+                "provider": "mock",
+                "session_id": session_id,
+                "source_stage": "outline_discussion",
+            }
+        ),
+    )
+    proposal_path = suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
+    apply_status, apply_payload = handle_api_request(
+        "POST",
+        "/api/settings/change/apply",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "proposal_path": proposal_path,
+                "provider": "mock",
+                "session_id": session_id,
+                "sync_session": True,
+            }
+        ),
+    )
+
+    assert start_status == 200
+    assert suggest_status == 200
+    assert suggest_payload["data"]["proposal"]["change_kind"] == "setting_change"  # type: ignore[index]
+    assert suggest_payload["data"]["proposal"]["impact"]["affected_sessions"] == [session_id]  # type: ignore[index]
+    assert apply_status == 200
+    assert apply_payload["data"]["apply_log"]["status"] == "applied"  # type: ignore[index]
+    assert apply_payload["data"]["sync_result"]["status"] == "synced"  # type: ignore[index]
+    assert apply_payload["data"]["sync_result"]["action"] == "revise_outline"  # type: ignore[index]
+
+
+def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    session_id = "session_20260529_010101_000004"
+    session_dir = root / "memory" / "sessions" / session_id
+    session_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    session = CreationSession(
+        session_id=session_id,
+        scope_type="chapters",
+        chapter_range=[1],
+        user_intent="写第1章",
+        status="needs_user_review",
+        outline_status="approved",
+        content_status="needs_user_review",
+        approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
+        final_output_paths=["memory/chapters/001/polished.md"],
+        created_at=now,
+        updated_at=now,
+    )
+    atomic_write_model_json(session_dir / "session.json", session)
+    captured: dict[str, object] = {}
+
+    def fake_revise_content(options) -> SessionResult:
+        captured["instruction"] = options.instruction
+        return SessionResult(session=session, session_path=session_dir / "session.json", message="synced content")
+
+    def fail_revise_outline(*args: object, **kwargs: object) -> None:
+        raise AssertionError("content review setting changes must not revise outline")
+
+    monkeypatch.setattr("novel.web_api.revise_content", fake_revise_content)
+    monkeypatch.setattr("novel.web_api.revise_outline", fail_revise_outline)
+
+    suggest_status, suggest_payload = handle_api_request(
+        "POST",
+        "/api/settings/change/suggest",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "request": "新增人物沈微",
+                "provider": "mock",
+                "session_id": session_id,
+                "source_stage": "content_review",
+            }
+        ),
+    )
+    proposal_path = suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
+    apply_status, apply_payload = handle_api_request(
+        "POST",
+        "/api/settings/change/apply",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "proposal_path": proposal_path,
+                "provider": "mock",
+                "session_id": session_id,
+                "sync_session": True,
+            }
+        ),
+    )
+
+    assert suggest_status == 200
+    assert apply_status == 200
+    assert apply_payload["data"]["sync_result"]["status"] == "synced"  # type: ignore[index]
+    assert apply_payload["data"]["sync_result"]["action"] == "revise_content"  # type: ignore[index]
+    assert "原始设定变更请求" in str(captured["instruction"])
+
+
 def test_frontend_basic_render() -> None:
     html = index_html()
     app_css = (static_asset_bytes("/static/app.css") or (b"", ""))[0].decode("utf-8")
@@ -1118,6 +1237,10 @@ def test_frontend_basic_render() -> None:
     assert "/api/session/rewrite-events" in app_js
     assert "/api/orchestrator/memory-repair/suggest" in app_js
     assert "/api/orchestrator/memory-repair/apply" in app_js
+    assert "/api/settings/change/suggest" in app_js
+    assert "/api/settings/change/apply" in app_js
+    assert 'id="settingChangeWorkbenchSuggest"' in html
+    assert 'id="auditIssueAsSettingChange"' in html
     assert "/api/chapter-memory/generate" in app_js
     assert "/api/chapter-memory/rebuild" in app_js
     assert "/api/management-events" in app_js

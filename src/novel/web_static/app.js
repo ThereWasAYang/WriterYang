@@ -11,6 +11,8 @@
       "providerTemperatureField", "providerMaxTokensField", "providerMaxContextTokensField",
       "providerTimeoutSecondsField", "providerMaxRetriesField",
     ];
+    const legacyMemoryRepairSuggestEndpoint = "/api/orchestrator/memory-repair/suggest";
+    const legacyMemoryRepairApplyEndpoint = "/api/orchestrator/memory-repair/apply";
     let editorLoadedContent = "";
     let editorSourceFile = "";
     let providerConfigCache = null;
@@ -24,6 +26,8 @@
     let currentBusyLabel = "";
     let recentOperations = [];
     let latestCanonProposalSnapshotPath = "";
+    let latestAuditAnnotations = null;
+    let latestSelectedAuditIssue = null;
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -662,31 +666,102 @@
     }
 
     async function memoryRepairSuggest() {
-      return withBusy("项目管家生成修复建议", async () => {
-        const data = await apiPost("/api/orchestrator/memory-repair/suggest", {
-          path: projectPath(),
-          request: $("memoryRepairInstruction").value.trim() || $("instruction").value.trim(),
-          provider: $("provider").value,
-        });
-        if (data.proposal_relative_path) $("memoryRepairProposalPath").value = data.proposal_relative_path;
-        $("fileViewer").textContent = JSON.stringify(data, null, 2);
-        renderManagementEvents(data.management_events || []);
-        await refreshAll({ silent: true });
-        setMessage(actionMessage("项目管家修复建议", data));
-      });
+      return settingChangeSuggest("unknown", { preferMemoryInput: true });
     }
 
     async function memoryRepairApply() {
-      return withBusy("项目管家应用修复建议", async () => {
-        const data = await apiPost("/api/orchestrator/memory-repair/apply", {
+      return settingChangeApply({ syncSession: false });
+    }
+
+    async function settingChangeSuggest(sourceStage = "unknown", options = {}) {
+      return withBusy("生成设定变更建议", async () => {
+        const data = await apiPost("/api/settings/change/suggest", {
           path: projectPath(),
-          proposal_path: $("memoryRepairProposalPath").value.trim(),
+          request: settingChangeInstruction(options),
+          provider: $("provider").value,
+          session_id: $("sessionId").value.trim(),
+          chapter_number: chapterNumber(),
+          source_stage: sourceStage,
+          audit_issue_ids: options.auditIssueIds || [],
         });
+        syncSettingChangeProposalPath(data.proposal_relative_path || "");
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderSettingChangeImpact(data.proposal || {});
         renderManagementEvents(data.management_events || []);
         await refreshAll({ silent: true });
-        setMessage(actionMessage("项目管家应用修复建议", data));
+        setMessage(actionMessage("设定变更建议", data));
       });
+    }
+
+    async function settingChangeApply(options = {}) {
+      return withBusy("应用设定变更", async () => {
+        const proposalPath = settingChangeProposalPath();
+        if (!proposalPath) {
+          throw new Error("请先生成设定变更 proposal。");
+        }
+        const data = await apiPost("/api/settings/change/apply", {
+          path: projectPath(),
+          proposal_path: proposalPath,
+          provider: $("provider").value,
+          session_id: $("sessionId").value.trim(),
+          sync_session: Boolean(options.syncSession),
+          use_search_context: $("useSearchContext").checked,
+          vector_context: $("vectorContextMode").value,
+          use_vector_context: $("useVectorContext").checked,
+          polish_mode: $("autoPolish").checked ? "auto" : "single_pass",
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        renderSettingChangeImpact(data.proposal || {});
+        renderManagementEvents(data.management_events || []);
+        const syncedSession = data.sync_result?.session;
+        if (syncedSession) renderSessionSummary(syncedSession);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("应用设定变更", data));
+      });
+    }
+
+    function settingChangeInstruction(options = {}) {
+      const memoryInput = $("memoryRepairInstruction")?.value.trim() || "";
+      const workbenchInput = $("instruction")?.value.trim() || "";
+      if (options.preferMemoryInput) return memoryInput || workbenchInput;
+      return workbenchInput || memoryInput;
+    }
+
+    function settingChangeProposalPath() {
+      return $("workbenchSettingChangeProposalPath")?.value.trim()
+        || $("memoryRepairProposalPath")?.value.trim()
+        || "";
+    }
+
+    function syncSettingChangeProposalPath(path) {
+      if (!path) return;
+      if ($("workbenchSettingChangeProposalPath")) $("workbenchSettingChangeProposalPath").value = path;
+      if ($("memoryRepairProposalPath")) $("memoryRepairProposalPath").value = path;
+    }
+
+    function renderSettingChangeImpact(proposal) {
+      const impact = proposal.impact || {};
+      const actions = proposal.followup_actions || [];
+      const html = `
+        <b>设定变更影响分析</b>
+        <div>domains: ${escapeHtml((proposal.domains || impact.domains || []).join(", ") || "none")}</div>
+        <div>risk: ${escapeHtml(proposal.risk_level || impact.risk_level || "")}</div>
+        <div>entities: ${escapeHtml((impact.entity_ids || []).join(", ") || "none")}</div>
+        <div>chapters: ${escapeHtml((impact.affected_chapters || []).join(", ") || "none")}</div>
+        <div>sessions: ${escapeHtml((impact.affected_sessions || []).join(", ") || "none")}</div>
+        <div>stale accepted: ${escapeHtml((impact.stale_chapters || []).join(", ") || "none")}</div>
+        ${impact.summary ? `<div>${escapeHtml(impact.summary)}</div>` : ""}
+        ${actions.length ? `<div style="margin-top: 6px;">follow-up: ${escapeHtml(actions.map((item) => item.action).join(", "))}</div>` : ""}
+      `;
+      if ($("settingChangeImpactPanel")) $("settingChangeImpactPanel").innerHTML = html;
+      if ($("memoryRepairImpactPanel")) $("memoryRepairImpactPanel").innerHTML = html;
+    }
+
+    function currentSettingChangeStage() {
+      const text = $("sessionPanel")?.textContent || "";
+      if (text.includes("needs_user_review") || text.includes("needs_revision")) return "content_review";
+      if (text.includes("outline") || $("sessionId").value.trim()) return "outline_discussion";
+      return "pre_creation";
     }
 
     async function validateProject() {
@@ -847,6 +922,8 @@
             file: `memory/chapters/${String(chapterNumber()).padStart(3, "0")}/${auditedFile}`,
           }),
         ]);
+        latestAuditAnnotations = annotations;
+        latestSelectedAuditIssue = null;
         $("auditTextViewer").value = fileData.content || "";
         renderAuditIssues(annotations.issues || []);
         setMessage("Audit issue 定位已加载");
@@ -868,6 +945,7 @@
       document.querySelectorAll(".issue-button").forEach((button) => {
         button.addEventListener("click", () => {
           const issue = issues[Number(button.dataset.index)];
+          latestSelectedAuditIssue = issue;
           const match = (issue.matches || []).find((item) => item.matched);
           if (!match) {
             setMessage("该 issue 的 evidence 无法定位到正文", true);
@@ -881,6 +959,23 @@
           setMessage(`已定位 ${issue.id}`);
         });
       });
+    }
+
+    async function auditIssueAsSettingChange() {
+      const issue = latestSelectedAuditIssue || (latestAuditAnnotations?.issues || [])[0];
+      if (!issue) {
+        setMessage("请先加载并选择一个 Audit issue。", true);
+        return;
+      }
+      const evidence = (issue.matches || [])[0] || {};
+      const instruction = [
+        `请作为设定变更处理 Audit issue ${issue.id || ""}。`,
+        issue.description || "",
+        issue.suggested_fix ? `建议修复：${issue.suggested_fix}` : "",
+        evidence.quote ? `证据：${evidence.quote}` : "",
+      ].filter(Boolean).join("\n");
+      $("instruction").value = instruction;
+      return settingChangeSuggest("content_review", { auditIssueIds: [issue.id].filter(Boolean) });
     }
 
     async function loadRuns() {
@@ -1836,6 +1931,8 @@
     $("saveEmbeddingConfig").addEventListener("click", saveEmbeddingConfig);
     $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
     $("memoryRepairApply").addEventListener("click", memoryRepairApply);
+    $("settingChangeWorkbenchSuggest").addEventListener("click", () => settingChangeSuggest(currentSettingChangeStage()));
+    $("settingChangeWorkbenchApply").addEventListener("click", () => settingChangeApply({ syncSession: $("settingChangeSyncSession").checked }));
     $("rebuildChapterMemory").addEventListener("click", rebuildChapterMemory);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));
     $("sessionStart").addEventListener("click", () => {
@@ -1873,6 +1970,7 @@
       }
     });
     $("loadAuditAnnotations").addEventListener("click", loadAuditAnnotations);
+    $("auditIssueAsSettingChange").addEventListener("click", auditIssueAsSettingChange);
     $("loadRuns").addEventListener("click", loadRuns);
     $("searchProjectContent").addEventListener("click", searchProjectContent);
     $("searchQuery").addEventListener("keydown", (event) => {

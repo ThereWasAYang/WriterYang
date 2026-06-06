@@ -1,0 +1,54 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "action": {
+      "enum": [
+        "none",
+        "revise_outline",
+        "reapprove_outline",
+        "revise_content",
+        "reaudit_chapters",
+        "rebuild_state_proposal",
+        "start_revision_session",
+        "manual_review"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "chapter_numbers": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Chapter Numbers",
+      "type": "array"
+    },
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "auto": {
+      "default": false,
+      "title": "Auto",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "action",
+    "reason"
+  ],
+  "title": "MemoryChangeFollowupAction",
+  "type": "object"
+}

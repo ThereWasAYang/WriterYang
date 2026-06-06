@@ -55,7 +55,7 @@ VectorContextMode = Literal["auto", "on", "off"]
 PolishMode = Literal["single_pass", "auto", "review_gate"]
 ContextRequestKind = Literal["chapter_prose", "entity", "query"]
 ChapterMemoryGenerationStatus = Literal["model_generated", "deterministic_fallback"]
-ChapterMemoryStatus = Literal["accepted", "archived"]
+ChapterMemoryStatus = Literal["accepted"]
 ChapterMemoryVisibility = Literal["reader_visible", "author_only", "hidden_truth", "audit_only"]
 
 

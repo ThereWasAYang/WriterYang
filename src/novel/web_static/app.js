@@ -235,16 +235,23 @@
         $("chapterList").textContent = "暂无章节";
         return;
       }
-      const body = chapters.map((chapter) => `
-        <tr>
-          <td>${chapter.chapter_number}</td>
-          <td>${escapeHtml(chapter.title || "")}</td>
-          <td>${escapeHtml(chapter.status || "")}</td>
-          <td>${chapter.has_plan ? "plan " : ""}${chapter.has_draft ? "draft " : ""}${chapter.has_polished ? "polished " : ""}${chapter.has_audit ? "audit " : ""}${chapter.has_chapter_memory ? (chapter.chapter_memory_stale ? "memory(stale)" : "memory") : ""}</td>
-          <td>${escapeHtml(chapter.audit_status || "")}</td>
-          <td><button data-chapter="${chapter.chapter_number}" class="select-chapter">选择</button></td>
-        </tr>
-      `).join("");
+      const body = chapters.map((chapter) => {
+        const needsMemory = !chapter.has_chapter_memory || chapter.chapter_memory_stale;
+        const memoryLabel = chapter.has_chapter_memory ? (chapter.chapter_memory_stale ? "memory(stale)" : "memory") : "";
+        const memoryAction = needsMemory
+          ? `<button data-chapter="${chapter.chapter_number}" class="chapter-memory-generate">${chapter.has_chapter_memory ? "刷新记忆" : "生成记忆"}</button>`
+          : "";
+        return `
+          <tr>
+            <td>${chapter.chapter_number}</td>
+            <td>${escapeHtml(chapter.title || "")}</td>
+            <td>${escapeHtml(chapter.status || "")}</td>
+            <td>${chapter.has_plan ? "plan " : ""}${chapter.has_draft ? "draft " : ""}${chapter.has_polished ? "polished " : ""}${chapter.has_audit ? "audit " : ""}${memoryLabel}</td>
+            <td>${escapeHtml(chapter.audit_status || "")}</td>
+            <td><button data-chapter="${chapter.chapter_number}" class="select-chapter">选择</button>${memoryAction}</td>
+          </tr>
+        `;
+      }).join("");
       $("chapterList").innerHTML = `<table><thead><tr><th>#</th><th>标题</th><th>状态</th><th>文件</th><th>审核</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
       document.querySelectorAll(".select-chapter").forEach((button) => {
         button.addEventListener("click", () => {
@@ -253,6 +260,9 @@
           showTab("chapterCompare");
           loadCompare();
         });
+      });
+      document.querySelectorAll(".chapter-memory-generate").forEach((button) => {
+        button.addEventListener("click", () => generateChapterMemory(Number(button.dataset.chapter || "1")));
       });
     }
 
@@ -623,6 +633,33 @@
         $("runMigration").classList.add("hidden");
         throw error;
       }
+    }
+
+    async function generateChapterMemory(chapter) {
+      await withBusy("生成章节记忆", async () => {
+        const data = await apiPost("/api/chapter-memory/generate", {
+          path: projectPath(),
+          chapter_number: chapter,
+          provider: $("provider").value,
+          force: true,
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("生成章节记忆", data));
+      });
+    }
+
+    async function rebuildChapterMemory() {
+      await withBusy("补全 / 刷新章节记忆", async () => {
+        const data = await apiPost("/api/chapter-memory/rebuild", {
+          path: projectPath(),
+          provider: $("provider").value,
+          mode: "missing_or_stale",
+        });
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        await refreshAll({ silent: true });
+        setMessage(actionMessage("补全 / 刷新章节记忆", data));
+      });
     }
 
     function renderMigrationStatus(data) {
@@ -1705,6 +1742,7 @@
     $("saveEmbeddingConfig").addEventListener("click", saveEmbeddingConfig);
     $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
     $("memoryRepairApply").addEventListener("click", memoryRepairApply);
+    $("rebuildChapterMemory").addEventListener("click", rebuildChapterMemory);
     $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));
     $("sessionStart").addEventListener("click", () => {
       $("sessionId").value = "";

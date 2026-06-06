@@ -145,6 +145,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_setup_default_provider()` / `_setup_embedding()` / `_setup_web_port()`：Web 初始引导 API；调用 `core/setup_guide.py`，真实 key 写项目 `.env`，响应只返回 env 名和测试结果。
 - `_setup_recommend_port()` / `_setup_open_web()`：推荐可用端口并返回 Web UI URL；Web 场景不另起服务端。
 - `_index_refresh()`：调用 `refresh_search_index()`，刷新关键词索引或显式刷新真实 embedding 向量，并返回最新 search status。
+- `_chapter_memory_generate()` / `_chapter_memory_rebuild()`：Web 端生成单章或批量补全 stale/missing ChapterMemory。
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
 - `_session_progress_api()` / `_session_cancel()`：读取 `progress.json` 的脱敏进度摘要，并写入协作式取消请求；取消接口不走项目写锁，避免被正在运行的 `session run` 阻塞。
 - `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
@@ -513,6 +514,7 @@ ChapterPlan 引用提取：
 - `load_chapter_memory_provider()`：读取 `chapter_memory` agent 配置，缺省可继承 `state_update` / `audit`。
 - `build_deterministic_chapter_memory()`：provider 不可用或模型输出无效时的保守 fallback。
 - `validate_chapter_memory()`：检查章节状态、source path、正文 sha、timeline id 和 source_refs。
+- `chapter_memory_freshness_warnings()`：热路径轻量检查 source polished 是否存在、accepted、sha 是否匹配。
 - `load_chapter_memories()`：按章节加载历史记忆，默认跳过 stale 记忆。
 - `render_chapter_memory_prompt_text()`：为 Plot 渲染全局/重点记忆，为 Writer 渲染读者可见和安全连续性视图。
 

@@ -18,7 +18,6 @@ from novel.core.agent_output import (
 )
 from novel.core.canon import format_canon_summary, load_canon_drift_provider, load_canon_files, suggest_canon_drift
 from novel.core.chapter_memory import (
-    ChapterMemoryError,
     ChapterMemoryOptions,
     ChapterMemoryResult,
     generate_chapter_memory,
@@ -404,11 +403,8 @@ def _generate_accepted_chapter_memory(
             status="error" if strict else "warning",
             details={"error": str(exc)},
         )
-        if strict:
-            if isinstance(exc, ChapterMemoryError):
-                raise
-            raise ChapterMemoryError(str(exc)) from exc
-        return None, (f"chapter memory generation skipped: {exc}",)
+        prefix = "strict chapter memory generation failed" if strict else "chapter memory generation skipped"
+        return None, (f"{prefix}: {exc}",)
 
 
 def _load_existing_apply_result(root: Path, chapter_number: int) -> StateUpdateApplyResult | None:

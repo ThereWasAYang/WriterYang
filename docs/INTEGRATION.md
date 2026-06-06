@@ -62,6 +62,7 @@ novel apply-state-update 1 --project ./rain-station --json --quiet
 novel accept-chapter 1 --project ./rain-station --json --quiet
 novel chapter-memory show 1 --project ./rain-station --json --quiet
 novel chapter-memory generate 1 --project ./rain-station --provider config --force --json --quiet
+novel chapter-memory rebuild --project ./rain-station --provider config --missing-only --json --quiet
 novel export markdown --project ./rain-station --include-unaccepted --json --quiet
 novel export docx --project ./rain-station --include-unaccepted --json --quiet
 novel ask "请为第1章生成章节计划" --project ./rain-station --provider config --json --quiet
@@ -91,6 +92,8 @@ novel search "车站广播" --project ./rain-station --type all --limit 10 --jso
 novel search "未解决线索" --project ./rain-station --type chapter_memory --limit 10 --json --quiet
 novel search "角色是否知道旧案真相" --project ./rain-station --use-vector --embedding-provider dashscope --json --quiet
 ```
+
+Web API 也提供同等修复入口：`POST /api/chapter-memory/generate` 生成或强制重建单章记忆，`POST /api/chapter-memory/rebuild` 默认批量处理缺失或 stale 的章节记忆。
 
 ## JSON 输出格式
 

@@ -279,7 +279,7 @@ Prompt 组装：
 - System prompt：`prompts/chapter_memory_system.txt`
 - Provider loader：`load_chapter_memory_provider()`
 - 入口函数：`generate_chapter_memory()`
-- 触发方式：`accept_chapter()` 在 state/timeline 应用成功并标记 accepted 后 best-effort 触发；也可用 `novel chapter-memory generate/rebuild` 手动重建。
+- 触发方式：`accept_chapter()` 在 state/timeline 应用成功并标记 accepted 后 best-effort 触发；也可用 `novel chapter-memory generate/rebuild` 或 Web UI 章节列表手动重建。
 - 输出：`memory/chapters/{NNN}/chapter_memory.json`
 
 输入来源：
@@ -302,7 +302,7 @@ Prompt 组装：
 
 - JSON contract：`ChapterMemory`。
 - `parse_chapter_memory()` 解析 provider JSON 后强制覆盖章节号、状态、来源 path/sha 和 generation_status。
-- provider 不可用或输出无效时，`build_deterministic_chapter_memory()` 从 plan、state proposal 和 timeline 生成保守 fallback，并写 warnings。
+- provider 不可用或输出无效时，`build_deterministic_chapter_memory()` 从 accepted 正文、plan、state proposal 和 timeline 生成保守 fallback，并写 warnings；writer 可见摘要只来自 accepted 正文，不直接使用 plan summary。
 - `validate_chapter_memory()` 检查 source 文件、accepted 状态、`polished_sha256`、timeline id 和 `source_refs`。
 
 ## 10. Revision Agent

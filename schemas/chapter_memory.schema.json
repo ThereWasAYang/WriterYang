@@ -195,11 +195,8 @@
       "type": "string"
     },
     "status": {
+      "const": "accepted",
       "default": "accepted",
-      "enum": [
-        "accepted",
-        "archived"
-      ],
       "title": "Status",
       "type": "string"
     },

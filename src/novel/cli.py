@@ -31,10 +31,10 @@ from novel.core.canon import (
 from novel.core.chapter_memory import (
     ChapterMemoryError,
     ChapterMemoryOptions,
+    accepted_chapter_numbers,
     chapter_memory_path,
     generate_chapter_memory,
     load_chapter_memory_provider,
-    load_chapter_memories,
 )
 from novel.core.env import load_project_env
 from novel.core.drafting import (
@@ -2667,22 +2667,7 @@ def _cmd_chapter_memory(args: argparse.Namespace) -> int:
 
 
 def _accepted_chapter_numbers(root: Path) -> list[int]:
-    chapters_dir = root / "memory" / "chapters"
-    if not chapters_dir.exists():
-        return []
-    numbers: set[int] = set()
-    memories, _ = load_chapter_memories(root, include_stale=True)
-    numbers.update(memory.chapter_number for memory in memories)
-    for child in sorted(chapters_dir.iterdir()):
-        if not child.is_dir() or not child.name.isdigit():
-            continue
-        polished_path = child / "polished.md"
-        if not polished_path.exists():
-            continue
-        text = polished_path.read_text(encoding="utf-8")
-        if "status: accepted" in text:
-            numbers.add(int(child.name))
-    return sorted(numbers)
+    return accepted_chapter_numbers(root)
 
 
 def _cmd_ask(args: argparse.Namespace) -> int:

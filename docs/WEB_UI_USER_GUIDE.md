@@ -153,6 +153,8 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 用量统计 | 查看模型调用次数和 token 汇总。 | 点击“刷新用量”，可以按 Agent / Provider / Model 查看统计。 |
 | 章节文件查看 | 读取单个章节文件或操作返回详情。 | 可查看 plan/draft/polished/audit/chapter_memory；项目检查、生成、修订等结构化结果也会写到这里。 |
 
+章节列表会标出 `memory` 或 `memory(stale)`。缺失或 stale 时可点单章“生成/刷新记忆”；也可用“补全 / 刷新章节记忆”批量处理缺失或过期的 ChapterMemory。
+
 ## 输入灵感
 
 1. 在“聊天 / 指令”里写下你的创作想法。可以很粗略，例如：
@@ -315,7 +317,7 @@ issue 等级：
 1. 点击“认可本次创作”。
 2. 点击“归档”。
 
-认可会应用本次状态和时间线更新，把章节标记为 accepted，并 best-effort 生成 ChapterMemory。归档会把 approved outline、最终正文、audit、state update、ChapterMemory 和 manifest 保存到 archive，并记录文件 hash。
+认可会应用本次状态和时间线更新，把章节标记为 accepted，并 best-effort 生成 ChapterMemory。归档会把 approved outline、最终正文、audit、state update、ChapterMemory 和 manifest 保存到 archive，并记录文件 hash；归档是快照打包，不会改变 ChapterMemory 的 `accepted` 状态。
 
 归档后，后续流程不能在没有你许可的情况下改这次内容。
 

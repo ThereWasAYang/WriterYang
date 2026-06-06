@@ -7,10 +7,12 @@ from pathlib import Path
 
 from novel.cli import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.io import atomic_write_model_json, load_yaml
+from novel.core.io import atomic_write_model_json, load_json_model, load_yaml
+from novel.core.planning import default_mock_chapter_plan_json
 from novel.core.provider_config import resolve_agent_config
 from novel.core.schemas import (
     AuditReport,
+    ChapterMemory,
     CreationSession,
     SessionProgress,
     SessionRewriteEvent,
@@ -1003,6 +1005,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="canonApply"' in html
     assert 'id="memoryRepairSuggest"' in html
     assert 'id="memoryRepairApply"' in html
+    assert 'id="rebuildChapterMemory"' in html
     assert 'id="memoryRepairProposalPath"' in html
     assert 'id="managementEventsPanel"' in html
     assert 'id="embeddingConfigPanel"' in html
@@ -1048,6 +1051,8 @@ def test_frontend_basic_render() -> None:
     assert "/api/session/rewrite-events" in app_js
     assert "/api/orchestrator/memory-repair/suggest" in app_js
     assert "/api/orchestrator/memory-repair/apply" in app_js
+    assert "/api/chapter-memory/generate" in app_js
+    assert "/api/chapter-memory/rebuild" in app_js
     assert "/api/management-events" in app_js
     assert "/api/search-status" in app_js
     assert "/api/index/refresh" in app_js
@@ -1384,6 +1389,81 @@ def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:
     assert chapters_payload["data"]["chapters"][0]["has_audit"] is True  # type: ignore[index]
 
 
+def test_api_chapter_memory_generate_endpoint(tmp_path: Path) -> None:
+    root = _workspace_with_accepted_chapter_memory_sources(tmp_path, [1])
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/chapter-memory/generate",
+        "",
+        json.dumps({"path": str(root), "chapter_number": 1, "provider": "mock", "force": True}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    data = payload["data"]
+    assert data["generation_status"] == "model_generated"  # type: ignore[index]
+    memory_path = root / "memory" / "chapters" / "001" / "chapter_memory.json"
+    memory = load_json_model(memory_path, ChapterMemory)
+    assert memory.source.polished_sha256 != "0" * 64
+    chapters_status, chapters_payload = handle_api_request("GET", "/api/chapters", f"path={root}", None)
+    assert chapters_status == 200
+    chapter = chapters_payload["data"]["chapters"][0]  # type: ignore[index]
+    assert chapter["has_chapter_memory"] is True
+    assert chapter["chapter_memory_stale"] is False
+
+
+def test_api_chapter_memory_rebuild_handles_missing_and_stale(tmp_path: Path) -> None:
+    root = _workspace_with_accepted_chapter_memory_sources(tmp_path, [1, 2])
+    handle_api_request(
+        "POST",
+        "/api/chapter-memory/generate",
+        "",
+        json.dumps({"path": str(root), "chapter_number": 1, "provider": "mock", "force": True}),
+    )
+    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
+    polished_path.write_text(polished_path.read_text(encoding="utf-8") + "\n补写一句。\n", encoding="utf-8")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/chapter-memory/rebuild",
+        "",
+        json.dumps({"path": str(root), "provider": "mock", "mode": "missing_or_stale"}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    written = payload["data"]["written"]  # type: ignore[index]
+    assert {item["chapter_number"] for item in written} == {1, 2}
+    chapters_status, chapters_payload = handle_api_request("GET", "/api/chapters", f"path={root}", None)
+    assert chapters_status == 200
+    chapters = chapters_payload["data"]["chapters"]  # type: ignore[index]
+    assert all(chapter["has_chapter_memory"] for chapter in chapters)
+    assert all(chapter["chapter_memory_stale"] is False for chapter in chapters)
+
+
+def test_api_chapters_marks_memory_stale_for_freshness_warnings(tmp_path: Path) -> None:
+    root = _workspace_with_accepted_chapter_memory_sources(tmp_path, [1])
+    handle_api_request(
+        "POST",
+        "/api/chapter-memory/generate",
+        "",
+        json.dumps({"path": str(root), "chapter_number": 1, "provider": "mock", "force": True}),
+    )
+    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
+    polished_path.write_text(
+        polished_path.read_text(encoding="utf-8").replace("status: accepted", "status: polished", 1),
+        encoding="utf-8",
+    )
+
+    status, payload = handle_api_request("GET", "/api/chapters", f"path={root}", None)
+
+    assert status == 200
+    chapter = payload["data"]["chapters"][0]  # type: ignore[index]
+    assert chapter["has_chapter_memory"] is True
+    assert chapter["chapter_memory_stale"] is True
+
+
 def _workspace_ready_for_generation(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
@@ -1394,6 +1474,24 @@ def _workspace_ready_for_generation(tmp_path: Path) -> Path:
     proposal_path = tmp_path / "canon_proposal.json"
     proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
     assert apply_canon_proposal(root, proposal_path).validation_report.ok
+    return root
+
+
+def _workspace_with_accepted_chapter_memory_sources(tmp_path: Path, chapter_numbers: list[int]) -> Path:
+    root = _workspace_ready_for_generation(tmp_path)
+    for chapter_number in chapter_numbers:
+        chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+        chapter_dir.mkdir(parents=True, exist_ok=True)
+        (chapter_dir / "plan.json").write_text(default_mock_chapter_plan_json(chapter_number), encoding="utf-8")
+        (chapter_dir / "polished.md").write_text(
+            "---\n"
+            f"chapter_number: {chapter_number}\n"
+            f"title: 第 {chapter_number} 章\n"
+            "status: accepted\n"
+            "---\n\n"
+            f"第 {chapter_number} 章正文。雨声更深，旧车站像在夜里醒来。\n",
+            encoding="utf-8",
+        )
     return root
 
 

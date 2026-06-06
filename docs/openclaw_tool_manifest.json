@@ -32,6 +32,10 @@
       "argv": ["novel", "chapter-memory", "generate", "{chapter_number}", "--project", "{project}", "--provider", "config", "--force", "--json", "--quiet"]
     },
     {
+      "name": "chapter_memory_rebuild",
+      "argv": ["novel", "chapter-memory", "rebuild", "--project", "{project}", "--provider", "config", "--missing-only", "--json", "--quiet"]
+    },
+    {
       "name": "export_markdown",
       "argv": ["novel", "export", "markdown", "--project", "{project}", "--json", "--quiet"]
     }

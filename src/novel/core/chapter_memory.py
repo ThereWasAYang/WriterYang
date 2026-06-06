@@ -45,6 +45,10 @@ class ChapterMemoryError(RuntimeError):
     """Raised when chapter memory cannot be generated or loaded."""
 
 
+CHAPTER_MEMORY_DETAIL_LIMIT = 8
+CHAPTER_MEMORY_OVERVIEW_LIMIT = 20
+
+
 @dataclass(frozen=True)
 class ChapterMemoryDocument:
     metadata: dict[str, object]
@@ -206,7 +210,7 @@ def build_deterministic_chapter_memory(
         generated_at=_utc_now(),
         generation_status="deterministic_fallback",
         source=context.source,
-        reader_visible_summary=context.plan.summary,
+        reader_visible_summary=_reader_visible_summary_from_polished(context),
         plot_beats=_plot_beat_items(context.plan, plan_ref),
         character_knowledge_changes=_knowledge_change_items(state_changes, proposal_ref),
         state_changes=_state_change_items(state_changes, proposal_ref),
@@ -226,22 +230,9 @@ def build_deterministic_chapter_memory(
 
 def validate_chapter_memory(root: Path, memory: ChapterMemory) -> list[str]:
     root = root.resolve()
-    warnings: list[str] = []
+    warnings: list[str] = chapter_memory_freshness_warnings(root, memory)
     chapter_dir = _chapter_dir(root, memory.chapter_number)
     metadata_path = chapter_dir / "metadata.json"
-    polished_path = root / memory.source.polished_path
-    if not polished_path.exists():
-        warnings.append(f"source polished file is missing: {memory.source.polished_path}")
-    else:
-        actual_sha = _sha256(polished_path)
-        if actual_sha != memory.source.polished_sha256:
-            warnings.append("stale chapter memory: polished_sha256 does not match accepted polished.md")
-        try:
-            polished = _read_markdown_with_front_matter(polished_path)
-            if polished.metadata.get("status") != "accepted":
-                warnings.append("chapter memory source polished.md is not marked accepted")
-        except Exception as exc:
-            warnings.append(f"could not read source polished.md front matter: {exc}")
     if metadata_path.exists():
         try:
             metadata_data = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -256,13 +247,28 @@ def validate_chapter_memory(root: Path, memory: ChapterMemory) -> list[str]:
     for item in memory.all_items():
         if not item.source_refs:
             warnings.append(f"chapter memory item lacks source_refs: {item.summary[:80]}")
-        for event_id in item.timeline_event_ids:
-            if event_id not in memory.timeline_event_ids:
-                warnings.append(f"item timeline_event_id is not listed at top level: {event_id}")
         for ref in item.source_refs:
             if not (root / ref.path).exists():
                 warnings.append(f"chapter memory source_ref is missing: {ref.path}")
     return list(dict.fromkeys(warnings))
+
+
+def chapter_memory_freshness_warnings(root: Path, memory: ChapterMemory) -> list[str]:
+    root = root.resolve()
+    warnings: list[str] = []
+    polished_path = root / memory.source.polished_path
+    if not polished_path.exists():
+        return [f"source polished file is missing: {memory.source.polished_path}"]
+    actual_sha = _sha256(polished_path)
+    if actual_sha != memory.source.polished_sha256:
+        warnings.append("stale chapter memory: polished_sha256 does not match accepted polished.md")
+    try:
+        polished = _read_markdown_with_front_matter(polished_path)
+        if polished.metadata.get("status") != "accepted":
+            warnings.append("chapter memory source polished.md is not marked accepted")
+    except Exception as exc:
+        warnings.append(f"could not read source polished.md front matter: {exc}")
+    return warnings
 
 
 def load_chapter_memories(
@@ -285,11 +291,11 @@ def load_chapter_memories(
             continue
         if before_chapter_number is not None and memory.chapter_number >= before_chapter_number:
             continue
-        validation_warnings = validate_chapter_memory(root, memory)
-        if validation_warnings:
+        freshness_warnings = chapter_memory_freshness_warnings(root, memory)
+        if freshness_warnings:
             warning_prefix = f"chapter {memory.chapter_number}: "
-            warnings.extend(warning_prefix + warning for warning in validation_warnings)
-        if validation_warnings and not include_stale and any("stale chapter memory" in warning for warning in validation_warnings):
+            warnings.extend(warning_prefix + warning for warning in freshness_warnings)
+        if freshness_warnings and not include_stale:
             continue
         memories.append(memory)
     return memories, warnings
@@ -313,6 +319,8 @@ def render_chapter_memory_prompt_text(
             "Do not invent history; rely on canon/current_state/timeline and accepted chapter prose.\n"
         )
     selected = _select_memories_for_prompt(memories, project=project, chapter_number=chapter_number, plan=plan)
+    overview = _select_overview_memories(memories, selected)
+    omitted_count = max(0, len(memories) - len(overview))
     lines = [
         "ChapterMemory context (auxiliary retrieval guide; not a source of truth):",
         "- Treat ChapterMemory as compressed navigation/context only.",
@@ -320,11 +328,16 @@ def render_chapter_memory_prompt_text(
         "- Before relying on a detail, use the source paths below to verify against authoritative memory/prose.",
         "- overview:",
     ]
-    for memory in memories:
+    for memory in overview:
         lines.append(
             f"  - chapter {memory.chapter_number} {memory.title}: "
             f"{_compact(memory.reader_visible_summary, 240)} "
             f"(source: {memory.source.polished_path})"
+        )
+    if omitted_count:
+        lines.append(
+            f"  - {omitted_count} older ChapterMemory entries omitted from overview; "
+            "use search type chapter_memory to locate and verify older details."
         )
     lines.append("- selected details:")
     if task == "write":
@@ -382,7 +395,7 @@ def parse_chapter_memory(content: str, context: ChapterMemoryContext) -> Chapter
     normalized.setdefault("generated_at", _utc_now().isoformat().replace("+00:00", "Z"))
     normalized["generation_status"] = "model_generated"
     normalized["source"] = context.source.model_dump(mode="json")
-    normalized.setdefault("reader_visible_summary", context.plan.summary)
+    normalized.setdefault("reader_visible_summary", _reader_visible_summary_from_polished(context))
     normalized.setdefault("timeline_event_ids", [event.id for event in _chapter_timeline_events(context)])
     try:
         return ChapterMemory.model_validate(normalized)
@@ -460,7 +473,17 @@ def _select_memories_for_prompt(
     ]
     if not selected:
         selected = memories[-min(len(memories), budget.recent_window_chapters or 1) :]
-    return selected[-8:]
+    return selected[-CHAPTER_MEMORY_DETAIL_LIMIT:]
+
+
+def _select_overview_memories(memories: list[ChapterMemory], selected: list[ChapterMemory]) -> list[ChapterMemory]:
+    selected_numbers = {memory.chapter_number for memory in selected}
+    selected_memories = [memory for memory in memories if memory.chapter_number in selected_numbers]
+    if len(selected_memories) >= CHAPTER_MEMORY_OVERVIEW_LIMIT:
+        return selected_memories[-CHAPTER_MEMORY_OVERVIEW_LIMIT:]
+    remaining_slots = CHAPTER_MEMORY_OVERVIEW_LIMIT - len(selected_memories)
+    recent = [memory for memory in memories if memory.chapter_number not in selected_numbers][-remaining_slots:]
+    return sorted([*recent, *selected_memories], key=lambda memory: memory.chapter_number)
 
 
 def _memory_matches(memory: ChapterMemory, *, focus_ids: set[str], event_ids: set[str]) -> bool:
@@ -475,12 +498,8 @@ def _memory_matches(memory: ChapterMemory, *, focus_ids: set[str], event_ids: se
 
 
 def _render_writer_memory(memory: ChapterMemory) -> str:
-    safe_notes = [
-        item
-        for item in memory.continuity_notes
-        if item.visibility == "reader_visible"
-    ][:3]
-    hints = memory.retrieval_hints[:3]
+    safe_notes = _reader_visible_items(memory.continuity_notes, limit=3)
+    hints = _reader_visible_items(memory.retrieval_hints, limit=3)
     payload = {
         "chapter_number": memory.chapter_number,
         "title": memory.title,
@@ -520,6 +539,10 @@ def _item_prompt_payload(item: ChapterMemoryItem) -> dict[str, object]:
     }
 
 
+def _reader_visible_items(items: list[ChapterMemoryItem], *, limit: int) -> list[ChapterMemoryItem]:
+    return [item for item in items if item.visibility == "reader_visible"][:limit]
+
+
 def _plot_beat_items(plan: ChapterPlan, source_ref: ChapterMemorySourceRef) -> list[ChapterMemoryItem]:
     items: list[ChapterMemoryItem] = []
     for scene in plan.scenes:
@@ -528,7 +551,7 @@ def _plot_beat_items(plan: ChapterPlan, source_ref: ChapterMemorySourceRef) -> l
         items.append(
             ChapterMemoryItem(
                 summary=summary,
-                visibility="reader_visible",
+                visibility="author_only",
                 related_entity_ids=[scene.location_id, *scene.participant_ids],
                 source_refs=[source_ref],
             )
@@ -617,6 +640,38 @@ def _load_optional_model(path: Path, model_type: type[Any]):
     return load_json_model(path, model_type)
 
 
+def accepted_chapter_numbers(root: Path) -> list[int]:
+    root = root.resolve()
+    chapters_dir = root / "memory" / "chapters"
+    if not chapters_dir.exists():
+        return []
+    numbers: list[int] = []
+    for child in sorted(chapters_dir.iterdir()):
+        if not child.is_dir() or not child.name.isdigit():
+            continue
+        if _is_accepted_chapter_dir(child):
+            numbers.append(int(child.name))
+    return numbers
+
+
+def _is_accepted_chapter_dir(chapter_dir: Path) -> bool:
+    metadata_path = chapter_dir / "metadata.json"
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            return metadata.get("status") == "accepted"
+        except Exception:
+            return False
+    polished_path = chapter_dir / "polished.md"
+    if not polished_path.exists():
+        return False
+    try:
+        polished = _read_markdown_with_front_matter(polished_path)
+    except Exception:
+        return False
+    return polished.metadata.get("status") == "accepted"
+
+
 def _read_markdown_with_front_matter(path: Path) -> ChapterMemoryDocument:
     content = path.read_text(encoding="utf-8")
     if not content.startswith("---\n"):
@@ -629,6 +684,21 @@ def _read_markdown_with_front_matter(path: Path) -> ChapterMemoryDocument:
     if not isinstance(metadata, dict):
         raise ChapterMemoryError(f"{path} YAML front matter must be a mapping")
     return ChapterMemoryDocument(metadata=metadata, body=body.strip())
+
+
+def _reader_visible_summary_from_polished(context: ChapterMemoryContext, *, limit: int = 360) -> str:
+    paragraphs: list[str] = []
+    for line in context.polished.body.splitlines():
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        paragraphs.append(text)
+        if len(" ".join(paragraphs)) >= limit:
+            break
+    summary = _compact(" ".join(paragraphs), limit) if paragraphs else ""
+    if summary:
+        return summary
+    return f"第 {context.chapter_number} 章 accepted polished.md 已归档；核对细节请读取 {context.source.polished_path}。"
 
 
 def _relative_if_exists(root: Path, path: Path) -> str | None:

@@ -17,7 +17,14 @@ import yaml
 from novel import __version__
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import apply_canon_proposal, load_canon_provider, suggest_canon, CanonSuggestOptions
-from novel.core.chapter_memory import validate_chapter_memory
+from novel.core.chapter_memory import (
+    ChapterMemoryOptions,
+    accepted_chapter_numbers,
+    chapter_memory_freshness_warnings,
+    chapter_memory_path,
+    generate_chapter_memory,
+    load_chapter_memory_provider,
+)
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.env import load_project_env
 from novel.core.exporting import MarkdownExportOptions, export_markdown, parse_chapter_selector
@@ -229,6 +236,8 @@ def _post_routes():
         "/api/canon/apply": ("web canon apply", _canon_apply, True),
         "/api/orchestrator/memory-repair/suggest": ("web memory repair suggest", _memory_repair_suggest, True),
         "/api/orchestrator/memory-repair/apply": ("web memory repair apply", _memory_repair_apply, True),
+        "/api/chapter-memory/generate": ("web chapter memory generate", _chapter_memory_generate, True),
+        "/api/chapter-memory/rebuild": ("web chapter memory rebuild", _chapter_memory_rebuild, True),
         "/api/session/start": ("web session start", _session_start, True),
         "/api/session/revise-outline": ("web session revise-outline", _session_revise_outline, True),
         "/api/session/approve-outline": ("web session approve-outline", _session_approve_outline, True),
@@ -416,6 +425,87 @@ def _generate_chapter(data: dict[str, object]) -> dict[str, object]:
         "message": result.message,
         "run_log_path": str(result.run_log_path),
         "status": result.run_log.status,
+    }
+
+
+def _chapter_memory_generate(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    _require_workspace(root)
+    chapter_number = _chapter_number(data)
+    force = True if "force" not in data else _truthy(data.get("force"))
+    provider, provider_warnings = _load_web_chapter_memory_provider(root, data, chapter_number)
+    result = generate_chapter_memory(
+        ChapterMemoryOptions(root=root, chapter_number=chapter_number, force=force),
+        provider,
+        initial_warnings=tuple(provider_warnings),
+    )
+    return _chapter_memory_result_payload(root, result.memory_path, result.memory, result.warnings)
+
+
+def _chapter_memory_rebuild(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    _require_workspace(root)
+    mode = _optional_string(data.get("mode")) or "missing_or_stale"
+    if mode not in {"missing", "missing_or_stale", "all"}:
+        raise WebAPIError("invalid_request", "mode must be missing, missing_or_stale, or all", status=400)
+    written: list[dict[str, object]] = []
+    skipped: list[int] = []
+    warnings: list[str] = []
+    for chapter_number in accepted_chapter_numbers(root):
+        path = chapter_memory_path(root, chapter_number)
+        should_generate = mode == "all" or not path.exists()
+        if not should_generate and mode == "missing_or_stale":
+            try:
+                memory = load_json_model(path, ChapterMemory)
+                should_generate = bool(chapter_memory_freshness_warnings(root, memory))
+            except Exception:
+                should_generate = True
+        if not should_generate:
+            skipped.append(chapter_number)
+            continue
+        try:
+            provider, provider_warnings = _load_web_chapter_memory_provider(root, data, chapter_number)
+            result = generate_chapter_memory(
+                ChapterMemoryOptions(root=root, chapter_number=chapter_number, force=True),
+                provider,
+                initial_warnings=tuple(provider_warnings),
+            )
+            written.append(_chapter_memory_result_payload(root, result.memory_path, result.memory, result.warnings))
+            warnings.extend(f"chapter {chapter_number}: {warning}" for warning in result.warnings)
+        except Exception as exc:
+            warnings.append(f"chapter {chapter_number}: {exc}")
+    return {
+        "mode": mode,
+        "written": written,
+        "skipped": skipped,
+        "warnings": warnings,
+    }
+
+
+def _load_web_chapter_memory_provider(root: Path, data: dict[str, object], chapter_number: int):
+    warnings: list[str] = []
+    try:
+        return (
+            load_chapter_memory_provider(root, _provider_name(data.get("provider")), chapter_number=chapter_number),
+            warnings,
+        )
+    except Exception as exc:
+        warnings.append(f"chapter memory provider unavailable; using deterministic fallback: {exc}")
+        return None, warnings
+
+
+def _chapter_memory_result_payload(
+    root: Path,
+    memory_path: Path,
+    memory: ChapterMemory,
+    warnings: tuple[str, ...],
+) -> dict[str, object]:
+    return {
+        "chapter_number": memory.chapter_number,
+        "memory_path": str(memory_path),
+        "relative_path": _relative(root, memory_path),
+        "generation_status": memory.generation_status,
+        "warnings": list(warnings),
     }
 
 
@@ -1532,10 +1622,7 @@ def _list_chapters(root: Path) -> list[dict[str, object]]:
         if (child / "chapter_memory.json").exists():
             try:
                 memory = load_json_model(child / "chapter_memory.json", ChapterMemory)
-                entry["chapter_memory_stale"] = any(
-                    "stale chapter memory" in warning
-                    for warning in validate_chapter_memory(root, memory)
-                )
+                entry["chapter_memory_stale"] = bool(chapter_memory_freshness_warnings(root, memory))
             except Exception:
                 entry["chapter_memory_stale"] = True
         chapters.append(entry)

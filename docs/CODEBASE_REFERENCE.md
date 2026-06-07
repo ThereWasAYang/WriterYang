@@ -449,7 +449,7 @@ Embedding provider：
 Prompt 上下文预算化：
 
 - `ContextBudgetView`：预算化后的完整条目、digest、focus ID 和裁剪状态。
-- `project_context_budget()`：读取 `project.yaml.context_budget`，无配置时使用默认启用策略。
+- `project_context_budget()`：读取 `project.yaml.context_budget`，无配置时使用默认关闭策略。
 - `select_timeline_view()` / `select_state_view()`：保留 focus 实体/事件和近章内容，远期内容折叠成 digest；红线任务不泄漏 author-only 内容。
 - `render_timeline_prompt_text()` / `render_state_prompt_text()`：给 Agent prompt 渲染 state/timeline；未裁剪时保持原 JSON 文本。
 

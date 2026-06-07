@@ -189,7 +189,7 @@ def _project_yaml(
         "web:\n"
         "  default_port: 8765\n"
         "context_budget:\n"
-        "  enabled: true\n"
+        "  enabled: false\n"
         "  recent_window_chapters: 3\n"
         "  max_full_timeline_events: 40\n"
         "  max_full_state_entities: 60\n"

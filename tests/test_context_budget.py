@@ -34,7 +34,7 @@ def test_timeline_budget_keeps_focus_and_hides_author_only_digest_for_write() ->
         focus_ids={"char_focus"},
         required_event_ids=set(),
         task="write",
-        config=ContextBudgetConfig(recent_window_chapters=1, max_full_timeline_events=1),
+        config=ContextBudgetConfig(enabled=True, recent_window_chapters=1, max_full_timeline_events=1),
     )
 
     assert "event_focus" in view.full_events_json
@@ -60,7 +60,7 @@ def test_state_budget_keeps_focus_entity_when_over_limit() -> None:
         state,
         chapter_number=20,
         focus_ids={"char_focus"},
-        config=ContextBudgetConfig(recent_window_chapters=1, max_full_state_entities=1),
+        config=ContextBudgetConfig(enabled=True, recent_window_chapters=1, max_full_state_entities=1),
     )
 
     assert "char_focus" in view.full_states_json
@@ -91,6 +91,35 @@ def test_context_budget_rendering_matches_original_json_when_nothing_is_folded()
     )
     assert (
         render_state_prompt_text(state, project=project, chapter_number=2)
+        == state.model_dump_json(indent=2)
+    )
+
+
+def test_context_budget_is_disabled_by_default() -> None:
+    project = _project_config()
+    timeline = TimelineFile(
+        events=[
+            _event("event_old", chapter=1, summary="旧事件", reader_visible=True, participant_ids=["char_old"]),
+            _event("event_recent", chapter=10, summary="最近事件", reader_visible=True, participant_ids=["char_new"]),
+        ]
+    )
+    state = EntityState(
+        story_position=StoryPosition(latest_chapter=10),
+        character_states=[
+            CharacterState(entity_id="char_old", last_updated_chapter=1, location_id="loc_old"),
+            CharacterState(entity_id="char_new", last_updated_chapter=10, location_id="loc_new"),
+        ],
+        item_states=[],
+        location_states=[],
+    )
+
+    assert project.context_budget and project.context_budget.enabled is False
+    assert (
+        render_timeline_prompt_text(timeline, project=project, chapter_number=10, task="write")
+        == timeline.model_dump_json(indent=2)
+    )
+    assert (
+        render_state_prompt_text(state, project=project, chapter_number=10)
         == state.model_dump_json(indent=2)
     )
 

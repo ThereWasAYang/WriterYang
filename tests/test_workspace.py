@@ -64,6 +64,7 @@ class WorkspaceInitTest(unittest.TestCase):
             project_yaml = (root / "project.yaml").read_text(encoding="utf-8")
             self.assertIn('mode: "single_pass"', project_yaml)
             self.assertIn("context_budget:", project_yaml)
+            self.assertIn("  enabled: false", project_yaml)
             self.assertIn("audit_recall:", project_yaml)
             self.assertIn("canon_drift:", project_yaml)
 

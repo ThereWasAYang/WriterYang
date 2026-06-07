@@ -4,7 +4,7 @@
       "additionalProperties": true,
       "properties": {
         "enabled": {
-          "default": true,
+          "default": false,
           "title": "Enabled",
           "type": "boolean"
         },

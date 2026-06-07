@@ -114,7 +114,7 @@ class WebConfig(FlexibleModel):
 
 
 class ContextBudgetConfig(FlexibleModel):
-    enabled: bool = True
+    enabled: bool = False
     recent_window_chapters: int = Field(default=3, ge=0)
     max_full_timeline_events: int = Field(default=40, ge=1)
     max_full_state_entities: int = Field(default=60, ge=1)

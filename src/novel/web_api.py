@@ -61,6 +61,7 @@ from novel.core.setup_guide import (
 )
 import novel.core.web_launcher as web_launcher
 from novel.core.schemas import (
+    AgentConfig,
     AgentsConfig,
     AuditReport,
     ChapterMemory,
@@ -97,7 +98,7 @@ from novel.core.session import (
     start_session,
     undo_rewrite,
 )
-from novel.core.providers import ProviderFactory
+from novel.core.providers import ProviderError, ProviderFactory, provider_parameter_capabilities, resolve_json_response_format
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
 from novel.core.workflow import GenerateChapterOptions, ProviderName, generate_chapter
@@ -750,7 +751,10 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         current_default = updated.get("default")
         if current_default is not None and not isinstance(current_default, dict):
             raise WebAPIError("invalid_config", "default config must be a mapping", status=400)
-        updated["default"] = {**(current_default or {}), **_clean_agent_config_patch(default_update)}
+        cleaned_default = _clean_agent_config_patch(default_update)
+        if "inherit_default" in cleaned_default:
+            raise WebAPIError("invalid_request", "default config cannot inherit default", status=400)
+        updated["default"] = {**(current_default or {}), **cleaned_default}
     agents = dict(updated.get("agents") or {})
     cleared: list[str] = []
     for agent_name in clear_agents:
@@ -764,14 +768,35 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
     for agent_name, patch in agents_update.items():
         if not isinstance(agent_name, str) or not isinstance(patch, dict):
             raise WebAPIError("invalid_request", "agent updates must be mappings", status=400)
+        cleaned = _clean_agent_config_patch(patch)
+        inherit_default = cleaned.get("inherit_default")
+        if inherit_default is True:
+            default_config = _validated_default_agent_snapshot(updated)
+            if agent_name == "default":
+                raise WebAPIError("invalid_request", "default config cannot inherit default", status=400)
+            if agent_name not in EDITABLE_AGENT_NAMES and agent_name not in agents:
+                raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
+            agents[agent_name] = {**default_config, "inherit_default": True}
+            continue
         if agent_name not in agents or not isinstance(agents[agent_name], dict):
             if agent_name not in EDITABLE_AGENT_NAMES:
                 raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
             agents[agent_name] = {}
-        cleaned = _clean_agent_config_patch(patch)
-        agents[agent_name] = {**agents[agent_name], **cleaned}
+        current_agent = agents.get(agent_name)
+        currently_inherits = isinstance(current_agent, dict) and current_agent.get("inherit_default") is True
+        if (
+            (inherit_default is False or (inherit_default is None and currently_inherits and cleaned))
+            and "default" in updated
+        ):
+            base = _validated_default_agent_snapshot(updated)
+            agents[agent_name] = {**base, **cleaned, "inherit_default": False}
+        else:
+            agents[agent_name] = {**agents[agent_name], **cleaned}
     updated["agents"] = agents
-    AgentsConfig.model_validate(updated)
+    if default_update is not None:
+        _refresh_inherited_agent_snapshots(updated)
+    validated = AgentsConfig.model_validate(updated)
+    _validate_provider_payload_config(validated)
     backup_path = backup_if_exists(config_path, reason="web_provider_config")
     atomic_write_yaml(config_path, updated)
     findings = validate_secret_config_file(config_path)
@@ -787,6 +812,60 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         "config": summary["agents"],
         "effective_agents": summary["effective_agents"],
     }
+
+
+def _validated_default_agent_snapshot(config: dict[str, object]) -> dict[str, object]:
+    default_config = config.get("default")
+    if not isinstance(default_config, dict):
+        raise WebAPIError("invalid_config", "default config must be configured before agents can inherit it", status=400)
+    if default_config.get("inherit_default") is True:
+        raise WebAPIError("invalid_config", "default config cannot inherit default", status=400)
+    validated = AgentConfig.model_validate(default_config)
+    return validated.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})
+
+
+def _refresh_inherited_agent_snapshots(config: dict[str, object]) -> None:
+    default_snapshot = _validated_default_agent_snapshot(config)
+    raw_agents = config.get("agents")
+    agents = raw_agents if isinstance(raw_agents, dict) else {}
+    for agent_name in sorted(EDITABLE_AGENT_NAMES):
+        current = agents.get(agent_name)
+        if current is None or (isinstance(current, dict) and current.get("inherit_default") is True):
+            agents[agent_name] = {**default_snapshot, "inherit_default": True}
+    config["agents"] = agents
+
+
+def _validate_provider_payload_config(config: AgentsConfig) -> None:
+    resolver = ProviderFactory(env={})
+    if config.default is not None:
+        _validate_json_response_format_for_provider("default", config.default)
+    for agent_name, agent_config in config.agents.items():
+        if getattr(agent_config, "inherit_default", False) is True:
+            continue
+        try:
+            resolved = resolver.resolve_agent_config(config, agent_name)
+        except Exception as exc:
+            raise WebAPIError("invalid_provider_config", _safe_error(str(exc)), status=400) from exc
+        _validate_json_response_format_for_provider(agent_name, resolved)
+
+
+def _validate_json_response_format_for_provider(agent_name: str, config: AgentConfig) -> None:
+    try:
+        resolve_json_response_format(config.provider.lower(), config.json_response_format)
+    except ProviderError as exc:
+        raise WebAPIError(
+            "invalid_provider_config_field",
+            f"agent {agent_name} json_response_format is not supported by provider {config.provider}: {_safe_error(str(exc))}",
+            status=400,
+        ) from exc
+
+
+def _parameter_capabilities_payload(config: AgentConfig) -> dict[str, object]:
+    capabilities = provider_parameter_capabilities(
+        config.provider,
+        thinking_type=config.thinking.type if config.thinking else None,
+    )
+    return {field: capability.as_dict() for field, capability in capabilities.items()}
 
 
 def _index_refresh(data: dict[str, object]) -> dict[str, object]:
@@ -1904,15 +1983,18 @@ def _effective_agent_config_summary(path: Path) -> dict[str, object]:
                 "source": "default",
                 "source_label": "default",
                 "has_override": False,
+                "inherit_default": False,
                 "inherits_default": False,
                 "override_fields": [],
-                "config": _sanitize_config(config.default.model_dump(mode="json", exclude_none=True)),
+                "config": _sanitize_config(config.default.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})),
+                "parameter_capabilities": _parameter_capabilities_payload(config.default),
             }
             continue
-        has_override = name in config.agents
+        has_config_entry = name in config.agents
         selected = config.agents.get(name)
+        explicit_inherit = bool(getattr(selected, "inherit_default", False)) if selected is not None else False
         override = (
-            selected.model_dump(mode="json", exclude_unset=True, exclude_none=True)
+            selected.model_dump(mode="json", exclude_unset=True, exclude_none=True, exclude={"inherit_default"})
             if selected is not None
             else {}
         )
@@ -1922,22 +2004,32 @@ def _effective_agent_config_summary(path: Path) -> dict[str, object]:
             summaries[name] = {
                 "source": "unresolved",
                 "source_label": "unresolved",
-                "has_override": has_override,
-                "inherits_default": False,
+                "has_override": has_config_entry and not explicit_inherit,
+                "inherit_default": explicit_inherit,
+                "inherits_default": explicit_inherit,
                 "override_fields": sorted(override),
                 "override": _sanitize_config(override),
                 "error": _safe_error(str(exc)),
             }
             continue
-        source = "default + agent override" if has_override and config.default is not None else "agent override" if has_override else "default"
+        has_override = has_config_entry and not explicit_inherit
+        source = (
+            "default"
+            if explicit_inherit or not has_config_entry
+            else "default + agent override"
+            if config.default is not None
+            else "agent override"
+        )
         summaries[name] = {
             "source": source,
             "source_label": source,
             "has_override": has_override,
-            "inherits_default": not has_override and config.default is not None,
-            "override_fields": sorted(override),
-            "override": _sanitize_config(override),
-            "config": _sanitize_config(resolved.model_dump(mode="json", exclude_none=True)),
+            "inherit_default": explicit_inherit or (not has_config_entry and config.default is not None),
+            "inherits_default": explicit_inherit or (not has_config_entry and config.default is not None),
+            "override_fields": [] if explicit_inherit else sorted(override),
+            "override": {} if explicit_inherit else _sanitize_config(override),
+            "config": _sanitize_config(resolved.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})),
+            "parameter_capabilities": _parameter_capabilities_payload(resolved),
         }
     return summaries
 
@@ -2463,6 +2555,7 @@ def _is_archived_chapter(root: Path, chapter_number: int) -> bool:
 
 def _clean_agent_config_patch(patch: dict[object, object]) -> dict[str, object]:
     allowed = {
+        "inherit_default",
         "provider",
         "model",
         "base_url_env",
@@ -2474,6 +2567,7 @@ def _clean_agent_config_patch(patch: dict[object, object]) -> dict[str, object]:
         "temperature",
         "timeout_seconds",
         "max_retries",
+        "json_response_format",
     }
     cleaned: dict[str, object] = {}
     for key, value in patch.items():
@@ -2482,6 +2576,8 @@ def _clean_agent_config_patch(patch: dict[object, object]) -> dict[str, object]:
             raise WebAPIError("invalid_provider_config_field", f"field is not editable: {key_text}", status=400)
         if key_text in {"api_key", "token", "secret"}:
             raise WebAPIError("unsafe_config_secret", "raw secret fields are not allowed", status=400)
+        if key_text == "inherit_default" and not isinstance(value, bool):
+            raise WebAPIError("invalid_provider_config_field", "inherit_default must be a boolean", status=400)
         cleaned[key_text] = value
     return cleaned
 

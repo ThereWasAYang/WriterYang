@@ -312,7 +312,7 @@ config/agents.yaml
 
 用途：
 
-定义默认 model API 和 per-agent 覆盖项。真实项目应定义顶层 `default`；未填写 API 字段的 Agent 会继承它。
+定义默认 model API 和 per-agent 配置。真实项目应定义顶层 `default`；新项目会为标准 Agent 写入 `inherit_default: true` 和 default 参数快照。运行时如果看到 `inherit_default: true`，会直接使用当前 `default`，不会使用快照里的陈旧字段。
 
 示例：
 
@@ -334,33 +334,29 @@ default:
 
 agents:
   orchestrator:
+    inherit_default: true
+    provider: deepseek
+    base_url_env: WRITERYANG_REAL_BASE_URL
+    api_key_env: WRITERYANG_REAL_API_KEY
+    model: deepseek-chat
+    json_response_format: auto
     reasoning: medium
     max_context_tokens: 128000
-    temperature: 0.4
-
-  inspiration:
-    reasoning: medium
-    max_context_tokens: 64000
-    temperature: 0.8
-
-  plot:
-    reasoning: high
-    max_context_tokens: 128000
-    temperature: 0.6
-
-  writer:
-    reasoning: high
-    max_context_tokens: 128000
-    temperature: 0.9
-
-  polish:
-    reasoning: medium
-    max_context_tokens: 128000
-    temperature: 0.7
+    max_tokens: 8192
+    temperature: 0.5
+    timeout_seconds: 60
+    max_retries: 1
 
   audit:
+    inherit_default: false
+    provider: deepseek
+    base_url_env: WRITERYANG_REAL_BASE_URL
+    api_key_env: WRITERYANG_REAL_API_KEY
+    model: deepseek-chat
+    json_response_format: auto
     reasoning: low
-    max_context_tokens: 64000
+    max_context_tokens: 128000
+    max_tokens: 8192
     temperature: 0.2
     timeout_seconds: 60
     max_retries: 1
@@ -371,7 +367,9 @@ agents:
 - 永远不要在此文件中保存原始 API key。
 - 这里只保存环境变量名。
 - `default` config 是真实项目中每个 Agent 的 fallback。
-- 每个 Agent 都可以覆盖 provider、model、base URL、reasoning mode、thinking、token limit 和 temperature。
+- `inherit_default: true` 只能用于非 `default` Agent，表示该 Agent 运行时完全使用当前 `default`；保存 default 时 Web API 会刷新这些 Agent 的参数快照。
+- `inherit_default: false` 表示该 Agent 是独立完整配置，可覆盖 provider、model、base URL、reasoning mode、thinking、token limit 和 temperature。
+- 没有 `inherit_default` 的旧 partial override 仍按历史规则与 `default` 合并，用于兼容旧项目。
 - 每个 Agent 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
 - `mock` 仅用于测试和显式 debug run；不要把它作为真实项目默认值。
 - 实现层应在运行 Agent 前验证所需环境变量是否存在。

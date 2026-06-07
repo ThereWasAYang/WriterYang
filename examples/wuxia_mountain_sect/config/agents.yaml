@@ -12,7 +12,7 @@ default: # 缺省真实 API 配置；未单独配置 API 的 Agent 都继承这�
   temperature: 0.5 # 缺省随机性；各 Agent 可按任务覆盖。
   timeout_seconds: 60 # 缺省请求超时时间。
   max_retries: 1 # 缺省失败重试次数。
-agents: # 每个 Agent 只写差异字段；provider/model/env 默认继承 default。
+agents: # 兼容旧写法：这里只写差异字段；新项目默认使用 inherit_default 显式继承 default。
   orchestrator: # 编排 Agent：理解用户意图、创建/推进 Session、调度工作流。
     reasoning: "medium" # 编排需要理解任务但不应过度发散。
     thinking: # 可覆盖缺省 thinking。

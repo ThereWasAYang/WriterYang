@@ -4,7 +4,7 @@ WriterYang 支持给不同 agent 配不同模型。推荐原则是：结构化�
 
 ## Provider 字段
 
-真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。未单独配置 API 的 Agent 会继承 `default`，只覆盖温度、输出长度、thinking 等差异字段。新项目可通过 CLI/Web 的“项目初始引导”完成这一步：真实 API Key 写入项目 `.env`，YAML 只保存环境变量名。
+真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。新项目默认让所有标准 Agent 勾选“继承default”，YAML 中保存 `inherit_default: true` 和 default 参数快照；运行时仍以当前 `default` 为准。只有确实需要单独调参时，才取消继承并保存独立 Agent 配置。真实 API Key 写入项目 `.env`，YAML 只保存环境变量名。
 
 ```yaml
 default:
@@ -19,10 +19,27 @@ default:
   max_tokens: 8192
 agents:
   writer:
-    temperature: 0.9
-    max_tokens: 24000
+    inherit_default: true
+    provider: "deepseek"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "deepseek-chat"
+    json_response_format: "auto"
+    thinking:
+      type: "disabled"
+    temperature: 0.5
+    max_tokens: 8192
   audit:
+    inherit_default: false
+    provider: "deepseek"
+    base_url_env: "WRITERYANG_REAL_BASE_URL"
+    api_key_env: "WRITERYANG_REAL_API_KEY"
+    model: "deepseek-chat"
+    json_response_format: "auto"
+    thinking:
+      type: "disabled"
     temperature: 0.2
+    max_tokens: 8192
 ```
 
 解析顺序：显式 `--provider mock` 测试覆盖 > Agent 覆盖合并 `default` > fallback Agent 覆盖合并 `default` > 仅使用 `default`。缺少 `default` 时，`validate`、`doctor` 和 Web UI 会告警；运行到未配置 Agent 时会失败。
@@ -52,6 +69,8 @@ api_key_env: "WRITER_API_KEY"
 
 推荐保持 `auto`。只有在确认目标 provider 支持对应参数，并且已有真实 API smoke 覆盖后，再对单个 Agent 覆盖 `json_response_format`。
 
+Web UI 会按 provider 限制 `json_response_format`：DeepSeek / ZAI 只允许 `auto` 或 `json_object`；OpenAI 和通用 OpenAI-compatible 可以使用现有四个取值。不可用值会在保存前被拒绝。
+
 ## Thinking 开关
 
 默认建议：
@@ -66,6 +85,7 @@ thinking:
 - `writer`、`polish` 的输出会直接写入 Markdown，关闭 thinking 可降低把分析性内容混入正文的风险。
 - `canon`、`state_update`、`chapter_memory` 需要严格 JSON，关闭 thinking 更容易保持输出干净。
 - `plot`、`audit` 在复杂长篇中可以单独改成 `enabled`，用于增强推理和一致性检查。
+- Web UI 会把当前 provider 不发送的参数显示为 `NA` 并禁用。`reasoning` 只在 DeepSeek 且 `thinking.type: enabled` 时作为 `reasoning_effort` 发送；DeepSeek 开启 thinking 后不会发送 `temperature`。
 
 ## 按 Agent 配置建议
 

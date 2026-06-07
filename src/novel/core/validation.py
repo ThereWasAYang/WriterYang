@@ -336,11 +336,16 @@ def _validate_agent_names(
             report.warning(path, "default API config uses mock provider; mock is intended for tests only")
     for name, config in agents.agents.items():
         _validate_single_agent_config(report, path, name, config)
+        if getattr(config, "inherit_default", False) is True:
+            if agents.default is None:
+                report.error(path, f"agent {name} inherits default but default API config is missing")
+            continue
         _validate_agent_env_presence(report, root, path, name, config)
         if config.provider and config.provider.lower() == "mock":
             report.warning(path, f"agent {name} uses mock provider; mock is intended for tests only")
         if agents.default is None and isinstance(config, AgentConfigPatch):
-            missing_fields = sorted({"provider", "model", "api_key_env"} - set(config.model_dump(exclude_none=True)))
+            provided = set(config.model_dump(exclude_none=True)) - {"inherit_default"}
+            missing_fields = sorted({"provider", "model", "api_key_env"} - provided)
             if missing_fields:
                 report.error(
                     path,

@@ -92,6 +92,88 @@ def test_default_config_and_agent_partial_override(tmp_path: Path) -> None:
     assert audit.json_response_format == "json_object"
 
 
+def test_inherit_default_ignores_stale_agent_snapshot(tmp_path: Path) -> None:
+    config_path = tmp_path / "agents.inherit.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {
+                    "provider": "deepseek",
+                    "base_url_env": "DEFAULT_BASE_URL",
+                    "api_key_env": "DEFAULT_API_KEY",
+                    "model": "fresh-default-model",
+                    "thinking": {"type": "disabled"},
+                    "temperature": 0.4,
+                    "max_tokens": 8192,
+                },
+                "agents": {
+                    "writer": {
+                        "inherit_default": True,
+                        "provider": "deepseek",
+                        "base_url_env": "DEFAULT_BASE_URL",
+                        "api_key_env": "DEFAULT_API_KEY",
+                        "model": "stale-agent-model",
+                        "thinking": {"type": "disabled"},
+                        "temperature": 0.9,
+                        "max_tokens": 24000,
+                    }
+                },
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    config = resolve_agent_config(config_path, "writer")
+    descriptor = describe_agent_provider(config_path, "writer")
+
+    assert config.model == "fresh-default-model"
+    assert config.temperature == 0.4
+    assert config.max_tokens == 8192
+    assert config.inherit_default is False
+    assert descriptor.source == "default"
+
+
+def test_explicit_non_inherited_agent_uses_independent_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "agents.independent.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {
+                    "provider": "deepseek",
+                    "api_key_env": "DEFAULT_API_KEY",
+                    "model": "default-model",
+                    "thinking": {"type": "disabled"},
+                    "temperature": 0.4,
+                },
+                "agents": {
+                    "writer": {
+                        "inherit_default": False,
+                        "provider": "openai",
+                        "api_key_env": "WRITER_API_KEY",
+                        "model": "writer-model",
+                        "thinking": {"type": "enabled"},
+                        "temperature": 0.8,
+                    }
+                },
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    config = resolve_agent_config(config_path, "writer")
+
+    assert config.provider == "openai"
+    assert config.model == "writer-model"
+    assert config.api_key_env == "WRITER_API_KEY"
+    assert config.thinking.type == "enabled"
+    assert config.temperature == 0.8
+    assert config.inherit_default is False
+
+
 def test_missing_agent_uses_default_config(tmp_path: Path) -> None:
     config_path = _default_agents_config(tmp_path)
 

@@ -144,6 +144,29 @@ def test_apply_state_update_normalizes_saved_proposal_list_strings(tmp_path: Pat
     assert "state_update_apply_log.json" in stdout
 
 
+def test_apply_state_update_coerces_story_position_latest_chapter_string(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    proposal_path = root / "memory" / "chapters" / "001" / "state_update_proposal.json"
+    proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+    for change in proposal["state_changes"]:
+        if change["entity_id"] == "story_position" and change["field"] == "latest_chapter":
+            change["old_value"] = "0"
+            change["new_value"] = "1"
+            break
+    proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(["apply-state-update", "1", "--path", str(root)])
+
+    assert code == 0
+    assert stderr == ""
+    assert "state_update_apply_log.json" in stdout
+    state = EntityState.model_validate(
+        json.loads((root / "memory" / "state" / "current_state.json").read_text(encoding="utf-8"))
+    )
+    assert state.story_position.latest_chapter == 1
+
+
 def test_apply_state_update_rolls_back_when_timeline_write_fails(
     tmp_path: Path,
     monkeypatch,

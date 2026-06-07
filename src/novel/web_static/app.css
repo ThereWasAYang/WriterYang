@@ -31,6 +31,10 @@
     h2 { font-size: 15px; margin: 22px 0 10px; }
     h3 { font-size: 13px; margin: 0 0 8px; color: #46515f; }
     label { display: block; font-size: 12px; font-weight: 700; margin: 12px 0 6px; color: #46515f; }
+    .checkbox-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+    .checkbox-row input { width: auto; margin: 0; }
+    .field-note { min-height: 16px; margin-top: 4px; color: #5b6673; font-size: 12px; overflow-wrap: anywhere; }
+    .field-note.na { color: #b54708; }
     input, textarea, select {
       width: 100%; border: 1px solid #cbd2da; border-radius: 6px; padding: 9px 10px;
       background: #fff; color: #20242a; font: inherit;
@@ -45,7 +49,7 @@
     button:disabled { opacity: .55; cursor: not-allowed; }
     .row { display: flex; gap: 8px; align-items: center; }
     .row > * { flex: 1; }
-    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-top: 12px; }
     .panel { background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .four { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }

@@ -47,9 +47,18 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
             )
             assert "api_key_env" in (page.locator("#providerConfigPanel").text_content() or "")
             page.select_option("#providerAgentSelect", "writer")
+            page.uncheck("#providerInheritDefaultField")
+            page.wait_for_function("() => document.querySelector('#providerThinkingTypeField')?.disabled === true")
+            assert page.locator("#providerThinkingTypeField").input_value() == "__na__"
+            page.select_option("#providerProviderField", "deepseek")
+            page.wait_for_function("() => document.querySelector('#providerThinkingTypeField')?.disabled === false")
+            page.select_option("#providerThinkingTypeField", "enabled")
+            page.wait_for_function("() => document.querySelector('#providerTemperatureField')?.disabled === true")
+            assert page.locator("#providerTemperatureField").input_value() == "NA"
             page.select_option("#providerProviderField", "mock")
+            page.wait_for_function("() => document.querySelector('#providerThinkingTypeField')?.disabled === true")
+            page.wait_for_function("() => document.querySelector('#providerTemperatureField')?.disabled === true")
             page.fill("#providerModelField", "web-e2e-writer")
-            page.select_option("#providerThinkingTypeField", "disabled")
             page.click("#saveProviderConfig")
             page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('Agent 模型配置已保存')")
 

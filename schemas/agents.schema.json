@@ -3,6 +3,11 @@
     "AgentConfig": {
       "additionalProperties": true,
       "properties": {
+        "inherit_default": {
+          "default": false,
+          "title": "Inherit Default",
+          "type": "boolean"
+        },
         "provider": {
           "minLength": 1,
           "title": "Provider",
@@ -135,6 +140,18 @@
     "AgentConfigPatch": {
       "additionalProperties": true,
       "properties": {
+        "inherit_default": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inherit Default"
+        },
         "provider": {
           "anyOf": [
             {

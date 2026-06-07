@@ -17,6 +17,7 @@ from novel.core.providers import (
     ProviderFactory,
     ProviderHTTPError,
     TokenUsage,
+    provider_parameter_capabilities,
 )
 from novel.core.schemas import AgentConfig
 
@@ -133,6 +134,39 @@ def test_openai_provider_uses_default_base_url_when_base_url_env_is_missing() ->
     assert provider.model == "test-model"
     assert provider.base_url == "https://api.openai.com/v1"
     assert provider.thinking_type is None
+
+
+def test_provider_parameter_capabilities_mark_vendor_specific_fields() -> None:
+    openai_caps = provider_parameter_capabilities("openai", thinking_type="enabled")
+    compatible_caps = provider_parameter_capabilities("openai_compatible", thinking_type="enabled")
+    deepseek_disabled_caps = provider_parameter_capabilities("deepseek", thinking_type="disabled")
+    zai_caps = provider_parameter_capabilities("zai", thinking_type="enabled")
+    mock_caps = provider_parameter_capabilities("mock", thinking_type="enabled")
+
+    assert openai_caps["thinking"].effective is False
+    assert compatible_caps["thinking"].effective is False
+    assert deepseek_disabled_caps["thinking"].effective is True
+    assert deepseek_disabled_caps["reasoning"].effective is False
+    assert zai_caps["thinking"].effective is True
+    assert zai_caps["reasoning"].effective is False
+    assert mock_caps["temperature"].effective is False
+    assert openai_caps["temperature"].effective is True
+    assert openai_caps["json_response_format"].allowed_values == (
+        "auto",
+        "json_object",
+        "json_schema",
+        "json_schema_strict",
+    )
+    assert deepseek_disabled_caps["json_response_format"].allowed_values == ("auto", "json_object")
+
+
+def test_deepseek_thinking_enabled_capabilities_use_reasoning_not_temperature() -> None:
+    caps = provider_parameter_capabilities("deepseek", thinking_type="enabled")
+
+    assert caps["thinking"].effective is True
+    assert caps["reasoning"].effective is True
+    assert caps["temperature"].effective is False
+    assert "temperature" in (caps["temperature"].reason or "")
 
 
 def test_openai_compatible_provider_uses_temperature_without_vendor_thinking() -> None:

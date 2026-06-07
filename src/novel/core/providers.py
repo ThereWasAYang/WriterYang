@@ -321,6 +321,97 @@ class LoggingModelProvider(ModelProvider):
 
 
 @dataclass(frozen=True)
+class ProviderParameterCapability:
+    field: str
+    effective: bool
+    editable: bool
+    reason: str | None = None
+    allowed_values: tuple[str, ...] | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        data: dict[str, object] = {
+            "field": self.field,
+            "effective": self.effective,
+            "editable": self.editable,
+        }
+        if self.reason:
+            data["reason"] = self.reason
+        if self.allowed_values is not None:
+            data["allowed_values"] = list(self.allowed_values)
+        return data
+
+
+JSON_RESPONSE_FORMAT_VALUES = ("auto", "json_object", "json_schema", "json_schema_strict")
+
+
+def provider_parameter_capabilities(
+    provider_name: str,
+    *,
+    thinking_type: str | None = None,
+) -> dict[str, ProviderParameterCapability]:
+    provider = provider_name.lower()
+    thinking = thinking_type or "disabled"
+    capabilities = {
+        field: ProviderParameterCapability(field=field, effective=True, editable=True)
+        for field in (
+            "provider",
+            "model",
+            "base_url_env",
+            "api_key_env",
+            "max_context_tokens",
+            "max_tokens",
+            "timeout_seconds",
+            "max_retries",
+        )
+    }
+    if provider in {"deepseek", "zai"}:
+        capabilities["thinking"] = ProviderParameterCapability("thinking", True, True)
+    else:
+        capabilities["thinking"] = ProviderParameterCapability(
+            "thinking",
+            False,
+            False,
+            "当前 provider 不发送 thinking 参数",
+        )
+
+    if provider == "deepseek" and thinking == "enabled":
+        capabilities["reasoning"] = ProviderParameterCapability("reasoning", True, True)
+    else:
+        capabilities["reasoning"] = ProviderParameterCapability(
+            "reasoning",
+            False,
+            False,
+            "仅 DeepSeek 且 thinking enabled 时发送 reasoning_effort",
+        )
+
+    if provider == "mock":
+        capabilities["temperature"] = ProviderParameterCapability(
+            "temperature",
+            False,
+            False,
+            "mock provider 不发送 temperature",
+        )
+    elif provider == "deepseek" and thinking == "enabled":
+        capabilities["temperature"] = ProviderParameterCapability(
+            "temperature",
+            False,
+            False,
+            "DeepSeek thinking enabled 时不会发送 temperature",
+        )
+    else:
+        capabilities["temperature"] = ProviderParameterCapability("temperature", True, True)
+
+    json_values = ("auto", "json_object") if provider in {"deepseek", "zai"} else JSON_RESPONSE_FORMAT_VALUES
+    capabilities["json_response_format"] = ProviderParameterCapability(
+        "json_response_format",
+        True,
+        True,
+        allowed_values=json_values,
+    )
+    return capabilities
+
+
+@dataclass(frozen=True)
 class OpenAICompatibleProvider(ModelProvider):
     model: str
     api_key: str = field(repr=False)
@@ -681,10 +772,14 @@ def _merge_agent_config(
     if agent_config is None:
         if default_config is None:
             raise ProviderError("config/agents.yaml is missing default API config")
-        return default_config
+        return default_config.model_copy(update={"inherit_default": False})
+    if getattr(agent_config, "inherit_default", False) is True:
+        if default_config is None:
+            raise ProviderError("config/agents.yaml agent inherits default but default API config is missing")
+        return default_config.model_copy(update={"inherit_default": False})
     if default_config is None:
         if isinstance(agent_config, AgentConfig):
-            return agent_config
+            return agent_config.model_copy(update={"inherit_default": False})
         missing = ", ".join(sorted(_missing_required_agent_fields(agent_config)))
         raise ProviderError(
             "config/agents.yaml agent override is incomplete and no default API config is defined"
@@ -692,11 +787,12 @@ def _merge_agent_config(
         )
     merged = default_config.model_dump(mode="python")
     merged.update(agent_config.model_dump(mode="python", exclude_unset=True, exclude_none=True))
+    merged["inherit_default"] = False
     return AgentConfig.model_validate(merged)
 
 
 def _missing_required_agent_fields(config: AgentConfigPatch) -> set[str]:
-    provided = set(config.model_dump(mode="python", exclude_unset=True, exclude_none=True))
+    provided = set(config.model_dump(mode="python", exclude_unset=True, exclude_none=True)) - {"inherit_default"}
     return {"provider", "model", "api_key_env"} - provided
 
 

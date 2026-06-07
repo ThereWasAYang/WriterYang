@@ -76,6 +76,8 @@ class WorkspaceInitTest(unittest.TestCase):
             agents_yaml = (root / "config" / "agents.yaml").read_text(encoding="utf-8")
             embeddings_yaml = (root / "config" / "embeddings.yaml").read_text(encoding="utf-8")
             self.assertIn('api_key_env: "OPENAI_API_KEY"', agents_yaml)
+            self.assertIn("inherit_default: true", agents_yaml)
+            self.assertIn('json_response_format: "auto"', agents_yaml)
             self.assertNotIn("sk-", agents_yaml)
             self.assertIn('api_key_env: "DASHSCOPE_API_KEY"', embeddings_yaml)
             self.assertNotIn("sk-", embeddings_yaml)

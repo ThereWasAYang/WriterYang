@@ -69,10 +69,14 @@ def test_example_agent_configs_include_real_and_mock_templates() -> None:
     assert default["thinking"]["type"] == "disabled"
     assert default["base_url_env"] == "WRITERYANG_REAL_BASE_URL"
     assert default["api_key_env"] == "WRITERYANG_REAL_API_KEY"
-    assert writer["temperature"] == 0.9
-    assert "provider" not in writer
-    assert revision["temperature"] == 0.6
-    assert "provider" not in revision
+    assert default["json_response_format"] == "auto"
+    assert writer["inherit_default"] is True
+    assert writer["provider"] == default["provider"]
+    assert writer["model"] == default["model"]
+    assert writer["temperature"] == default["temperature"]
+    assert revision["inherit_default"] is True
+    assert revision["provider"] == default["provider"]
+    assert revision["model"] == default["model"]
 
     assert mock_config["agents"]["writer"]["provider"] == "mock"
     assert mock_config["agents"]["revision"]["provider"] == "mock"

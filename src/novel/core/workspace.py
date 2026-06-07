@@ -219,18 +219,18 @@ def _project_yaml(
 
 
 def _agents_yaml() -> str:
-    agents = {
-        "orchestrator": ("medium", 128000, 4096, 0.4, 60, 1),
-        "inspiration": ("medium", 64000, 4096, 0.8, 60, 1),
-        "canon": ("medium", 64000, 8192, 0.5, 60, 1),
-        "plot": ("high", 128000, 8192, 0.6, 90, 1),
-        "writer": ("high", 128000, 24000, 0.9, 120, 1),
-        "polish": ("medium", 128000, 24000, 0.7, 90, 1),
-        "audit": ("low", 64000, 8192, 0.2, 60, 1),
-        "revision": ("medium", 128000, 24000, 0.6, 120, 1),
-        "state_update": ("low", 64000, 8192, 0.2, 60, 1),
-        "chapter_memory": ("low", 64000, 8192, 0.2, 60, 1),
-    }
+    agents = (
+        "orchestrator",
+        "inspiration",
+        "canon",
+        "plot",
+        "writer",
+        "polish",
+        "audit",
+        "revision",
+        "state_update",
+        "chapter_memory",
+    )
     lines = [
         f"schema_version: {CURRENT_SCHEMA_VERSION}\n",
         "default:\n",
@@ -246,20 +246,27 @@ def _agents_yaml() -> str:
         "  temperature: 0.5\n",
         "  timeout_seconds: 60\n",
         "  max_retries: 1\n",
+        '  json_response_format: "auto"\n',
         "agents:\n",
     ]
-    for name, (reasoning, max_context_tokens, max_tokens, temperature, timeout, retries) in agents.items():
+    for name in agents:
         lines.extend(
             [
                 f"  {name}:\n",
-                f'    reasoning: "{reasoning}"\n',
+                "    inherit_default: true\n",
+                '    provider: "openai_compatible"\n',
+                '    base_url_env: "OPENAI_BASE_URL"\n',
+                '    api_key_env: "OPENAI_API_KEY"\n',
+                '    model: "model-name"\n',
+                '    reasoning: "medium"\n',
                 "    thinking:\n",
                 '      type: "disabled"\n',
-                f"    max_context_tokens: {max_context_tokens}\n",
-                f"    max_tokens: {max_tokens}\n",
-                f"    temperature: {temperature}\n",
-                f"    timeout_seconds: {timeout}\n",
-                f"    max_retries: {retries}\n",
+                "    max_context_tokens: 128000\n",
+                "    max_tokens: 8192\n",
+                "    temperature: 0.5\n",
+                "    timeout_seconds: 60\n",
+                "    max_retries: 1\n",
+                '    json_response_format: "auto"\n',
             ]
         )
     return "".join(lines)

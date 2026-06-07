@@ -31,6 +31,18 @@ DEFAULT_API_KEY_ENV = "WRITERYANG_DEFAULT_API_KEY"
 DEFAULT_BASE_URL_ENV = "WRITERYANG_DEFAULT_BASE_URL"
 DEFAULT_EMBEDDING_API_KEY_ENV = "WRITERYANG_EMBEDDING_API_KEY"
 DEFAULT_EMBEDDING_BASE_URL_ENV = "WRITERYANG_EMBEDDING_BASE_URL"
+DEFAULT_INHERITING_AGENT_NAMES = (
+    "orchestrator",
+    "inspiration",
+    "canon",
+    "plot",
+    "writer",
+    "polish",
+    "audit",
+    "state_update",
+    "chapter_memory",
+    "revision",
+)
 
 
 class SetupGuideError(RuntimeError):
@@ -131,10 +143,19 @@ def configure_default_provider(
 def update_default_agent_config(root: Path, config: AgentConfig) -> Path:
     config_path = root.expanduser().resolve() / "config" / "agents.yaml"
     data = _load_yaml_mapping(config_path)
-    data["default"] = config.model_dump(mode="json", exclude_none=True)
-    validated = AgentsConfig.model_validate(data)
+    default_snapshot = config.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})
+    data["default"] = default_snapshot
+    agents = data.get("agents")
+    if not isinstance(agents, dict):
+        agents = {}
+    for agent_name in DEFAULT_INHERITING_AGENT_NAMES:
+        current = agents.get(agent_name)
+        if current is None or (isinstance(current, dict) and current.get("inherit_default") is True):
+            agents[agent_name] = {**default_snapshot, "inherit_default": True}
+    data["agents"] = agents
+    AgentsConfig.model_validate(data)
     backup_if_exists(config_path, reason="setup_guide_agents")
-    atomic_write_yaml(config_path, validated.model_dump(mode="json", exclude_none=True))
+    atomic_write_yaml(config_path, data)
     findings = validate_secret_config_file(config_path)
     if findings:
         raise SetupGuideError("config/agents.yaml contains unsafe secret-like values after setup")

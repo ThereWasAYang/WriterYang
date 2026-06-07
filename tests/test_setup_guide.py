@@ -49,6 +49,10 @@ def test_configure_default_provider_writes_env_and_yaml_without_secret(
     assert agents["default"]["api_key_env"] == DEFAULT_API_KEY_ENV  # type: ignore[index]
     assert agents["default"]["base_url_env"] == DEFAULT_BASE_URL_ENV  # type: ignore[index]
     assert agents["default"]["model"] == "example-model"  # type: ignore[index]
+    assert agents["agents"]["writer"]["inherit_default"] is True  # type: ignore[index]
+    assert agents["agents"]["writer"]["api_key_env"] == DEFAULT_API_KEY_ENV  # type: ignore[index]
+    assert agents["agents"]["writer"]["base_url_env"] == DEFAULT_BASE_URL_ENV  # type: ignore[index]
+    assert agents["agents"]["writer"]["model"] == "example-model"  # type: ignore[index]
     assert "secret-key" not in (root / "config" / "agents.yaml").read_text(encoding="utf-8")
     assert captured["url"] == "https://api.example.test/v1/chat/completions"
     assert captured["authorization"] == "Bearer secret-key"

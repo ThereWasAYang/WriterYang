@@ -414,11 +414,14 @@
             <div>
               <label for="providerAgentSelect">Agent</label>
               <select id="providerAgentSelect"></select>
+              <label id="providerInheritDefaultRow" class="checkbox-row" for="providerInheritDefaultField">
+                <input id="providerInheritDefaultField" type="checkbox">
+                继承default
+              </label>
               <div class="form-grid provider-form-grid" style="margin-top: 10px;">
                 <div>
                   <label for="providerProviderField">provider</label>
                   <select id="providerProviderField">
-                    <option value="">继承 / 不设置</option>
                     <option value="openai">openai</option>
                     <option value="openai_compatible">openai_compatible</option>
                     <option value="deepseek">deepseek</option>
@@ -441,18 +444,21 @@
                 <div>
                   <label for="providerThinkingTypeField">thinking.type</label>
                   <select id="providerThinkingTypeField">
-                    <option value="">继承 / 不设置</option>
+                    <option value="__na__">NA</option>
                     <option value="disabled">disabled</option>
                     <option value="enabled">enabled</option>
                   </select>
+                  <div id="providerThinkingTypeStatus" class="field-note"></div>
                 </div>
                 <div>
                   <label for="providerReasoningField">reasoning</label>
                   <input id="providerReasoningField" placeholder="none/minimal/low/medium/high">
+                  <div id="providerReasoningStatus" class="field-note"></div>
                 </div>
                 <div>
                   <label for="providerTemperatureField">temperature</label>
-                  <input id="providerTemperatureField" type="number" min="0" step="0.01" placeholder="0.7">
+                  <input id="providerTemperatureField" inputmode="decimal" placeholder="0.7">
+                  <div id="providerTemperatureStatus" class="field-note"></div>
                 </div>
                 <div>
                   <label for="providerMaxTokensField">max_tokens</label>
@@ -475,10 +481,10 @@
                 <summary>高级 JSON 编辑</summary>
                 <label for="providerFieldEditor">非密钥配置 JSON</label>
                 <textarea id="providerFieldEditor" class="editor" style="min-height: 180px;"></textarea>
+                <div id="providerAdvancedStatus" class="field-note"></div>
               </details>
               <div class="actions">
                 <button id="saveProviderConfig" class="primary">保存 Agent 模型配置</button>
-                <button id="clearProviderAgentConfig" class="hidden">恢复继承 default</button>
               </div>
             </div>
             <div>

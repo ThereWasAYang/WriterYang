@@ -112,6 +112,8 @@ def resolve_agent_config_source(
     for candidate in (agent_name, *fallback_agents):
         if candidate in agents:
             config = agents[candidate]
+            if getattr(config, "inherit_default", False) is True and agents_config.default is not None:
+                return "default"
             if isinstance(config, AgentConfig) and agents_config.default is None:
                 return f"agent:{candidate}"
             return f"default+agent:{candidate}"

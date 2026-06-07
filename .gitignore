@@ -15,6 +15,7 @@ WriterYang_WebUI.config.json
 .env*
 !.env.example
 .vscode/
+.codex/
 **/memory/search_index.json
 **/memory/search_index.sqlite
 **/runs/*

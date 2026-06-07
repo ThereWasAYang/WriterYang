@@ -18,7 +18,7 @@ CLI/Web/Session
   -> atomic write artifact
 ```
 
-Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API，再合并当前 Agent 的差异字段；显式 `--provider mock` 会绕过真实 API 配置，仅用于测试/调试。
+Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API；如果当前 Agent 标记为 `inherit_default: true`，运行时直接使用当前 `default`。旧项目里的差异字段仍会与 `default` 合并；显式 `--provider mock` 会绕过真实 API 配置，仅用于测试/调试。
 
 `ModelRequest` 字段：
 

@@ -148,10 +148,31 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     assert payload["data"]["embedding_api"]["configured"] is True  # type: ignore[index]
     assert payload["data"]["embedding_api"]["provider"] == "dashscope"  # type: ignore[index]
     assert payload["data"]["embedding_api"]["model"] == "text-embedding-v4"  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default + agent override"  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default"  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["inherits_default"] is True  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["config"]["api_key_env"] == "OPENAI_API_KEY"  # type: ignore[index]
     env_entries = payload["data"]["agents"]["env"]  # type: ignore[index]
     assert any(item["name"] == "OPENAI_API_KEY" and item["exists"] is True for item in env_entries)
+
+
+def test_api_provider_config_reports_parameter_capabilities(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request("GET", "/api/provider-config", f"path={root}", None)
+
+    assert status == 200
+    default_caps = payload["data"]["effective_agents"]["default"]["parameter_capabilities"]  # type: ignore[index]
+    writer_caps = payload["data"]["effective_agents"]["writer"]["parameter_capabilities"]  # type: ignore[index]
+    assert default_caps["thinking"]["effective"] is False
+    assert default_caps["reasoning"]["effective"] is False
+    assert default_caps["temperature"]["effective"] is True
+    assert writer_caps["thinking"]["effective"] is False
+    assert writer_caps["json_response_format"]["allowed_values"] == [
+        "auto",
+        "json_object",
+        "json_schema",
+        "json_schema_strict",
+    ]
 
 
 def test_api_setup_default_provider_writes_env_and_does_not_leak_secret(tmp_path: Path) -> None:
@@ -617,6 +638,8 @@ def test_api_provider_config_save_updates_non_secret_fields(tmp_path: Path) -> N
     assert payload["ok"] is True
     agents = json.loads(json.dumps(payload["data"]["config"]["content"], ensure_ascii=False))  # type: ignore[index]
     assert agents["agents"]["writer"]["model"] == "web-writer-model"
+    assert agents["agents"]["writer"]["inherit_default"] is False
+    assert payload["data"]["effective_agents"]["writer"]["has_override"] is True  # type: ignore[index]
     assert list((root / "config").glob("agents.yaml.bak_*"))
 
 
@@ -634,6 +657,24 @@ def test_api_provider_config_save_updates_default_config(tmp_path: Path) -> None
     assert payload["ok"] is True
     content = payload["data"]["config"]["content"]  # type: ignore[index]
     assert content["default"]["model"] == "web-default-model"  # type: ignore[index]
+    assert content["agents"]["writer"]["inherit_default"] is True  # type: ignore[index]
+    assert content["agents"]["writer"]["model"] == "web-default-model"  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["config"]["model"] == "web-default-model"  # type: ignore[index]
+
+
+def test_api_provider_config_rejects_provider_unsupported_json_response_format(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "default": {"provider": "deepseek", "json_response_format": "json_schema"}}),
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "invalid_provider_config_field"  # type: ignore[index]
+    assert "json_response_format" in payload["error"]["message"]  # type: ignore[index]
 
 
 def test_api_provider_config_save_can_add_known_agent_override(tmp_path: Path) -> None:
@@ -650,13 +691,63 @@ def test_api_provider_config_save_can_add_known_agent_override(tmp_path: Path) -
     assert payload["ok"] is True
     content = payload["data"]["config"]["content"]  # type: ignore[index]
     assert content["agents"]["revision"]["model"] == "web-revision-model"  # type: ignore[index]
+    assert content["agents"]["revision"]["inherit_default"] is False  # type: ignore[index]
+
+
+def test_api_provider_config_save_inherited_agent_snapshot(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "agents": {"writer": {"inherit_default": True}},
+            }
+        ),
+    )
+
+    assert status == 200
+    content = payload["data"]["config"]["content"]  # type: ignore[index]
+    assert content["agents"]["writer"]["inherit_default"] is True  # type: ignore[index]
+    assert content["agents"]["writer"]["model"] == content["default"]["model"]  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["inherits_default"] is True  # type: ignore[index]
+
+
+def test_api_provider_config_default_save_does_not_overwrite_independent_agent(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    setup_status, setup_payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "agents": {"writer": {"inherit_default": False, "model": "custom-writer"}}}),
+    )
+    assert setup_status == 200
+    assert setup_payload["ok"] is True
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "default": {"model": "new-default-model"}}),
+    )
+
+    assert status == 200
+    content = payload["data"]["config"]["content"]  # type: ignore[index]
+    assert content["default"]["model"] == "new-default-model"  # type: ignore[index]
+    assert content["agents"]["writer"]["inherit_default"] is False  # type: ignore[index]
+    assert content["agents"]["writer"]["model"] == "custom-writer"  # type: ignore[index]
+    assert content["agents"]["audit"]["inherit_default"] is True  # type: ignore[index]
+    assert content["agents"]["audit"]["model"] == "new-default-model"  # type: ignore[index]
 
 
 def test_api_provider_config_clear_agent_override_restores_default(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     config_path = root / "config" / "agents.yaml"
     before = resolve_agent_config(config_path, "writer")
-    assert before.max_tokens == 24000
+    assert before.max_tokens == 8192
 
     status, payload = handle_api_request(
         "POST",
@@ -1901,14 +1992,22 @@ def test_frontend_basic_render() -> None:
     assert 'id="providerBaseUrlEnvField"' in html
     assert 'id="providerApiKeyEnvField"' in html
     assert 'id="providerThinkingTypeField"' in html
+    assert 'value="__na__">NA</option>' in html
+    assert 'id="providerInheritDefaultField"' in html
+    assert "继承default" in html
+    assert 'id="providerThinkingTypeStatus"' in html
+    assert 'id="providerReasoningStatus"' in html
     assert 'id="providerTemperatureField"' in html
+    assert 'id="providerTemperatureStatus"' in html
     assert 'id="providerMaxTokensField"' in html
     assert 'id="providerMaxContextTokensField"' in html
     assert 'id="providerTimeoutSecondsField"' in html
     assert 'id="providerMaxRetriesField"' in html
     assert 'id="providerFieldEditor"' in html
+    assert 'id="providerAdvancedStatus"' in html
     assert 'id="providerConfigWarnings"' in html
-    assert 'id="clearProviderAgentConfig"' in html
+    assert 'id="clearProviderAgentConfig"' not in html
+    assert "继承 / 不设置" not in html
     assert 'id="providerEffectivePanel"' in html
     assert "当前 Agent 生效配置" in html
     assert "完整脱敏调试 JSON" in html
@@ -2070,8 +2169,13 @@ def test_frontend_basic_render() -> None:
     assert "refreshAll({ silent: true })" in app_js
     assert "includeSessionId: false" in app_js
     assert "write_json: false" in app_js
-    assert "clearProviderAgentConfig" in app_js
-    assert "clear_agents" in app_js
+    assert "toggleProviderDefaultInheritance" in app_js
+    assert "inherit_default" in app_js
+    assert "providerParameterCapabilities" in app_js
+    assert "applyProviderCapabilityState" in app_js
+    assert "json_response_format 可用值" in app_js
+    assert "当前 provider 不支持 json_response_format" in app_js
+    assert "clearProviderAgentConfig" not in app_js
     assert "backendVersionMismatchMessage" in app_js
     assert "warnBackendVersionMismatch" in app_js
     assert "Web UI 后台版本不匹配" in app_js

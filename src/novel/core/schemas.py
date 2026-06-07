@@ -165,6 +165,7 @@ class ThinkingConfig(FlexibleModel):
 
 
 class AgentConfig(FlexibleModel):
+    inherit_default: bool = False
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
     api_key_env: str = Field(min_length=1, pattern=r"^[A-Z][A-Z0-9_]*$")
@@ -187,6 +188,7 @@ class AgentConfig(FlexibleModel):
 
 
 class AgentConfigPatch(FlexibleModel):
+    inherit_default: bool | None = None
     provider: str | None = Field(default=None, min_length=1)
     model: str | None = Field(default=None, min_length=1)
     api_key_env: str | None = Field(default=None, min_length=1, pattern=r"^[A-Z][A-Z0-9_]*$")
@@ -216,6 +218,8 @@ class AgentsConfig(SchemaVersionedModel):
     def require_default_or_agents(self) -> "AgentsConfig":
         if self.default is None and not self.agents:
             raise ValueError("agents config requires a default config or at least one agent config")
+        if self.default is not None and self.default.inherit_default:
+            raise ValueError("default config cannot inherit default")
         return self
 
 

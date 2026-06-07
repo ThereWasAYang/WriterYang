@@ -699,9 +699,11 @@ def apply_state_changes_to_state(
         if hasattr(target, "last_updated_chapter"):
             setattr(target, "last_updated_chapter", change.chapter)
 
-    if updated.story_position.latest_chapter < max((change.chapter for change in changes), default=0):
-        updated.story_position.latest_chapter = max(change.chapter for change in changes)
-    return EntityState.model_validate(updated.model_dump(mode="json"))
+    validated = EntityState.model_validate(updated.model_dump(mode="json", warnings=False))
+    max_changed_chapter = max((change.chapter for change in changes), default=0)
+    if validated.story_position.latest_chapter < max_changed_chapter:
+        validated.story_position.latest_chapter = max_changed_chapter
+    return EntityState.model_validate(validated.model_dump(mode="json"))
 
 
 def mark_chapter_accepted(root: Path, chapter_number: int) -> Path:
@@ -1233,7 +1235,25 @@ def _current_state_value_for_change(target: Any | None, change: StateChange) -> 
 def _state_values_equivalent(actual: Any, expected: Any) -> bool:
     if actual == expected:
         return True
+    if _numeric_values_equivalent(actual, expected):
+        return True
     return _is_empty_state_scalar(actual) and _is_empty_state_scalar(expected)
+
+
+def _numeric_values_equivalent(left: Any, right: Any) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return False
+    if isinstance(left, int | float) and isinstance(right, str):
+        try:
+            return left == float(right.strip()) if "." in right else left == int(right.strip())
+        except ValueError:
+            return False
+    if isinstance(right, int | float) and isinstance(left, str):
+        try:
+            return right == float(left.strip()) if "." in left else right == int(left.strip())
+        except ValueError:
+            return False
+    return False
 
 
 def _is_empty_state_scalar(value: Any) -> bool:

@@ -14,6 +14,8 @@ from novel.core.memory_repair import (
     answer_setting_change_clarification,
     apply_memory_repair,
     build_memory_repair_user_prompt,
+    generate_memory_change_batch_plan,
+    generate_memory_change_clarification_decision,
     parse_memory_repair_decision,
     suggest_memory_repair,
     suggest_setting_change,
@@ -54,6 +56,60 @@ def test_ask_memory_repair_creates_proposal_without_modifying_timeline(tmp_path:
     assert proposal.operations[0].file == "memory/state/timeline.json"
     assert proposal.operations[0].value == "flashback"
     assert (root / "memory" / "management_events.jsonl").is_file()
+
+
+def test_memory_change_clarification_repairs_invalid_json_once(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+    repaired = {
+        "status": "ready",
+        "questions": [],
+        "confidence": 0.8,
+        "assumptions": ["按新增设定处理。"],
+        "notes": [],
+    }
+    provider = MockProvider(fake_response=["需要问用户吗？", json.dumps(repaired, ensure_ascii=False)])
+
+    decision = generate_memory_change_clarification_decision(
+        root,
+        "新增一名配角。",
+        provider=provider,
+        stage="pre_creation",
+    )
+
+    assert decision.status == "ready"
+    assert decision.assumptions == ["按新增设定处理。"]
+    assert len(provider.requests) == 2
+
+
+def test_memory_change_batch_plan_repairs_invalid_json_once(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+    repaired = {
+        "change_kind": "setting_change",
+        "stage": "pre_creation",
+        "batches": [
+            {
+                "batch_id": "characters",
+                "instruction": "新增一名配角。",
+                "target_files": ["memory/canon/characters.json"],
+                "domains": ["characters"],
+                "reason": "新增人物应写入 characters。",
+            }
+        ],
+        "confidence": 0.82,
+        "assumptions": [],
+        "notes": [],
+    }
+    provider = MockProvider(fake_response=["不是 JSON", json.dumps(repaired, ensure_ascii=False)])
+
+    plan = generate_memory_change_batch_plan(
+        root,
+        "新增一名配角。",
+        provider=provider,
+        stage="pre_creation",
+    )
+
+    assert plan.batches[0].target_files == ["memory/canon/characters.json"]
+    assert len(provider.requests) == 2
 
 
 def test_ask_memory_repair_apply_refuses_fallback_natural_language_apply(tmp_path: Path) -> None:
@@ -741,6 +797,60 @@ def test_memory_repair_apply_rolls_back_all_touched_files_after_project_validati
     assert apply_log["target_files"] == ["memory/canon/characters.json", "memory/canon/world.json"]
     assert len(apply_log["backups"]) == 2
     assert all((root / backup).is_file() for backup in apply_log["backups"])
+    app_log = root / "runs" / "app.log"
+    assert app_log.is_file()
+    assert "memory_repair_apply_rolled_back" in app_log.read_text(encoding="utf-8")
+
+
+def test_memory_repair_apply_missing_allowed_file_does_not_create_residue(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+    missing_path = root / "memory" / "canon" / "items.json"
+    missing_path.unlink()
+    repair_id = "repair_20260606_050505_000002"
+    repair_dir = root / "memory" / "repairs" / repair_id
+    repair_dir.mkdir(parents=True)
+    proposal_path = repair_dir / "proposal.json"
+    proposal_path.write_text(
+        json.dumps(
+            {
+                "repair_id": repair_id,
+                "created_by": "orchestrator",
+                "change_kind": "setting_change",
+                "user_request": "新增一个物品。",
+                "target_files": ["memory/canon/items.json"],
+                "operations": [
+                    {
+                        "op": "add",
+                        "file": "memory/canon/items.json",
+                        "path": "/items/-",
+                        "value": {
+                            "id": "item_test",
+                            "name": "测试物品",
+                            "type": "clue",
+                            "reader_visible_summary": "测试物品。",
+                        },
+                        "reason": "验证缺失文件失败不会留下新文件。",
+                    }
+                ],
+                "risk_level": "medium",
+                "validation_before": {},
+                "notes": [],
+                "created_at": "2026-06-06T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MemoryRepairError):
+        apply_memory_repair(root, proposal_path)
+
+    assert not missing_path.exists()
+    apply_log = json.loads((repair_dir / "apply_log.json").read_text(encoding="utf-8"))
+    assert apply_log["status"] == "failed"
+    assert apply_log["backups"] == []
 
 
 def test_setting_change_allows_narrative_role_with_identity_tags(tmp_path: Path) -> None:

@@ -11,12 +11,15 @@ import sys
 import tempfile
 from typing import Sequence
 
+import yaml
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run a deterministic WriterYang session smoke flow via CLI.")
     parser.add_argument("--project", default=None, help="Workspace path. Defaults to a temporary directory.")
     parser.add_argument("--chapters", default="1", help="Chapter range, for example 1 or 1-2.")
     parser.add_argument("--provider", default="mock", help="Provider passed to generation commands.")
+    parser.add_argument("--model", default=None, help="Optional model override passed to generation commands.")
     parser.add_argument("--title", default="WriterYang Smoke Novel", help="Temporary project title.")
     parser.add_argument("--intent", default="写一个雨夜车站开篇，建立悬疑感，不揭示隐藏真相。")
     parser.add_argument("--inspiration", default="雨夜旧车站传来停播多年的广播声。")
@@ -53,6 +56,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ok = True
     try:
         _run_step(report, "init", planned[0])
+        if args.model:
+            _patch_default_model(root, args.model)
         _run_step(report, "inspire", planned[1])
         _run_step(report, "canon_suggest", planned[2])
         _run_step(report, "canon_apply", planned[3])
@@ -62,12 +67,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         _run_step(
             report,
             "session_run",
-            _json_cli(["session", "run", session_id, "--project", str(root), "--provider", args.provider]),
+            _json_cli(["session", "run", session_id, "--project", str(root), *_provider_args(args, include_model=False)]),
         )
         _run_step(
             report,
             "session_accept",
-            _json_cli(["session", "accept", session_id, "--project", str(root), "--provider", args.provider]),
+            _json_cli(["session", "accept", session_id, "--project", str(root), *_provider_args(args, include_model=False)]),
         )
         _run_step(report, "session_archive", _json_cli(["session", "archive", session_id, "--project", str(root)]))
         _run_step(report, "export_markdown", _json_cli(["export", "markdown", "--project", str(root), "--force"]))
@@ -89,15 +94,40 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _planned_commands(args: argparse.Namespace, root: Path, proposal_path: Path) -> list[list[str]]:
     return [
         _json_cli(["init", args.title, "--project", str(root)]),
-        _json_cli(["inspire", args.inspiration, "--project", str(root), "--provider", args.provider, "--overwrite"]),
+        _json_cli(["inspire", args.inspiration, "--project", str(root), *_provider_args(args), "--overwrite"]),
         _json_cli(
-            ["canon", "suggest", "--project", str(root), "--provider", args.provider, "--output", str(proposal_path)]
+            ["canon", "suggest", "--project", str(root), *_provider_args(args), "--output", str(proposal_path)]
         ),
         _json_cli(["canon", "apply", str(proposal_path), "--project", str(root)]),
         _json_cli(
-            ["session", "start", args.intent, "--project", str(root), "--chapters", args.chapters, "--provider", args.provider]
+            [
+                "session",
+                "start",
+                args.intent,
+                "--project",
+                str(root),
+                "--chapters",
+                args.chapters,
+                *_provider_args(args, include_model=False),
+            ]
         ),
     ]
+
+
+def _provider_args(args: argparse.Namespace, *, include_model: bool = True) -> list[str]:
+    values = ["--provider", args.provider]
+    if include_model and args.model:
+        values.extend(["--model", args.model])
+    return values
+
+
+def _patch_default_model(root: Path, model: str) -> None:
+    config_path = root / "config" / "agents.yaml"
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    default = data.setdefault("default", {})
+    if isinstance(default, dict):
+        default["model"] = model
+    config_path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 def _json_cli(args: list[str]) -> list[str]:

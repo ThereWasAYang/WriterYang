@@ -5,10 +5,9 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
-import shutil
-from typing import Any, Iterable, Literal
+from typing import Iterable, Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from novel.core.agent_output import (
     AgentInvocationContext,
@@ -16,23 +15,42 @@ from novel.core.agent_output import (
     AgentOutputContractError,
     generate_with_output_guard,
 )
+from novel.core.app_logging import log_app_warning
 from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_file, load_json, load_json_model
+from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
+from novel.core.memory_repair_mock import (
+    mock_memory_change_batch_plan,
+    mock_memory_change_clarification_decision,
+    mock_memory_repair_decision,
+)
+from novel.core.memory_repair_ops import (
+    apply_operations_to_data as _apply_operations_to_data,
+    escape_pointer as _escape_pointer,
+    pointer_parts as _pointer_parts,
+    restore_backups as _restore_backups,
+    unescape_pointer as _unescape_pointer,
+)
 from novel.core.prompts import load_prompt_template
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.memory_repair_rules import (
+    ALLOWED_MEMORY_FILES,
+    CHARACTER_ROLE_IDENTITY_PATTERNS,
+    COLLECTION_FIELD_HINTS,
+    COLLECTION_PATH_FILES,
+    COLLECTION_SCHEMA_HINTS,
+    DOMAIN_FILES,
+    FILE_COLLECTION_KEYS,
+    FILE_DOMAINS,
+    NARRATIVE_CHARACTER_ROLES,
+    POINTER_PATH_FILES,
+    SCANNED_IMPACT_SUFFIXES,
+    SETTING_CHANGE_MAPPING_RULES,
+    STATE_COLLECTION_KEYS,
+    UNIQUE_ID_COLLECTIONS,
+)
 from novel.core.schemas import (
-    Character,
-    CharactersFile,
-    EntityState,
-    ForeshadowingThread,
-    ForeshadowingFile,
-    HiddenTruth,
-    HiddenTruthsFile,
-    Item,
-    ItemsFile,
-    Location,
-    LocationsFile,
     MemoryChangeBatch,
     MemoryChangeBatchPlan,
     MemoryChangeDomain,
@@ -48,10 +66,8 @@ from novel.core.schemas import (
     MemoryRepairApplyLog,
     MemoryRepairOperation,
     MemoryRepairProposal,
-    TimelineFile,
-    WorldRule,
-    WorldFile,
 )
+from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
 from novel.core.validation import validate_project
 
 
@@ -87,166 +103,6 @@ class _PreparedMemoryRepairDecision:
     operations: list[MemoryRepairOperation]
     notes: list[str]
     change_kind: MemoryChangeKind
-
-
-ALLOWED_MEMORY_FILES: dict[str, type[BaseModel]] = {
-    "memory/state/timeline.json": TimelineFile,
-    "memory/state/current_state.json": EntityState,
-    "memory/canon/characters.json": CharactersFile,
-    "memory/canon/locations.json": LocationsFile,
-    "memory/canon/items.json": ItemsFile,
-    "memory/canon/world.json": WorldFile,
-    "memory/canon/hidden_truths.json": HiddenTruthsFile,
-    "memory/canon/foreshadowing.json": ForeshadowingFile,
-}
-
-FILE_DOMAINS: dict[str, MemoryChangeDomain] = {
-    "memory/canon/characters.json": "characters",
-    "memory/canon/locations.json": "locations",
-    "memory/canon/items.json": "items",
-    "memory/canon/world.json": "world",
-    "memory/canon/hidden_truths.json": "hidden_truths",
-    "memory/canon/foreshadowing.json": "foreshadowing",
-    "memory/state/current_state.json": "current_state",
-    "memory/state/timeline.json": "timeline",
-}
-
-DOMAIN_FILES: dict[MemoryChangeDomain, str] = {
-    domain: rel_path
-    for rel_path, domain in FILE_DOMAINS.items()
-}
-
-FILE_COLLECTION_KEYS: dict[str, str] = {
-    "memory/canon/characters.json": "characters",
-    "memory/canon/locations.json": "locations",
-    "memory/canon/items.json": "items",
-    "memory/canon/world.json": "world_rules",
-    "memory/canon/hidden_truths.json": "hidden_truths",
-    "memory/canon/foreshadowing.json": "foreshadowing_threads",
-}
-
-UNIQUE_ID_COLLECTIONS: dict[str, tuple[str, str]] = {
-    "memory/canon/characters.json": ("characters", "character id"),
-    "memory/canon/locations.json": ("locations", "location id"),
-    "memory/canon/items.json": ("items", "item id"),
-    "memory/canon/world.json": ("world_rules", "world rule id"),
-    "memory/canon/hidden_truths.json": ("hidden_truths", "hidden truth id"),
-    "memory/canon/foreshadowing.json": ("foreshadowing_threads", "foreshadowing thread id"),
-    "memory/state/timeline.json": ("events", "timeline event id"),
-}
-
-STATE_COLLECTION_KEYS = {"character_states", "item_states", "location_states"}
-
-SCANNED_IMPACT_SUFFIXES = {".json", ".md"}
-
-COLLECTION_FIELD_HINTS: dict[str, list[str]] = {
-    "memory/canon/characters.json": list(Character.model_fields),
-    "memory/canon/locations.json": list(Location.model_fields),
-    "memory/canon/items.json": list(Item.model_fields),
-    "memory/canon/world.json": list(WorldRule.model_fields),
-    "memory/canon/hidden_truths.json": list(HiddenTruth.model_fields),
-    "memory/canon/foreshadowing.json": list(ForeshadowingThread.model_fields),
-}
-
-COLLECTION_SCHEMA_HINTS: dict[str, str] = {
-    "memory/canon/characters.json": (
-        "strict add value schema: Character {id, name, role, reader_visible_summary, aliases[], private_author_notes?, "
-        "appearance: object|null, personality: object|null, relationships: Relationship[], abilities: Ability[], secrets: Secret[], tags[]}.\n"
-        "Character.role is narrative role only: use 主角, 主要人物, 配角, 次要人物 by default; legacy protagonist/supporting/minor/antagonist are compatible.\n"
-        "Never put family rank, sect identity, profession, or jianghu identity in role; phrases such as 谢家长女, 谢家次子, 张家幼女, 唐门二房之女, 江湖散人, 武当俗家弟子 must go into tags and summary/notes.\n"
-        "Ability {name: string, description: string, limitations?: string|null}; never use string arrays for abilities.\n"
-        "Secret {id: snake_case, visibility: reader_visible|hidden|partially_revealed, description: string, planned_reveal?: string|null}; never use string arrays for secrets."
-    ),
-    "memory/canon/locations.json": (
-        "strict add value schema: Location {id, name, type, reader_visible_summary, private_author_notes?, "
-        "parent_location_id?, connected_location_ids[], rules: LocationRule[], tags[]}.\n"
-        "Location has no top-level description field. Public location description goes in reader_visible_summary; "
-        "hidden/author-only notes go in private_author_notes; explicit rules go in rules[].\n"
-        "LocationRule {id?: snake_case|null, description: string, visibility: reader_visible|hidden|partially_revealed}; never use string arrays for rules."
-    ),
-    "memory/canon/items.json": (
-        "strict add value schema: Item {id, name, type, reader_visible_summary, private_author_notes?, origin?, special_properties: SpecialProperty[], tags[]}.\n"
-        "SpecialProperty {description: string, visibility: reader_visible|hidden|partially_revealed}; never use string arrays for special_properties."
-    ),
-    "memory/canon/world.json": (
-        "strict add value schema: WorldRule {id, name, description, visibility: reader_visible|hidden|partially_revealed, limitations[], known_by_character_ids[]}.\n"
-        "Visibility enum is exactly reader_visible | hidden | partially_revealed; never use visible."
-    ),
-    "memory/canon/hidden_truths.json": (
-        "strict add value schema: HiddenTruth {id, title, description, visibility: reader_visible|hidden|partially_revealed, "
-        "importance: low|medium|high|critical, related_entity_ids[], planned_reveal: PlannedReveal|null, foreshadowing_ids[]}.\n"
-        "PlannedReveal {chapter: integer >= 1, method?: string|null}; never use string values such as 后期 for planned_reveal.\n"
-        "Importance enum is exactly low | medium | high | critical; never use major."
-    ),
-    "memory/canon/foreshadowing.json": (
-        "strict add value schema: ForeshadowingThread {id, type, title, introduced_in_chapter: integer >= 1, description, status, "
-        "importance: low|medium|high|critical, reader_visible?: bool|null, hidden_truth?, hidden_truth_id?, planned_payoff: PlannedPayoff|null, related_entity_ids[]}.\n"
-        "PlannedPayoff {chapter: integer >= 1, description: string}; never use string values for planned_payoff or introduced_in_chapter."
-    ),
-}
-
-COLLECTION_PATH_FILES: dict[str, str] = {
-    collection_key: rel_path
-    for rel_path, collection_key in FILE_COLLECTION_KEYS.items()
-}
-
-POINTER_PATH_FILES: dict[str, str] = {
-    **COLLECTION_PATH_FILES,
-    "events": "memory/state/timeline.json",
-    "character_states": "memory/state/current_state.json",
-    "item_states": "memory/state/current_state.json",
-    "location_states": "memory/state/current_state.json",
-}
-
-SETTING_CHANGE_MAPPING_RULES = """设定变更默认映射规则：
-- 文件、字段、visibility 和 JSON Pointer 由系统根据下方结构负责选择，不要要求用户提供。
-- 新人物/明确姓名默认写入 memory/canon/characters.json，新增路径使用 /characters/-。
-- Character.role 只表示叙事角色；新增人物默认使用中文叙事角色值：主角、主要人物、配角、次要人物。
-- 用户说“主要人物”时默认 role="主要人物"；明确主角用 role="主角"；明确次要/背景用 role="次要人物"；未明确时用 role="配角"。
-- 家族身份、门派身份、排行、职业/江湖身份必须写入 tags，并可写入 reader_visible_summary 或 private_author_notes；不要把“谢家长女”“谢家次子”“张家幼女”“唐门二房之女”“江湖散人”“武当俗家弟子”等写入 role。
-- 新地点、宅邸、村庄、宫殿、门派驻地默认写入 memory/canon/locations.json，新增路径使用 /locations/-。
-- 地点公开描述写入 reader_visible_summary；隐藏/作者私有说明写入 private_author_notes；地点规则写入 rules[]；Location 顶层没有 description 字段，不要使用 /locations/{i}/description。
-- 家族、门派、势力背景、时代背景、武学体系、世界规则默认写入 memory/canon/world.json，新增路径使用 /world_rules/-。
-- 物品、武器、信物、法器默认写入 memory/canon/items.json，新增路径使用 /items/-。
-- 隐藏设定、真相、秘密、暂不揭晓内容默认写入 memory/canon/hidden_truths.json，visibility 默认 hidden，新增路径使用 /hidden_truths/-。
-- 伏笔、线索、开篇埋线默认写入 memory/canon/foreshadowing.json，新增路径使用 /foreshadowing_threads/-。
-- 只有 exact id、exact name 或 exact alias 匹配时才修改已有实体；不要把新姓名近似联想到现有角色。
-- 无精确匹配且用户没有明确要求替换/删除/合并时，按新增实体处理。
-"""
-
-NARRATIVE_CHARACTER_ROLES = {
-    "主角",
-    "主人公",
-    "男主",
-    "女主",
-    "主要人物",
-    "核心人物",
-    "配角",
-    "重要配角",
-    "次要人物",
-    "背景人物",
-    "反派",
-    "对手",
-    "盟友",
-    "导师",
-    "线索人物",
-    "群像主角",
-    "protagonist",
-    "main",
-    "main_character",
-    "supporting",
-    "minor",
-    "antagonist",
-}
-
-CHARACTER_ROLE_IDENTITY_PATTERNS = (
-    re.compile(r"([\u4e00-\u9fff]{1,4}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?[子女])"),
-    re.compile(r"([\u4e00-\u9fff]{0,8}[一二三四五六七八九十]房之[子女])"),
-    re.compile(r"([\u4e00-\u9fff]{1,8}(?:门|派|宗|宫|教|帮|寨|庄|阁|楼|堂|会)(?:弟子|门人|传人|少主|掌门|门主|长老|护法|客卿))"),
-    re.compile(
-        r"(江湖散人|武林散人|俗家弟子|弟子|散人|剑客|刀客|刺客|医师|药师|捕快|镖师|商人|匠人|书生|先生|客卿|护卫|侍女|仆从|丫鬟|公子|小姐|少侠|侠客|道士|和尚|僧人|术士|修士|家主|门主|掌门|长老|少主|后人|族人|遗孤)"
-    ),
-)
 
 
 def suggest_memory_repair(
@@ -405,6 +261,17 @@ def _prepare_memory_repair_decision(
                 target_files=prompt_target_files,
             )
         except Exception as exc:
+            log_app_warning(
+                root,
+                "memory_repair_target_schema_repair_failed",
+                workflow="target_schema_repair",
+                stage=stage,
+                change_kind=change_kind,
+                batch_label=batch_label,
+                preflight_error_count=len(preflight_errors),
+                error_type=exc.__class__.__name__,
+                error=str(exc),
+            )
             if batch_label:
                 raise MemoryRepairError(f"setting change batch {batch_label} target-schema repair failed: {exc}") from exc
             raise
@@ -427,6 +294,17 @@ def _prepare_memory_repair_decision(
             target_files = sorted({*target_files, *(operation.file for operation in operations)})
     if preflight_errors and operations:
         prefix = f"setting change batch {batch_label} " if batch_label else "setting change proposal "
+        log_app_warning(
+            root,
+            "memory_repair_preflight_rejected",
+            workflow="proposal_preflight",
+            stage=stage,
+            change_kind=change_kind or repair_decision.change_kind,
+            batch_label=batch_label,
+            target_files=target_files,
+            operation_count=len(operations),
+            preflight_errors=preflight_errors,
+        )
         raise MemoryRepairError(
             prefix
             + "failed target schema preflight or semantic preflight: "
@@ -659,7 +537,7 @@ def generate_memory_change_clarification_decision(
 ) -> MemoryChangeClarificationDecision:
     request = user_request.strip()
     if provider is None and provider_name.lower() == "mock":
-        return _mock_memory_change_clarification_decision(request)
+        return mock_memory_change_clarification_decision(request)
     repair_provider = provider or create_agent_provider(
         default_agent_config_path(root),
         "orchestrator",
@@ -671,14 +549,21 @@ def generate_memory_change_clarification_decision(
         stage=stage,
         conversation_turns=conversation_turns or [],
     )
+    model_request = ModelRequest(
+        system_prompt=load_prompt_template("memory_change_clarification_system"),
+        user_prompt=user_prompt,
+        json_schema_name="MemoryChangeClarificationDecision",
+    )
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="MemoryChangeClarificationDecision",
+        json_schema_name="MemoryChangeClarificationDecision",
+        allow_user_questions=False,
+    )
     try:
-        content = generate_with_output_guard(
+        return generate_json_with_repair(
             repair_provider,
-            ModelRequest(
-                system_prompt=load_prompt_template("memory_change_clarification_system"),
-                user_prompt=user_prompt,
-                json_schema_name="MemoryChangeClarificationDecision",
-            ),
+            model_request,
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="orchestrator",
@@ -686,23 +571,38 @@ def generate_memory_change_clarification_decision(
                 interaction_mode="internal_task",
                 task="memory_change_clarification",
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="MemoryChangeClarificationDecision",
-                json_schema_name="MemoryChangeClarificationDecision",
-                allow_user_questions=False,
+            repair_invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="memory_repair",
+                interaction_mode="internal_task",
+                task="memory_change_clarification_repair",
+            ),
+            contract=contract,
+            parse=parse_memory_change_clarification_decision,
+            repair_prompt=lambda invalid_output, error: _structured_decision_repair_prompt(
+                schema_name="MemoryChangeClarificationDecision",
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
-    except AgentOutputContractError:
-        return _fallback_clarification_decision("provider output violated MemoryChangeClarificationDecision contract")
-    try:
-        return parse_memory_change_clarification_decision(content)
-    except MemoryRepairError as exc:
+    except (AgentOutputContractError, JsonRepairExhaustedError) as exc:
+        log_app_warning(
+            root,
+            "memory_repair_fallback",
+            workflow="clarification",
+            stage=stage,
+            error_type=exc.__class__.__name__,
+            error=str(exc),
+        )
         return _fallback_clarification_decision(f"provider returned invalid clarification decision: {exc}")
 
 
 def parse_memory_change_clarification_decision(content: str) -> MemoryChangeClarificationDecision:
-    raw = _extract_json_object(content)
+    try:
+        raw = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise MemoryRepairError("provider response did not contain a JSON object") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -730,21 +630,28 @@ def generate_memory_change_batch_plan(
 ) -> MemoryChangeBatchPlan:
     request = user_request.strip()
     if provider is None and provider_name.lower() == "mock":
-        return _mock_memory_change_batch_plan(request, stage=stage)
+        return mock_memory_change_batch_plan(request, stage=stage)
     repair_provider = provider or create_agent_provider(
         default_agent_config_path(root),
         "orchestrator",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
     user_prompt = _memory_change_batch_plan_user_prompt(root, request, stage=stage)
+    model_request = ModelRequest(
+        system_prompt=load_prompt_template("memory_change_batch_plan_system"),
+        user_prompt=user_prompt,
+        json_schema_name="MemoryChangeBatchPlan",
+    )
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="MemoryChangeBatchPlan",
+        json_schema_name="MemoryChangeBatchPlan",
+        allow_user_questions=False,
+    )
     try:
-        content = generate_with_output_guard(
+        return generate_json_with_repair(
             repair_provider,
-            ModelRequest(
-                system_prompt=load_prompt_template("memory_change_batch_plan_system"),
-                user_prompt=user_prompt,
-                json_schema_name="MemoryChangeBatchPlan",
-            ),
+            model_request,
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="orchestrator",
@@ -752,23 +659,32 @@ def generate_memory_change_batch_plan(
                 interaction_mode="internal_task",
                 task="memory_change_batch_plan",
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="MemoryChangeBatchPlan",
-                json_schema_name="MemoryChangeBatchPlan",
-                allow_user_questions=False,
+            repair_invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="memory_repair",
+                interaction_mode="internal_task",
+                task="memory_change_batch_plan_repair",
+            ),
+            contract=contract,
+            parse=parse_memory_change_batch_plan,
+            repair_prompt=lambda invalid_output, error: _structured_decision_repair_prompt(
+                schema_name="MemoryChangeBatchPlan",
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
+    except JsonRepairExhaustedError as exc:
+        raise MemoryRepairError(f"setting change batch planner returned invalid output: {exc}") from exc.second_error
     except Exception as exc:
         raise MemoryRepairError(f"setting change batch planner failed: {exc}") from exc
-    try:
-        return parse_memory_change_batch_plan(content)
-    except MemoryRepairError as exc:
-        raise MemoryRepairError(f"setting change batch planner returned invalid output: {exc}") from exc
 
 
 def parse_memory_change_batch_plan(content: str) -> MemoryChangeBatchPlan:
-    raw = _extract_json_object(content)
+    try:
+        raw = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise MemoryRepairError("provider response did not contain a JSON object") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -837,7 +753,7 @@ def generate_memory_repair_decision(
 ) -> MemoryRepairDecision:
     request = user_request.strip()
     if provider is None and provider_name.lower() == "mock":
-        return _mock_memory_repair_decision(
+        return mock_memory_repair_decision(
             root,
             request,
             change_kind=change_kind,
@@ -850,14 +766,21 @@ def generate_memory_repair_decision(
         overrides=ProviderOverrides(provider_name=provider_name),
     )
     user_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage, target_files=target_files)
+    model_request = ModelRequest(
+        system_prompt=load_prompt_template("memory_repair_system"),
+        user_prompt=user_prompt,
+        json_schema_name="MemoryRepairDecision",
+    )
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="MemoryRepairDecision",
+        json_schema_name="MemoryRepairDecision",
+        allow_user_questions=False,
+    )
     try:
-        content = generate_with_output_guard(
+        return generate_json_with_repair(
             repair_provider,
-            ModelRequest(
-                system_prompt=load_prompt_template("memory_repair_system"),
-                user_prompt=user_prompt,
-                json_schema_name="MemoryRepairDecision",
-            ),
+            model_request,
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="orchestrator",
@@ -865,50 +788,42 @@ def generate_memory_repair_decision(
                 interaction_mode="internal_task",
                 task="memory_repair_decision",
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="MemoryRepairDecision",
-                json_schema_name="MemoryRepairDecision",
-                allow_user_questions=False,
+            repair_invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="memory_repair",
+                interaction_mode="internal_task",
+                task="memory_repair_decision_repair",
+            ),
+            contract=contract,
+            parse=parse_memory_repair_decision,
+            repair_prompt=lambda invalid_output, error: _repair_decision_repair_prompt(
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
-    except AgentOutputContractError:
+    except AgentOutputContractError as exc:
+        log_app_warning(
+            root,
+            "memory_repair_fallback",
+            workflow="decision",
+            stage=stage,
+            change_kind=change_kind,
+            error_type=exc.__class__.__name__,
+            error=str(exc),
+        )
         return _empty_memory_repair_decision("provider output violated MemoryRepairDecision contract")
-    try:
-        return parse_memory_repair_decision(content)
-    except MemoryRepairError as first_error:
-        try:
-            repair_content = generate_with_output_guard(
-                repair_provider,
-                ModelRequest(
-                    system_prompt=load_prompt_template("memory_repair_system"),
-                    user_prompt=_repair_decision_repair_prompt(
-                        original_prompt=user_prompt,
-                        invalid_output=content,
-                        error=str(first_error),
-                    ),
-                    json_schema_name="MemoryRepairDecision",
-                ),
-                root=root,
-                invocation=AgentInvocationContext(
-                    agent_name="orchestrator",
-                    caller="memory_repair",
-                    interaction_mode="internal_task",
-                    task="memory_repair_decision_repair",
-                ),
-                contract=AgentOutputContract(
-                    output_kind="json",
-                    target_name="MemoryRepairDecision",
-                    json_schema_name="MemoryRepairDecision",
-                    allow_user_questions=False,
-                ),
-            )
-        except AgentOutputContractError:
-            return _empty_memory_repair_decision("provider repair output violated MemoryRepairDecision contract")
-        try:
-            return parse_memory_repair_decision(repair_content)
-        except MemoryRepairError as second_error:
-            return _empty_memory_repair_decision(f"provider returned invalid MemoryRepairDecision: {second_error}")
+    except JsonRepairExhaustedError as exc:
+        log_app_warning(
+            root,
+            "memory_repair_fallback",
+            workflow="decision",
+            stage=stage,
+            change_kind=change_kind,
+            error_type=exc.__class__.__name__,
+            error=str(exc.second_error),
+        )
+        return _empty_memory_repair_decision(f"provider returned invalid MemoryRepairDecision: {exc.second_error}")
 
 
 def _repair_memory_repair_decision_target_schema(
@@ -957,6 +872,16 @@ def _repair_memory_repair_decision_target_schema(
             ),
         )
     except AgentOutputContractError as exc:
+        log_app_warning(
+            root,
+            "memory_repair_target_schema_repair_failed",
+            workflow="target_schema_repair",
+            stage=stage,
+            change_kind=change_kind,
+            preflight_error_count=len(preflight_errors),
+            error_type=exc.__class__.__name__,
+            error=str(exc),
+        )
         raise MemoryRepairError(
             "provider target-schema repair output violated MemoryRepairDecision contract: "
             + ", ".join(exc.reason_codes)
@@ -964,11 +889,24 @@ def _repair_memory_repair_decision_target_schema(
     try:
         return parse_memory_repair_decision(content)
     except MemoryRepairError as exc:
+        log_app_warning(
+            root,
+            "memory_repair_target_schema_repair_failed",
+            workflow="target_schema_repair",
+            stage=stage,
+            change_kind=change_kind,
+            preflight_error_count=len(preflight_errors),
+            error_type=exc.__class__.__name__,
+            error=str(exc),
+        )
         raise MemoryRepairError(f"provider returned invalid target-schema repair decision: {exc}") from exc
 
 
 def parse_memory_repair_decision(content: str) -> MemoryRepairDecision:
-    raw = _extract_json_object(content)
+    try:
+        raw = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise MemoryRepairError("provider response did not contain a JSON object") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -1061,6 +999,16 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
             raise MemoryRepairError("memory repair proposal has no operations to apply")
         preflight_errors = _preflight_memory_repair_operations(root, proposal.operations, change_kind=proposal.change_kind)
         if preflight_errors:
+            log_app_warning(
+                root,
+                "memory_repair_preflight_rejected",
+                workflow="apply_preflight",
+                repair_id=proposal.repair_id,
+                change_kind=proposal.change_kind,
+                target_files=proposal.target_files,
+                operation_count=len(proposal.operations),
+                preflight_errors=preflight_errors,
+            )
             raise MemoryRepairError(
                 "memory repair proposal failed target schema preflight or semantic preflight: "
                 + _format_preflight_errors(preflight_errors)
@@ -1108,6 +1056,17 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
         return MemoryRepairApplyResult(proposal=proposal, apply_log=apply_log, apply_log_path=apply_log_path)
     except Exception as exc:
         _restore_backups(root, touched_files, backups)
+        log_app_warning(
+            root,
+            "memory_repair_apply_rolled_back" if backups else "memory_repair_apply_failed",
+            workflow="apply",
+            repair_id=proposal.repair_id,
+            change_kind=proposal.change_kind,
+            target_files=touched_files or proposal.target_files,
+            backups=backups,
+            error_type=exc.__class__.__name__,
+            error=str(exc),
+        )
         apply_log = MemoryRepairApplyLog(
             repair_id=proposal.repair_id,
             applied_at=_utc_now(),
@@ -1492,6 +1451,23 @@ def _repair_decision_repair_prompt(*, original_prompt: str, invalid_output: str,
     )
 
 
+def _structured_decision_repair_prompt(
+    *,
+    schema_name: str,
+    original_prompt: str,
+    invalid_output: str,
+    error: str,
+) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        f"上一次输出不能被解析为 {schema_name}。\n"
+        f"错误：{error}\n\n"
+        "请重新只输出 JSON object，不要 Markdown 或解释。\n"
+        "不要新增 schema 未定义字段，不要向用户或上游 Agent 提问。\n"
+        f"上一次输出：\n{invalid_output[:3000]}\n"
+    )
+
+
 def _target_schema_repair_prompt(
     *,
     original_prompt: str,
@@ -1635,65 +1611,6 @@ def _fallback_clarification_decision(note: str) -> MemoryChangeClarificationDeci
     )
 
 
-def _mock_memory_change_clarification_decision(request: str) -> MemoryChangeClarificationDecision:
-    normalized = request.strip()
-    if not normalized:
-        return _fallback_clarification_decision("empty request")
-    unclear_patterns = (
-        "还没想好",
-        "随便",
-        "某个",
-        "某人",
-        "一个人物",
-        "一个角色",
-        "改一下",
-        "优化一下",
-    )
-    has_specific_target = bool(re.search(r"\b(char|loc|item|world|truth|thread)_[a-z0-9_]+\b", normalized)) or any(
-        marker in normalized for marker in ("沈微", "林澈", "world_")
-    )
-    has_specific_change = any(marker in normalized for marker in ("新增", "删除", "设定为", "改成", "规则为", "背景是"))
-    if any(pattern in normalized for pattern in unclear_patterns) and not (has_specific_target and has_specific_change):
-        return MemoryChangeClarificationDecision(
-            status="needs_clarification",
-            questions=["请补充目标设定的名称或 ID，以及希望新增/修改后的具体内容。"],
-            confidence=0.35,
-            assumptions=["mock provider fixture only; not used as real business inference"],
-            notes=[],
-            source="mock",
-        )
-    return MemoryChangeClarificationDecision(
-        status="ready",
-        questions=[],
-        confidence=0.8,
-        assumptions=["mock provider fixture only; not used as real business inference"],
-        notes=[],
-        source="mock",
-    )
-
-
-def _mock_memory_change_batch_plan(request: str, *, stage: MemoryChangeStage) -> MemoryChangeBatchPlan:
-    target_files = _mock_infer_target_files(request) or ["memory/canon/characters.json"]
-    batches = [
-        MemoryChangeBatch(
-            batch_id=f"batch_{FILE_DOMAINS.get(rel_path, 'memory')}",
-            instruction=request,
-            target_files=[rel_path],
-            domains=_domains_from_files([rel_path]),
-            reason="mock provider fixture only; not used as real business inference",
-        )
-        for rel_path in target_files
-    ]
-    return MemoryChangeBatchPlan(
-        stage=stage,
-        batches=batches,
-        confidence=0.8,
-        assumptions=["mock provider fixture only; not used as real business inference"],
-        notes=[],
-        source="mock",
-    )
-
-
 def _new_clarification_session(
     root: Path,
     request: str,
@@ -1780,243 +1697,6 @@ def _combined_setting_change_request(original_request: str, turns: list[MemoryCh
     )
 
 
-def _mock_memory_repair_decision(
-    root: Path,
-    request: str,
-    *,
-    change_kind: MemoryChangeKind | None = None,
-    stage: MemoryChangeStage | None = None,
-    target_files: list[str] | None = None,
-) -> MemoryRepairDecision:
-    request = _mock_effective_memory_repair_request(request)
-    resolved_target_files = _normalize_allowed_target_files(target_files) if target_files else _mock_infer_target_files(request)
-    operations = _mock_infer_operations(root, request, resolved_target_files)
-    return MemoryRepairDecision(
-        change_kind=change_kind or ("setting_change" if _looks_like_setting_change(request) else "memory_repair"),
-        target_files=resolved_target_files,
-        operations=operations,
-        domains=_domains_from_files(resolved_target_files),
-        stage=stage or "unknown",
-        confidence=0.8 if operations else 0.2,
-        assumptions=["mock provider fixture only; not used as real business inference"],
-        needs_user_confirmation=True,
-        notes=["mock provider generated deterministic repair proposal for tests."],
-        source="mock",
-    )
-
-
-def _mock_effective_memory_repair_request(request: str) -> str:
-    marker = "本批次具体指令：\n"
-    if marker not in request:
-        return request
-    return request.rsplit(marker, 1)[-1].strip() or request
-
-
-def _mock_infer_target_files(request: str) -> list[str]:
-    text = request.lower()
-    targets: list[str] = []
-    if any(token in text for token in ("timeline", "时间线", "事件", "回忆", "插叙", "倒序")):
-        targets.append("memory/state/timeline.json")
-    if any(token in text for token in ("state", "状态", "位置", "持有人", "知道", "知识")):
-        targets.append("memory/state/current_state.json")
-    if any(token in text for token in ("canon", "设定", "角色", "人物", "地点", "物品", "世界观", "背景")):
-        targets.extend(["memory/canon/characters.json", "memory/canon/locations.json", "memory/canon/items.json"])
-    if any(token in text for token in ("世界", "世界观", "规则", "背景")):
-        targets.append("memory/canon/world.json")
-    if any(token in text for token in ("隐藏", "真相", "秘密")):
-        targets.append("memory/canon/hidden_truths.json")
-    if any(token in text for token in ("伏笔", "铺垫")):
-        targets.append("memory/canon/foreshadowing.json")
-    return sorted(set(targets or ["memory/state/timeline.json"]))
-
-
-def _mock_infer_operations(root: Path, request: str, target_files: list[str]) -> list[MemoryRepairOperation]:
-    operations: list[MemoryRepairOperation] = []
-    operations.extend(_mock_infer_setting_operations(root, request, target_files))
-    if operations or "memory/state/timeline.json" not in target_files:
-        return operations
-    event_id = _extract_event_id(request)
-    event_role = _mock_infer_event_role(request)
-    if not event_id or not event_role:
-        return operations
-    timeline_path = root / "memory" / "state" / "timeline.json"
-    if not timeline_path.exists():
-        return operations
-    timeline = load_json(timeline_path)
-    events = timeline.get("events") if isinstance(timeline, dict) else None
-    if not isinstance(events, list):
-        return operations
-    for index, event in enumerate(events):
-        if isinstance(event, dict) and event.get("id") == event_id:
-            operations.append(
-                MemoryRepairOperation(
-                    op="replace" if "event_role" in event else "add",
-                    file="memory/state/timeline.json",
-                    path=f"/events/{index}/event_role",
-                    value=event_role,
-                    reason=f"用户指出 timeline event {event_id} 的叙事类型应为 {event_role}",
-                )
-            )
-            break
-    return operations
-
-
-def _looks_like_setting_change(request: str) -> bool:
-    return any(token in request for token in ("设定", "人物", "角色", "背景", "世界观", "新增", "增加", "删除", "改成", "修改"))
-
-
-def _mock_infer_setting_operations(root: Path, request: str, target_files: list[str]) -> list[MemoryRepairOperation]:
-    operations: list[MemoryRepairOperation] = []
-    if "memory/canon/characters.json" in target_files:
-        operations.extend(_mock_character_operations(root, request))
-    if "memory/canon/world.json" in target_files:
-        operations.extend(_mock_world_operations(root, request))
-    return operations
-
-
-def _mock_character_operations(root: Path, request: str) -> list[MemoryRepairOperation]:
-    path = root / "memory/canon/characters.json"
-    if not path.exists():
-        return []
-    characters_data = load_json(path)
-    characters = characters_data.get("characters") if isinstance(characters_data, dict) else None
-    if not isinstance(characters, list):
-        return []
-    character_id = _extract_entity_id(request, "char_")
-    if character_id is None:
-        character_id = _match_character_id_by_name(characters, request)
-    if any(token in request for token in ("新增", "增加", "添加", "新人物", "新角色")):
-        name = _extract_named_value(request) or "测试人物"
-        new_id = character_id or f"char_{_slugify_name(name)}"
-        if any(isinstance(item, dict) and item.get("id") == new_id for item in characters):
-            return []
-        return [
-            MemoryRepairOperation(
-                op="add",
-                file="memory/canon/characters.json",
-                path="/characters/-",
-                value={
-                    "id": new_id,
-                    "name": name,
-                    "role": "supporting",
-                    "reader_visible_summary": f"{name}是用户新增的人物设定。",
-                    "aliases": [],
-                    "private_author_notes": "由 setting-change mock proposal 新增。",
-                    "relationships": [],
-                    "abilities": [],
-                    "secrets": [],
-                    "tags": ["setting_change"],
-                },
-                reason=f"用户要求新增人物设定：{name}",
-            )
-        ]
-    if not character_id:
-        return []
-    index = _find_entity_index(characters, character_id)
-    if index is None:
-        return []
-    if any(token in request for token in ("删除", "移除", "删掉")):
-        return [
-            MemoryRepairOperation(
-                op="remove",
-                file="memory/canon/characters.json",
-                path=f"/characters/{index}",
-                reason=f"用户要求删除未被引用的人物设定：{character_id}",
-            )
-        ]
-    new_summary = _extract_after_tokens(request, ("总结为", "摘要为", "设定为", "改成", "修改为"))
-    if new_summary:
-        return [
-            MemoryRepairOperation(
-                op="replace",
-                file="memory/canon/characters.json",
-                path=f"/characters/{index}/reader_visible_summary",
-                value=new_summary,
-                reason=f"用户要求修改人物 {character_id} 的读者可见设定摘要。",
-            )
-        ]
-    return []
-
-
-def _mock_world_operations(root: Path, request: str) -> list[MemoryRepairOperation]:
-    path = root / "memory/canon/world.json"
-    if not path.exists():
-        return []
-    world_data = load_json(path)
-    rules = world_data.get("world_rules") if isinstance(world_data, dict) else None
-    if not isinstance(rules, list):
-        return []
-    rule_id = _extract_entity_id(request, "world_")
-    if rule_id is None:
-        rule_id = _match_entity_id_by_name(rules, request)
-    if not rule_id and any(token in request for token in ("新增", "增加", "添加")):
-        name = _extract_named_value(request) or "新世界规则"
-        new_id = f"world_{_slugify_name(name)}"
-        if any(isinstance(item, dict) and item.get("id") == new_id for item in rules):
-            return []
-        return [
-            MemoryRepairOperation(
-                op="add",
-                file="memory/canon/world.json",
-                path="/world_rules/-",
-                value={
-                    "id": new_id,
-                    "name": name,
-                    "description": _extract_after_tokens(request, ("规则为", "设定为", "：", ":")) or f"{name}。",
-                    "visibility": "reader_visible",
-                    "limitations": [],
-                    "known_by_character_ids": [],
-                },
-                reason=f"用户要求新增世界规则：{name}",
-            )
-        ]
-    if not rule_id:
-        return []
-    index = _find_entity_index(rules, rule_id)
-    if index is None:
-        return []
-    new_description = _extract_after_tokens(request, ("描述为", "规则为", "设定为", "改成", "修改为"))
-    if new_description:
-        return [
-            MemoryRepairOperation(
-                op="replace",
-                file="memory/canon/world.json",
-                path=f"/world_rules/{index}/description",
-                value=new_description,
-                reason=f"用户要求修改世界规则 {rule_id}。",
-            )
-        ]
-    return []
-
-
-def _extract_entity_id(request: str, prefix: str) -> str | None:
-    match = re.search(rf"\b({re.escape(prefix)}[a-zA-Z0-9_]+)\b", request)
-    return match.group(1) if match else None
-
-
-def _match_character_id_by_name(characters: list[object], request: str) -> str | None:
-    return _match_entity_id_by_name(characters, request)
-
-
-def _match_entity_id_by_name(entities: list[object], request: str) -> str | None:
-    matches: list[str] = []
-    for entity in entities:
-        if not isinstance(entity, dict):
-            continue
-        entity_id = entity.get("id")
-        name = entity.get("name") or entity.get("title")
-        if isinstance(entity_id, str) and isinstance(name, str) and name and name in request:
-            matches.append(entity_id)
-    return matches[0] if len(matches) == 1 else None
-
-
-def _find_entity_index(entities: list[object], entity_id: str) -> int | None:
-    for index, entity in enumerate(entities):
-        if isinstance(entity, dict) and entity.get("id") == entity_id:
-            return index
-    return None
-
-
 def _entity_id_has_references(root: Path, entity_id: str, *, exclude_file: str) -> bool:
     for path in _impact_scan_paths(root):
         rel_path = _safe_rel(root, path)
@@ -2028,49 +1708,6 @@ def _entity_id_has_references(root: Path, entity_id: str, *, exclude_file: str) 
         except Exception:
             continue
     return False
-
-
-def _extract_named_value(request: str) -> str | None:
-    patterns = [
-        r"(?:新增|增加|添加)(?:一个|一名|人物|角色|设定|世界规则|规则)?[：:\s]*([\u4e00-\u9fffA-Za-z0-9_]{2,24})",
-        r"(?:名叫|叫做|名字是|名称是)([\u4e00-\u9fffA-Za-z0-9_]{2,24})",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, request)
-        if match:
-            return match.group(1).strip(" ，,。.;；：:")
-    return None
-
-
-def _extract_after_tokens(request: str, tokens: tuple[str, ...]) -> str | None:
-    for token in tokens:
-        if token in request:
-            text = request.split(token, 1)[1].strip()
-            return text.strip(" ，,。.;；") or None
-    return None
-
-
-def _slugify_name(name: str) -> str:
-    ascii_text = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
-    if ascii_text:
-        return ascii_text[:40]
-    codepoints = "_".join(f"{ord(char):x}" for char in name[:6])
-    return codepoints or "new_entity"
-
-
-def _extract_event_id(request: str) -> str | None:
-    match = re.search(r"\b(event_[a-zA-Z0-9_]+)\b", request)
-    return match.group(1) if match else None
-
-
-def _mock_infer_event_role(request: str) -> str | None:
-    if any(token in request for token in ("回忆", "插叙", "过去")):
-        return "flashback"
-    if any(token in request for token in ("当前行动", "当前发生", "现在发生")):
-        return "current_action"
-    if any(token in request for token in ("揭示", "发现真相")):
-        return "revelation"
-    return None
 
 
 def _dedupe_domains(domains: list[MemoryChangeDomain]) -> list[MemoryChangeDomain]:
@@ -2485,18 +2122,6 @@ def _proposal_notes(
     if "memory/state/timeline.json" in target_files:
         notes.append("timeline 修复应区分 narrative_position 与 story_position。")
     return notes
-
-
-def _extract_json_object(content: str) -> str:
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise MemoryRepairError("provider response did not contain a JSON object")
-    return stripped[start : end + 1]
 
 
 def _normalize_string_list(value: object) -> list[str]:
@@ -2992,12 +2617,6 @@ def _operation_semantic_location(operation: MemoryRepairOperation) -> str:
     return label
 
 
-def _pointer_parts(pointer: str) -> list[str]:
-    if not pointer.startswith("/"):
-        return []
-    return [_unescape_pointer(part) for part in pointer.strip("/").split("/") if part]
-
-
 def _dedupe_preserve_order(values: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -3024,66 +2643,6 @@ def _group_operations(operations: list[MemoryRepairOperation]) -> dict[str, list
     return grouped
 
 
-def _apply_operations_to_data(data: object, operations: list[MemoryRepairOperation]) -> object:
-    updated = json.loads(json.dumps(data, ensure_ascii=False))
-    for operation in operations:
-        _apply_operation(updated, operation)
-    return updated
-
-
-def _apply_operation(data: object, operation: MemoryRepairOperation) -> None:
-    parent, key = _resolve_pointer_parent(data, operation.path)
-    if operation.op == "replace":
-        if isinstance(parent, list):
-            parent[int(key)] = operation.value
-        elif isinstance(parent, dict):
-            if key not in parent:
-                raise MemoryRepairError(f"replace path does not exist: {operation.path}")
-            parent[key] = operation.value
-        return
-    if operation.op == "add":
-        if isinstance(parent, list):
-            if key == "-":
-                parent.append(operation.value)
-            else:
-                parent.insert(int(key), operation.value)
-        elif isinstance(parent, dict):
-            parent[key] = operation.value
-        return
-    if operation.op == "remove":
-        if isinstance(parent, list):
-            parent.pop(int(key))
-        elif isinstance(parent, dict):
-            if key not in parent:
-                raise MemoryRepairError(f"remove path does not exist: {operation.path}")
-            del parent[key]
-
-
-def _resolve_pointer_parent(data: object, pointer: str) -> tuple[Any, str]:
-    if not pointer.startswith("/"):
-        raise MemoryRepairError(f"invalid JSON pointer: {pointer}")
-    parts = [_unescape_pointer(part) for part in pointer.strip("/").split("/")]
-    if not parts:
-        raise MemoryRepairError("operation path cannot target the document root")
-    target: Any = data
-    for part in parts[:-1]:
-        if isinstance(target, list):
-            target = target[int(part)]
-        elif isinstance(target, dict):
-            target = target[part]
-        else:
-            raise MemoryRepairError(f"invalid JSON pointer path: {pointer}")
-    return target, parts[-1]
-
-
-def _unescape_pointer(value: str) -> str:
-    return value.replace("~1", "/").replace("~0", "~")
-
-
-def _escape_pointer(value: str) -> str:
-    return value.replace("~", "~0").replace("/", "~1")
-
-
 def _ensure_allowed_file(rel_path: str) -> None:
     if rel_path not in ALLOWED_MEMORY_FILES:
         raise MemoryRepairError(f"memory repair target is not allowed: {rel_path}")
@@ -3095,13 +2654,6 @@ def _validate_file_model(rel_path: str, data: object) -> None:
         model.model_validate(data)
     except ValidationError as exc:
         raise MemoryRepairError(f"schema validation failed for {rel_path}: {exc}") from exc
-
-
-def _restore_backups(root: Path, touched_files: list[str], backups: list[str]) -> None:
-    for rel_path, backup_rel in zip(touched_files, backups, strict=False):
-        backup_path = root / backup_rel
-        if backup_path.exists():
-            shutil.copy2(backup_path, root / rel_path)
 
 
 def _resolve_proposal_path(root: Path, proposal_path: Path) -> Path:

@@ -961,6 +961,9 @@ def test_api_inspire_refuses_to_overwrite_user_inspiration_without_force(tmp_pat
     assert payload["ok"] is False
     assert payload["error"]["code"] == "operation_failed"  # type: ignore[index]
     assert "用户已经写好的灵感" in inspiration_path.read_text(encoding="utf-8")
+    app_log = root / "runs" / "app.log"
+    assert app_log.is_file()
+    assert "web_api_failure" in app_log.read_text(encoding="utf-8")
 
 
 def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -> None:
@@ -1010,7 +1013,11 @@ def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -
     events_status, events_payload = handle_api_request("GET", "/api/management-events", f"path={root}", None)
 
     assert suggest_status == 200
+    assert suggest_payload["data"]["deprecated"] is True  # type: ignore[index]
+    assert suggest_payload["data"]["replacement_endpoint"] == "/api/settings/change/suggest"  # type: ignore[index]
     assert apply_status == 200
+    assert apply_payload["data"]["deprecated"] is True  # type: ignore[index]
+    assert apply_payload["data"]["replacement_endpoint"] == "/api/settings/change/apply"  # type: ignore[index]
     assert apply_payload["data"]["apply_log"]["status"] == "applied"  # type: ignore[index]
     timeline = TimelineFile.model_validate(json.loads(timeline_path.read_text(encoding="utf-8")))
     assert timeline.events[0].event_role == "flashback"

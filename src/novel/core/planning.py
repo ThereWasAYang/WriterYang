@@ -9,12 +9,12 @@ from pydantic import ValidationError
 from novel.core.agent_output import (
     AgentInvocationContext,
     AgentOutputContract,
-    generate_with_output_guard,
 )
 from novel.core.canon import CanonFiles, format_canon_summary, load_canon_files
 from novel.core.chapter_memory import render_chapter_memory_prompt_text
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template
@@ -26,6 +26,7 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
+from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
 from novel.core.validation import ValidationReport
 
 
@@ -222,7 +223,10 @@ def build_planning_user_prompt(
 
 
 def parse_chapter_plan(content: str) -> ChapterPlan:
-    json_text = _extract_json_object(content)
+    try:
+        json_text = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise PlanningError("provider response does not contain a JSON object") from exc
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as exc:
@@ -245,71 +249,55 @@ def _generate_chapter_plan_with_repair(
     state: EntityState,
     timeline: TimelineFile,
 ) -> ChapterPlan:
-    content = generate_with_output_guard(
-        provider,
-        ModelRequest(
-            system_prompt=build_planning_system_prompt(),
-            user_prompt=user_prompt,
-            context=canon_summary,
-            json_schema_name="ChapterPlan",
-        ),
-        root=root,
-        invocation=AgentInvocationContext(
-            agent_name="plot",
-            caller="cli",
-            interaction_mode="internal_task",
-            task="plan_chapter",
-            chapter_number=chapter_number,
-        ),
-        contract=AgentOutputContract(
-            output_kind="json",
-            target_name="ChapterPlan",
-            json_schema_name="ChapterPlan",
-        ),
+    request = ModelRequest(
+        system_prompt=build_planning_system_prompt(),
+        user_prompt=user_prompt,
+        context=canon_summary,
+        json_schema_name="ChapterPlan",
     )
-    try:
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="ChapterPlan",
+        json_schema_name="ChapterPlan",
+    )
+
+    def parse_and_validate(content: str) -> ChapterPlan:
         plan = parse_chapter_plan(content)
         plan = _normalize_plan_reference_buckets(plan, canon, state, timeline)
         _validate_plan_for_write(plan, chapter_number, canon, state, timeline)
         return plan
-    except PlanningError as first_error:
-        repair_content = generate_with_output_guard(
+
+    try:
+        return generate_json_with_repair(
             provider,
-            ModelRequest(
-                system_prompt=build_planning_system_prompt(),
-                user_prompt=_repair_prompt(
-                    schema_name="ChapterPlan",
-                    original_prompt=user_prompt,
-                    invalid_output=content,
-                    error=str(first_error),
-                    allowed_ids=_allowed_id_summary(canon, state, timeline),
-                ),
-                context=canon_summary,
-                json_schema_name="ChapterPlan",
-            ),
+            request,
             root=root,
             invocation=AgentInvocationContext(
+                agent_name="plot",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="plan_chapter",
+                chapter_number=chapter_number,
+            ),
+            repair_invocation=AgentInvocationContext(
                 agent_name="plot",
                 caller="cli",
                 interaction_mode="internal_task",
                 task="plan_chapter_repair",
                 chapter_number=chapter_number,
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="ChapterPlan",
-                json_schema_name="ChapterPlan",
+            contract=contract,
+            parse=parse_and_validate,
+            repair_prompt=lambda invalid_output, error: _repair_prompt(
+                schema_name="ChapterPlan",
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
+                allowed_ids=_allowed_id_summary(canon, state, timeline),
             ),
         )
-        try:
-            plan = parse_chapter_plan(repair_content)
-            plan = _normalize_plan_reference_buckets(plan, canon, state, timeline)
-            _validate_plan_for_write(plan, chapter_number, canon, state, timeline)
-            return plan
-        except PlanningError as second_error:
-            raise PlanningError(
-                f"provider returned invalid ChapterPlan after repair retry: {second_error}"
-            ) from second_error
+    except JsonRepairExhaustedError as exc:
+        raise PlanningError(str(exc)) from exc.second_error
 
 
 def _validate_plan_for_write(
@@ -609,22 +597,6 @@ def _read_optional_text(path: Path) -> str:
 def _refuse_existing(path: Path, force: bool) -> None:
     if path.exists() and not force:
         raise PlanningError(f"{path} already exists; use --force to overwrite it")
-
-
-def _extract_json_object(content: str) -> str:
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        stripped = "\n".join(lines).strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise PlanningError("provider response does not contain a JSON object")
-    return stripped[start : end + 1]
 
 
 def _bullets(values: list[str]) -> list[str]:

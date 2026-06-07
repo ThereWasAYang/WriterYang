@@ -12,10 +12,10 @@ from pydantic import ValidationError
 from novel.core.agent_output import (
     AgentInvocationContext,
     AgentOutputContract,
-    generate_with_output_guard,
 )
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, load_json_model, load_yaml_model
+from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -38,6 +38,7 @@ from novel.core.schemas import (
     WorldFile,
     VectorContextMode,
 )
+from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
 from novel.core.validation import ValidationReport, validate_canon
 
 
@@ -422,7 +423,10 @@ def build_canon_drift_user_prompt(
 
 
 def parse_canon_proposal(content: str) -> CanonProposal:
-    json_text = _extract_json_object(content)
+    try:
+        json_text = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise CanonError("provider response does not contain a JSON object") from exc
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as exc:
@@ -447,56 +451,45 @@ def _generate_canon_proposal_with_repair(
         context=existing_summary,
         json_schema_name="CanonProposal",
     )
-    content = generate_with_output_guard(
-        provider,
-        request,
-        root=root,
-        invocation=AgentInvocationContext(
-            agent_name="canon",
-            caller="cli",
-            interaction_mode="internal_task",
-            task="canon_suggest",
-        ),
-        contract=AgentOutputContract(
-            output_kind="json",
-            target_name="CanonProposal",
-            json_schema_name="CanonProposal",
-        ),
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="CanonProposal",
+        json_schema_name="CanonProposal",
     )
-    try:
+
+    def parse_and_validate(content: str) -> CanonProposal:
         proposal = parse_canon_proposal(content)
         validate_canon_proposal(proposal, existing_canon=existing_canon)
         return proposal
-    except CanonError as exc:
-        repair_content = generate_with_output_guard(
+
+    try:
+        return generate_json_with_repair(
             provider,
-            ModelRequest(
-                system_prompt=build_canon_system_prompt(),
-                user_prompt=_repair_prompt(
-                    schema_name="CanonProposal",
-                    original_prompt=user_prompt,
-                    invalid_output=content,
-                    error=str(exc),
-                ),
-                context=existing_summary,
-                json_schema_name="CanonProposal",
-            ),
+            request,
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="canon",
                 caller="cli",
                 interaction_mode="internal_task",
+                task="canon_suggest",
+            ),
+            repair_invocation=AgentInvocationContext(
+                agent_name="canon",
+                caller="cli",
+                interaction_mode="internal_task",
                 task="canon_suggest_repair",
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="CanonProposal",
-                json_schema_name="CanonProposal",
+            contract=contract,
+            parse=parse_and_validate,
+            repair_prompt=lambda invalid_output, error: _repair_prompt(
+                schema_name="CanonProposal",
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
-        proposal = parse_canon_proposal(repair_content)
-        validate_canon_proposal(proposal, existing_canon=existing_canon)
-        return proposal
+    except JsonRepairExhaustedError as exc:
+        raise CanonError(str(exc)) from exc.second_error
 
 
 def _canon_proposal_has_changes(proposal: CanonProposal) -> bool:
@@ -593,7 +586,7 @@ def _normalize_visibility_objects(value: object, *, default_visibility: str) -> 
     for index, entry in enumerate(value, start=1):
         if not isinstance(entry, dict):
             continue
-        _copy_first_present(entry, "description", ("summary", "content", "name", "notes"))
+        _copy_first_present(entry, "description", ("summary", "content", "property", "name", "notes"))
         entry.setdefault("visibility", default_visibility)
         if not entry.get("id") and "id" in entry:
             entry["id"] = f"rule_{index}"
@@ -899,22 +892,6 @@ def _extend_named(lines: list[str], title: str, entries: Iterable[tuple[str, str
     lines.append(f"{title}:")
     for entity_id, name in entries:
         lines.append(f"- {name} [{entity_id}]")
-
-
-def _extract_json_object(content: str) -> str:
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        stripped = "\n".join(lines).strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise CanonError("provider response does not contain a JSON object")
-    return stripped[start : end + 1]
 
 
 def _require_unique_ids(values: list[str], label: str) -> None:

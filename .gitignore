@@ -16,7 +16,8 @@ WriterYang_WebUI.command
 .vscode/
 **/memory/search_index.json
 **/memory/search_index.sqlite
-**/runs/model_io/
+**/runs/*
+!**/runs/.gitkeep
 **/.writeryang.lock
 *.bak_*
 

@@ -12,12 +12,12 @@ from pydantic import ValidationError
 from novel.core.agent_output import (
     AgentInvocationContext,
     AgentOutputContract,
-    generate_with_output_guard,
 )
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.consistency import check_chapter_consistency
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -36,6 +36,7 @@ from novel.core.schemas import (
     HiddenTruthsFile,
     VectorContextMode,
 )
+from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
 from novel.core.validation import validate_canon
 
 
@@ -143,6 +144,7 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         strict=options.strict,
         focus=options.focus,
     )
+    provider_report = _coerce_unrecognized_audited_file(provider_report, options.audited_file)
     if provider_report.chapter_number != options.chapter_number:
         precheck = _append_precheck_issue(
             precheck,
@@ -620,7 +622,10 @@ def _write_audit_recall_log(root: Path, chapter_number: int, entries: list[dict[
 
 
 def parse_audit_report(content: str) -> AuditReport:
-    json_text = _extract_json_object(content)
+    try:
+        json_text = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise AuditError("provider response does not contain a JSON object") from exc
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as exc:
@@ -643,59 +648,41 @@ def _generate_audit_report_with_repair(
         context=context.canon_summary,
         json_schema_name="AuditReport",
     )
-    content = generate_with_output_guard(
-        provider,
-        request,
-        root=root,
-        invocation=AgentInvocationContext(
-            agent_name="audit",
-            caller="cli",
-            interaction_mode="internal_task",
-            task="audit_chapter",
-            chapter_number=context.plan.chapter_number,
-        ),
-        contract=AgentOutputContract(
-            output_kind="json",
-            target_name="AuditReport",
-            json_schema_name="AuditReport",
-        ),
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="AuditReport",
+        json_schema_name="AuditReport",
     )
     try:
-        return parse_audit_report(content)
-    except AuditError as first_error:
-        repair_content = generate_with_output_guard(
+        return generate_json_with_repair(
             provider,
-            ModelRequest(
-                system_prompt=build_audit_system_prompt(),
-                user_prompt=_repair_prompt(
-                    schema_name="AuditReport",
-                    original_prompt=user_prompt,
-                    invalid_output=content,
-                    error=str(first_error),
-                ),
-                context=context.canon_summary,
-                json_schema_name="AuditReport",
-            ),
+            request,
             root=root,
             invocation=AgentInvocationContext(
+                agent_name="audit",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="audit_chapter",
+                chapter_number=context.plan.chapter_number,
+            ),
+            repair_invocation=AgentInvocationContext(
                 agent_name="audit",
                 caller="cli",
                 interaction_mode="internal_task",
                 task="audit_chapter_repair",
                 chapter_number=context.plan.chapter_number,
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="AuditReport",
-                json_schema_name="AuditReport",
+            contract=contract,
+            parse=parse_audit_report,
+            repair_prompt=lambda invalid_output, error: _repair_prompt(
+                schema_name="AuditReport",
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
-        try:
-            return parse_audit_report(repair_content)
-        except AuditError as second_error:
-            raise AuditError(
-                f"provider returned invalid AuditReport after repair retry: {second_error}"
-            ) from second_error
+    except JsonRepairExhaustedError as exc:
+        raise AuditError(str(exc)) from exc.second_error
 
 
 def _normalize_audit_report_data(data: object) -> object:
@@ -739,6 +726,12 @@ def _normalize_audited_file(value: str) -> str:
     if "polished" in lowered or "polish" in lowered or "润色" in lowered or "正文" in lowered:
         return "polished.md"
     return text
+
+
+def _coerce_unrecognized_audited_file(report: AuditReport, requested: AuditedFile) -> AuditReport:
+    if report.audited_file in {"draft.md", "polished.md"}:
+        return report
+    return report.model_copy(update={"audited_file": requested})
 
 
 def _normalize_issue_id(value: str, index: int) -> str:
@@ -1049,22 +1042,6 @@ def _read_required_json_text(path: Path) -> str:
 def _refuse_existing(path: Path, force: bool) -> None:
     if path.exists() and not force:
         raise AuditError(f"{path} already exists; use --force to overwrite it")
-
-
-def _extract_json_object(content: str) -> str:
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        stripped = "\n".join(lines).strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise AuditError("provider response does not contain a JSON object")
-    return stripped[start : end + 1]
 
 
 def _unique_preserve_order(values: list[str]) -> list[str]:

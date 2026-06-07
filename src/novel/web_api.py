@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 import yaml
 
 from novel import __version__
+from novel.core.app_logging import log_app_warning
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import (
     CanonAppliedProposalRecord,
@@ -162,6 +163,7 @@ def handle_api_request(
 ) -> APIResponse:
     request_id = _request_id()
     query = {key: values[-1] for key, values in parse_qs(query_string).items()}
+    data_for_log: dict[str, object] | None = None
     try:
         if method == "GET":
             handler = _get_routes().get(path)
@@ -169,33 +171,46 @@ def handle_api_request(
                 return _success(handler(query))
         elif method == "POST":
             data = _json_body(body)
+            data_for_log = data
             route = _post_routes().get(path)
             if route:
                 task, handler, locked = route
                 return _success(_locked_write(data, task, handler) if locked else handler(data))
     except WebAPIError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=exc.status, code=exc.code, error=exc)
         return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
     except ProjectLockError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=409, code="project_locked", error=exc)
         return _failure(409, "project_locked", str(exc), request_id=request_id)
     except FileNotFoundError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=404, code="file_not_found", error=exc)
         return _failure(404, "file_not_found", str(exc), request_id=request_id)
     except PermissionError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=403, code="forbidden_file", error=exc)
         return _failure(403, "forbidden_file", str(exc), request_id=request_id)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="invalid_json", error=exc)
         return _failure(400, "invalid_json", "request body must be valid JSON", request_id=request_id)
     except CanonError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="canon_error", error=exc)
         return _failure(400, "canon_error", str(exc), request_id=request_id)
     except MemoryRepairError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="memory_repair_error", error=exc)
         return _failure(400, "memory_repair_error", str(exc), request_id=request_id)
     except SetupGuideError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="setup_guide_error", error=exc)
         return _failure(400, "setup_guide_error", str(exc), request_id=request_id)
     except MigrationError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="migration_error", error=exc)
         return _failure(400, "migration_error", str(exc), request_id=request_id)
     except SearchError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="search_error", error=exc)
         return _failure(400, "search_error", str(exc), request_id=request_id)
     except ValueError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="invalid_request", error=exc)
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
     except Exception as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="operation_failed", error=exc)
         return _failure(400, "operation_failed", str(exc), request_id=request_id)
     return _failure(404, "not_found", "not found", request_id=request_id)
 
@@ -231,6 +246,35 @@ def _get_routes():
             query.get("right") or "",
         ),
     }
+
+
+def _log_web_api_failure(
+    path: str,
+    query: dict[str, str],
+    data: dict[str, object] | None,
+    *,
+    request_id: str,
+    status: int,
+    code: str,
+    error: Exception,
+) -> None:
+    root = _root_for_logging(query, data)
+    log_app_warning(
+        root,
+        "web_api_failure",
+        request_id=request_id,
+        endpoint=path,
+        status=status,
+        code=code,
+        error_type=error.__class__.__name__,
+        error=str(error),
+    )
+
+
+def _root_for_logging(query: dict[str, str], data: dict[str, object] | None) -> Path:
+    if data and data.get("path") is not None:
+        return Path(str(data.get("path") or ".")).expanduser().resolve()
+    return Path(query.get("path") or ".").expanduser().resolve()
 
 
 def _post_routes():
@@ -979,6 +1023,7 @@ def _memory_repair_suggest(data: dict[str, object]) -> dict[str, object]:
     provider = _optional_string(data.get("provider")) or "config"
     result = suggest_memory_repair(root, request, provider_name=provider)
     return {
+        **_legacy_memory_repair_deprecation("/api/settings/change/suggest"),
         "proposal": result.proposal.model_dump(mode="json"),
         "proposal_path": str(result.proposal_path),
         "proposal_relative_path": _relative(root, result.proposal_path),
@@ -1004,11 +1049,20 @@ def _memory_repair_apply(data: dict[str, object]) -> dict[str, object]:
             details=_memory_repair_apply_error_details(root, proposal_path),
         ) from exc
     return {
+        **_legacy_memory_repair_deprecation("/api/settings/change/apply"),
         "proposal": result.proposal.model_dump(mode="json"),
         "apply_log": result.apply_log.model_dump(mode="json"),
         "apply_log_path": str(result.apply_log_path),
         "apply_log_relative_path": _relative(root, result.apply_log_path),
         "management_events": _management_event_summary(root),
+    }
+
+
+def _legacy_memory_repair_deprecation(replacement_endpoint: str) -> dict[str, object]:
+    return {
+        "deprecated": True,
+        "replacement_endpoint": replacement_endpoint,
+        "deprecation_message": "该 legacy memory repair API 保留兼容；新集成请使用项目设定变更 API。",
     }
 
 

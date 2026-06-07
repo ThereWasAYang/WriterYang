@@ -44,6 +44,30 @@ def test_mock_provider_can_generate_audit_report(tmp_path: Path) -> None:
     assert "只输出 AuditReport JSON" in provider.requests[0].system_prompt
 
 
+def test_audit_chapter_coerces_provider_title_audited_file_to_requested_file(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    provider_payload = json.loads(default_mock_audit_report_json(1, "polished.md"))
+    provider_payload["audited_file"] = "第一章 雨夜广播"
+    provider_payload["overall_status"] = "needs_revision"
+    provider_payload["issues"] = [
+        {
+            "id": "audit_001_low",
+            "severity": "low",
+            "type": "style",
+            "description": "标题略显重复。",
+            "evidence": [{"source": "polished.md", "quote": "第一章"}],
+            "suggested_fix": "保留一个标题即可。",
+        }
+    ]
+    provider = MockProvider(fake_response=json.dumps(provider_payload, ensure_ascii=False))
+
+    result = audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
+
+    assert result.report.audited_file == "polished.md"
+    assert result.report.overall_status == "passed"
+    assert {issue.id for issue in result.report.issues} == {"audit_001_low"}
+
+
 def test_audit_agent_question_repairs_once(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     provider = MockProvider(fake_response=["是否需要重点检查时间线？", default_mock_audit_report_json(1, "polished.md")])

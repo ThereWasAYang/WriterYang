@@ -90,7 +90,7 @@ def test_canon_suggest_repairs_low_risk_shape_errors(tmp_path: Path) -> None:
     malformed["characters"][0]["aliases"] = "旧物修复师"
     malformed["locations"][0].pop("type")
     malformed["items"][0].pop("type")
-    malformed["items"][0]["special_properties"] = [{"name": "无法损坏", "description": "无论如何保持完好"}]
+    malformed["items"][0]["special_properties"] = [{"property": "无法损坏"}]
     malformed["world_rules"][0].pop("visibility")
     malformed["hidden_truths"][0]["summary"] = malformed["hidden_truths"][0].pop("title")
     malformed["foreshadowing_threads"][0].pop("status")
@@ -102,6 +102,7 @@ def test_canon_suggest_repairs_low_risk_shape_errors(tmp_path: Path) -> None:
     assert result.proposal.characters[0].aliases == ["旧物修复师"]
     assert result.proposal.locations[0].type == "unspecified"
     assert result.proposal.items[0].type == "unspecified"
+    assert result.proposal.items[0].special_properties[0].description == "无法损坏"
     assert result.proposal.items[0].special_properties[0].visibility == "hidden"
     assert result.proposal.world_rules[0].visibility == "reader_visible"
     assert result.proposal.hidden_truths[0].title == "旧车站是时间交叠点"

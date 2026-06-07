@@ -13,7 +13,6 @@ from novel.core.agent_output import (
     AgentInvocationContext,
     AgentOutputContract,
     AgentOutputContractError,
-    generate_with_output_guard,
 )
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import CanonSuggestOptions, load_canon_provider, suggest_canon
@@ -21,6 +20,7 @@ from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, 
 from novel.core.exporting import MarkdownExportOptions, export_markdown
 from novel.core.inspiration import InspirationOptions, load_inspiration_provider, run_inspiration_agent
 from novel.core.io import atomic_write_model_json
+from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.memory_repair import suggest_memory_repair
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
@@ -43,6 +43,7 @@ from novel.core.state_update import (
     load_state_update_provider,
     propose_state_update,
 )
+from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
 
 
 OrchestratorTask = Literal[
@@ -324,14 +325,21 @@ def decide_ask_intent(
         return _fallback_ask_intent_decision(instruction)
     route_provider = provider or load_orchestrator_provider(root, provider_name)
     user_prompt = build_ask_intent_user_prompt(instruction)
+    model_request = ModelRequest(
+        system_prompt=load_prompt_template("orchestrator_ask_intent_system"),
+        user_prompt=user_prompt,
+        json_schema_name="AskIntentDecision",
+    )
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="AskIntentDecision",
+        json_schema_name="AskIntentDecision",
+        allow_user_questions=False,
+    )
     try:
-        content = generate_with_output_guard(
+        return generate_json_with_repair(
             route_provider,
-            ModelRequest(
-                system_prompt=load_prompt_template("orchestrator_ask_intent_system"),
-                user_prompt=user_prompt,
-                json_schema_name="AskIntentDecision",
-            ),
+            model_request,
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="orchestrator",
@@ -339,53 +347,26 @@ def decide_ask_intent(
                 interaction_mode="internal_task",
                 task="ask_intent",
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="AskIntentDecision",
-                json_schema_name="AskIntentDecision",
-                allow_user_questions=False,
+            repair_invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="orchestrator",
+                interaction_mode="internal_task",
+                task="ask_intent_repair",
+            ),
+            contract=contract,
+            parse=lambda content: parse_ask_intent_decision(content, fallback_request=instruction),
+            repair_prompt=lambda invalid_output, error: _ask_intent_repair_prompt(
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
     except AgentOutputContractError:
         fallback = _fallback_ask_intent_decision(instruction)
-        return fallback.model_copy(update={"reason": f"provider intent output contract failed; fallback used. {fallback.reason}"})
-    try:
-        return parse_ask_intent_decision(content, fallback_request=instruction)
-    except OrchestratorError as first_error:
-        try:
-            repair_content = generate_with_output_guard(
-                route_provider,
-                ModelRequest(
-                    system_prompt=load_prompt_template("orchestrator_ask_intent_system"),
-                    user_prompt=_ask_intent_repair_prompt(
-                        original_prompt=user_prompt,
-                        invalid_output=content,
-                        error=str(first_error),
-                    ),
-                    json_schema_name="AskIntentDecision",
-                ),
-                root=root,
-                invocation=AgentInvocationContext(
-                    agent_name="orchestrator",
-                    caller="orchestrator",
-                    interaction_mode="internal_task",
-                    task="ask_intent_repair",
-                ),
-                contract=AgentOutputContract(
-                    output_kind="json",
-                    target_name="AskIntentDecision",
-                    json_schema_name="AskIntentDecision",
-                    allow_user_questions=False,
-                ),
-            )
-        except AgentOutputContractError:
-            fallback = _fallback_ask_intent_decision(instruction)
-            return fallback.model_copy(update={"reason": f"provider intent repair contract failed; fallback used. {fallback.reason}"})
-        try:
-            return parse_ask_intent_decision(repair_content, fallback_request=instruction)
-        except OrchestratorError:
-            fallback = _fallback_ask_intent_decision(instruction)
-            return fallback.model_copy(update={"reason": f"provider intent parse failed; fallback used. {fallback.reason}"})
+        return fallback.model_copy(update={"reason": f"provider intent contract failed; fallback used. {fallback.reason}"})
+    except JsonRepairExhaustedError:
+        fallback = _fallback_ask_intent_decision(instruction)
+        return fallback.model_copy(update={"reason": f"provider intent parse failed; fallback used. {fallback.reason}"})
 
 
 def build_ask_intent_user_prompt(request: str) -> str:
@@ -398,7 +379,10 @@ def build_ask_intent_user_prompt(request: str) -> str:
 
 
 def parse_ask_intent_decision(content: str, *, fallback_request: str) -> AskIntentDecision:
-    raw = _extract_json_object(content)
+    try:
+        raw = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise OrchestratorError("provider response did not contain a JSON object") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -556,15 +540,22 @@ def route_revision_request(
         chapter_numbers=chapters,
         session_summary=session_summary,
     )
+    request = ModelRequest(
+        system_prompt=load_prompt_template("orchestrator_revision_route_system"),
+        user_prompt=user_prompt,
+        context=session_summary,
+        json_schema_name="RevisionRouteDecision",
+    )
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="RevisionRouteDecision",
+        json_schema_name="RevisionRouteDecision",
+        allow_user_questions=False,
+    )
     try:
-        content = generate_with_output_guard(
+        return generate_json_with_repair(
             route_provider,
-            ModelRequest(
-                system_prompt=load_prompt_template("orchestrator_revision_route_system"),
-                user_prompt=user_prompt,
-                context=session_summary,
-                json_schema_name="RevisionRouteDecision",
-            ),
+            request,
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="orchestrator",
@@ -572,57 +563,28 @@ def route_revision_request(
                 interaction_mode="internal_task",
                 task="revision_route",
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="RevisionRouteDecision",
-                json_schema_name="RevisionRouteDecision",
-                allow_user_questions=False,
+            repair_invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="orchestrator",
+                interaction_mode="internal_task",
+                task="revision_route_repair",
+            ),
+            contract=contract,
+            parse=lambda content: parse_revision_route_decision(
+                content,
+                fallback_instruction=instruction,
+                chapter_numbers=chapters,
+            ),
+            repair_prompt=lambda invalid_output, error: _revision_route_repair_prompt(
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
     except AgentOutputContractError:
         fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
-        return fallback.model_copy(update={"reason": f"provider route output contract failed; fallback used. {fallback.reason}"})
-    try:
-        return parse_revision_route_decision(content, fallback_instruction=instruction, chapter_numbers=chapters)
-    except OrchestratorError as first_error:
-        try:
-            repair_content = generate_with_output_guard(
-                route_provider,
-                ModelRequest(
-                    system_prompt=load_prompt_template("orchestrator_revision_route_system"),
-                    user_prompt=_revision_route_repair_prompt(
-                        original_prompt=user_prompt,
-                        invalid_output=content,
-                        error=str(first_error),
-                    ),
-                    context=session_summary,
-                    json_schema_name="RevisionRouteDecision",
-                ),
-                root=root,
-                invocation=AgentInvocationContext(
-                    agent_name="orchestrator",
-                    caller="orchestrator",
-                    interaction_mode="internal_task",
-                    task="revision_route_repair",
-                ),
-                contract=AgentOutputContract(
-                    output_kind="json",
-                    target_name="RevisionRouteDecision",
-                    json_schema_name="RevisionRouteDecision",
-                    allow_user_questions=False,
-                ),
-            )
-        except AgentOutputContractError:
-            fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
-            return fallback.model_copy(update={"reason": f"provider route repair contract failed; fallback used. {fallback.reason}"})
-        try:
-            return parse_revision_route_decision(
-                repair_content,
-                fallback_instruction=instruction,
-                chapter_numbers=chapters,
-            )
-        except OrchestratorError:
-            pass
+        return fallback.model_copy(update={"reason": f"provider route contract failed; fallback used. {fallback.reason}"})
+    except JsonRepairExhaustedError:
         fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
         return fallback.model_copy(update={"reason": f"provider route parse failed; fallback used. {fallback.reason}"})
 
@@ -655,14 +617,21 @@ def route_audit_repair(
         plan_summary=plan_summary,
         state_summary=state_summary,
     )
+    request = ModelRequest(
+        system_prompt=load_prompt_template("audit_repair_route_system"),
+        user_prompt=user_prompt,
+        json_schema_name="AuditRepairRouteDecision",
+    )
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="AuditRepairRouteDecision",
+        json_schema_name="AuditRepairRouteDecision",
+        allow_user_questions=False,
+    )
     try:
-        content = generate_with_output_guard(
+        return generate_json_with_repair(
             route_provider,
-            ModelRequest(
-                system_prompt=load_prompt_template("audit_repair_route_system"),
-                user_prompt=user_prompt,
-                json_schema_name="AuditRepairRouteDecision",
-            ),
+            request,
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="orchestrator",
@@ -671,51 +640,25 @@ def route_audit_repair(
                 task="audit_repair_route",
                 chapter_number=audit_report.chapter_number,
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="AuditRepairRouteDecision",
-                json_schema_name="AuditRepairRouteDecision",
-                allow_user_questions=False,
+            repair_invocation=AgentInvocationContext(
+                agent_name="orchestrator",
+                caller="session",
+                interaction_mode="internal_task",
+                task="audit_repair_route_repair",
+                chapter_number=audit_report.chapter_number,
+            ),
+            contract=contract,
+            parse=lambda content: parse_audit_repair_route_decision(content, audit_report=audit_report),
+            repair_prompt=lambda invalid_output, error: _audit_repair_route_repair_prompt(
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
     except AgentOutputContractError:
         return deterministic.model_copy(update={"reason": f"provider audit route contract failed; {deterministic.reason}"})
-    try:
-        return parse_audit_repair_route_decision(content, audit_report=audit_report)
-    except OrchestratorError as first_error:
-        try:
-            repair_content = generate_with_output_guard(
-                route_provider,
-                ModelRequest(
-                    system_prompt=load_prompt_template("audit_repair_route_system"),
-                    user_prompt=_audit_repair_route_repair_prompt(
-                        original_prompt=user_prompt,
-                        invalid_output=content,
-                        error=str(first_error),
-                    ),
-                    json_schema_name="AuditRepairRouteDecision",
-                ),
-                root=root,
-                invocation=AgentInvocationContext(
-                    agent_name="orchestrator",
-                    caller="session",
-                    interaction_mode="internal_task",
-                    task="audit_repair_route_repair",
-                    chapter_number=audit_report.chapter_number,
-                ),
-                contract=AgentOutputContract(
-                    output_kind="json",
-                    target_name="AuditRepairRouteDecision",
-                    json_schema_name="AuditRepairRouteDecision",
-                    allow_user_questions=False,
-                ),
-            )
-        except AgentOutputContractError:
-            return deterministic.model_copy(update={"reason": f"provider audit route repair contract failed; {deterministic.reason}"})
-        try:
-            return parse_audit_repair_route_decision(repair_content, audit_report=audit_report)
-        except OrchestratorError:
-            return deterministic.model_copy(update={"reason": f"provider audit route parse failed; {deterministic.reason}"})
+    except JsonRepairExhaustedError:
+        return deterministic.model_copy(update={"reason": f"provider audit route parse failed; {deterministic.reason}"})
 
 
 def build_audit_repair_route_user_prompt(
@@ -746,7 +689,10 @@ def parse_audit_repair_route_decision(
     *,
     audit_report: AuditReport,
 ) -> AuditRepairRouteDecision:
-    raw = _extract_json_object(content)
+    try:
+        raw = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise OrchestratorError("provider response did not contain a JSON object") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -872,7 +818,10 @@ def parse_revision_route_decision(
     fallback_instruction: str,
     chapter_numbers: list[int],
 ) -> RevisionRouteDecision:
-    raw = _extract_json_object(content)
+    try:
+        raw = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise OrchestratorError("provider response did not contain a JSON object") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -1367,18 +1316,6 @@ def _looks_like_local_expression_patch(text: str) -> bool:
         "伏笔",
     )
     return (has_local_marker or has_quote) and has_replace_marker and not _contains_any(text, plot_markers)
-
-
-def _extract_json_object(content: str) -> str:
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise OrchestratorError("provider response did not contain a JSON object")
-    return stripped[start : end + 1]
 
 
 def _unique_outputs(steps: list[AgentRunStep]) -> list[str]:

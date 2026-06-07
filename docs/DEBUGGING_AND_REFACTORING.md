@@ -102,7 +102,7 @@ runs/agent_output_violations/{request_id}.json
 6. 再检查 `revision_log.json` 中的 `polished.vN.md` 是否已提升为当前 `polished.md`，重审后的 `audit.json` 是否仍有 medium/high/critical，以及是否因为计划层问题触发了重新 planning。
 7. 如果用户认为 Audit 理解错了，先走 `session revise-audit <session_id> <event_id> --instruction ...` 或 Web UI 的“纠正 Audit 理解并重新审核”，不要手改 `audit.json`。复审后再 `session retry-rewrite`，或用 `session undo-rewrite` 恢复 rejected snapshot。
 8. 如果 Web UI 停在 `needs_revision`，优先看“自动打回重写记录”和被打回原文；如果打回理由合理，再走“按 Audit 修订内容”。修订后应看到新的版本稿、更新后的 `polished.md`、新的 audit 和新的 `state_update_proposal.json`。
-9. 如果问题根源是 timeline/state/canon 写错，让 orchestrator 项目管家生成 memory repair proposal；确认 `memory/repairs/{repair_id}/proposal.md` 和 diff 后再 apply。apply 失败时看 `apply_log.json` 和 `management_events.jsonl`。
+9. 如果问题根源是 timeline/state/canon 写错，让 orchestrator 项目管家生成 memory repair proposal；确认 `memory/repairs/{repair_id}/proposal.md` 和 diff 后再 apply。apply 失败时先看 `apply_log.json`、`management_events.jsonl` 和 `runs/app.log`；`app.log` 只记录脱敏摘要，模型完整输入输出仍看 `runs/model_io/`。
 10. 如果普通作者不确定下一步操作，先让他点击 Web UI 的“项目检查”，再看“下一步提示”和“后台管理动态”；这些入口不会泄漏 API Key。
 11. 全局 timeline ordering 旧 warning 不应阻断某一章正文修复；真正会阻断的是当前章新增事件倒退、scene 超出 ChapterPlan 范围或引用冲突。
 12. 对 accepted/export 相关问题，确认 state update apply log 和 metadata 是否一致。
@@ -245,6 +245,13 @@ ruff check .
 mypy src scripts
 ```
 
+结构化 JSON Agent 的通用修复路径：
+
+- JSON object 抽取统一走 `core/json_extract.py`，业务模块只包装领域异常。
+- “生成 -> parse/validate -> repair retry -> parse/validate”统一走 `core/structured_generation.py`；如果 repair 后仍失败，调用方负责选择报错还是 fallback。
+- Audit Agent 的 `audited_file` 如果被真实模型误填成章节标题等非文件名文本，应在 `audit_chapter()` 的 provider 输出边界按本次请求的 `draft.md` / `polished.md` 归一；只有模型明确返回另一个合法文件名时才作为 precheck mismatch。
+- 非模型失败摘要写 `runs/app.log`；不要把 prompt、response、章节正文、完整用户请求或 API Key 写入该日志。
+
 ## 6. Prompt 调整 checklist
 
 调整 prompt 后必须确认：
@@ -292,7 +299,7 @@ pytest tests/test_security.py -q
 2. 用临时 workspace 运行，不污染示例项目。
 3. 所有 Agent 先用同一 provider 验证最短流程，再分 agent 调参。
 4. 失败后保留 `runs/` 作为证据。
-5. 成功标准至少包括：两章 accepted、`novel validate` 通过、Markdown export 成功。
+5. 评审收口类改动的成功标准至少包括：`provider_ping --allow-network` 通过、`pytest -m real_api` 通过、一章最短 `smoke_session.py --provider config --model <model>` 完成并 `novel validate`、Markdown export 成功。`--model` 会写入临时项目 `config/agents.yaml` 的 default model，确保 Session 子命令也使用同一真实模型。发布前可再跑两章 accepted 的较长 smoke。
 
 普通回归仍使用：
 

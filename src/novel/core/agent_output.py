@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 from novel.core.io import atomic_write_json
+from novel.core.json_extract import strip_code_fence
 from novel.core.providers import ModelProvider, ModelRequest
 
 
@@ -212,24 +213,12 @@ def _new_request_id() -> str:
 
 
 def _looks_like_json_payload(text: str) -> bool:
-    cleaned = _strip_code_fence(text)
+    cleaned = strip_code_fence(text)
     if not cleaned:
         return False
     if cleaned[0] in "{[":
         return True
     return bool(re.search(r"```(?:json)?\s*[\[{]", text, re.IGNORECASE))
-
-
-def _strip_code_fence(text: str) -> str:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
-    return stripped
 
 
 def _looks_like_clarification_request(text: str) -> bool:

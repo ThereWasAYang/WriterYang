@@ -119,7 +119,7 @@ exports/
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装工具，确保源码更新后重启 Web UI 即可生效。
 - `check_local.py`：本地复现 CI 质量门禁。mypy 是阻断式检查；`--strict-mypy` 保留为兼容旧命令的显式写法。
-- `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke。
+- `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke；真实 provider 可传 `--model`，脚本会把模型写入临时项目 default 配置，避免 Session 子命令沿用模板占位模型。
 - `debug_bundle.py`：生成脱敏排障包。它会移除已知密钥值，但 bundle 仍可能包含小说正文、隐藏设定和模型 I/O 摘要，不应外发或提交。
 - `provider_ping.py`：检查 agent/embedding provider 配置和可选真实调用。
 - `webui_smoke.py`：用 Playwright 跑最小 Web UI 流程。

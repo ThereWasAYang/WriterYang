@@ -38,6 +38,7 @@
 - `src/novel/web_server.py`
 - `src/novel/core/__init__.py`
 - `src/novel/core/agent_output.py`
+- `src/novel/core/app_logging.py`
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
 - `src/novel/core/chapter_memory.py`
@@ -50,10 +51,14 @@
 - `src/novel/core/inspection.py`
 - `src/novel/core/inspiration.py`
 - `src/novel/core/io.py`
+- `src/novel/core/json_extract.py`
 - `src/novel/core/json_schema.py`
 - `src/novel/core/locking.py`
 - `src/novel/core/management.py`
 - `src/novel/core/memory_repair.py`
+- `src/novel/core/memory_repair_mock.py`
+- `src/novel/core/memory_repair_ops.py`
+- `src/novel/core/memory_repair_rules.py`
 - `src/novel/core/migration.py`
 - `src/novel/core/orchestrator.py`
 - `src/novel/core/plan_refs.py`
@@ -70,6 +75,7 @@
 - `src/novel/core/session.py`
 - `src/novel/core/setup_guide.py`
 - `src/novel/core/state_update.py`
+- `src/novel/core/structured_generation.py`
 - `src/novel/core/usage.py`
 - `src/novel/core/validation.py`
 - `src/novel/core/workflow.py`
@@ -375,6 +381,24 @@ Embedding provider：
 
 开发新 Agent 时应复用此模块。
 
+### `core/json_extract.py` / `core/structured_generation.py`
+
+结构化 JSON 输出的公共后处理：
+
+- `strip_code_fence()` / `extract_json_object()`：统一处理 fenced JSON、前后夹杂文本和缺失 JSON object。
+- `JsonExtractionError`：只表示“文本里没有可抽取的 JSON object”；业务模块应包装为自己的领域异常。
+- `generate_json_with_repair()`：统一二层 repair 编排，执行 provider 调用、parse/validate、构造 repair prompt、repair retry、再次 parse/validate。
+- `JsonRepairExhaustedError`：repair retry 后仍不合法时抛出；调用方决定是领域异常还是保守 fallback。
+- Audit workflow 仍在 `audit_chapter()` 保留领域边界归一：真实模型把 `audited_file` 误填成章节标题等非文件名文本时，按本次请求文件名修正；明确的 `draft.md` / `polished.md` 错配仍交给 precheck。
+
+### `core/app_logging.py`
+
+轻量应用日志：
+
+- `log_app_warning()`：写入项目 `runs/app.log`，每行一个脱敏 JSON object。
+- 只记录安全摘要，例如 `event`、`request_id`、workflow、status/code、repair_id、相对路径和截断错误；不写 prompt、response、章节正文或完整用户输入。
+- Web API 异常、memory repair fallback/preflight/rollback 等模型外失败路径应调用它。完整模型输入输出仍只在 `runs/model_io/`。
+
 ## 8. 写作业务模块
 
 ### `core/workspace.py`
@@ -580,10 +604,10 @@ orchestrator 项目管家修复 proposal：
 - `apply_memory_repair()`：校验 proposal，限制白名单文件，先执行 schema/semantic preflight，再按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
 - `build_memory_repair_user_prompt()` / `_memory_pointer_index()`：组装 MemoryRepairDecision prompt，注入目标文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径示例；集合字段提示来自当前 schema，避免 hidden_truths/foreshadowing 字段漂移，并说明 `Character.role` 只表示叙事角色、身份短语应进入 `tags`。
 - `render_memory_repair_markdown()`：把 proposal 渲染为用户可读说明。
-- `_mock_infer_target_files()` / `_mock_infer_operations()`：仅用于 mock 测试 fixture，不作为真实业务推断路径。
-- `_apply_operations_to_data()` / `_apply_operation()` / `_resolve_pointer_parent()`：JSON Pointer patch 执行器。
+- `core/memory_repair_rules.py`：白名单文件、domain 映射、collection key、schema hint、设定变更映射规则和 Character.role 语义规则。
+- `core/memory_repair_mock.py`：仅用于 mock/config fixture 的启发式测试路径，不作为真实业务推断路径。
+- `core/memory_repair_ops.py`：JSON Pointer patch 执行器和备份恢复工具。
 - `_validate_file_model()`：用对应 schema 校验修改后的白名单文件。
-- `_restore_backups()`：apply 失败后恢复已备份文件。
 
 ### `core/workflow.py`
 
@@ -721,6 +745,7 @@ Provider 用量统计：
 | `tests/test_workspace.py` | `novel init` 和默认 workspace 文件。 |
 | `tests/test_cli.py` / `test_integration_cli.py` | CLI 参数、JSON/quiet/project、doctor、lock。 |
 | `tests/test_agent_output.py` | Agent 输出契约守卫、内部任务反问拦截和 violation log。 |
+| `tests/test_json_extract.py` / `tests/test_structured_generation.py` | JSON object 抽取和结构化输出 repair helper。 |
 | `tests/test_provider_config.py` / `test_providers.py` | provider 配置、真实 provider fake HTTP、日志、脱敏、stream。 |
 | `tests/test_real_api.py` | 真实 API 标记测试。 |
 | `tests/test_embeddings.py` / `test_real_embeddings.py` | embedding provider、真实 embedding 标记测试。 |
@@ -736,7 +761,7 @@ Provider 用量统计：
 | `tests/test_workflow_tools.py` | 工具脚本帮助输出、dry-run 行为、CLI 契约和确定性脚本边界。 |
 | `tests/test_session.py` | Creation Session 状态机、归档、安全。 |
 | `tests/test_orchestrator.py` | `novel ask` 和 handoff trace。 |
-| `tests/test_memory_repair.py` | 项目管家 memory repair proposal/apply 和白名单 patch。 |
+| `tests/test_memory_repair.py` | 项目管家 memory repair proposal/apply、白名单 patch、preflight 和回滚日志。 |
 | `tests/test_search.py` | search index、ContextBundle、hidden truth visibility。 |
 | `tests/test_exporting.py` | Markdown/DOCX export 和 manifest。 |
 | `tests/test_validation.py` | 全项目 validation 和一致性闭环。 |
@@ -761,7 +786,7 @@ Provider 用量统计：
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装 WriterYang；同时生成固定环境的 Web UI 启动器。
 - `check_local.py`：本地质量门禁，组合 pytest、ruff、mypy、secret scan、build、twine。
-- `smoke_session.py`：创建临时项目并用 CLI 跑完整 Session smoke。
+- `smoke_session.py`：创建临时项目并用 CLI 跑完整 Session smoke；`--model` 会补写临时项目 default model，供 Session 子命令继承。
 - `debug_bundle.py`：收集脱敏排障包；会移除已知密钥值，但 bundle 仍可能包含小说正文、隐藏设定和模型 I/O 摘要，不应外发或提交。
 - `provider_ping.py`：检查 agent/embedding provider 配置，显式允许后可做真实最小调用。
 - `webui_smoke.py`：启动本地 Web UI 并用 Playwright 跑最小浏览器流程。

@@ -14,7 +14,6 @@ from pydantic import ValidationError
 from novel.core.agent_output import (
     AgentInvocationContext,
     AgentOutputContract,
-    generate_with_output_guard,
 )
 from novel.core.canon import format_canon_summary, load_canon_drift_provider, load_canon_files, suggest_canon_drift
 from novel.core.chapter_memory import (
@@ -25,6 +24,7 @@ from novel.core.chapter_memory import (
 )
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -47,6 +47,7 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
+from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
 from novel.core.validation import validate_canon
 
 
@@ -805,7 +806,10 @@ def build_state_update_user_prompt(
 
 
 def parse_state_update_proposal(content: str) -> StateUpdateProposal:
-    json_text = _extract_json_object(content)
+    try:
+        json_text = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise StateUpdateError("provider response does not contain a JSON object") from exc
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as exc:
@@ -828,64 +832,47 @@ def _generate_state_update_proposal_with_repair(
         context=context.canon_summary,
         json_schema_name="StateUpdateProposal",
     )
-    content = generate_with_output_guard(
-        provider,
-        request,
-        root=options.root,
-        invocation=AgentInvocationContext(
-            agent_name="state_update",
-            caller="cli",
-            interaction_mode="internal_task",
-            task="propose_state_update",
-            chapter_number=options.chapter_number,
-        ),
-        contract=AgentOutputContract(
-            output_kind="json",
-            target_name="StateUpdateProposal",
-            json_schema_name="StateUpdateProposal",
-        ),
+    contract = AgentOutputContract(
+        output_kind="json",
+        target_name="StateUpdateProposal",
+        json_schema_name="StateUpdateProposal",
     )
-    try:
+
+    def parse_and_validate(content: str) -> tuple[StateUpdateProposal, tuple[str, ...]]:
         proposal = _parse_and_validate_state_update_response(content, options)
         warnings = validate_state_update_proposal(options.root, proposal, check_existing_timeline_ids=False)
         return proposal, tuple(warnings)
-    except StateUpdateError as first_error:
-        repair_content = generate_with_output_guard(
+
+    try:
+        return generate_json_with_repair(
             provider,
-            ModelRequest(
-                system_prompt=build_state_update_system_prompt(),
-                user_prompt=_repair_prompt(
-                    schema_name="StateUpdateProposal",
-                    original_prompt=user_prompt,
-                    invalid_output=content,
-                    error=str(first_error),
-                ),
-                context=context.canon_summary,
-                json_schema_name="StateUpdateProposal",
-            ),
+            request,
             root=options.root,
             invocation=AgentInvocationContext(
+                agent_name="state_update",
+                caller="cli",
+                interaction_mode="internal_task",
+                task="propose_state_update",
+                chapter_number=options.chapter_number,
+            ),
+            repair_invocation=AgentInvocationContext(
                 agent_name="state_update",
                 caller="cli",
                 interaction_mode="internal_task",
                 task="propose_state_update_repair",
                 chapter_number=options.chapter_number,
             ),
-            contract=AgentOutputContract(
-                output_kind="json",
-                target_name="StateUpdateProposal",
-                json_schema_name="StateUpdateProposal",
+            contract=contract,
+            parse=parse_and_validate,
+            repair_prompt=lambda invalid_output, error: _repair_prompt(
+                schema_name="StateUpdateProposal",
+                original_prompt=user_prompt,
+                invalid_output=invalid_output,
+                error=error,
             ),
         )
-        try:
-            proposal = _parse_and_validate_state_update_response(repair_content, options)
-            warnings = validate_state_update_proposal(options.root, proposal, check_existing_timeline_ids=False)
-            return proposal, tuple(warnings)
-        except StateUpdateError as second_error:
-            raise StateUpdateError(
-                "provider returned invalid StateUpdateProposal after repair retry: "
-                f"{second_error}"
-            ) from second_error
+    except JsonRepairExhaustedError as exc:
+        raise StateUpdateError(str(exc)) from exc.second_error
 
 
 def _parse_and_validate_state_update_response(
@@ -1274,22 +1261,6 @@ def _require_unique(values: list[str], label: str) -> None:
         seen.add(value)
     if duplicates:
         raise StateUpdateError(f"duplicate {label}: {', '.join(sorted(duplicates))}")
-
-
-def _extract_json_object(content: str) -> str:
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        stripped = "\n".join(lines).strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise StateUpdateError("provider response does not contain a JSON object")
-    return stripped[start : end + 1]
 
 
 def _chapter_dir(root: Path, chapter_number: int) -> Path:

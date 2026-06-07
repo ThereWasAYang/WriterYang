@@ -17,6 +17,7 @@ from novel.core.agent_output import (
 )
 from novel.core.context_budget import project_context_budget
 from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.plan_refs import (
     plan_focus_entity_ids,
     plan_timeline_event_ids,
@@ -387,7 +388,10 @@ def build_chapter_memory_user_prompt(context: ChapterMemoryContext) -> str:
 
 
 def parse_chapter_memory(content: str, context: ChapterMemoryContext) -> ChapterMemory:
-    json_text = _extract_json_object(content)
+    try:
+        json_text = extract_json_object(content)
+    except JsonExtractionError as exc:
+        raise ChapterMemoryError("provider did not return a JSON object") from exc
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as exc:
@@ -744,22 +748,6 @@ def _source_ref(path: str | None, kind: str) -> ChapterMemorySourceRef:
 def _refuse_existing(path: Path, force: bool) -> None:
     if path.exists() and not force:
         raise ChapterMemoryError(f"{path} already exists; use --force to overwrite it")
-
-
-def _extract_json_object(content: str) -> str:
-    text = content.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end < start:
-        raise ChapterMemoryError("provider did not return a JSON object")
-    return text[start : end + 1]
 
 
 def _compact(value: str, limit: int) -> str:

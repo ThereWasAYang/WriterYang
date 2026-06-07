@@ -12,8 +12,16 @@ from novel.core import chapter_memory as chapter_memory_module
 from novel.core import state_update as state_update_module
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, default_mock_audit_report_json
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.chapter_memory import load_chapter_memories, render_chapter_memory_prompt_text, validate_chapter_memory
+from novel.core.chapter_memory import (
+    default_mock_chapter_memory_json,
+    load_chapter_memories,
+    load_chapter_memory_context,
+    parse_chapter_memory,
+    render_chapter_memory_prompt_text,
+    validate_chapter_memory,
+)
 from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, polish_chapter
 from novel.core.providers import MockProvider
@@ -87,6 +95,17 @@ def test_chapter_memory_provider_failure_uses_deterministic_fallback(tmp_path: P
     events = (root / "memory" / "management_events.jsonl").read_text(encoding="utf-8")
     assert "chapter_memory_generated" in events
     assert "chapter_memory_failed" not in events
+
+
+def test_parse_chapter_memory_overwrites_stale_schema_version(tmp_path: Path) -> None:
+    root = _workspace_with_accepted_memory(tmp_path)
+    context = load_chapter_memory_context(root, 1)
+    payload = json.loads(default_mock_chapter_memory_json(1))
+    payload["schema_version"] = 1
+
+    memory = parse_chapter_memory(json.dumps(payload, ensure_ascii=False), context)
+
+    assert memory.schema_version == CURRENT_SCHEMA_VERSION
 
 
 def test_chapter_memory_stale_sha_is_detected(tmp_path: Path) -> None:

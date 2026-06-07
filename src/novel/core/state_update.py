@@ -26,6 +26,7 @@ from novel.core.context_budget import render_state_prompt_text, render_timeline_
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -815,7 +816,9 @@ def parse_state_update_proposal(content: str) -> StateUpdateProposal:
     except json.JSONDecodeError as exc:
         raise StateUpdateError(f"provider did not return valid StateUpdateProposal JSON: {exc}") from exc
     try:
-        return StateUpdateProposal.model_validate(_normalize_state_update_data(data))
+        return StateUpdateProposal.model_validate(_normalize_state_update_data(data)).model_copy(
+            update={"schema_version": CURRENT_SCHEMA_VERSION}
+        )
     except ValidationError as exc:
         raise StateUpdateError(f"provider returned invalid StateUpdateProposal: {exc}") from exc
 
@@ -840,6 +843,7 @@ def _generate_state_update_proposal_with_repair(
 
     def parse_and_validate(content: str) -> tuple[StateUpdateProposal, tuple[str, ...]]:
         proposal = _parse_and_validate_state_update_response(content, options)
+        proposal = _normalize_state_update_references(options.root, proposal)
         warnings = validate_state_update_proposal(options.root, proposal, check_existing_timeline_ids=False)
         return proposal, tuple(warnings)
 
@@ -958,6 +962,10 @@ def _normalize_state_update_data(data: object) -> object:
 
 def _normalize_state_change_values(item: dict[str, object]) -> None:
     field = item.get("field")
+    if field in {"holder_id", "location_id"}:
+        for value_key in ("old_value", "new_value"):
+            if _is_nullish_state_value(item.get(value_key)):
+                item[value_key] = None
     if field in {"knowledge", "goals", "known_properties", "active_events"}:
         for value_key in ("old_value", "new_value"):
             if isinstance(item.get(value_key), str):
@@ -972,6 +980,36 @@ def _normalize_state_change_values(item: dict[str, object]) -> None:
 
 def _extract_entity_ids(value: str) -> list[str]:
     return re.findall(r"\b[a-z]+_[a-z0-9_]+\b", value)
+
+
+def _normalize_state_update_references(root: Path, proposal: StateUpdateProposal) -> StateUpdateProposal:
+    canon = load_canon_files(root)
+    location_ids = {item.id for item in canon.locations.locations}
+    item_ids = {item.id for item in canon.items.items}
+    normalized_changes: list[StateChange] = []
+    changed = False
+    warnings = list(proposal.warnings)
+    for change in proposal.state_changes:
+        if (
+            change.entity_id in item_ids
+            and change.field == "holder_id"
+            and isinstance(change.new_value, str)
+            and change.new_value in location_ids
+        ):
+            normalized_changes.append(change.model_copy(update={"field": "location_id"}))
+            warnings.append(
+                f"normalized state change {change.id} holder_id location reference to location_id"
+            )
+            changed = True
+            continue
+        normalized_changes.append(change)
+    if not changed:
+        return proposal
+    return proposal.model_copy(update={"state_changes": normalized_changes, "warnings": warnings})
+
+
+def _is_nullish_state_value(value: object) -> bool:
+    return isinstance(value, str) and value.strip().lower() in {"", "none", "null", "n/a", "unknown", "无", "未知"}
 
 
 def _repair_prompt(
@@ -1172,7 +1210,7 @@ def _validate_state_change_old_values(
             # conflict against current_state.json.
             continue
         actual = _current_state_value_for_change(target, change)
-        if actual != change.old_value:
+        if not _state_values_equivalent(actual, change.old_value):
             raise StateUpdateError(
                 f"state change {change.id} old_value mismatch for {change.entity_id}.{change.field}: "
                 f"expected {change.old_value!r}, actual {actual!r}"
@@ -1190,6 +1228,16 @@ def _current_state_value_for_change(target: Any | None, change: StateChange) -> 
         "active_events": [],
     }
     return defaults.get(change.field)
+
+
+def _state_values_equivalent(actual: Any, expected: Any) -> bool:
+    if actual == expected:
+        return True
+    return _is_empty_state_scalar(actual) and _is_empty_state_scalar(expected)
+
+
+def _is_empty_state_scalar(value: Any) -> bool:
+    return value is None or value == ""
 
 
 def _validate_applied_timeline(root: Path, timeline: TimelineFile) -> None:

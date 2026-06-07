@@ -46,6 +46,7 @@ def test_each_agent_reads_independent_config(tmp_path: Path) -> None:
         assert config.max_tokens == 6789
         assert config.timeout_seconds == 42
         assert config.max_retries == 2
+        assert config.json_response_format == "json_schema"
 
 
 def test_provider_factory_create_for_agent_supports_mock_override(tmp_path: Path) -> None:
@@ -85,8 +86,10 @@ def test_default_config_and_agent_partial_override(tmp_path: Path) -> None:
     assert writer.api_key_env == "DEFAULT_API_KEY"
     assert writer.temperature == 0.9
     assert writer.max_tokens == 24000
+    assert writer.json_response_format == "json_object"
     assert audit.provider == "deepseek"
     assert audit.temperature == 0.2
+    assert audit.json_response_format == "json_object"
 
 
 def test_missing_agent_uses_default_config(tmp_path: Path) -> None:
@@ -278,7 +281,31 @@ def test_provider_descriptor_does_not_include_real_api_key(tmp_path: Path) -> No
     text = descriptor.format()
 
     assert "WRITER_API_KEY" in text
+    assert "json_response_format: json_schema" in text
     assert "sk-" not in text
+
+
+def test_provider_descriptor_shows_resolved_auto_json_response_format(tmp_path: Path) -> None:
+    config_path = tmp_path / "agents.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {
+                    "provider": "openai",
+                    "model": "test-model",
+                    "api_key_env": "OPENAI_API_KEY",
+                }
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    descriptor = describe_agent_provider(config_path, "writer")
+
+    assert descriptor.json_response_format == "json_schema (auto)"
+    assert "json_response_format: json_schema (auto)" in descriptor.format()
 
 
 def test_create_agent_provider_wraps_mock_with_model_io_logging(tmp_path: Path) -> None:
@@ -327,6 +354,7 @@ def _agents_config(tmp_path: Path) -> Path:
                         "temperature": 0.4,
                         "timeout_seconds": 42,
                         "max_retries": 2,
+                        "json_response_format": "json_schema",
                     }
                     for agent_name in AGENTS
                 }
@@ -352,6 +380,7 @@ def _default_agents_config(tmp_path: Path) -> Path:
                     "thinking": {"type": "disabled"},
                     "temperature": 0.5,
                     "max_tokens": 8192,
+                    "json_response_format": "json_object",
                 },
                 "agents": {
                     "writer": {"temperature": 0.9, "max_tokens": 24000},

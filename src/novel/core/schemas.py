@@ -38,6 +38,7 @@ MemoryChangeStage = Literal[
     "post_chapter",
     "unknown",
 ]
+JsonResponseFormat = Literal["auto", "json_object", "json_schema", "json_schema_strict"]
 MemoryChangeFollowupActionType = Literal[
     "none",
     "revise_outline",
@@ -175,6 +176,7 @@ class AgentConfig(FlexibleModel):
     temperature: float | None = Field(default=None, ge=0)
     timeout_seconds: float | None = Field(default=None, gt=0)
     max_retries: int | None = Field(default=None, ge=0)
+    json_response_format: JsonResponseFormat = "auto"
 
     @field_validator("api_key_env", "base_url_env")
     @classmethod
@@ -196,6 +198,7 @@ class AgentConfigPatch(FlexibleModel):
     temperature: float | None = Field(default=None, ge=0)
     timeout_seconds: float | None = Field(default=None, gt=0)
     max_retries: int | None = Field(default=None, ge=0)
+    json_response_format: JsonResponseFormat | None = None
 
     @field_validator("api_key_env", "base_url_env")
     @classmethod

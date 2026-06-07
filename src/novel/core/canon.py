@@ -572,12 +572,14 @@ def _normalize_canon_item(collection_name: str, item: dict[str, object]) -> None
         _copy_first_present(item, "description", ("content", "summary", "truth", "private_author_notes", "notes"))
         item.setdefault("visibility", "hidden")
         item.setdefault("importance", "medium")
+        _normalize_planned_chapter_object(item, "planned_reveal")
     if collection_name == "foreshadowing_threads":
         item.setdefault("type", "clue")
         _copy_first_present(item, "title", ("name", "summary", "description"))
-        item.setdefault("introduced_in_chapter", 1)
+        item["introduced_in_chapter"] = _coerce_positive_chapter(item.get("introduced_in_chapter")) or 1
         item.setdefault("status", "active")
         item.setdefault("importance", "medium")
+        _normalize_planned_chapter_object(item, "planned_payoff")
 
 
 def _normalize_visibility_objects(value: object, *, default_visibility: str) -> None:
@@ -610,6 +612,44 @@ def _normalize_list_field(value: object) -> list[object]:
     if value is None:
         return []
     return [value]
+
+
+def _normalize_planned_chapter_object(item: dict[str, object], field: str) -> None:
+    value = item.get(field)
+    if value is None:
+        return
+    if isinstance(value, str) and _is_unknown_chapter_value(value):
+        item[field] = None
+        return
+    if not isinstance(value, dict):
+        return
+    chapter = _coerce_positive_chapter(value.get("chapter"))
+    if chapter is None:
+        item[field] = None
+        return
+    value["chapter"] = chapter
+
+
+def _coerce_positive_chapter(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 1 else None
+    if isinstance(value, float) and value.is_integer():
+        chapter = int(value)
+        return chapter if chapter >= 1 else None
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdecimal():
+            chapter = int(text)
+            return chapter if chapter >= 1 else None
+        if _is_unknown_chapter_value(text):
+            return None
+    return None
+
+
+def _is_unknown_chapter_value(value: str) -> bool:
+    return value.strip().lower() in {"", "0", "unknown", "n/a", "none", "null", "tbd", "待定", "未知", "未定"}
 
 
 def validate_canon_proposal(proposal: CanonProposal, *, existing_canon: CanonFiles | None = None) -> None:

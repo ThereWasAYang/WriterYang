@@ -18,6 +18,7 @@ from novel.core.agent_output import (
 from novel.core.context_budget import project_context_budget
 from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.plan_refs import (
     plan_focus_entity_ids,
     plan_timeline_event_ids,
@@ -408,7 +409,7 @@ def parse_chapter_memory(content: str, context: ChapterMemoryContext) -> Chapter
     normalized.setdefault("reader_visible_summary", _reader_visible_summary_from_polished(context))
     normalized.setdefault("timeline_event_ids", [event.id for event in _chapter_timeline_events(context)])
     try:
-        return ChapterMemory.model_validate(normalized)
+        return ChapterMemory.model_validate(normalized).model_copy(update={"schema_version": CURRENT_SCHEMA_VERSION})
     except ValidationError as exc:
         raise ChapterMemoryError(f"provider returned invalid ChapterMemory: {exc}") from exc
 

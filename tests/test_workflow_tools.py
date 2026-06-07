@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+
+import yaml
 
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -17,6 +20,7 @@ SCRIPTS = (
     "scripts/provider_ping.py",
     "scripts/webui_smoke.py",
     "scripts/project_health.py",
+    "scripts/install_git_hooks.py",
     "scripts/capture_webui_guide_screenshots.py",
 )
 
@@ -70,6 +74,41 @@ def test_check_local_dry_run_lists_quality_gate() -> None:
     assert "build" not in names
 
 
+def test_install_git_hooks_dry_run_reports_pre_push_hook() -> None:
+    completed = _run_script("scripts/install_git_hooks.py", "--dry-run", "--json")
+    payload = json.loads(completed.stdout)
+
+    assert completed.returncode == 0
+    assert payload["ok"] is True
+    assert payload["dry_run"] is True
+    assert payload["hooks_path"] == ".githooks"
+    assert payload["command"] == ["git", "config", "core.hooksPath", ".githooks"]
+
+
+def test_pre_push_hook_supports_explicit_skip() -> None:
+    completed = subprocess.run(
+        ["sh", ".githooks/pre-push"],
+        text=True,
+        capture_output=True,
+        env={**os.environ, "WRITERYANG_SKIP_PRE_PUSH": "1"},
+    )
+
+    assert completed.returncode == 0
+    assert "skipped" in completed.stderr
+
+
+def test_pre_push_hook_runs_mock_check_command() -> None:
+    completed = subprocess.run(
+        ["sh", ".githooks/pre-push"],
+        text=True,
+        capture_output=True,
+        env={**os.environ, "WRITERYANG_PRE_PUSH_CHECK_COMMAND": f"{sys.executable} -c 'import sys; sys.exit(0)'"},
+    )
+
+    assert completed.returncode == 0
+    assert "pre-push check command" in completed.stderr
+
+
 def test_smoke_session_dry_run_lists_session_flow(tmp_path: Path) -> None:
     completed = _run_script(
         "scripts/smoke_session.py",
@@ -103,6 +142,23 @@ def test_smoke_session_dry_run_without_project_does_not_create_workspace(tmp_pat
     assert completed.returncode == 0
     assert payload["ok"] is True
     assert list(temp_root.iterdir()) == []
+
+
+def test_smoke_session_config_provider_uses_real_env_names_only(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace(tmp_path)
+    module = _load_script_module("scripts/smoke_session.py")
+    monkeypatch.setenv("WRITERYANG_REAL_API_KEY", "secret-real-key")
+    monkeypatch.setenv("WRITERYANG_REAL_PROVIDER", "deepseek")
+
+    module._patch_default_api_config(root, provider="config", model="deepseek-v4-pro")
+
+    text = (root / "config" / "agents.yaml").read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+    assert data["default"]["provider"] == "deepseek"
+    assert data["default"]["api_key_env"] == "WRITERYANG_REAL_API_KEY"
+    assert data["default"]["base_url_env"] == "WRITERYANG_REAL_BASE_URL"
+    assert data["default"]["model"] == "deepseek-v4-pro"
+    assert "secret-real-key" not in text
 
 
 def test_webui_smoke_dry_run_does_not_bind_port() -> None:
@@ -221,3 +277,12 @@ def _run_script(rel_path: str, *args: str, env: dict[str, str] | None = None) ->
         capture_output=True,
         env=full_env,
     )
+
+
+def _load_script_module(rel_path: str):
+    spec = importlib.util.spec_from_file_location("writeryang_script_under_test", Path(rel_path))
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

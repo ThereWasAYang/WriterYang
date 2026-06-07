@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Type
 
@@ -151,6 +153,28 @@ def model_output_schema_payload(name: str) -> dict[str, object] | None:
     return model_output_schema_payloads().get(name)
 
 
+def model_output_schema_skeleton(name: str, *, max_chars: int = 2400) -> str | None:
+    schema = model_output_schema_payload(name)
+    if schema is None:
+        return None
+    defs_obj = schema.get("$defs")
+    defs = defs_obj if isinstance(defs_obj, dict) else {}
+    skeleton = _schema_skeleton(schema, defs)
+    text = json.dumps(skeleton, ensure_ascii=False, indent=2)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "\n... <truncated schema skeleton>"
+
+
+def strict_model_output_schema_payload(name: str) -> dict[str, object] | None:
+    schema = model_output_schema_payload(name)
+    if schema is None:
+        return None
+    strict_schema = deepcopy(schema)
+    _strictify_schema_node(strict_schema, path=name)
+    return strict_schema
+
+
 def export_json_schemas(output_dir: Path) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
@@ -160,3 +184,74 @@ def export_json_schemas(output_dir: Path) -> list[Path]:
         atomic_write_json(path, schema)
         written.append(path)
     return written
+
+
+def _schema_skeleton(node: object, defs: dict[str, object], *, depth: int = 0) -> object:
+    if depth > 6:
+        return "..."
+    if not isinstance(node, dict):
+        return "value"
+    ref = node.get("$ref")
+    if isinstance(ref, str):
+        name = ref.rsplit("/", 1)[-1]
+        target = defs.get(name)
+        return _schema_skeleton(target, defs, depth=depth + 1) if target is not None else "value"
+    if "const" in node:
+        return node["const"]
+    enum = node.get("enum")
+    if isinstance(enum, list) and enum:
+        return enum[0]
+    any_of = node.get("anyOf")
+    if isinstance(any_of, list) and any_of:
+        non_null = [item for item in any_of if not (isinstance(item, dict) and item.get("type") == "null")]
+        return _schema_skeleton(non_null[0] if non_null else any_of[0], defs, depth=depth + 1)
+    node_type = node.get("type")
+    if node_type == "object" or "properties" in node:
+        props = node.get("properties")
+        if not isinstance(props, dict):
+            return {}
+        return {
+            str(key): _schema_skeleton(value, defs, depth=depth + 1)
+            for key, value in list(props.items())[:24]
+        }
+    if node_type == "array":
+        return [_schema_skeleton(node.get("items"), defs, depth=depth + 1)]
+    if node_type == "integer":
+        return 1
+    if node_type == "number":
+        return 0
+    if node_type == "boolean":
+        return False
+    if node_type == "null":
+        return None
+    return "string"
+
+
+def _strictify_schema_node(node: object, *, path: str) -> None:
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            _strictify_schema_node(item, path=f"{path}/{index}")
+        return
+    if not isinstance(node, dict):
+        return
+
+    if "const" in node:
+        node["enum"] = [node.pop("const")]
+    for key in ("default", "format", "title", "examples", "minimum", "maximum", "minLength", "maxLength", "pattern", "minItems", "maxItems"):
+        node.pop(key, None)
+
+    if node.get("type") == "object" or "properties" in node:
+        props = node.get("properties")
+        if props is None:
+            raise ValueError(f"{path} contains an unconstrained object and cannot be converted to strict JSON schema")
+        if not isinstance(props, dict):
+            raise ValueError(f"{path}.properties must be an object for strict JSON schema")
+        node["required"] = list(props.keys())
+        node["additionalProperties"] = False
+
+    for key, value in list(node.items()):
+        if key in {"properties", "$defs"} and isinstance(value, dict):
+            for child_key, child_value in value.items():
+                _strictify_schema_node(child_value, path=f"{path}/{key}/{child_key}")
+            continue
+        _strictify_schema_node(value, path=f"{path}/{key}")

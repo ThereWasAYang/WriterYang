@@ -154,6 +154,32 @@ def test_openai_compatible_provider_uses_temperature_without_vendor_thinking() -
     assert provider.json_response_format == "json_object"
 
 
+def test_provider_config_can_force_json_object_for_openai() -> None:
+    config = AgentConfig(
+        provider="openai",
+        model="test-model",
+        api_key_env="OPENAI_API_KEY",
+        json_response_format="json_object",
+    )
+
+    provider = ProviderFactory(env={"OPENAI_API_KEY": "secret-test-key"}).create(config)
+
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert provider.json_response_format == "json_object"
+
+
+def test_deepseek_provider_rejects_strict_json_schema_for_chat() -> None:
+    config = AgentConfig(
+        provider="deepseek",
+        model="deepseek-chat",
+        api_key_env="DEEPSEEK_API_KEY",
+        json_response_format="json_schema_strict",
+    )
+
+    with pytest.raises(ProviderError, match="json_schema_strict"):
+        ProviderFactory(env={"DEEPSEEK_API_KEY": "secret-test-key"}).create(config)
+
+
 def test_openai_compatible_provider_sends_thinking_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
     provider = OpenAICompatibleProvider(
@@ -662,6 +688,45 @@ def test_openai_compatible_provider_uses_json_object_for_structured_outputs(
     provider.generate(ModelRequest(system_prompt="s", user_prompt="u", json_schema_name="ChapterPlan"))
 
     assert captured["body"]["response_format"] == {"type": "json_object"}  # type: ignore[index]
+    messages = captured["body"]["messages"]  # type: ignore[index]
+    assert "WriterYang JSON mode guard" in messages[0]["content"]  # type: ignore[index]
+    assert "chapter_number" in messages[0]["content"]  # type: ignore[index]
+
+
+def test_deepseek_provider_uses_json_object_guard_for_structured_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    config = AgentConfig(
+        provider="deepseek",
+        model="deepseek-chat",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    provider = ProviderFactory(env={"DEEPSEEK_API_KEY": "secret-test-key"}).create(config)
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    provider.generate(ModelRequest(system_prompt="只输出对象。", user_prompt="生成计划。", json_schema_name="ChapterPlan"))
+
+    assert captured["body"]["response_format"] == {"type": "json_object"}  # type: ignore[index]
+    messages = captured["body"]["messages"]  # type: ignore[index]
+    assert "WriterYang JSON mode guard" in messages[0]["content"]  # type: ignore[index]
+    assert "Expected JSON structure skeleton" in messages[0]["content"]  # type: ignore[index]
+    assert "chapter_number" in messages[0]["content"]  # type: ignore[index]
 
 
 def test_openai_compatible_provider_sends_real_json_schema_for_known_structured_output(
@@ -699,6 +764,43 @@ def test_openai_compatible_provider_sends_real_json_schema_for_known_structured_
     assert json_schema["schema"]["title"] == "ChapterPlan"  # type: ignore[index]
     assert json_schema["schema"]["properties"]  # type: ignore[index]
     assert "strict" not in json_schema  # type: ignore[operator]
+
+
+def test_openai_provider_can_send_strict_json_schema_for_known_structured_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        api_provider="openai",
+        json_response_format="json_schema_strict",
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    provider.generate(ModelRequest(system_prompt="s", user_prompt="u", json_schema_name="ChapterPlan"))
+
+    json_schema = captured["body"]["response_format"]["json_schema"]  # type: ignore[index]
+    schema = json_schema["schema"]  # type: ignore[index]
+    assert json_schema["strict"] is True  # type: ignore[index]
+    assert schema["additionalProperties"] is False  # type: ignore[index]
+    assert set(schema["required"]) == set(schema["properties"])  # type: ignore[index]
 
 
 def test_openai_compatible_provider_falls_back_to_json_object_for_unknown_schema(
@@ -804,7 +906,8 @@ def test_json_object_provider_does_not_duplicate_existing_json_hint(
     )
 
     messages = captured["body"]["messages"]  # type: ignore[index]
-    assert messages[0]["content"] == "只输出 JSON。"  # type: ignore[index]
+    assert messages[0]["content"].count("WriterYang JSON mode guard") == 1  # type: ignore[index]
+    assert "只输出 JSON。" in messages[0]["content"]  # type: ignore[index]
 
 
 def test_provider_errors_do_not_leak_api_key(monkeypatch: pytest.MonkeyPatch) -> None:

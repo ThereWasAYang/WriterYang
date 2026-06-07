@@ -12,6 +12,7 @@ default:
   base_url_env: "WRITERYANG_REAL_BASE_URL"
   api_key_env: "WRITERYANG_REAL_API_KEY"
   model: "deepseek-chat"
+  json_response_format: "auto"
   thinking:
     type: "disabled"
   temperature: 0.5
@@ -39,6 +40,17 @@ agents:
 ```yaml
 api_key_env: "WRITER_API_KEY"
 ```
+
+## JSON 输出格式
+
+结构化 Agent 会在 `ModelRequest.json_schema_name` 中声明目标 schema。`json_response_format` 控制 provider adapter 如何把这个目标传给模型：
+
+- `auto`：默认值。`openai` 解析为 `json_schema`；`deepseek`、`zai`、`openai_compatible` 解析为 `json_object`。
+- `json_object`：发送 `response_format: {"type":"json_object"}`，并自动追加标准 JSON mode guard 和紧凑 schema skeleton。[DeepSeek 官方 JSON Output](https://api-docs.deepseek.com/zh-cn/guides/json_mode) 要求 prompt 中包含 `json` 和期望结构示例，推荐 DeepSeek 使用此模式。
+- `json_schema`：发送非 strict JSON schema。适合标准 OpenAI 或明确支持该参数的 OpenAI-compatible 服务。
+- `json_schema_strict`：仅用于显式 opt-in。当前只允许 `openai` 和通用 `openai_compatible` 尝试；DeepSeek / ZAI 会在本地拒绝。OpenAI strict 会先把 schema 转成 strict-compatible 子集，无法转换时 fail fast，不发请求。
+
+推荐保持 `auto`。只有在确认目标 provider 支持对应参数，并且已有真实 API smoke 覆盖后，再对单个 Agent 覆盖 `json_response_format`。
 
 ## Thinking 开关
 

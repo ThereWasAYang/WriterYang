@@ -8,6 +8,7 @@ from pathlib import Path
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import load_json_model
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.planning import (
     ChapterPlanningOptions,
     PlanningError,
@@ -76,12 +77,14 @@ def test_plan_chapter_cli_creates_plan_json_and_markdown(tmp_path: Path) -> None
 
 def test_parse_chapter_plan_normalizes_object_state_changes() -> None:
     payload = json.loads(default_mock_chapter_plan_json(1))
+    payload["schema_version"] = 1
     payload["expected_state_changes"] = [
         {"entity_id": "char_lin_che", "change": "开始怀疑广播来源"},
     ]
 
     plan = parse_chapter_plan(json.dumps(payload, ensure_ascii=False))
 
+    assert plan.schema_version == CURRENT_SCHEMA_VERSION
     assert plan.expected_state_changes == [
         '{"change": "开始怀疑广播来源", "entity_id": "char_lin_che"}'
     ]

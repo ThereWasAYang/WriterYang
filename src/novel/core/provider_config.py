@@ -5,7 +5,13 @@ from pathlib import Path
 
 from novel.core.env import load_project_env
 from novel.core.io import load_yaml_model
-from novel.core.providers import LoggingModelProvider, MockProvider, ModelProvider, ProviderFactory
+from novel.core.providers import (
+    LoggingModelProvider,
+    MockProvider,
+    ModelProvider,
+    ProviderFactory,
+    resolve_json_response_format,
+)
 from novel.core.schemas import AgentConfig, AgentsConfig
 
 
@@ -30,6 +36,7 @@ class ProviderDescriptor:
     temperature: float | None
     timeout_seconds: float | None
     max_retries: int | None
+    json_response_format: str
 
     def format(self) -> str:
         lines = [
@@ -54,6 +61,7 @@ class ProviderDescriptor:
             lines.append(f"timeout_seconds: {self.timeout_seconds}")
         if self.max_retries is not None:
             lines.append(f"max_retries: {self.max_retries}")
+        lines.append(f"json_response_format: {self.json_response_format}")
         return "\n".join(lines)
 
 
@@ -173,4 +181,12 @@ def describe_agent_provider(
         temperature=config.temperature,
         timeout_seconds=config.timeout_seconds,
         max_retries=config.max_retries,
+        json_response_format=_descriptor_json_response_format(config),
     )
+
+
+def _descriptor_json_response_format(config: AgentConfig) -> str:
+    resolved = resolve_json_response_format(config.provider, config.json_response_format)
+    if config.json_response_format == "auto":
+        return f"{resolved} (auto)"
+    return resolved

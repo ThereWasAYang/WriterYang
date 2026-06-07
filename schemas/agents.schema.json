@@ -111,6 +111,17 @@
           ],
           "default": null,
           "title": "Max Retries"
+        },
+        "json_response_format": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "json_object",
+            "json_schema",
+            "json_schema_strict"
+          ],
+          "title": "Json Response Format",
+          "type": "string"
         }
       },
       "required": [
@@ -264,6 +275,24 @@
           ],
           "default": null,
           "title": "Max Retries"
+        },
+        "json_response_format": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "json_object",
+                "json_schema",
+                "json_schema_strict"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Json Response Format"
         }
       },
       "title": "AgentConfigPatch",

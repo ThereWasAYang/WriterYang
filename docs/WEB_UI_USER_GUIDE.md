@@ -49,7 +49,7 @@ http://127.0.0.1:8765
 
 真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和调用参数。初始引导完成后，这组 API 会作为所有未单独配置 Agent 的缺省配置。
 
-以后如果你想单独调整某个 Agent，可以打开“模型与检索配置”页里的“Agent 模型配置”，修改非密钥字段，例如 `provider`、`model`、`base_url_env`、`api_key_env`、`thinking.type`、`temperature`、`max_tokens`、`timeout_seconds`、`max_retries`。右侧“当前 Agent 生效配置”会显示最终使用的是 default，还是 default 叠加 Agent 覆盖项；完整脱敏 JSON 只放在调试折叠区。点击“恢复继承 default”会删除该 Agent 在 `config/agents.yaml` 中的覆盖配置，让它重新完全继承 default。不要把真实 API Key 写进配置页。
+以后如果你想单独调整某个 Agent，可以打开“模型与检索配置”页里的“Agent 模型配置”，修改非密钥字段，例如 `provider`、`model`、`base_url_env`、`api_key_env`、`json_response_format`、`thinking.type`、`temperature`、`max_tokens`、`timeout_seconds`、`max_retries`。右侧“当前 Agent 生效配置”会显示最终使用的是 default，还是 default 叠加 Agent 覆盖项；完整脱敏 JSON 只放在调试折叠区。点击“恢复继承 default”会删除该 Agent 在 `config/agents.yaml` 中的覆盖配置，让它重新完全继承 default。不要把真实 API Key 写进配置页。
 
 ![Agent 模型配置页](assets/web-ui-guide/provider_config.png)
 
@@ -137,7 +137,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 
 | 区域 | 用途 | 使用方法 |
 | --- | --- | --- |
-| Agent 模型配置 | 查看和编辑各 Agent 的非密钥模型配置。 | 用表单修改 provider、model、base_url_env、api_key_env、temperature、thinking、max_tokens 等字段；右侧显示当前 Agent 的生效配置来源。点击“恢复继承 default”会删除该 Agent 覆盖项；高级 JSON 折叠区可编辑少见字段；不会显示或保存真实 API Key。 |
+| Agent 模型配置 | 查看和编辑各 Agent 的非密钥模型配置。 | 用表单修改 provider、model、base_url_env、api_key_env、temperature、thinking、max_tokens 等字段；高级 JSON 折叠区可编辑 `json_response_format` 等少见字段。右侧显示当前 Agent 的生效配置来源。点击“恢复继承 default”会删除该 Agent 覆盖项；不会显示或保存真实 API Key。 |
 | Embedding API 配置 | 重新测试并保存语义检索 API。 | 已配置成功时默认收起输入框，并显示“Embedding API 已配置”和模型名；点击“修改配置”后重新填写 Base URL、API Key 和模型名。保存成功后会清空输入框并自动刷新语义向量索引。API Key 只写入 `.env`。 |
 | 检索状态 | 显示 FTS 和 embedding 是否可用。 | 红色 embedding 提示表示语义检索不可用，但关键词检索仍可用。 |
 | 刷新关键词索引 | 增量刷新 FTS。 | 本地操作，不调用外部 API。 |

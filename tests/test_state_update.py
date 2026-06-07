@@ -16,6 +16,7 @@ from novel.core.polishing import ChapterPolishingOptions, polish_chapter
 from novel.core.providers import MockProvider
 from novel.core.schemas import ChapterMetadata, EntityState, StateUpdateApplyLog, StateUpdateProposal, TimelineFile
 from novel.core import state_update as state_update_module
+from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.state_update import (
     AcceptChapterOptions,
     StateUpdateApplyOptions,
@@ -225,6 +226,32 @@ def test_apply_state_update_fails_on_old_value_mismatch(tmp_path: Path) -> None:
     assert "old_value mismatch" in stderr
 
 
+def test_apply_state_update_treats_empty_string_old_value_as_unset(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
+    proposal_path = root / "memory" / "chapters" / "001" / "state_update_proposal.json"
+    proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+    proposal["state_changes"].append(
+        {
+            "id": "change_001_004",
+            "chapter": 1,
+            "entity_id": "story_position",
+            "field": "in_story_time",
+            "old_value": "",
+            "new_value": "第1天，雨夜",
+            "reason": "模型把未设置旧值写成空字符串。",
+            "source": "memory/chapters/001/polished.md",
+        }
+    )
+    proposal_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(["apply-state-update", "1", "--path", str(root)])
+
+    assert code == 0
+    assert stderr == ""
+    assert "state_update_apply_log.json" in stdout
+
+
 def test_apply_state_update_ignores_old_value_when_entity_state_is_missing(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
@@ -281,14 +308,34 @@ def test_apply_state_update_fails_on_item_holder_location_conflict(tmp_path: Pat
 
 def test_parse_state_update_proposal_normalizes_common_field_aliases() -> None:
     data = json.loads(default_mock_state_update_proposal_json(1))
+    data["schema_version"] = 1
     data["state_changes"][0]["field"] = "location"
     data["state_changes"][0]["new_value"] = "loc_old_station"
+    data["state_changes"][1]["old_value"] = "none"
     data["timeline_events"][0]["location"] = data["timeline_events"][0].pop("location_id")
 
     proposal = parse_state_update_proposal(json.dumps(data, ensure_ascii=False))
 
+    assert proposal.schema_version == CURRENT_SCHEMA_VERSION
     assert proposal.state_changes[0].field == "location_id"
+    assert proposal.state_changes[1].old_value is None
     assert proposal.timeline_events[0].location_id == "loc_old_station"
+
+
+def test_state_update_reference_normalization_moves_item_holder_location_to_location_id(tmp_path: Path) -> None:
+    root = _workspace_with_audit(tmp_path)
+    data = json.loads(default_mock_state_update_proposal_json(1))
+    data["state_changes"] = [data["state_changes"][1]]
+    data["timeline_events"] = []
+    data["state_changes"][0]["new_value"] = "loc_old_station"
+    proposal = parse_state_update_proposal(json.dumps(data, ensure_ascii=False))
+
+    normalized = state_update_module._normalize_state_update_references(root, proposal)
+
+    assert normalized.state_changes[0].field == "location_id"
+    assert normalized.state_changes[0].new_value == "loc_old_station"
+    assert any("holder_id location reference" in warning for warning in normalized.warnings)
+    validate_state_update_proposal(root, normalized, check_existing_timeline_ids=False)
 
 
 def test_parse_state_update_proposal_normalizes_legacy_story_time_alias() -> None:

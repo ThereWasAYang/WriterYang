@@ -17,7 +17,7 @@
 | `schemas/*.schema.json` | 从 Pydantic models 导出的 JSON Schema。 | schema 变化后重新导出。 |
 | `examples/rain_station/` | 雨夜旧车站示例项目。 | README smoke、真实 provider 配置模板。 |
 | `examples/wuxia_mountain_sect/` | 武侠长篇示例项目。 | 中文用户配置参考、validate 示例。 |
-| `scripts/` | 确定性工具脚本。 | 一键安装、本地质量门禁、Session smoke、provider ping、debug bundle、Web UI smoke、项目健康报告。 |
+| `scripts/` | 确定性工具脚本。 | 一键安装、本地质量门禁、pre-push hook 安装、Session smoke、provider ping、debug bundle、Web UI smoke、项目健康报告。 |
 
 ## 2. 包入口
 
@@ -34,6 +34,13 @@
 本文覆盖以下 Python 源文件。新增文件时应同步更新本节和对应说明：
 
 - `src/novel/cli.py`
+- `src/novel/cli_shared.py`
+- `src/novel/cli_commands/generation.py`
+- `src/novel/cli_commands/memory.py`
+- `src/novel/cli_commands/orchestrator.py`
+- `src/novel/cli_commands/project_system.py`
+- `src/novel/cli_commands/search.py`
+- `src/novel/cli_commands/session.py`
 - `src/novel/web_api.py`
 - `src/novel/web_server.py`
 - `src/novel/core/__init__.py`
@@ -81,15 +88,21 @@
 - `src/novel/core/workflow.py`
 - `src/novel/core/workspace.py`
 
-## 3. CLI 层：`src/novel/cli.py`
+## 3. CLI 层
 
 CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目锁、调用 core service、格式化输出。
 
-主要函数：
+### `src/novel/cli.py`
 
 - `build_parser()`：定义所有 CLI 命令、子命令和参数。
 - `main(argv)`：命令分发入口，只解析参数、应用 `--project` alias，并通过 `_COMMAND_HANDLERS` 调用对应 handler。
-- `_COMMAND_HANDLERS` / `_cmd_*()`：同文件命令 handler 表；每个 handler 负责一个顶层命令，避免在 `main()` 中复用不同 result 类型。
+- `_COMMAND_HANDLERS`：顶层命令到 `cli_commands/` handler 的 dispatch map，避免在 `main()` 中复用不同 result 类型。
+- `_audit_issue_lines`：从 `cli_shared.py` re-export，保持既有测试和外部导入兼容。
+
+### `src/novel/cli_shared.py`
+
+通用 CLI helper：
+
 - `_add_agent_runtime_args()`：给 Agent 命令统一加 `--agent-config`、`--provider`、`--model`、`--dry-run-provider`。
 - `_add_integration_args()` / `_add_integration_args_recursive()`：给命令递归加 `--json`、`--quiet`、`--project`。
 - `_apply_project_alias()`：把 `--project` 映射为内部 `path`。
@@ -102,8 +115,16 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_resolve_web_port()`：Web 端口解析，读取项目配置并处理冲突提示。
 - `completion_script()`：生成 shell completion。
 - `run_doctor()` / `format_doctor_result()` / `_doctor_*()`：环境、项目、配置、安全检查。
-- `_run_session_command()` / `_session_payload()` / `_session_low_issue_lines()`：session 子命令处理。
 - `_audit_issue_lines()`：把 audit issue 展示给用户。
+
+### `src/novel/cli_commands/`
+
+- `project_system.py`：`init`、`validate`、`migrate`、`schema`、`completion`、`doctor`、`status`、`usage`、`show`、`web`。
+- `search.py`：`index`、`search`。
+- `memory.py`：`memory-repair`、`setting-change`、`chapter-memory`。
+- `orchestrator.py`：`ask`。
+- `session.py`：`session` 及其子命令 payload/rewrite/route 展示。
+- `generation.py`：`inspire`、`canon`、章节计划/写作/润色/审核/修订、state update、accept、generate、export。
 
 开发建议：
 
@@ -294,6 +315,9 @@ JSON Schema 导出：
 - `SchemaDefinition`：schema 名称、model、输出文件。
 - `schema_payloads()`：生成所有 schema payload。
 - `export_json_schemas()`：写入 `schemas/*.schema.json`。
+- `model_output_schema_payload()`：按 `json_schema_name` 查找 Agent 输出 schema，供 provider payload 使用。
+- `model_output_schema_skeleton()`：把 schema 压缩成 prompt skeleton，供 `json_object` JSON mode guard 使用。
+- `strict_model_output_schema_payload()`：生成 strict-compatible schema；无法安全转换时抛错，让 provider fail fast。
 
 ## 6. Provider 和模型调用
 
@@ -314,8 +338,8 @@ JSON Schema 导出：
 关键函数：
 
 - `OpenAICompatibleProvider.from_config()`：读取 env、默认 base URL、provider 私有字段。
-- `OpenAICompatibleProvider._payload()`：组装请求 payload，包括 `thinking`、`response_format`。
-- `_ensure_json_mode_messages()`：`json_object` 结构化调用时，如果 prompt 中没有 `json` 字样，自动补充 JSON 输出提示，兼容 DeepSeek 等服务端校验。
+- `OpenAICompatibleProvider._payload()`：组装请求 payload，包括 `thinking`、`response_format` 和按 provider 解析后的 `json_response_format`。
+- `_ensure_json_mode_messages()`：`json_object` 结构化调用时自动补充标准 JSON mode guard 和紧凑 schema skeleton，兼容 DeepSeek 等服务端校验。
 - `_model_response_from_openai_raw()`：解析 OpenAI 格式返回。
 - `_stream_content_from_line()`：解析 SSE chunk。
 - `_redact_data()` / `_redact_text()`：日志脱敏。
@@ -323,7 +347,7 @@ JSON Schema 导出：
 ### `core/provider_config.py`
 
 - `ProviderOverrides`：CLI 临时覆盖 provider/model。
-- `ProviderDescriptor`：dry-run-provider 展示结构。
+- `ProviderDescriptor`：dry-run-provider 展示结构，包含非密钥的 `json_response_format`。
 - `default_agent_config_path()`：默认 `config/agents.yaml`。
 - `load_agents_config()`：读取 `AgentsConfig`。
 - `resolve_agent_config()`：按 agent name、fallback、override 解析配置；真实调用会合并项目 `.env` 和系统环境变量。
@@ -786,6 +810,7 @@ Provider 用量统计：
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装 WriterYang；同时生成固定环境的 Web UI 启动器。
 - `check_local.py`：本地质量门禁，组合 pytest、ruff、mypy、secret scan、build、twine。
+- `install_git_hooks.py`：设置 `core.hooksPath=.githooks`，让 tracked pre-push hook 在推送前运行本地门禁；支持 `--dry-run`。
 - `smoke_session.py`：创建临时项目并用 CLI 跑完整 Session smoke；`--model` 会补写临时项目 default model，供 Session 子命令继承。
 - `debug_bundle.py`：收集脱敏排障包；会移除已知密钥值，但 bundle 仍可能包含小说正文、隐藏设定和模型 I/O 摘要，不应外发或提交。
 - `provider_ping.py`：检查 agent/embedding provider 配置，显式允许后可做真实最小调用。
@@ -805,6 +830,7 @@ Provider 用量统计：
 - `base_url_env`
 - `api_key_env`
 - `model`
+- `json_response_format`
 - `reasoning`
 - `thinking.type`
 - `max_context_tokens`

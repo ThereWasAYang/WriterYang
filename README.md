@@ -134,9 +134,12 @@ python -m build
 python scripts/check_local.py --skip-build
 python scripts/check_local.py
 python scripts/check_local.py --strict-mypy
+python scripts/install_git_hooks.py --dry-run
 ```
 
 `mypy src scripts` 是阻断式类型门禁；`scripts/check_local.py` 默认会因为 mypy 失败返回非零。`--strict-mypy` 仍可使用，但现在只是兼容旧命令的显式写法。GitHub Actions 会阻断 pytest、ruff、mypy、secret scan、build 和 Web E2E。
+
+如需在本地推送前自动跑完整门禁，可以执行 `python scripts/install_git_hooks.py`。它会设置 `core.hooksPath=.githooks`，使 tracked `pre-push` hook 在 `git push` 前运行 `python scripts/check_local.py`。只有确有必要时才用 `WRITERYANG_SKIP_PRE_PUSH=1 git push` 跳过；CI 仍是最终兜底。
 
 工作流和排障脚本：
 
@@ -146,6 +149,7 @@ python scripts/project_health.py --project ./rain-station
 python scripts/debug_bundle.py --project ./rain-station --output /tmp/writeryang-debug --zip --json
 python scripts/provider_ping.py --project ./rain-station --provider config --json
 python scripts/webui_smoke.py --dry-run --json
+python scripts/install_git_hooks.py --dry-run --json
 ```
 
 这些脚本只组合现有 CLI/core，不复制章节生成、审核或状态更新业务逻辑。真实 API ping 或 smoke 需要显式传入 `--allow-network` 或选择真实 provider；输出会脱敏，不打印 API Key。
@@ -260,6 +264,7 @@ default:
   base_url_env: "WRITERYANG_REAL_BASE_URL"
   api_key_env: "WRITERYANG_REAL_API_KEY"
   model: "deepseek-chat"
+  json_response_format: "auto"
   reasoning: "medium"
   max_context_tokens: 128000
   max_tokens: 8192
@@ -286,15 +291,17 @@ agents:
 
 | provider | 用途 | 说明 |
 | --- | --- | --- |
-| `openai` | 标准 OpenAI API | 默认 base URL 为 `https://api.openai.com/v1`，结构化输出优先使用 `response_format: json_schema`，不发送厂商私有 `thinking`。 |
-| `openai_compatible` | 通用 OpenAI Chat Completions 兼容接口 | 需要配置 `base_url_env`，结构化输出使用较通用的 `response_format: json_object`，不发送厂商私有 `thinking`。适合尚未做专门适配的第三方兼容服务。 |
-| `deepseek` | DeepSeek 官方 API | 默认 base URL 为 `https://api.deepseek.com`，会发送 DeepSeek 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
-| `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。 |
+| `openai` | 标准 OpenAI API | 默认 base URL 为 `https://api.openai.com/v1`，`json_response_format:auto` 会解析为 `response_format: json_schema`，不发送厂商私有 `thinking`。需要强约束时可显式配置 `json_schema_strict`。 |
+| `openai_compatible` | 通用 OpenAI Chat Completions 兼容接口 | 需要配置 `base_url_env`，`auto` 会解析为较通用的 `response_format: json_object`，不发送厂商私有 `thinking`。适合尚未做专门适配的第三方兼容服务。 |
+| `deepseek` | DeepSeek 官方 API | 默认 base URL 为 `https://api.deepseek.com`，会发送 DeepSeek 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。结构化输出使用官方 JSON Output：`response_format: json_object`，并自动追加 JSON guard 和紧凑 schema skeleton。 |
+| `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。结构化输出默认使用 `json_object`。 |
 | `mock` | 测试 / 调试 | 不调用真实 API，仅用于自动化测试、离线 smoke 和文档演示。真实创作不要把它作为 default。 |
 
 解析顺序是：显式 `--provider mock` 测试覆盖 > 当前 Agent 覆盖字段合并 `default` > fallback Agent 覆盖字段合并 `default` > 仅使用 `default`。如果没有 `default` 且目标 Agent 也没有完整配置，运行时会报错；`novel validate`、`novel doctor` 和 Web UI 的“Agent 模型配置”页会提前给出告警。Web UI 中的“恢复继承 default”会删除当前 Agent 的覆盖字段，因此后续解析会直接走 `default`。
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
+
+`json_response_format` 用于控制结构化 Agent 的 provider payload，取值为 `auto`、`json_object`、`json_schema`、`json_schema_strict`。默认 `auto` 保持兼容：`openai` 使用 `json_schema`，`deepseek` / `zai` / `openai_compatible` 使用 `json_object`。[DeepSeek 官方 JSON Output](https://api-docs.deepseek.com/zh-cn/guides/json_mode) 要求请求体设置 `response_format: {"type":"json_object"}`，并且 prompt 中包含 `json` 和期望结构示例；WriterYang 会自动追加标准 JSON mode guard 和紧凑 schema skeleton。`json_schema_strict` 只允许显式 opt-in；DeepSeek / ZAI 下配置 strict 会在本地报清晰错误，不会发出请求。
 
 示例项目提供两个配置文件：
 
@@ -727,7 +734,9 @@ ZAI_MODEL=
 运行真实 API 测试：
 
 ```bash
+python scripts/provider_ping.py --project examples/rain_station --provider config --allow-network --json
 pytest -m real_api
+python scripts/smoke_session.py --provider config --chapters 1 --model "$WRITERYANG_REAL_MODEL" --json
 ```
 
 ## FAQ

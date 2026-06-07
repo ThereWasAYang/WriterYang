@@ -18,7 +18,9 @@ WriterYang 是一个本地优先、文件驱动的 AI 辅助中文长篇小说�
 
 ```text
 src/novel/
-  cli.py                # CLI 参数解析、文本/JSON 输出、命令锁
+  cli.py                # CLI parser wiring、dispatch map、兼容 re-export
+  cli_shared.py         # CLI JSON/quiet 输出、错误包装、路径和通用 helper
+  cli_commands/         # 按领域拆分的 CLI handler
   web_api.py            # 本地 Web API，包装 core service
   web_server.py         # 静态页面和 API 的本地 HTTP server
   web_static/           # Vanilla Web 前端静态资源
@@ -119,6 +121,7 @@ exports/
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装工具，确保源码更新后重启 Web UI 即可生效。
 - `check_local.py`：本地复现 CI 质量门禁。mypy 是阻断式检查；`--strict-mypy` 保留为兼容旧命令的显式写法。
+- `install_git_hooks.py`：设置 `core.hooksPath=.githooks`，让 tracked pre-push hook 在推送前运行 `python scripts/check_local.py`。可用 `--dry-run` 预览；确需跳过时使用 `WRITERYANG_SKIP_PRE_PUSH=1 git push`。
 - `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke；真实 provider 可传 `--model`，脚本会把模型写入临时项目 default 配置，避免 Session 子命令沿用模板占位模型。
 - `debug_bundle.py`：生成脱敏排障包。它会移除已知密钥值，但 bundle 仍可能包含小说正文、隐藏设定和模型 I/O 摘要，不应外发或提交。
 - `provider_ping.py`：检查 agent/embedding provider 配置和可选真实调用。
@@ -193,10 +196,11 @@ novel export markdown --path <project>
 1. 在 `core/` 新增或扩展 service，定义 options/result dataclass。
 2. service 中完成读取、校验、provider 调用、文件写入和返回结果。
 3. 在 `cli.py::build_parser()` 增加子命令和参数。
-4. 新增 `_cmd_<name>()` handler 并登记到 `cli.py::_COMMAND_HANDLERS`，不要把新分支直接塞回 `main()`。
-5. 如果命令写项目文件，用 `_command_lock()` 包住。
-6. 支持已有集成参数：`--path` / `--project`、`--json`、`--quiet`。
-7. 写 CLI 测试，覆盖成功、缺失文件、默认不覆盖、JSON 输出。
+4. 在对应 `cli_commands/` 模块新增 `_cmd_<name>()` handler；跨命令通用 helper 放 `cli_shared.py`。
+5. 在 `cli.py::_COMMAND_HANDLERS` 登记 handler，不要把新分支直接塞回 `main()`。
+6. 如果命令写项目文件，用 `_command_lock()` 包住。
+7. 支持已有集成参数：`--path` / `--project`、`--json`、`--quiet`。
+8. 写 CLI 测试，覆盖成功、缺失文件、默认不覆盖、JSON 输出。
 
 CLI 输出约定：
 
@@ -295,6 +299,8 @@ def run_xxx(options: XxxOptions, provider: ModelProvider | None = None) -> XxxRe
 
 Agent provider 创建走 `core/provider_config.py::create_agent_provider()`，它会合并项目 `.env` 和当前进程环境。不要在业务 service 里直接读取 API Key。项目初始引导逻辑集中在 `core/setup_guide.py`，CLI/Web 只负责采集输入和展示结果。
 
+`AgentConfig.json_response_format` 控制结构化输出请求的 `response_format`。默认 `auto` 保持 provider 兼容：`openai` 使用 `json_schema`，`deepseek`、`zai` 和通用 `openai_compatible` 使用 `json_object`。DeepSeek JSON Output 路径必须同时补 JSON prompt guard 和紧凑 schema skeleton；strict schema 只允许显式 opt-in，且不支持的 provider 要在本地 fail fast。
+
 调试文件：
 
 - `runs/provider_calls.jsonl`：轻量调用元数据。
@@ -340,6 +346,7 @@ pytest tests/test_<area>.py -q
 pytest -m "not real_api and not web_e2e" -q
 ruff check .
 mypy src scripts
+python scripts/check_local.py
 ```
 
 `mypy src scripts` 已经是阻断式类型门禁：CI 和默认 `scripts/check_local.py` 都会因为 mypy 失败而失败。需要保持新增代码 0 类型错误。

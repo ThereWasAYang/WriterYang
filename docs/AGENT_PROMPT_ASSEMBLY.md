@@ -25,7 +25,7 @@ Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API，再合�
 - `system_prompt`：来自 `src/novel/prompts/{agent}_system.txt`。
 - `user_prompt`：由对应 `build_*_user_prompt()` 函数组装。
 - `context`：通常放 canon summary 或项目摘要，会进入 provider messages。
-- `json_schema_name`：结构化输出 Agent 会设置，例如 `ChapterPlan`。使用 `json_object` 的 OpenAI-compatible provider 会自动在消息中补充明确的 `JSON` 输出提示，避免 DeepSeek 等服务端拒绝 JSON mode。
+- `json_schema_name`：结构化输出 Agent 会设置，例如 `ChapterPlan`。provider 会按 `AgentConfig.json_response_format` 选择 `json_schema`、`json_object` 或显式 strict；`json_object` 路径会自动追加标准 JSON mode guard 和紧凑 schema skeleton，满足 DeepSeek JSON Output 对 `json` 字样和结构示例的要求。
 - `request_id`：自动生成，用于 `runs/model_io/` 和 provider log 关联。
 
 内部 Agent 一律走 `AgentOutputContract`：

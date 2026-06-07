@@ -322,6 +322,7 @@ default:
   base_url_env: WRITERYANG_REAL_BASE_URL
   api_key_env: WRITERYANG_REAL_API_KEY
   model: deepseek-chat
+  json_response_format: auto
   reasoning: medium
   thinking:
     type: disabled
@@ -371,6 +372,7 @@ agents:
 - 这里只保存环境变量名。
 - `default` config 是真实项目中每个 Agent 的 fallback。
 - 每个 Agent 都可以覆盖 provider、model、base URL、reasoning mode、thinking、token limit 和 temperature。
+- 每个 Agent 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
 - `mock` 仅用于测试和显式 debug run；不要把它作为真实项目默认值。
 - 实现层应在运行 Agent 前验证所需环境变量是否存在。
 
@@ -383,6 +385,7 @@ agents:
 推荐字段：
 
 - `base_url_env`
+- `json_response_format`
 - `reasoning`
 - `max_context_tokens`
 - `temperature`

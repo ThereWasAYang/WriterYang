@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ "${WRITERYANG_SKIP_PRE_PUSH:-}" = "1" ]; then
+  echo "WriterYang pre-push checks skipped because WRITERYANG_SKIP_PRE_PUSH=1." >&2
+  echo "CI remains the final quality gate; skip only for exceptional local cases." >&2
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+if [ -n "${WRITERYANG_PRE_PUSH_CHECK_COMMAND:-}" ]; then
+  echo "Running WriterYang pre-push check command: ${WRITERYANG_PRE_PUSH_CHECK_COMMAND}" >&2
+  sh -c "${WRITERYANG_PRE_PUSH_CHECK_COMMAND}"
+  exit $?
+fi
+
+python_bin="${PYTHON:-python}"
+echo "Running WriterYang pre-push checks: ${python_bin} scripts/check_local.py" >&2
+"${python_bin}" scripts/check_local.py

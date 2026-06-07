@@ -159,7 +159,8 @@ runs/agent_output_violations/{request_id}.json
    - `zai`: `https://open.bigmodel.cn/api/paas/v4`
    - `openai`: `https://api.openai.com/v1`
 5. 如果 DeepSeek / OpenAI-compatible 在结构化调用时报 `Prompt must contain the word 'json'`，先确认当前代码的 provider payload 是否经过 `_ensure_json_mode_messages()`；所有 `response_format: json_object` 调用都应自动补充 JSON 提示。
-6. 看 `runs/provider_calls.jsonl` 的 `error_type`、`http_status`。
+6. 如果结构化 JSON 长输出漂移，先查看 `config/agents.yaml` 的 `json_response_format`：DeepSeek / ZAI 推荐保持 `auto` 或 `json_object`，不要配置 strict；OpenAI 只有在确认 schema 可 strict 转换且真实 API smoke 通过后，才对单个 Agent 使用 `json_schema_strict`。
+7. 看 `runs/provider_calls.jsonl` 的 `error_type`、`http_status`。
 
 相关代码：
 
@@ -243,6 +244,7 @@ pytest tests/test_<area>.py -q
 pytest -m "not real_api and not web_e2e" -q
 ruff check .
 mypy src scripts
+python scripts/check_local.py
 ```
 
 结构化 JSON Agent 的通用修复路径：

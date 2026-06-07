@@ -12,7 +12,11 @@ from typing import Iterable, Mapping
 from urllib import error, request
 
 from novel.core.io import atomic_write_json
-from novel.core.json_schema import model_output_schema_payload
+from novel.core.json_schema import (
+    model_output_schema_payload,
+    model_output_schema_skeleton,
+    strict_model_output_schema_payload,
+)
 from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.usage import refresh_provider_usage_summary_for_log
 
@@ -326,7 +330,7 @@ class OpenAICompatibleProvider(ModelProvider):
     thinking_type: str | None = None
     reasoning_effort: str | None = None
     max_tokens: int | None = None
-    json_response_format: str = "json_schema"
+    json_response_format: str = "auto"
     timeout_seconds: float = 60.0
     max_retries: int = 0
     retry_backoff_seconds: float = 0.25
@@ -381,7 +385,7 @@ class OpenAICompatibleProvider(ModelProvider):
             thinking_type=config.thinking.type if provider_name in {"deepseek", "zai"} else None,
             reasoning_effort=config.reasoning if provider_name == "deepseek" else None,
             max_tokens=config.max_tokens,
-            json_response_format="json_schema" if provider_name == "openai" else "json_object",
+            json_response_format=resolve_json_response_format(provider_name, config.json_response_format),
             timeout_seconds=timeout_seconds or config.timeout_seconds or 60.0,
             max_retries=config.max_retries or 0,
         )
@@ -399,15 +403,22 @@ class OpenAICompatibleProvider(ModelProvider):
         return self._payload(model_request, stream=stream)
 
     def _payload(self, model_request: ModelRequest, *, stream: bool) -> dict[str, object]:
+        json_format = self._effective_json_response_format()
         schema_payload = (
             model_output_schema_payload(model_request.json_schema_name)
-            if model_request.json_schema_name and self.json_response_format != "json_object"
+            if model_request.json_schema_name and json_format in {"json_schema", "json_schema_strict"}
             else None
         )
         use_json_object = bool(
             model_request.json_schema_name
-            and (self.json_response_format == "json_object" or schema_payload is None)
+            and (json_format == "json_object" or schema_payload is None)
         )
+        if model_request.json_schema_name and json_format == "json_schema_strict":
+            schema_payload = strict_model_output_schema_payload(model_request.json_schema_name)
+            if schema_payload is None:
+                raise ProviderError(
+                    f"unknown json_schema_name for strict structured output: {model_request.json_schema_name}"
+                )
         messages = _messages_from_request(model_request)
         if model_request.json_schema_name and use_json_object:
             messages = _ensure_json_mode_messages(messages, model_request.json_schema_name)
@@ -431,14 +442,22 @@ class OpenAICompatibleProvider(ModelProvider):
             if use_json_object:
                 payload["response_format"] = {"type": "json_object"}
             else:
+                json_schema: dict[str, object] = {
+                    "name": model_request.json_schema_name,
+                    "schema": schema_payload,
+                }
+                if json_format == "json_schema_strict":
+                    json_schema["strict"] = True
                 payload["response_format"] = {
                     "type": "json_schema",
-                    "json_schema": {
-                        "name": model_request.json_schema_name,
-                        "schema": schema_payload,
-                    },
+                    "json_schema": json_schema,
                 }
         return payload
+
+    def _effective_json_response_format(self) -> str:
+        if self.json_response_format == "auto":
+            return "json_schema" if self.api_provider == "openai" else "json_object"
+        return self.json_response_format
 
     def _request_json(
         self,
@@ -698,6 +717,22 @@ def _default_base_url(provider: str) -> str:
     return "https://api.openai.com/v1"
 
 
+def resolve_json_response_format(provider_name: str, configured: str) -> str:
+    if configured == "auto":
+        return "json_schema" if provider_name == "openai" else "json_object"
+    if configured == "json_schema_strict" and provider_name not in {"openai", "openai_compatible"}:
+        raise ProviderError(
+            f"{provider_name} provider does not support json_schema_strict for chat completions; "
+            "use json_object or auto"
+        )
+    if configured == "json_schema" and provider_name in {"deepseek", "zai"}:
+        raise ProviderError(
+            f"{provider_name} provider uses JSON Output mode for structured chat completions; "
+            "use json_object or auto"
+        )
+    return configured
+
+
 def _request_id() -> str:
     return "provider_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
 
@@ -791,14 +826,19 @@ def _ensure_json_mode_messages(
     schema_name: str,
 ) -> list[dict[str, str]]:
     combined = "\n".join(message.get("content", "") for message in messages)
-    if "json" in combined.lower():
+    marker = "WriterYang JSON mode guard"
+    if marker in combined:
         return messages
     updated = [dict(message) for message in messages]
+    skeleton = model_output_schema_skeleton(schema_name)
+    skeleton_text = f"\n\nExpected JSON structure skeleton:\n{skeleton}" if skeleton else ""
     updated[0]["content"] = (
         updated[0].get("content", "")
         + "\n\n"
-        f"Output must be valid JSON for schema {schema_name}. "
-        "Do not include Markdown code fences, explanations, or wrapper text."
+        f"{marker}: output must be a single valid JSON object for schema {schema_name}. "
+        "Do not include Markdown code fences, explanations, comments, or wrapper text. "
+        "Use double-quoted JSON keys and values where JSON requires strings."
+        + skeleton_text
     )
     return updated
 

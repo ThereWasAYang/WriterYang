@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -56,8 +57,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ok = True
     try:
         _run_step(report, "init", planned[0])
-        if args.model:
-            _patch_default_model(root, args.model)
+        _patch_default_api_config(root, provider=args.provider, model=args.model)
         _run_step(report, "inspire", planned[1])
         _run_step(report, "canon_suggest", planned[2])
         _run_step(report, "canon_apply", planned[3])
@@ -121,12 +121,17 @@ def _provider_args(args: argparse.Namespace, *, include_model: bool = True) -> l
     return values
 
 
-def _patch_default_model(root: Path, model: str) -> None:
+def _patch_default_api_config(root: Path, *, provider: str, model: str | None) -> None:
     config_path = root / "config" / "agents.yaml"
     data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     default = data.setdefault("default", {})
     if isinstance(default, dict):
-        default["model"] = model
+        if provider == "config" and os.environ.get("WRITERYANG_REAL_API_KEY"):
+            default["provider"] = os.environ.get("WRITERYANG_REAL_PROVIDER") or "openai_compatible"
+            default["base_url_env"] = "WRITERYANG_REAL_BASE_URL"
+            default["api_key_env"] = "WRITERYANG_REAL_API_KEY"
+        if model:
+            default["model"] = model
     config_path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 

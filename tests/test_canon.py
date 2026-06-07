@@ -119,6 +119,19 @@ def test_canon_proposal_allows_foreshadowing_to_reference_world_rule() -> None:
     validate_canon_proposal(proposal)
 
 
+def test_canon_proposal_normalizes_unknown_planned_chapters() -> None:
+    data = json.loads(default_mock_canon_proposal_json())
+    data["hidden_truths"][0]["planned_reveal"]["chapter"] = 0
+    data["foreshadowing_threads"][0]["introduced_in_chapter"] = 0
+    data["foreshadowing_threads"][0]["planned_payoff"]["chapter"] = "待定"
+
+    proposal = parse_canon_proposal(json.dumps(data, ensure_ascii=False))
+
+    assert proposal.hidden_truths[0].planned_reveal is None
+    assert proposal.foreshadowing_threads[0].introduced_in_chapter == 1
+    assert proposal.foreshadowing_threads[0].planned_payoff is None
+
+
 def test_canon_proposal_can_reference_existing_canon_ids(tmp_path: Path) -> None:
     root = _workspace_with_inspiration(tmp_path)
     proposal_path = tmp_path / "proposal.json"

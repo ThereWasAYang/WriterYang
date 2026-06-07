@@ -2446,8 +2446,10 @@ def _impact_summary(
 
 
 def _coerce_positive_int(value: object) -> int | None:
+    if not isinstance(value, (int, float, str, bytes, bytearray)):
+        return None
     try:
-        number = int(value)  # type: ignore[arg-type]
+        number = int(value)
     except (TypeError, ValueError):
         return None
     return number if number > 0 else None

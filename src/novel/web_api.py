@@ -1090,7 +1090,7 @@ def _settings_change_apply(data: dict[str, object]) -> dict[str, object]:
             status=400,
             details=_memory_repair_apply_error_details(root, proposal_path),
         ) from exc
-    sync_result = {"status": "skipped", "reason": "sync_session is false"}
+    sync_result: dict[str, object] = {"status": "skipped", "reason": "sync_session is false"}
     if bool(data.get("sync_session")):
         sync_result = _sync_setting_change_session(
             root,

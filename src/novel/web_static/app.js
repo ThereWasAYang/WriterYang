@@ -11,8 +11,6 @@
       "providerTemperatureField", "providerMaxTokensField", "providerMaxContextTokensField",
       "providerTimeoutSecondsField", "providerMaxRetriesField",
     ];
-    const legacyMemoryRepairSuggestEndpoint = "/api/orchestrator/memory-repair/suggest";
-    const legacyMemoryRepairApplyEndpoint = "/api/orchestrator/memory-repair/apply";
     let editorLoadedContent = "";
     let editorSourceFile = "";
     let providerConfigCache = null;

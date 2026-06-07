@@ -4,7 +4,14 @@ import json
 from pathlib import Path
 
 from novel.cli import main
-from novel.core.json_schema import SCHEMA_DEFINITIONS, export_json_schemas, schema_payloads
+from novel.core.json_schema import (
+    MODEL_OUTPUT_SCHEMA_DEFINITIONS,
+    SCHEMA_DEFINITIONS,
+    export_json_schemas,
+    model_output_schema_payload,
+    model_output_schema_payloads,
+    schema_payloads,
+)
 
 
 def test_schema_payloads_cover_project_json_files() -> None:
@@ -59,6 +66,35 @@ def test_schema_payloads_cover_project_json_files() -> None:
     assert "narrative_position" in event_props
     assert "story_position" in event_props
     assert "event_role" in event_props
+
+
+def test_model_output_schema_payloads_cover_agent_structured_outputs() -> None:
+    payloads = model_output_schema_payloads()
+    expected = {
+        "InspirationBrief",
+        "CanonProposal",
+        "ChapterPlan",
+        "AuditReport",
+        "StateUpdateProposal",
+        "ChapterMemory",
+        "MemoryChangeImpact",
+        "MemoryChangeFollowupAction",
+        "MemoryChangeClarificationDecision",
+        "MemoryChangeClarificationSession",
+        "MemoryChangeBatchPlan",
+        "MemoryRepairDecision",
+        "MemoryRepairProposal",
+        "AskIntentDecision",
+        "RevisionRouteDecision",
+        "AuditRepairRouteDecision",
+    }
+
+    assert set(payloads) == expected
+    assert len(MODEL_OUTPUT_SCHEMA_DEFINITIONS) == len(expected)
+    assert payloads["ChapterPlan"]["title"] == "ChapterPlan"
+    assert payloads["MemoryRepairDecision"]["properties"]["operations"]
+    assert model_output_schema_payload("AuditReport") == payloads["AuditReport"]
+    assert model_output_schema_payload("UnknownSchema") is None
 
 
 def test_export_json_schemas_writes_files(tmp_path: Path) -> None:

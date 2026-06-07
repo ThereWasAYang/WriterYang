@@ -2697,7 +2697,7 @@ def _cmd_setting_change(args: argparse.Namespace) -> int:
                 )
                 return _setting_change_suggestion_success(args, root, result, command="setting-change answer")
             apply_result = apply_memory_repair(root, _resolve_memory_repair_proposal_arg(args.proposal))
-            payload = {
+            payload: dict[str, object] = {
                 "command": "setting-change apply",
                 "repair_id": apply_result.proposal.repair_id,
                 "apply_log_path": str(apply_result.apply_log_path),

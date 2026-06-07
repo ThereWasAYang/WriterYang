@@ -10,7 +10,9 @@ from novel.core.io import atomic_write_json, backup_if_exists
 from novel.core.schemas import (
     AgentRunLog,
     AgentsConfig,
+    AskIntentDecision,
     AuditReport,
+    AuditRepairRouteDecision,
     CanonApplyLog,
     CanonProposal,
     ChapterMemory,
@@ -37,8 +39,10 @@ from novel.core.schemas import (
     MemoryChangeFollowupAction,
     MemoryChangeImpact,
     MemoryRepairApplyLog,
+    MemoryRepairDecision,
     MemoryRepairProposal,
     ProjectConfig,
+    RevisionRouteDecision,
     RevisionLog,
     StateUpdateApplyLog,
     StateUpdateProposal,
@@ -101,12 +105,50 @@ SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
     SchemaDefinition("export_manifest", ExportManifest, "exports/export_manifest.json"),
 )
 
+MODEL_OUTPUT_SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
+    SchemaDefinition("InspirationBrief", InspirationBrief, "Inspiration Agent structured output"),
+    SchemaDefinition("CanonProposal", CanonProposal, "Canon Agent structured output"),
+    SchemaDefinition("ChapterPlan", ChapterPlan, "Plot Agent structured output"),
+    SchemaDefinition("AuditReport", AuditReport, "Audit Agent structured output"),
+    SchemaDefinition("StateUpdateProposal", StateUpdateProposal, "State Manager structured output"),
+    SchemaDefinition("ChapterMemory", ChapterMemory, "ChapterMemory Agent structured output"),
+    SchemaDefinition("MemoryChangeImpact", MemoryChangeImpact, "setting-change impact analysis"),
+    SchemaDefinition("MemoryChangeFollowupAction", MemoryChangeFollowupAction, "setting-change follow-up action"),
+    SchemaDefinition(
+        "MemoryChangeClarificationDecision",
+        MemoryChangeClarificationDecision,
+        "setting-change clarification gate output",
+    ),
+    SchemaDefinition(
+        "MemoryChangeClarificationSession",
+        MemoryChangeClarificationSession,
+        "setting-change clarification session",
+    ),
+    SchemaDefinition("MemoryChangeBatchPlan", MemoryChangeBatchPlan, "setting-change batched generation plan"),
+    SchemaDefinition("MemoryRepairDecision", MemoryRepairDecision, "memory repair decision output"),
+    SchemaDefinition("MemoryRepairProposal", MemoryRepairProposal, "memory repair proposal"),
+    SchemaDefinition("AskIntentDecision", AskIntentDecision, "orchestrator ask intent route output"),
+    SchemaDefinition("RevisionRouteDecision", RevisionRouteDecision, "orchestrator revision route output"),
+    SchemaDefinition("AuditRepairRouteDecision", AuditRepairRouteDecision, "orchestrator audit repair route output"),
+)
+
 
 def schema_payloads() -> dict[str, dict[str, object]]:
     return {
         definition.name: definition.model.model_json_schema()
         for definition in SCHEMA_DEFINITIONS
     }
+
+
+def model_output_schema_payloads() -> dict[str, dict[str, object]]:
+    return {
+        definition.name: definition.model.model_json_schema()
+        for definition in MODEL_OUTPUT_SCHEMA_DEFINITIONS
+    }
+
+
+def model_output_schema_payload(name: str) -> dict[str, object] | None:
+    return model_output_schema_payloads().get(name)
 
 
 def export_json_schemas(output_dir: Path) -> list[Path]:

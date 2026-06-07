@@ -14,6 +14,8 @@
 - 让所有生成数据都可编辑、可搜索、可 diff、可测试。
 - 支持通过 Pydantic、Zod 或 JSON Schema 进行校验。
 
+字段级真相以 `src/novel/core/schemas.py` 中的 Pydantic model 为准；`schemas/*.schema.json` 由这些 model 导出。本文侧重说明设计意图、人类可编辑约定和重要持久化路径，避免手写字段清单与生成 schema 漂移。
+
 ---
 
 ## 2. 设计原则
@@ -1509,9 +1511,41 @@ memory/chapters/001/audit.json
 
 ---
 
-## 25. Validation 要求
+## 25. 设定变更 / 记忆修复持久化产物
 
-### 25.1 ID 唯一性
+设定变更和记忆修复共享同一套 proposal/apply 机制。用户输入自然语言后，系统先生成可审查 proposal；只有用户确认 apply 后才会修改正式 memory 文件。
+
+主要路径：
+
+```text
+memory/repairs/{repair_id}/proposal.json
+memory/repairs/{repair_id}/proposal.md
+memory/repairs/{repair_id}/apply_log.json
+memory/repairs/clarifications/{clarification_id}/session.json
+memory/management_events.jsonl
+```
+
+核心 schema：
+
+- `MemoryRepairProposal`：记录 `repair_id`、`change_kind`、原始请求、目标文件、JSON Pointer operations、影响分析、follow-up action、风险等级、置信度、假设和 notes。
+- `MemoryRepairApplyLog`：记录 apply 状态、目标文件、备份路径和错误。apply 失败时应尽量从备份回滚。
+- `MemoryChangeClarificationSession`：记录澄清会话的问题、用户回答、状态和最终 proposal 路径。
+- `MemoryChangeBatchPlan`：把复杂设定变更拆成多个 batch，降低单次模型输出长度和超时风险。
+- `MemoryChangeImpact` 与 `MemoryChangeFollowupAction`：记录受影响实体、章节、Session、已认可章节和后续动作建议。
+
+重要约定：
+
+- 允许自动 apply 的目标文件只限白名单 memory JSON：`memory/state/timeline.json`、`memory/state/current_state.json` 和 `memory/canon/*.json` 中的 canon 文件。
+- `operations` 使用 JSON Pointer；新增集合元素应使用 `/-` append 路径。
+- `change_kind=setting_change` 时，系统会额外做语义 preflight，例如 Character.role 不得写入家族身份、门派身份、排行、职业或江湖身份。
+- 已 accepted 或 archived 的章节不会被静默改写；影响分析和 follow-up action 用于提示用户后续是否需要重写、重审或同步 Session。
+- 字段级结构请查看生成的 `schemas/memory_repair_proposal.schema.json`、`schemas/memory_change_clarification_session.schema.json`、`schemas/memory_change_batch_plan.schema.json` 和 `schemas/memory_change_impact.schema.json`。
+
+---
+
+## 26. Validation 要求
+
+### 26.1 ID 唯一性
 
 实现层应验证：
 
@@ -1522,7 +1556,7 @@ memory/chapters/001/audit.json
 - Foreshadowing thread ID 唯一。
 - Hidden truth ID 唯一。
 
-### 25.2 Reference 完整性
+### 26.2 Reference 完整性
 
 以下情况系统应给出 warning：
 
@@ -1533,7 +1567,7 @@ memory/chapters/001/audit.json
 - Foreshadowing thread 引用缺失 hidden truth。
 - Character possession 与 item state 冲突。
 
-### 25.3 章节一致性
+### 26.3 章节一致性
 
 在把 polished chapter 保存为 accepted 前，系统应检查：
 
@@ -1544,7 +1578,7 @@ memory/chapters/001/audit.json
 - 重大事件后更新 state change。
 - 不与最新 timeline 矛盾。
 
-### 25.4 Agent output validation
+### 26.4 Agent output validation
 
 任何输出 JSON 的 Agent 都必须生成匹配相关 schema 的有效数据。
 
@@ -1553,12 +1587,12 @@ memory/chapters/001/audit.json
 - Inspiration Agent 输出 `InspirationBrief`。
 - Plot Agent 输出 `ChapterPlan`。
 - Audit Agent 输出 `AuditReport`。
-- State Manager 输出 `StateChange`。
+- State Manager 输出 `StateUpdateProposal`。
 - Export Agent 输出 `ExportManifest`。
 
 ---
 
-## 26. 未来扩展
+## 27. 未来扩展
 
 未来可增加的 schema：
 
@@ -1576,7 +1610,7 @@ memory/chapters/001/audit.json
 
 ---
 
-## 27. 给 Codex 的实现说明
+## 28. 给 Codex 的实现说明
 
 实现 schema 时：
 

@@ -684,6 +684,65 @@ def test_setting_change_apply_rejects_existing_bad_character_role_proposal(tmp_p
     assert apply_log["backups"] == []
 
 
+def test_memory_repair_apply_rolls_back_all_touched_files_after_project_validation_failure(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+    characters_path = root / "memory" / "canon" / "characters.json"
+    world_path = root / "memory" / "canon" / "world.json"
+    before_characters = characters_path.read_text(encoding="utf-8")
+    before_world = world_path.read_text(encoding="utf-8")
+    repair_id = "repair_20260606_050505_000001"
+    repair_dir = root / "memory" / "repairs" / repair_id
+    repair_dir.mkdir(parents=True)
+    proposal_path = repair_dir / "proposal.json"
+    proposal_path.write_text(
+        json.dumps(
+            {
+                "repair_id": repair_id,
+                "created_by": "orchestrator",
+                "change_kind": "setting_change",
+                "user_request": "测试多文件回滚。",
+                "target_files": ["memory/canon/characters.json", "memory/canon/world.json"],
+                "operations": [
+                    {
+                        "op": "replace",
+                        "file": "memory/canon/characters.json",
+                        "path": "/characters/0/reader_visible_summary",
+                        "value": "林澈的新设定。",
+                        "reason": "先写入一个有效文件，确保后续失败需要恢复。",
+                    },
+                    {
+                        "op": "replace",
+                        "file": "memory/canon/world.json",
+                        "path": "/schema_version",
+                        "value": 999,
+                        "reason": "触发项目级 schema_version validation 失败。",
+                    },
+                ],
+                "risk_level": "medium",
+                "validation_before": {},
+                "notes": [],
+                "created_at": "2026-06-06T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        apply_memory_repair(root, proposal_path)
+
+    assert "validation errors" in str(excinfo.value)
+    assert characters_path.read_text(encoding="utf-8") == before_characters
+    assert world_path.read_text(encoding="utf-8") == before_world
+    apply_log = json.loads((repair_dir / "apply_log.json").read_text(encoding="utf-8"))
+    assert apply_log["status"] == "rolled_back"
+    assert apply_log["target_files"] == ["memory/canon/characters.json", "memory/canon/world.json"]
+    assert len(apply_log["backups"]) == 2
+    assert all((root / backup).is_file() for backup in apply_log["backups"])
+
+
 def test_setting_change_allows_narrative_role_with_identity_tags(tmp_path: Path) -> None:
     root = _workspace_with_timeline_event(tmp_path)
     decision = MemoryRepairDecision(

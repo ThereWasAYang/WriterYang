@@ -1925,11 +1925,13 @@ def test_frontend_basic_render() -> None:
     assert "/api/session/retry-rewrite" in app_js
     assert "/api/session/undo-rewrite" in app_js
     assert "/api/session/rewrite-events" in app_js
-    assert "/api/orchestrator/memory-repair/suggest" in app_js
-    assert "/api/orchestrator/memory-repair/apply" in app_js
     assert "/api/settings/change/suggest" in app_js
     assert "/api/settings/change/answer" in app_js
     assert "/api/settings/change/apply" in app_js
+    assert "创作中设定调整" in html
+    assert "项目设定批量修订" in html
+    assert "设定变更说明" in html
+    assert "记忆修复说明" not in html
     assert 'id="settingChangeWorkbenchSuggest"' in html
     assert 'id="settingChangeWorkbenchReset"' in html
     assert 'id="openWorkbenchSettingChangeProposal"' in html

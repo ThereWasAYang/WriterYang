@@ -664,6 +664,77 @@ def test_openai_compatible_provider_uses_json_object_for_structured_outputs(
     assert captured["body"]["response_format"] == {"type": "json_object"}  # type: ignore[index]
 
 
+def test_openai_compatible_provider_sends_real_json_schema_for_known_structured_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    provider.generate(ModelRequest(system_prompt="s", user_prompt="u", json_schema_name="ChapterPlan"))
+
+    response_format = captured["body"]["response_format"]  # type: ignore[index]
+    assert response_format["type"] == "json_schema"  # type: ignore[index]
+    json_schema = response_format["json_schema"]  # type: ignore[index]
+    assert json_schema["name"] == "ChapterPlan"  # type: ignore[index]
+    assert json_schema["schema"]["title"] == "ChapterPlan"  # type: ignore[index]
+    assert json_schema["schema"]["properties"]  # type: ignore[index]
+    assert "strict" not in json_schema  # type: ignore[operator]
+
+
+def test_openai_compatible_provider_falls_back_to_json_object_for_unknown_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+    def fake_urlopen(http_request: object, timeout: float) -> FakeResponse:
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+
+    provider.generate(ModelRequest(system_prompt="s", user_prompt="u", json_schema_name="TestSchema"))
+
+    assert captured["body"]["response_format"] == {"type": "json_object"}  # type: ignore[index]
+    messages = captured["body"]["messages"]  # type: ignore[index]
+    assert "JSON" in messages[0]["content"]  # type: ignore[index]
+    assert "TestSchema" in messages[0]["content"]  # type: ignore[index]
+
+
 def test_json_object_provider_adds_json_prompt_hint_when_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -12,6 +12,7 @@ from typing import Iterable, Mapping
 from urllib import error, request
 
 from novel.core.io import atomic_write_json
+from novel.core.json_schema import model_output_schema_payload
 from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.usage import refresh_provider_usage_summary_for_log
 
@@ -398,8 +399,17 @@ class OpenAICompatibleProvider(ModelProvider):
         return self._payload(model_request, stream=stream)
 
     def _payload(self, model_request: ModelRequest, *, stream: bool) -> dict[str, object]:
+        schema_payload = (
+            model_output_schema_payload(model_request.json_schema_name)
+            if model_request.json_schema_name and self.json_response_format != "json_object"
+            else None
+        )
+        use_json_object = bool(
+            model_request.json_schema_name
+            and (self.json_response_format == "json_object" or schema_payload is None)
+        )
         messages = _messages_from_request(model_request)
-        if model_request.json_schema_name and self.json_response_format == "json_object":
+        if model_request.json_schema_name and use_json_object:
             messages = _ensure_json_mode_messages(messages, model_request.json_schema_name)
         payload: dict[str, object] = {
             "model": self.model,
@@ -418,14 +428,14 @@ class OpenAICompatibleProvider(ModelProvider):
         if self.reasoning_effort and self.thinking_type == "enabled":
             payload["reasoning_effort"] = self.reasoning_effort
         if model_request.json_schema_name:
-            if self.json_response_format == "json_object":
+            if use_json_object:
                 payload["response_format"] = {"type": "json_object"}
             else:
                 payload["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {
                         "name": model_request.json_schema_name,
-                        "schema": {},
+                        "schema": schema_payload,
                     },
                 }
         return payload

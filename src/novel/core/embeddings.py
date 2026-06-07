@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import time
 from typing import Mapping
@@ -47,6 +48,19 @@ class EmbeddingResponse:
     raw_response: object | None = None
 
 
+@dataclass(frozen=True)
+class EmbeddingProviderCapability:
+    canonical_provider: str
+    max_batch_size: int | None = None
+    max_dimensions: int | None = None
+    default_batch_size: int | None = None
+    default_dimensions: int | None = None
+    encoding_format: str | None = None
+
+
+DEFAULT_EMBEDDING_BATCH_SIZE = 16
+
+
 class EmbeddingProvider(ABC):
     provider_name: str
     model: str
@@ -77,10 +91,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     api_key: str = field(repr=False)
     base_url: str
     dimensions: int | None = None
-    batch_size: int = 16
+    batch_size: int = DEFAULT_EMBEDDING_BATCH_SIZE
     timeout_seconds: float = 30.0
     max_retries: int = 0
     retry_backoff_seconds: float = 0.25
+    encoding_format: str | None = None
 
     @classmethod
     def from_config(
@@ -105,15 +120,25 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 raise MissingEmbeddingEnvError(
                     f"required environment variable {config.base_url_env} is not set for base_url_env"
                 )
+        normalized_base_url = _normalize_embedding_base_url(base_url)
+        dimensions, batch_size, capability = resolve_embedding_parameters(
+            provider_name,
+            config.model,
+            base_url=normalized_base_url,
+            dimensions=config.dimensions,
+            batch_size=config.batch_size,
+            clamp_batch_size=True,
+        )
         return cls(
             provider_name=provider_name,
             model=config.model,
             api_key=api_key,
-            base_url=_normalize_embedding_base_url(base_url),
-            dimensions=config.dimensions,
-            batch_size=config.batch_size,
+            base_url=normalized_base_url,
+            dimensions=dimensions,
+            batch_size=batch_size,
             timeout_seconds=config.timeout_seconds or 30.0,
             max_retries=config.max_retries or 0,
+            encoding_format=capability.encoding_format,
         )
 
     def embed_texts(self, texts: list[str]) -> EmbeddingResponse:
@@ -131,8 +156,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         payload: dict[str, object] = {"model": self.model, "input": texts}
         if self.dimensions is not None:
             payload["dimensions"] = self.dimensions
-        if self.provider_name == "dashscope":
-            payload["encoding_format"] = "float"
+        if self.encoding_format is not None:
+            payload["encoding_format"] = self.encoding_format
         raw = self._request_json(payload)
         vectors = _vectors_from_openai_raw(raw, expected_count=len(texts))
         return EmbeddingResponse(vectors=vectors, model=self.model, raw_response=dict(raw))
@@ -160,9 +185,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                     raise EmbeddingResponseError("embedding provider JSON response must be an object")
                 return raw
             except error.HTTPError as exc:
-                last_error = EmbeddingHTTPError(
-                    f"{self.provider_name} embedding provider returned HTTP {exc.code}"
-                )
+                message = f"{self.provider_name} embedding provider returned HTTP {exc.code}"
+                detail = _safe_http_error_detail(exc, secret=self.api_key)
+                if detail:
+                    message = f"{message}: {detail}"
+                last_error = EmbeddingHTTPError(message)
                 if not _is_retryable_http_status(exc.code) or attempt == attempts:
                     raise last_error from None
             except socket.timeout:
@@ -246,6 +273,74 @@ def local_embedding_vector(text: str, dimensions: int = 32) -> list[float]:
     return vector
 
 
+def embedding_provider_capability(
+    provider: str,
+    model: str,
+    *,
+    base_url: str | None = None,
+) -> EmbeddingProviderCapability:
+    provider_name = provider.lower()
+    model_name = model.lower()
+    if _is_dashscope_target(provider_name, base_url):
+        if model_name == "text-embedding-v4":
+            return EmbeddingProviderCapability(
+                canonical_provider="dashscope",
+                max_batch_size=10,
+                max_dimensions=2048,
+                default_batch_size=10,
+                default_dimensions=2048,
+                encoding_format="float",
+            )
+        if model_name == "text-embedding-v3":
+            return EmbeddingProviderCapability(
+                canonical_provider="dashscope",
+                max_batch_size=10,
+                max_dimensions=1024,
+                default_batch_size=10,
+                default_dimensions=1024,
+                encoding_format="float",
+            )
+        return EmbeddingProviderCapability(canonical_provider="dashscope", encoding_format="float")
+    return EmbeddingProviderCapability(canonical_provider=provider_name)
+
+
+def resolve_embedding_parameters(
+    provider: str,
+    model: str,
+    *,
+    base_url: str | None = None,
+    dimensions: int | None = None,
+    batch_size: int | None = None,
+    clamp_batch_size: bool = False,
+    default_batch_size: int = DEFAULT_EMBEDDING_BATCH_SIZE,
+) -> tuple[int | None, int, EmbeddingProviderCapability]:
+    capability = embedding_provider_capability(provider, model, base_url=base_url)
+    if dimensions is not None and dimensions <= 0:
+        raise EmbeddingError("embedding dimensions must be a positive integer")
+    if batch_size is not None and batch_size <= 0:
+        raise EmbeddingError("embedding batch_size must be a positive integer")
+    resolved_dimensions = dimensions if dimensions is not None else capability.default_dimensions
+    if (
+        resolved_dimensions is not None
+        and capability.max_dimensions is not None
+        and resolved_dimensions > capability.max_dimensions
+    ):
+        raise EmbeddingError(
+            f"{capability.canonical_provider} {model} supports dimensions up to {capability.max_dimensions}"
+        )
+    resolved_batch_size = batch_size if batch_size is not None else capability.default_batch_size
+    if resolved_batch_size is None:
+        resolved_batch_size = default_batch_size
+    if capability.max_batch_size is not None and resolved_batch_size > capability.max_batch_size:
+        if clamp_batch_size:
+            resolved_batch_size = capability.max_batch_size
+        else:
+            raise EmbeddingError(
+                f"{capability.canonical_provider} {model} supports batch_size up to {capability.max_batch_size}"
+            )
+    return resolved_dimensions, resolved_batch_size, capability
+
+
 def _vectors_from_openai_raw(raw: Mapping[str, object], *, expected_count: int) -> list[list[float]]:
     data = raw.get("data")
     if not isinstance(data, list):
@@ -303,8 +398,61 @@ def _normalize_embedding_base_url(base_url: str) -> str:
     return normalized
 
 
+def _is_dashscope_target(provider: str, base_url: str | None) -> bool:
+    if provider == "dashscope":
+        return True
+    normalized = (base_url or "").lower()
+    return "dashscope.aliyuncs.com" in normalized
+
+
 def _is_retryable_http_status(status: int) -> bool:
     return status in {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _safe_http_error_detail(exc: error.HTTPError, *, secret: str) -> str:
+    try:
+        raw_body = exc.read(8192)
+    except Exception:
+        return ""
+    if not raw_body:
+        return ""
+    text = raw_body.decode("utf-8", errors="replace").strip()
+    if not text:
+        return ""
+    detail = text
+    try:
+        raw_json = json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    else:
+        if isinstance(raw_json, Mapping):
+            detail = _http_error_json_detail(raw_json) or text
+    detail = _redact_embedding_error_text(detail, secret=secret)
+    if len(detail) > 500:
+        detail = detail[:497] + "..."
+    return detail
+
+
+def _http_error_json_detail(raw: Mapping[str, object]) -> str:
+    error_item = raw.get("error")
+    source = error_item if isinstance(error_item, Mapping) else raw
+    message = source.get("message")
+    code = source.get("code")
+    if isinstance(code, str) and isinstance(message, str):
+        return f"{code}: {message}"
+    if isinstance(message, str):
+        return message
+    if isinstance(code, str):
+        return code
+    return ""
+
+
+def _redact_embedding_error_text(text: str, *, secret: str) -> str:
+    redacted = text.replace(secret, "[redacted]") if secret else text
+    redacted = re.sub(r"(?i)bearer\s+[A-Za-z0-9._\-]+", "Bearer [redacted]", redacted)
+    redacted = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[redacted-api-key]", redacted)
+    redacted = re.sub(r"(?i)(api[_-]?key\s*[:=]\s*)[^\s,;}]+", r"\1[redacted]", redacted)
+    return redacted
 
 
 def _query_terms(text: str) -> list[str]:

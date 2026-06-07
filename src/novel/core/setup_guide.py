@@ -6,7 +6,12 @@ import os
 import socket
 from typing import Literal, Mapping
 
-from novel.core.embeddings import EmbeddingError, EmbeddingProviderFactory
+from novel.core.embeddings import (
+    DEFAULT_EMBEDDING_BATCH_SIZE,
+    EmbeddingError,
+    EmbeddingProviderFactory,
+    resolve_embedding_parameters,
+)
 from novel.core.env import load_project_env, write_project_env_values
 from novel.core.io import atomic_write_yaml, backup_if_exists, load_yaml
 from novel.core.providers import (
@@ -68,6 +73,8 @@ class EmbeddingSetupResult:
     active_provider: str
     provider: str
     model: str
+    dimensions: int | None
+    batch_size: int
     api_key_env: str
     base_url_env: str
     ping_ok: bool
@@ -171,7 +178,7 @@ def configure_embedding_provider(
     provider: str = "openai_compatible",
     provider_name: str = "configured",
     dimensions: int | None = None,
-    batch_size: int = 16,
+    batch_size: int | None = None,
     timeout_seconds: float = 30.0,
     max_retries: int = 1,
     ping: bool = True,
@@ -182,13 +189,24 @@ def configure_embedding_provider(
     model = _require_non_empty(model, "embedding model")
     provider = _require_non_empty(provider, "embedding provider")
     provider_name = _require_non_empty(provider_name, "embedding provider_name")
+    try:
+        resolved_dimensions, resolved_batch_size, _ = resolve_embedding_parameters(
+            provider,
+            model,
+            base_url=base_url,
+            dimensions=dimensions,
+            batch_size=batch_size,
+            default_batch_size=DEFAULT_EMBEDDING_BATCH_SIZE,
+        )
+    except EmbeddingError as exc:
+        raise SetupGuideError(str(exc)) from exc
     config = EmbeddingProviderConfig(
         provider=provider,
         base_url_env=DEFAULT_EMBEDDING_BASE_URL_ENV,
         api_key_env=DEFAULT_EMBEDDING_API_KEY_ENV,
         model=model,
-        dimensions=dimensions,
-        batch_size=batch_size,
+        dimensions=resolved_dimensions,
+        batch_size=resolved_batch_size,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
     )
@@ -207,6 +225,8 @@ def configure_embedding_provider(
         active_provider=provider_name,
         provider=provider,
         model=model,
+        dimensions=resolved_dimensions,
+        batch_size=resolved_batch_size,
         api_key_env=DEFAULT_EMBEDDING_API_KEY_ENV,
         base_url_env=DEFAULT_EMBEDDING_BASE_URL_ENV,
         ping_ok=True,
@@ -309,11 +329,24 @@ def _ping_model_provider(root: Path, config: AgentConfig, env: Mapping[str, str]
 def _ping_embedding_provider(config: EmbeddingProviderConfig, env: Mapping[str, str]) -> None:
     try:
         provider = EmbeddingProviderFactory(env=env).create(config)
-        response = provider.embed_texts(["WriterYang embedding connectivity test"])
+        sample_count = max(1, int(getattr(provider, "batch_size", config.batch_size)))
+        texts = [f"WriterYang embedding connectivity test {index + 1}" for index in range(sample_count)]
+        response = provider.embed_texts(texts)
     except EmbeddingError as exc:
         raise SetupGuideError(f"embedding provider connectivity test failed: {exc}") from exc
+    if len(response.vectors) != sample_count:
+        raise SetupGuideError(
+            f"embedding provider connectivity test returned {len(response.vectors)} vectors, expected {sample_count}"
+        )
     if not response.vectors or not response.vectors[0]:
         raise SetupGuideError("embedding provider connectivity test returned empty vector")
+    if config.dimensions is not None:
+        for vector in response.vectors:
+            if len(vector) != config.dimensions:
+                raise SetupGuideError(
+                    "embedding provider connectivity test returned vector dimension "
+                    f"{len(vector)}, expected {config.dimensions}"
+                )
 
 
 def _load_yaml_mapping(path: Path) -> dict[str, object]:

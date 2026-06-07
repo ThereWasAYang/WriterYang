@@ -287,8 +287,8 @@ def _embeddings_yaml() -> str:
         '    base_url_env: "DASHSCOPE_EMBEDDING_BASE_URL"\n'
         '    api_key_env: "DASHSCOPE_API_KEY"\n'
         '    model: "text-embedding-v4"\n'
-        "    dimensions: 1024\n"
-        "    batch_size: 16\n"
+        "    dimensions: 2048\n"
+        "    batch_size: 10\n"
         "    timeout_seconds: 30\n"
         "    max_retries: 1\n"
         "  zhipu:\n"

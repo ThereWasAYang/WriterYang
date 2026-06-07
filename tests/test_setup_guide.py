@@ -83,7 +83,17 @@ def test_configure_embedding_provider_is_optional_and_secret_safe(
     init_workspace(InitOptions(title="测试小说", root=root))
 
     def fake_urlopen(req, timeout):  # type: ignore[no-untyped-def]
-        return _FakeResponse({"data": [{"index": 0, "embedding": [0.1, 0.2]}]})
+        payload = json.loads(req.data.decode("utf-8"))
+        inputs = payload["input"]
+        assert isinstance(inputs, list)
+        return _FakeResponse(
+            {
+                "data": [
+                    {"index": index, "embedding": [0.1, 0.2]}
+                    for index, _ in enumerate(inputs)
+                ]
+            }
+        )
 
     monkeypatch.setattr("novel.core.embeddings.request.urlopen", fake_urlopen)
 
@@ -104,6 +114,51 @@ def test_configure_embedding_provider_is_optional_and_secret_safe(
     assert configured["api_key_env"] == DEFAULT_EMBEDDING_API_KEY_ENV
     assert configured["base_url_env"] == DEFAULT_EMBEDDING_BASE_URL_ENV
     assert "embedding-secret" not in (root / "config" / "embeddings.yaml").read_text(encoding="utf-8")
+
+
+def test_configure_dashscope_embedding_provider_validates_max_batch_and_dimensions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "novel"
+    init_workspace(InitOptions(title="测试小说", root=root))
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(req, timeout):  # type: ignore[no-untyped-def]
+        payload = json.loads(req.data.decode("utf-8"))
+        captured["payload"] = payload
+        inputs = payload["input"]
+        assert isinstance(inputs, list)
+        dimensions = int(payload["dimensions"])
+        return _FakeResponse(
+            {
+                "data": [
+                    {"index": index, "embedding": [0.1 for _ in range(dimensions)]}
+                    for index, _ in enumerate(inputs)
+                ]
+            }
+        )
+
+    monkeypatch.setattr("novel.core.embeddings.request.urlopen", fake_urlopen)
+
+    result = configure_embedding_provider(
+        root,
+        provider="openai_compatible",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="embedding-secret",
+        model="text-embedding-v4",
+    )
+
+    embeddings = load_yaml(root / "config" / "embeddings.yaml")
+    configured = embeddings["providers"]["configured"]  # type: ignore[index]
+    payload = captured["payload"]
+    assert result.dimensions == 2048
+    assert result.batch_size == 10
+    assert configured["dimensions"] == 2048
+    assert configured["batch_size"] == 10
+    assert len(payload["input"]) == 10  # type: ignore[arg-type]
+    assert payload["dimensions"] == 2048  # type: ignore[index]
+    assert payload["encoding_format"] == "float"  # type: ignore[index]
 
 
 def test_find_available_port_skips_occupied_port(monkeypatch) -> None:

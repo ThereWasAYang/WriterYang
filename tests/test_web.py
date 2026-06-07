@@ -148,6 +148,9 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     assert payload["data"]["embedding_api"]["configured"] is True  # type: ignore[index]
     assert payload["data"]["embedding_api"]["provider"] == "dashscope"  # type: ignore[index]
     assert payload["data"]["embedding_api"]["model"] == "text-embedding-v4"  # type: ignore[index]
+    assert payload["data"]["embedding_api"]["dimensions"] == 2048  # type: ignore[index]
+    assert payload["data"]["embedding_api"]["batch_size"] == 10  # type: ignore[index]
+    assert payload["data"]["embedding_api"]["effective_batch_size"] == 10  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default"  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["inherits_default"] is True  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["config"]["api_key_env"] == "OPENAI_API_KEY"  # type: ignore[index]
@@ -223,6 +226,8 @@ def test_api_setup_embedding_can_be_skipped_or_saved(tmp_path: Path) -> None:
                 "base_url": "https://embed.example.test/v1",
                 "api_key": "embedding-secret",
                 "model": "embedding-model",
+                "dimensions": 1024,
+                "batch_size": 10,
                 "ping": False,
             }
         ),
@@ -237,6 +242,8 @@ def test_api_setup_embedding_can_be_skipped_or_saved(tmp_path: Path) -> None:
     assert saved_payload["data"]["embedding_api"]["status"] == "configured"  # type: ignore[index]
     assert saved_payload["data"]["embedding_api"]["provider"] == "openai_compatible"  # type: ignore[index]
     assert saved_payload["data"]["embedding_api"]["model"] == "embedding-model"  # type: ignore[index]
+    assert saved_payload["data"]["embedding_api"]["dimensions"] == 1024  # type: ignore[index]
+    assert saved_payload["data"]["embedding_api"]["batch_size"] == 10  # type: ignore[index]
     assert saved_payload["data"]["embedding_api"]["api_key_env"] == "WRITERYANG_EMBEDDING_API_KEY"  # type: ignore[index]
     assert saved_payload["data"]["embedding_api"]["base_url_env"] == "WRITERYANG_EMBEDDING_BASE_URL"  # type: ignore[index]
     assert "WRITERYANG_EMBEDDING_API_KEY" in (root / "config" / "embeddings.yaml").read_text(encoding="utf-8")
@@ -2057,6 +2064,9 @@ def test_frontend_basic_render() -> None:
     assert 'id="setupGuidePanel"' in html
     assert 'id="setupDefaultProvider"' in html
     assert 'id="setupEmbedding"' in html
+    assert 'id="setupEmbeddingProvider"' in html
+    assert 'id="setupEmbeddingDimensions"' in html
+    assert 'id="setupEmbeddingBatchSize"' in html
     assert 'id="setupWebPort"' in html
     assert 'id="setupOpenWeb"' not in html
     assert "下次启动器端口" in frontend
@@ -2094,7 +2104,10 @@ def test_frontend_basic_render() -> None:
     assert 'id="embeddingConfigForm"' in html
     assert 'id="configEmbeddingBaseUrl"' in html
     assert 'id="configEmbeddingApiKey"' in html
+    assert 'id="configEmbeddingProvider"' in html
     assert 'id="configEmbeddingModel"' in html
+    assert 'id="configEmbeddingDimensions"' in html
+    assert 'id="configEmbeddingBatchSize"' in html
     assert 'id="saveEmbeddingConfig"' in html
     assert 'id="embeddingConfigStatus"' in html
     assert 'id="searchStatusPanel"' in html
@@ -2190,7 +2203,14 @@ def test_frontend_basic_render() -> None:
     assert 'status === "backend_mismatch"' in app_js
     assert "Embedding API 已配置" in app_js
     assert "模型：" in app_js
+    assert "dimensions：" in app_js
+    assert "batch_size：" in app_js
     assert "configEmbeddingBaseUrl" in app_js
+    assert "configEmbeddingProvider" in app_js
+    assert "configEmbeddingDimensions" in app_js
+    assert "configEmbeddingBatchSize" in app_js
+    assert "dimensions: embedding.dimensions" in app_js
+    assert "batch_size: embedding.batch_size" in app_js
     assert '$("configEmbeddingBaseUrl").value = ""' in app_js
     assert '$("configEmbeddingModel").value = ""' in app_js
     assert "with_embeddings: true" in app_js

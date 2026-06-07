@@ -15,8 +15,8 @@ providers: # 可选 embedding provider 列表。
     model: "text-embedding-v4" # 模型名。
     api_key_env: "DASHSCOPE_API_KEY" # API Key 环境变量名。
     base_url_env: "DASHSCOPE_EMBEDDING_BASE_URL" # base URL 环境变量名。
-    dimensions: 1024 # text-embedding-v4 常用输出维度。
-    batch_size: 16 # 真实 API 建议较小批量。
+    dimensions: 2048 # text-embedding-v4 最大输出维度。
+    batch_size: 10 # text-embedding-v4 字符串列表最大 10 条。
     timeout_seconds: 30 # 请求超时时间。
     max_retries: 1 # 失败重试次数。
   zhipu: # 智谱 embedding-3 配置模板。

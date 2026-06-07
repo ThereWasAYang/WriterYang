@@ -13,6 +13,20 @@
       "providerTimeoutSecondsField", "providerMaxRetriesField",
     ];
     const jsonResponseFormatValues = ["auto", "json_object", "json_schema", "json_schema_strict"];
+    const embeddingFormIds = {
+      setup: {
+        provider: "setupEmbeddingProvider",
+        model: "setupEmbeddingModel",
+        dimensions: "setupEmbeddingDimensions",
+        batchSize: "setupEmbeddingBatchSize",
+      },
+      config: {
+        provider: "configEmbeddingProvider",
+        model: "configEmbeddingModel",
+        dimensions: "configEmbeddingDimensions",
+        batchSize: "configEmbeddingBatchSize",
+      },
+    };
     let editorLoadedContent = "";
     let editorSourceFile = "";
     let providerConfigCache = null;
@@ -603,6 +617,49 @@
       setSetupStatus("已暂时跳过默认 API 配置。真实创作前需要配置默认 API，否则 Agent 调用会失败。", true);
     }
 
+    function embeddingProviderDefaults(provider, model) {
+      const providerName = String(provider || "").toLowerCase();
+      const modelName = String(model || "").toLowerCase();
+      if (providerName === "dashscope") {
+        if (modelName === "text-embedding-v3") {
+          return { model: "text-embedding-v3", dimensions: 1024, batchSize: 10 };
+        }
+        return { model: "text-embedding-v4", dimensions: 2048, batchSize: 10 };
+      }
+      return { model: "", dimensions: "", batchSize: 16 };
+    }
+
+    function applyEmbeddingProviderDefaults(formName, force = false) {
+      const ids = embeddingFormIds[formName];
+      if (!ids) return;
+      const provider = $(ids.provider).value || "dashscope";
+      const defaults = embeddingProviderDefaults(provider, $(ids.model).value);
+      if (force || !$(ids.model).value.trim()) $(ids.model).value = defaults.model;
+      if (force || !$(ids.dimensions).value.trim()) $(ids.dimensions).value = defaults.dimensions;
+      if (force || !$(ids.batchSize).value.trim()) $(ids.batchSize).value = defaults.batchSize;
+    }
+
+    function optionalPositiveIntFromField(id, label) {
+      const value = $(id).value.trim();
+      if (!value) return null;
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new Error(`${label} 必须是正整数。`);
+      }
+      return parsed;
+    }
+
+    function embeddingFormPayload(formName) {
+      const ids = embeddingFormIds[formName];
+      applyEmbeddingProviderDefaults(formName, false);
+      return {
+        provider: $(ids.provider).value || "dashscope",
+        model: $(ids.model).value.trim(),
+        dimensions: optionalPositiveIntFromField(ids.dimensions, "Embedding dimensions"),
+        batch_size: optionalPositiveIntFromField(ids.batchSize, "Embedding batch size"),
+      };
+    }
+
     async function setupEmbedding() {
       return withBusy("保存 embedding API", async () => {
         if (!$("setupEmbeddingEnabled").checked) {
@@ -610,17 +667,20 @@
           setSetupStatus(skipped.message || "已跳过 embedding API 配置。");
           return;
         }
+        const embedding = embeddingFormPayload("setup");
         const data = await apiPost("/api/setup/embedding", {
           path: projectPath(),
-          provider: "openai_compatible",
+          provider: embedding.provider,
           provider_name: "configured",
           base_url: $("setupEmbeddingBaseUrl").value.trim(),
           api_key: $("setupEmbeddingApiKey").value,
-          model: $("setupEmbeddingModel").value.trim(),
+          model: embedding.model,
+          dimensions: embedding.dimensions,
+          batch_size: embedding.batch_size,
           ping: true,
         });
         $("setupEmbeddingApiKey").value = "";
-        setSetupStatus(`Embedding API 连通性测试通过：${data.provider} / ${data.model}`);
+        setSetupStatus(`Embedding API 连通性测试通过：${data.provider} / ${data.model}，dimensions=${data.dimensions || "默认"}，batch_size=${data.batch_size || "默认"}`);
         await refreshAll({ silent: true });
       });
     }
@@ -629,18 +689,21 @@
       return withBusy("保存 embedding API", async () => {
         const baseUrl = $("configEmbeddingBaseUrl").value.trim();
         const apiKey = $("configEmbeddingApiKey").value;
-        const model = $("configEmbeddingModel").value.trim();
+        const embedding = embeddingFormPayload("config");
+        const model = embedding.model;
         if (!baseUrl || !apiKey || !model) {
-          setEmbeddingConfigStatus("Embedding Base URL、API Key 和模型名都必须填写。", true);
-          throw new Error("Embedding Base URL、API Key 和模型名都必须填写。");
+          setEmbeddingConfigStatus("Embedding Base URL、API Key、provider、模型名和参数都必须填写。", true);
+          throw new Error("Embedding Base URL、API Key、provider、模型名和参数都必须填写。");
         }
         const setup = await apiPost("/api/setup/embedding", {
           path: projectPath(),
-          provider: "openai_compatible",
+          provider: embedding.provider,
           provider_name: "configured",
           base_url: baseUrl,
           api_key: apiKey,
           model,
+          dimensions: embedding.dimensions,
+          batch_size: embedding.batch_size,
           ping: true,
         });
         $("configEmbeddingApiKey").value = "";
@@ -1395,16 +1458,30 @@
 
       if (configured) {
         const provider = summary.provider || summary.active_provider || "config";
+        const effectiveProvider = summary.effective_provider && summary.effective_provider !== provider
+          ? ` / effective: ${summary.effective_provider}`
+          : "";
         const model = summary.model || "未设置";
         const apiKeyEnv = summary.api_key_env || "未设置";
         const baseUrlEnv = summary.base_url_env || "未设置";
+        const dimensions = summary.effective_dimensions || summary.dimensions || "默认";
+        const batchSize = summary.batch_size || "默认";
+        const effectiveBatch = summary.effective_batch_size && summary.effective_batch_size !== summary.batch_size
+          ? ` / effective: ${summary.effective_batch_size}`
+          : "";
+        const warnings = (summary.warnings || []).length
+          ? `<div class="status-warn">${escapeHtml((summary.warnings || []).join("；"))}</div>`
+          : "";
         summaryPanel.classList.remove("hidden");
         summaryPanel.innerHTML = `
           <b class="status-ok">Embedding API 已配置</b>
           <div>模型：${escapeHtml(model)}</div>
-          <div>Provider：${escapeHtml(provider)}</div>
+          <div>Provider：${escapeHtml(provider + effectiveProvider)}</div>
+          <div>dimensions：${escapeHtml(dimensions)}</div>
+          <div>batch_size：${escapeHtml(batchSize + effectiveBatch)}</div>
           <div>api_key_env：${escapeHtml(apiKeyEnv)}</div>
           <div>base_url_env：${escapeHtml(baseUrlEnv)}</div>
+          ${warnings}
           ${showCollapsed ? '<button id="editEmbeddingConfig" style="width: 100%; margin-top: 8px;">修改配置</button>' : ""}
         `;
         const editButton = $("editEmbeddingConfig");
@@ -1415,7 +1492,15 @@
           });
         }
         if (embeddingConfigEditing) {
-          setEmbeddingConfigStatus("请重新填写 Embedding Base URL、API Key 和模型名后保存。");
+          if ($("configEmbeddingProvider")) $("configEmbeddingProvider").value = summary.provider || "dashscope";
+          if ($("configEmbeddingModel") && !$("configEmbeddingModel").value) $("configEmbeddingModel").value = summary.model || "";
+          if ($("configEmbeddingDimensions") && !$("configEmbeddingDimensions").value) {
+            $("configEmbeddingDimensions").value = summary.effective_dimensions || summary.dimensions || "";
+          }
+          if ($("configEmbeddingBatchSize") && !$("configEmbeddingBatchSize").value) {
+            $("configEmbeddingBatchSize").value = summary.effective_batch_size || summary.batch_size || "";
+          }
+          setEmbeddingConfigStatus("请重新填写 Embedding Base URL、API Key、provider、模型名和参数后保存。");
         } else {
           setEmbeddingConfigStatus("Embedding API 已配置。点击“修改配置”可重新测试并保存。");
         }
@@ -1428,6 +1513,8 @@
           <b class="status-bad">Embedding API 未配置完整</b>
           <div>模型：${escapeHtml(summary.model || "未设置")}</div>
           <div>Provider：${escapeHtml(summary.provider || summary.active_provider || "未设置")}</div>
+          <div>dimensions：${escapeHtml(summary.effective_dimensions || summary.dimensions || "默认")}</div>
+          <div>batch_size：${escapeHtml(summary.effective_batch_size || summary.batch_size || "默认")}</div>
         `;
         setEmbeddingConfigStatus(`Embedding API 配置缺少环境变量：${(summary.env_missing || []).join(", ")}`, true);
         return;
@@ -1449,7 +1536,7 @@
         setEmbeddingConfigStatus(summary.message || providerConfigBackendMismatch || "Web UI 后台版本不匹配，请重启后台进程。", true);
         return;
       }
-      setEmbeddingConfigStatus("请填写 Embedding Base URL、API Key 和模型名。");
+      setEmbeddingConfigStatus("请填写 Embedding Base URL、API Key、provider、模型名和参数。");
     }
 
     function providerParameterCapabilities(providerName, thinkingType) {
@@ -2394,6 +2481,8 @@
     $("refreshFtsIndex").addEventListener("click", () => refreshIndex(false));
     $("refreshEmbeddingIndex").addEventListener("click", () => refreshIndex(true));
     $("saveEmbeddingConfig").addEventListener("click", saveEmbeddingConfig);
+    $("setupEmbeddingProvider").addEventListener("change", () => applyEmbeddingProviderDefaults("setup", true));
+    $("configEmbeddingProvider").addEventListener("change", () => applyEmbeddingProviderDefaults("config", true));
     $("memoryRepairSuggest").addEventListener("click", memoryRepairSuggest);
     $("memoryRepairClarificationSubmit").addEventListener("click", memoryRepairAnswer);
     $("memoryRepairReset").addEventListener("click", () => resetSettingChangeState("memoryRepairInstruction"));
@@ -2484,5 +2573,7 @@
     });
     $("projectTitle").addEventListener("input", updateProjectInitPathPreview);
     $("projectTitle").addEventListener("change", updateProjectInitPathPreview);
+    applyEmbeddingProviderDefaults("setup", false);
+    applyEmbeddingProviderDefaults("config", false);
     updateProjectInitPathPreview();
     loadRuntime();

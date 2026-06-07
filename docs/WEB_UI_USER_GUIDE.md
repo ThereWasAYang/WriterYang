@@ -61,7 +61,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 
 真实项目需要在 `config/agents.yaml` 配置顶层 `default` API；没有单独配置 API 的 Agent 会自动继承这个缺省配置。默认情况下，初始引导会帮你完成这一步。如果 Web UI 标红提示“default API config is missing”或环境变量不存在，说明项目还没有配置缺省 API，只能做 mock 测试，不能稳定进行真实创作。
 
-“模型与检索配置”页可以在项目初始化后重新配置 embedding API。填写新的 Embedding Base URL、API Key 和模型名后点击“测试并保存 embedding API”，工具会先做连通性测试，成功后把 API Key 写入项目 `.env`、把模型名等非密钥配置写入 `config/embeddings.yaml`，清空输入框，随后自动刷新语义向量索引。关键词检索是默认可用能力；如果 embedding API 没有配置好，页面会用红色提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。工具只会在三种情况下调用外部 embedding API：你保存 embedding API 后的自动刷新、你明确点击“刷新语义向量索引”，或你启用“使用 embedding 语义检索”且当前语义向量缺失或过期。未启用 embedding 的普通关键词/FTS 检索不会调用外部 embedding API。
+“模型与检索配置”页可以在项目初始化后重新配置 embedding API。填写新的 Embedding Base URL、API Key、provider、模型名、`dimensions` 和 `batch_size` 后点击“测试并保存 embedding API”，工具会先用当前批量和维度做连通性测试，成功后把 API Key 写入项目 `.env`、把模型名和参数等非密钥配置写入 `config/embeddings.yaml`，清空输入框，随后自动刷新语义向量索引。DashScope `text-embedding-v4` 默认使用 `dimensions: 2048` 和 `batch_size: 10`。关键词检索是默认可用能力；如果 embedding API 没有配置好，页面会用红色提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。工具只会在三种情况下调用外部 embedding API：你保存 embedding API 后的自动刷新、你明确点击“刷新语义向量索引”，或你启用“使用 embedding 语义检索”且当前语义向量缺失或过期。未启用 embedding 的普通关键词/FTS 检索不会调用外部 embedding API。
 
 如果页面弹出或标红提示“Web UI 后台版本不匹配”，说明浏览器里的前端文件和正在运行的后台接口不是同一版本，常见原因是更新代码后没有重启 Web UI 后台。请停止旧后台，按项目的 Web UI 启动命令重新启动后台，再刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 的配置状态。
 
@@ -137,7 +137,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 区域 | 用途 | 使用方法 |
 | --- | --- | --- |
 | Agent 模型配置 | 查看和编辑各 Agent 的非密钥模型配置。 | 非 `default` Agent 默认勾选“继承default”，字段显示 default 参数且不可编辑；取消勾选后复制 default 并开放 provider 支持的 provider、model、base_url_env、api_key_env、temperature、thinking、max_tokens 等字段，不会生效的字段显示 `NA`。高级 JSON 折叠区可编辑 `json_response_format`，但会按 provider 限制可用值。保存 default 会刷新所有继承 Agent；不会显示或保存真实 API Key。 |
-| Embedding API 配置 | 重新测试并保存语义检索 API。 | 已配置成功时默认收起输入框，并显示“Embedding API 已配置”和模型名；点击“修改配置”后重新填写 Base URL、API Key 和模型名。保存成功后会清空输入框并自动刷新语义向量索引。API Key 只写入 `.env`。 |
+| Embedding API 配置 | 重新测试并保存语义检索 API。 | 已配置成功时默认收起输入框，并显示“Embedding API 已配置”、provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。保存前会用当前批量和维度验证真实 API，保存成功后会清空输入框并自动刷新语义向量索引。API Key 只写入 `.env`。 |
 | 检索状态 | 显示 FTS 和 embedding 是否可用。 | 红色 embedding 提示表示语义检索不可用，但关键词检索仍可用。 |
 | 刷新关键词索引 | 增量刷新 FTS。 | 本地操作，不调用外部 API。 |
 | 刷新语义向量索引 | 手动增量刷新 embedding 向量。 | 会调用外部 embedding API；启用语义检索时也会自动刷新过期向量。 |

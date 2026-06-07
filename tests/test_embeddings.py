@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 from urllib import error
 
@@ -89,6 +90,90 @@ def test_zhipu_embedding_provider_uses_zhipu_default_base_url(monkeypatch: pytes
     assert response.vectors == [[1.0, 0.0, -1.0]]
 
 
+def test_dashscope_text_embedding_v4_caps_runtime_batch_to_documented_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payloads: list[dict[str, object]] = []
+
+    def fake_urlopen(req, timeout):  # type: ignore[no-untyped-def]
+        payload = json.loads(req.data.decode("utf-8"))
+        payloads.append(payload)
+        inputs = payload["input"]
+        assert isinstance(inputs, list)
+        return _FakeResponse(
+            {
+                "data": [
+                    {"index": index, "embedding": [float(index), 0.0]}
+                    for index, _ in enumerate(inputs)
+                ]
+            }
+        )
+
+    monkeypatch.setattr("novel.core.embeddings.request.urlopen", fake_urlopen)
+    config = EmbeddingProviderConfig(
+        provider="dashscope",
+        model="text-embedding-v4",
+        api_key_env="DASHSCOPE_API_KEY",
+        dimensions=2048,
+        batch_size=25,
+    )
+    provider = EmbeddingProviderFactory(env={"DASHSCOPE_API_KEY": "secret-key"}).create(config)
+
+    response = provider.embed_texts([f"文本 {index}" for index in range(25)])
+
+    assert isinstance(provider, OpenAIEmbeddingProvider)
+    assert provider.batch_size == 10
+    assert [len(payload["input"]) for payload in payloads] == [10, 10, 5]
+    assert all(payload["dimensions"] == 2048 for payload in payloads)
+    assert all(payload["encoding_format"] == "float" for payload in payloads)
+    assert len(response.vectors) == 25
+
+
+def test_openai_compatible_dashscope_url_uses_dashscope_payload_and_batch_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payloads: list[dict[str, object]] = []
+
+    def fake_urlopen(req, timeout):  # type: ignore[no-untyped-def]
+        payload = json.loads(req.data.decode("utf-8"))
+        payloads.append(payload)
+        inputs = payload["input"]
+        assert isinstance(inputs, list)
+        return _FakeResponse(
+            {
+                "data": [
+                    {"index": index, "embedding": [float(index), 1.0]}
+                    for index, _ in enumerate(inputs)
+                ]
+            }
+        )
+
+    monkeypatch.setattr("novel.core.embeddings.request.urlopen", fake_urlopen)
+    config = EmbeddingProviderConfig(
+        provider="openai_compatible",
+        model="text-embedding-v4",
+        api_key_env="WRITERYANG_EMBEDDING_API_KEY",
+        base_url_env="WRITERYANG_EMBEDDING_BASE_URL",
+        batch_size=16,
+    )
+    provider = EmbeddingProviderFactory(
+        env={
+            "WRITERYANG_EMBEDDING_API_KEY": "secret-key",
+            "WRITERYANG_EMBEDDING_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        }
+    ).create(config)
+
+    response = provider.embed_texts([f"文本 {index}" for index in range(11)])
+
+    assert isinstance(provider, OpenAIEmbeddingProvider)
+    assert provider.provider_name == "openai_compatible"
+    assert provider.batch_size == 10
+    assert provider.dimensions == 2048
+    assert [len(payload["input"]) for payload in payloads] == [10, 1]
+    assert all(payload["encoding_format"] == "float" for payload in payloads)
+    assert len(response.vectors) == 11
+
+
 def test_embedding_provider_missing_api_key_env_has_clear_error_without_secret() -> None:
     config = EmbeddingProviderConfig(
         provider="dashscope",
@@ -106,7 +191,12 @@ def test_embedding_provider_missing_api_key_env_has_clear_error_without_secret()
 
 def test_embedding_provider_http_error_does_not_leak_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_urlopen(req, timeout):  # type: ignore[no-untyped-def]
-        raise error.HTTPError(req.full_url, 401, "Unauthorized secret-key", {}, None)
+        body = io.BytesIO(
+            json.dumps(
+                {"error": {"message": "Invalid request for secret-key", "code": "invalid_request_error"}}
+            ).encode("utf-8")
+        )
+        raise error.HTTPError(req.full_url, 401, "Unauthorized secret-key", {}, body)
 
     monkeypatch.setattr("novel.core.embeddings.request.urlopen", fake_urlopen)
     provider = OpenAIEmbeddingProvider(
@@ -121,6 +211,7 @@ def test_embedding_provider_http_error_does_not_leak_api_key(monkeypatch: pytest
 
     message = str(exc_info.value)
     assert "HTTP 401" in message
+    assert "invalid_request_error" in message
     assert "secret-key" not in message
 
 

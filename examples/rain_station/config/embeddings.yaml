@@ -11,8 +11,8 @@ providers:
     base_url_env: "DASHSCOPE_EMBEDDING_BASE_URL"
     api_key_env: "DASHSCOPE_API_KEY"
     model: "text-embedding-v4"
-    dimensions: 1024
-    batch_size: 16
+    dimensions: 2048
+    batch_size: 10
     timeout_seconds: 30
     max_retries: 1
   zhipu:

@@ -117,8 +117,19 @@
             <input id="setupEmbeddingBaseUrl" placeholder="https://.../v1">
             <label for="setupEmbeddingApiKey">Embedding API Key</label>
             <input id="setupEmbeddingApiKey" type="password" placeholder="只保存在项目 .env">
+            <label for="setupEmbeddingProvider">Embedding Provider</label>
+            <select id="setupEmbeddingProvider">
+              <option value="dashscope" selected>dashscope</option>
+              <option value="openai_compatible">openai_compatible</option>
+              <option value="openai">openai</option>
+              <option value="zhipu">zhipu</option>
+            </select>
             <label for="setupEmbeddingModel">Embedding 模型名</label>
-            <input id="setupEmbeddingModel" placeholder="例如 text-embedding-v4">
+            <input id="setupEmbeddingModel" placeholder="例如 text-embedding-v4" value="text-embedding-v4">
+            <label for="setupEmbeddingDimensions">Embedding dimensions</label>
+            <input id="setupEmbeddingDimensions" type="number" min="1" step="1" value="2048">
+            <label for="setupEmbeddingBatchSize">Embedding batch_size</label>
+            <input id="setupEmbeddingBatchSize" type="number" min="1" step="1" value="10">
             <button id="setupEmbedding" style="width: 100%; margin-top: 8px;">测试并保存 embedding API / 跳过</button>
           </div>
         </div>
@@ -508,8 +519,19 @@
               <input id="configEmbeddingBaseUrl" placeholder="https://.../v1">
               <label for="configEmbeddingApiKey">Embedding API Key</label>
               <input id="configEmbeddingApiKey" type="password" placeholder="每次保存都需要重新输入">
+              <label for="configEmbeddingProvider">Embedding Provider</label>
+              <select id="configEmbeddingProvider">
+                <option value="dashscope" selected>dashscope</option>
+                <option value="openai_compatible">openai_compatible</option>
+                <option value="openai">openai</option>
+                <option value="zhipu">zhipu</option>
+              </select>
               <label for="configEmbeddingModel">Embedding 模型名</label>
-              <input id="configEmbeddingModel" placeholder="例如 text-embedding-v4">
+              <input id="configEmbeddingModel" placeholder="例如 text-embedding-v4" value="text-embedding-v4">
+              <label for="configEmbeddingDimensions">Embedding dimensions</label>
+              <input id="configEmbeddingDimensions" type="number" min="1" step="1" value="2048">
+              <label for="configEmbeddingBatchSize">Embedding batch_size</label>
+              <input id="configEmbeddingBatchSize" type="number" min="1" step="1" value="10">
               <button id="saveEmbeddingConfig" class="primary" style="width: 100%; margin-top: 8px;">测试并保存 embedding API</button>
             </div>
             <div id="embeddingConfigStatus" class="message">保存成功后会自动刷新语义向量索引。</div>

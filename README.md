@@ -528,7 +528,7 @@ novel search "旧物修复师" --path ./rain-station --use-vector --embedding-pr
 - 向量表：SQLite 中可选保存真实 embedding 向量。真实 embedding 只在用户显式刷新向量索引或显式启用 vector 检索时调用，不会作为普通 FTS 搜索的隐式成本。
 - ChapterMemory：`chapter_memory.json` 会作为 `chapter_memory` 类型入索引，检索权重高于普通章节文件；命中结果只作为导航指针，具体事实仍需回到 accepted `polished.md`、canon、state 或 timeline 校验。
 
-默认可靠路径是关键词 + SQLite FTS。`local_hash` 只用于测试和离线开发 fixture，不作为真实创作的语义检索 fallback。没有配置真实 embedding API 时，`--use-vector` 会给出清晰错误；Web UI 状态栏会标红提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。项目初始化后，也可以在 Web UI 的“模型与检索配置”页重新填写 Embedding Base URL、API Key 和模型名；保存成功会清空输入框并自动刷新语义向量索引。
+默认可靠路径是关键词 + SQLite FTS。`local_hash` 只用于测试和离线开发 fixture，不作为真实创作的语义检索 fallback。没有配置真实 embedding API 时，`--use-vector` 会给出清晰错误；Web UI 状态栏会标红提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。项目初始化后，也可以在 Web UI 的“模型与检索配置”页重新填写 Embedding Base URL、API Key、provider、模型名、`dimensions` 和 `batch_size`；保存前会用当前参数做连通性验证，保存成功会清空输入框并自动刷新语义向量索引。DashScope `text-embedding-v4` 默认按文档上限使用 `dimensions: 2048` 和 `batch_size: 10`。
 
 Embedding 配置位于 `config/embeddings.yaml`，格式示例：
 
@@ -545,7 +545,8 @@ providers:
     base_url_env: "DASHSCOPE_EMBEDDING_BASE_URL"
     api_key_env: "DASHSCOPE_API_KEY"
     model: "text-embedding-v4"
-    dimensions: 1024
+    dimensions: 2048
+    batch_size: 10
     timeout_seconds: 30
     max_retries: 1
   zhipu:
@@ -566,7 +567,7 @@ providers:
 | `openai` | 标准 OpenAI embeddings | `https://api.openai.com/v1` |
 | `openai_compatible` | 其他 OpenAI-compatible embeddings | 必须通过 `base_url_env` 配置 |
 
-真实 embedding API 使用 OpenAI-compatible `/embeddings` 请求形态。API Key 通过环境变量或项目 `.env` 读取，不写入 `config/embeddings.yaml`、搜索索引或错误消息。
+真实 embedding API 使用 OpenAI-compatible `/embeddings` 请求形态。API Key 通过环境变量或项目 `.env` 读取，不写入 `config/embeddings.yaml`、搜索索引或错误消息。DashScope provider 或 DashScope compatible base URL 会自动发送 `encoding_format: "float"`；旧配置里超过 DashScope 批量上限的 `batch_size` 会在实际请求时限制到 10，避免索引刷新因批量超限失败。
 
 规划、写作、审核可以选择加入检索上下文：
 
@@ -662,7 +663,7 @@ web:
 - 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Agent / Provider / Model 的统计。
 - 项目迁移：项目检查后会 dry-run 检查 schema 是否需要迁移；如需迁移，主页会显示“一键迁移项目 Schema”按钮，执行时使用项目锁、备份和现有迁移逻辑。
 - Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；非 `default` Agent 通过“继承default”勾选项控制是否跟随 default。勾选后字段刷新为 default 并锁定，取消勾选后先复制 default 再开放编辑；当前 provider 不会使用的字段显示 `NA` 并禁用。保存 default 会同步刷新所有继承 Agent 的前台显示和 `config/agents.yaml` 快照。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
-- Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，只显示“Embedding API 已配置”和当前模型名；点击“修改配置”后重新填写 Base URL、API Key 和模型名。API Key 只写入项目 `.env`，保存成功后清空输入框并自动刷新语义向量索引。
+- Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，显示“Embedding API 已配置”、当前 provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。API Key 只写入项目 `.env`，保存前会用当前批量和维度验证真实 API，保存成功后清空输入框并自动刷新语义向量索引。
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。

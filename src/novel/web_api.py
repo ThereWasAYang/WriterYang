@@ -54,6 +54,7 @@ from novel.core.migration import MigrationError, migrate_project
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.search import SearchError, refresh_search_index, search_index_status, search_project
+from novel.core.embeddings import EmbeddingError, resolve_embedding_parameters
 from novel.core.setup_guide import (
     SetupGuideError,
     configure_default_provider,
@@ -962,6 +963,7 @@ def _setup_embedding(data: dict[str, object]) -> dict[str, object]:
     if bool(data.get("skip")):
         return {"skipped": True, "message": "已跳过 embedding API 配置；关键词/FTS 检索仍可用。"}
     dimensions = _optional_int(data.get("dimensions"))
+    batch_size = _optional_int(data.get("batch_size"))
     result = configure_embedding_provider(
         root,
         provider=_optional_string(data.get("provider")) or "openai_compatible",
@@ -970,7 +972,7 @@ def _setup_embedding(data: dict[str, object]) -> dict[str, object]:
         api_key=_required_string(data.get("api_key"), "api_key"),
         model=_required_string(data.get("model"), "model"),
         dimensions=dimensions if dimensions and dimensions > 0 else None,
-        batch_size=_optional_int(data.get("batch_size")) or 16,
+        batch_size=batch_size if batch_size and batch_size > 0 else None,
         timeout_seconds=_optional_float(data.get("timeout_seconds"), 30.0),
         max_retries=_optional_int(data.get("max_retries")) or 1,
         ping=bool(data.get("ping", True)),
@@ -981,6 +983,8 @@ def _setup_embedding(data: dict[str, object]) -> dict[str, object]:
         "active_provider": result.active_provider,
         "provider": result.provider,
         "model": result.model,
+        "dimensions": result.dimensions,
+        "batch_size": result.batch_size,
         "api_key_env": result.api_key_env,
         "base_url_env": result.base_url_env,
         "ping_ok": result.ping_ok,
@@ -1935,6 +1939,8 @@ def _embedding_api_config_summary(root: Path) -> dict[str, object]:
             "active_provider": config.active_provider,
             "provider": provider,
             "model": selected.model,
+            "dimensions": selected.dimensions,
+            "batch_size": selected.batch_size,
             "env_missing": [],
         }
     env = load_project_env(root)
@@ -1945,15 +1951,42 @@ def _embedding_api_config_summary(root: Path) -> dict[str, object]:
         missing.append(selected.base_url_env)
     if not selected.api_key_env:
         missing.append("api_key_env")
+    base_url = env.get(selected.base_url_env) if selected.base_url_env else None
+    effective_dimensions = selected.dimensions
+    effective_batch_size = selected.batch_size
+    effective_provider = provider
+    warnings: list[str] = []
+    try:
+        resolved_dimensions, resolved_batch_size, capability = resolve_embedding_parameters(
+            provider,
+            selected.model,
+            base_url=base_url,
+            dimensions=selected.dimensions,
+            batch_size=selected.batch_size,
+            clamp_batch_size=True,
+        )
+        effective_dimensions = resolved_dimensions
+        effective_batch_size = resolved_batch_size
+        effective_provider = capability.canonical_provider
+    except EmbeddingError as exc:
+        warnings.append(_safe_error(str(exc)))
+    if effective_batch_size != selected.batch_size:
+        warnings.append(f"当前 provider 实际请求 batch_size 会限制为 {effective_batch_size}")
     return {
         "configured": not missing,
         "status": "env_missing" if missing else "configured",
         "active_provider": config.active_provider,
         "provider": provider,
+        "effective_provider": effective_provider,
         "model": selected.model,
+        "dimensions": selected.dimensions if selected.dimensions is not None else effective_dimensions,
+        "batch_size": selected.batch_size,
+        "effective_dimensions": effective_dimensions,
+        "effective_batch_size": effective_batch_size,
         "api_key_env": selected.api_key_env,
         "base_url_env": selected.base_url_env,
         "env_missing": list(dict.fromkeys(missing)),
+        "warnings": warnings,
     }
 
 

@@ -225,7 +225,7 @@ Web UI 交互脚本。负责：
 - 章节对照、编辑器、audit evidence 定位、diff、文件树读取。
 - Provider / embedding 配置、索引刷新、状态/时间线、项目管家和运行日志 API 调用。
 - Agent 模型配置页用表单编辑 `provider`、`model`、`base_url_env`、`api_key_env`、`thinking.type`、`temperature`、`max_tokens` 等非密钥字段。配置页使用专用两栏布局，Agent 配置面板比检索索引面板更宽；非 `default` Agent 通过“继承default”checkbox 控制 `inherit_default`。勾选时字段显示 default 并禁用，保存为 default 快照；取消勾选时复制 default 并保存独立完整配置。`/api/provider-config` 会返回 provider 参数 capability，前端把当前 provider 不会发送的字段显示为 `NA` 并禁用。右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。真实 API Key 仍只通过 `.env` / 初始引导管理。
-- Embedding API 配置页块复用 `/api/setup/embedding`，要求用户每次重填 Base URL、API Key 和模型名；保存成功后清空输入框，并自动调用 `/api/index/refresh` 刷新语义向量索引。
+- Embedding API 配置页块复用 `/api/setup/embedding`，要求用户每次重填 Base URL、API Key、provider、模型名、`dimensions` 和 `batch_size`；保存前用当前批量和维度做真实 provider 验证，保存成功后清空输入框，并自动调用 `/api/index/refresh` 刷新语义向量索引。
 - 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入主页状态、顶部检查摘要、调试页文件查看和下一步提示。
 - 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
 - `renderNextStep()`：根据项目状态、validation 结果和 session 状态显示下一步操作建议。
@@ -394,7 +394,7 @@ Embedding provider：
 
 - `EmbeddingProvider`：抽象接口。
 - `LocalHashEmbeddingProvider`：本地 hash embedding，仅用于测试和离线 fixture，不作为真实业务 fallback。
-- `OpenAIEmbeddingProvider`：兼容 embedding API；适配 DashScope text-embedding-v4 和 Zhipu embedding-3。
+- `OpenAIEmbeddingProvider`：兼容 embedding API；适配 DashScope text-embedding-v4 和 Zhipu embedding-3。DashScope provider 或 DashScope compatible base URL 会自动发送 `encoding_format: "float"`，并把 text-embedding-v3/v4 的运行时请求批量限制到文档上限 10。
 - `EmbeddingProviderFactory`：按 `EmbeddingsConfig` 创建 provider。
 - `create_embedding_provider()`：外部调用入口；默认读取项目 `.env`，只有显式 `provider_name="local_hash"` 时返回本地 hash provider，缺失真实配置不再自动 fallback。
 - `local_embedding_vector()`：本地向量生成。
@@ -852,7 +852,7 @@ Provider 用量统计：
 
 ### `config/embeddings.yaml`
 
-embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu embedding-3 或 OpenAI-compatible 真实接口。`local_hash` 只用于测试 fixture。
+embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu embedding-3 或 OpenAI-compatible 真实接口。DashScope text-embedding-v4 模板使用 `dimensions: 2048` 和 `batch_size: 10`；`local_hash` 只用于测试 fixture。
 
 ### `examples/rain_station/`
 

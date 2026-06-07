@@ -11,6 +11,7 @@ dist/
 build/
 *.egg-info/
 WriterYang_WebUI.command
+WriterYang_WebUI.config.json
 .env*
 !.env.example
 .vscode/

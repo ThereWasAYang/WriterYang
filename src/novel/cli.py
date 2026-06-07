@@ -38,6 +38,7 @@ from novel.cli_commands.project_system import (
     _cmd_usage,
     _cmd_validate,
     _cmd_web,
+    _cmd_web_launch,
 )
 from novel.cli_commands.search import _cmd_index, _cmd_search
 from novel.cli_commands.session import _cmd_session
@@ -1244,6 +1245,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     web_parser.set_defaults(open_browser=False)
 
+    web_launch_parser = subparsers.add_parser("web-launch", help="Run the Web UI from launcher config")
+    web_launch_parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("WriterYang_WebUI.config.json"),
+        help="Web UI launcher config path. Defaults to WriterYang_WebUI.config.json.",
+    )
+    web_launch_open_group = web_launch_parser.add_mutually_exclusive_group()
+    web_launch_open_group.add_argument(
+        "--open",
+        dest="open_browser",
+        action="store_true",
+        help="Open the Web UI URL in the default browser after the server starts. This is the default.",
+    )
+    web_launch_open_group.add_argument(
+        "--no-open",
+        dest="open_browser",
+        action="store_false",
+        help="Do not open a browser automatically.",
+    )
+    web_launch_parser.set_defaults(open_browser=True)
+
     _add_integration_args_recursive(parser)
     return parser
 
@@ -1277,6 +1300,7 @@ _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "generate-chapter": _cmd_generate_chapter,
     "export": _cmd_export,
     "web": _cmd_web,
+    "web-launch": _cmd_web_launch,
 }
 
 

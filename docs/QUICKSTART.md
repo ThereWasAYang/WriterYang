@@ -14,7 +14,7 @@
 
 editable 模式的含义是：之后你更新 WriterYang 源码后，只需要重启 Web UI，就会加载新版本。如果你之前用旧脚本安装过，Web UI 一直显示旧界面，可以重新运行 `./install.sh`，或进入旧环境后执行 `python -m pip install -e .`。
 
-安装器还会生成 `WriterYang_WebUI.command`。以后可以直接双击这个文件打开 Web UI，它会固定使用本次安装创建的新环境。Web server 停止后，终端会进入一个已激活新环境的子 shell；后续 `novel ...` 命令默认使用这个新环境，输入 `exit` 回到原终端。想指定起始端口可用：
+安装器还会生成 `WriterYang_WebUI.command` 和同目录的 `WriterYang_WebUI.config.json`。以后可以直接双击启动器打开 Web UI，它会固定使用本次安装创建的新环境，并从 config 文件读取下次启动端口。Web UI 中保存端口会先验证端口可用，再更新这个 config 文件；如果下次启动时端口被占用，启动器会临时改用下一个空闲端口并提醒你重新保存端口。Web server 停止后，终端会进入一个已激活新环境的子 shell；后续 `novel ...` 命令默认使用这个新环境，输入 `exit` 回到原终端。想指定安装时的起始端口可用：
 
 ```bash
 ./install.sh --web-port 9000
@@ -65,7 +65,7 @@ novel --version
 novel init "青灯客栈" --path ./qingdeng-inn --no-guide
 ```
 
-本教程使用 `mock` provider，因此跳过真实 API 初始引导。真实项目可以直接运行 `novel init "书名" --path ./my-novel`，按提示配置默认 API、可选 embedding 和 Web UI 端口。
+本教程使用 `mock` provider，因此跳过真实 API 初始引导。真实项目可以直接运行 `novel init "书名" --path ./my-novel`，按提示配置默认 API、可选 embedding 和 CLI Web UI 默认端口。
 
 生成目录包括：
 

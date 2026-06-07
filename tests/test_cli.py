@@ -39,6 +39,28 @@ def test_web_cli_open_flag_controls_browser_launch(tmp_path: Path, monkeypatch) 
     assert started == [("127.0.0.1", 61355), ("127.0.0.1", 61356)]
 
 
+def test_web_launch_uses_next_available_port_when_configured_port_is_busy(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "WriterYang_WebUI.config.json"
+    _write_json(config_path, {"host": "127.0.0.1", "port": 61357})
+    import novel.web_server as web_server_module
+
+    started: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        "novel.cli_commands.project_system.web_launcher.is_port_available",
+        lambda host, port: port == 61358,
+    )
+    monkeypatch.setattr(web_server_module, "run_web_server", lambda host, port: started.append((host, port)))
+
+    code, stdout, stderr = _run_cli(["web-launch", "--config", str(config_path), "--no-open"])
+
+    assert code == 0
+    assert stderr == ""
+    assert started == [("127.0.0.1", 61358)]
+    assert "端口 61357 已被占用" in stdout
+    assert "已临时改用 61358" in stdout
+    assert "建议在 Web UI 中重新保存端口配置" in stdout
+
+
 def test_validate_cli_reports_success(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

@@ -250,13 +250,16 @@ def test_api_setup_embedding_requires_complete_config(tmp_path: Path) -> None:
 
 def test_api_setup_recommend_and_save_port(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready_for_generation(tmp_path)
-    monkeypatch.setattr("novel.web_api.find_available_port", lambda start, host="127.0.0.1": int(start))
-    monkeypatch.setattr("novel.core.setup_guide.is_port_available", lambda port, host="127.0.0.1": True)
+    config_path = tmp_path / "WriterYang_WebUI.config.json"
+    launcher_path = tmp_path / "WriterYang_WebUI.command"
+    monkeypatch.setenv("WRITERYANG_WEB_LAUNCHER_CONFIG", str(config_path))
+    monkeypatch.setenv("WRITERYANG_WEB_LAUNCHER_PATH", str(launcher_path))
+    monkeypatch.setattr("novel.web_api.web_launcher.is_port_available", lambda host, port: port == 9010)
 
     recommend_status, recommend_payload = handle_api_request(
         "GET",
         "/api/setup/recommend-port",
-        "start_port=8765",
+        "start_port=9010&current_host=127.0.0.1&current_port=8765",
         None,
     )
     selected = recommend_payload["data"]["selected_port"]  # type: ignore[index]
@@ -264,13 +267,85 @@ def test_api_setup_recommend_and_save_port(tmp_path: Path, monkeypatch) -> None:
         "POST",
         "/api/setup/web-port",
         "",
-        json.dumps({"path": str(root), "port": selected}),
+        json.dumps(
+            {
+                "path": str(root),
+                "port": selected,
+                "current_host": "127.0.0.1",
+                "current_port": 8765,
+                "launcher_config_path": str(config_path),
+            }
+        ),
     )
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    project = load_yaml(root / "project.yaml")
 
     assert recommend_status == 200
     assert save_status == 200
-    assert save_payload["data"]["selected_port"] == selected  # type: ignore[index]
+    assert selected == 9010
+    assert save_payload["data"]["selected_port"] == 9010  # type: ignore[index]
+    assert save_payload["data"]["launcher_config_path"] == str(config_path)  # type: ignore[index]
     assert f":{selected}" in save_payload["data"]["url"]  # type: ignore[operator]
+    assert config["port"] == 9010
+    assert launcher_path.is_file()
+    assert project["web"]["default_port"] == 8765  # type: ignore[index]
+
+
+def test_api_setup_web_port_rejects_unavailable_port(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    config_path = tmp_path / "WriterYang_WebUI.config.json"
+    monkeypatch.setenv("WRITERYANG_WEB_LAUNCHER_CONFIG", str(config_path))
+    monkeypatch.setenv("WRITERYANG_WEB_LAUNCHER_PATH", str(tmp_path / "WriterYang_WebUI.command"))
+    monkeypatch.setattr("novel.web_api.web_launcher.is_port_available", lambda host, port: False)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/setup/web-port",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "port": 9011,
+                "current_host": "127.0.0.1",
+                "current_port": 8765,
+                "launcher_config_path": str(config_path),
+            }
+        ),
+    )
+
+    assert status == 409
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "port_unavailable"  # type: ignore[index]
+    assert not config_path.exists()
+
+
+def test_api_setup_web_port_allows_current_server_port(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    config_path = tmp_path / "WriterYang_WebUI.config.json"
+    monkeypatch.setenv("WRITERYANG_WEB_LAUNCHER_CONFIG", str(config_path))
+    monkeypatch.setenv("WRITERYANG_WEB_LAUNCHER_PATH", str(tmp_path / "WriterYang_WebUI.command"))
+    monkeypatch.setattr("novel.web_api.web_launcher.is_port_available", lambda host, port: False)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/setup/web-port",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "port": 9012,
+                "current_host": "localhost",
+                "current_port": 9012,
+                "launcher_config_path": str(config_path),
+            }
+        ),
+    )
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["data"]["selected_port"] == 9012  # type: ignore[index]
+    assert config["port"] == 9012
 
 
 def test_api_provider_config_warns_without_default(tmp_path: Path) -> None:
@@ -1884,7 +1959,8 @@ def test_frontend_basic_render() -> None:
     assert 'id="setupDefaultProvider"' in html
     assert 'id="setupEmbedding"' in html
     assert 'id="setupWebPort"' in html
-    assert 'id="setupOpenWeb"' in html
+    assert 'id="setupOpenWeb"' not in html
+    assert "下次启动器端口" in frontend
     assert 'id="inspireProject"' in html
     assert 'id="inspirationPreviewPanel"' in html
     assert 'id="inspirationPreviewMeta"' in html
@@ -1940,7 +2016,7 @@ def test_frontend_basic_render() -> None:
     assert "/api/setup/embedding" in app_js
     assert "/api/setup/recommend-port" in app_js
     assert "/api/setup/web-port" in app_js
-    assert "/api/setup/open-web" in app_js
+    assert "/api/setup/open-web" not in app_js
     assert "/api/inspire" in app_js
     assert "/api/read-file" in app_js
     assert "/api/canon/suggest" in app_js

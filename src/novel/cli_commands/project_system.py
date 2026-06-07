@@ -169,6 +169,7 @@ from novel.core.schemas import (
     VectorContextMode,
 )
 from novel.core.usage import UsageError, summarize_provider_usage
+import novel.core.web_launcher as web_launcher
 from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 from novel.core.validation import validate_canon, validate_project
 from novel.core.workflow import (
@@ -423,7 +424,62 @@ def _cmd_web(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_web_launch(args: argparse.Namespace) -> int:
+    from novel.web_server import WebServerError, run_web_server
+
+    config_path = Path(args.config).expanduser().resolve()
+    try:
+        config = web_launcher.load_web_launcher_config(config_path)
+        requested_port = config.port
+        selected_port = requested_port
+        fallback = False
+        if not web_launcher.is_port_available(config.host, requested_port):
+            start_port = requested_port + 1 if requested_port < 65535 else 8765
+            selected_port = web_launcher.find_available_port(host=config.host, start_port=start_port)
+            fallback = True
+            print(
+                f"端口 {requested_port} 已被占用，已临时改用 {selected_port}。"
+                "建议在 Web UI 中重新保存端口配置。"
+            )
+        os.environ[web_launcher.WEB_LAUNCHER_CONFIG_ENV] = str(config_path)
+        os.environ[web_launcher.WEB_PORT_FALLBACK_ENV] = "1" if fallback else "0"
+        url = f"http://{config.host}:{selected_port}"
+        if args.open_browser:
+            _open_browser_when_ready(url)
+        run_web_server(host=config.host, port=selected_port)
+    except Exception as exc:
+        error_type = "web_error"
+        if isinstance(exc, (WebServerError, web_launcher.WebLauncherError)):
+            return _failure(args, str(exc), error_type=error_type)
+        return _failure(args, f"Web UI 启动失败：{exc}", error_type=error_type)
+    return 0
+
+
 def _open_browser(url: str) -> None:
     import novel.cli as cli_module
 
     cli_module.webbrowser.open(url)
+
+
+def _open_browser_when_ready(url: str, timeout_seconds: float = 15.0) -> None:
+    import socket
+    import threading
+    import time
+    from urllib.parse import urlparse
+
+    def worker() -> None:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        if not host:
+            return
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=0.2):
+                    _open_browser(url)
+                    return
+            except OSError:
+                time.sleep(0.1)
+
+    threading.Thread(target=worker, daemon=True).start()

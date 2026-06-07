@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -61,16 +62,17 @@ def test_conda_plan_is_preferred_when_conda_exists(monkeypatch, tmp_path: Path) 
     assert plan.commands[-1][-2:] == ["-e", "."]
     assert plan.activation_command == "conda activate WriterYang_260531"
     assert plan.web_url == "http://127.0.0.1:8765"
+    config_path = tmp_path / "WriterYang_WebUI.config.json"
     assert plan.web_command == [
         "/opt/conda/envs/WriterYang_260531/bin/novel",
-        "web",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8765",
+        "web-launch",
+        "--config",
+        str(config_path),
     ]
     assert plan.launcher_path == tmp_path / "WriterYang_WebUI.command"
-    assert plan.launcher_command == plan.web_command
+    assert plan.launcher_config_path == config_path
+    assert plan.launcher_command == [*plan.web_command, "--open"]
+    assert plan.launcher_port == 8765
     assert plan.activate_shell is not None
     assert plan.activate_shell.command[-1] == "-i"
     assert plan.activate_shell.env is not None
@@ -120,15 +122,15 @@ def test_venv_plan_when_conda_missing(monkeypatch, tmp_path: Path) -> None:
     assert plan.commands[-1][-2:] == ["-e", "."]
     assert "activate" in plan.activation_command
     assert plan.web_url == "http://127.0.0.1:8765"
+    config_path = tmp_path / "WriterYang_WebUI.config.json"
     assert plan.web_command == [
         str((tmp_path / ".venv" / "WriterYang_260531" / "bin" / "novel").resolve()),
-        "web",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8765",
+        "web-launch",
+        "--config",
+        str(config_path),
     ]
-    assert plan.launcher_command == plan.web_command
+    assert plan.launcher_config_path == config_path
+    assert plan.launcher_command == [*plan.web_command, "--open"]
     assert plan.activate_shell is not None
     assert plan.activate_shell.command[-1] == "-i"
     assert plan.activate_shell.env is not None
@@ -174,7 +176,7 @@ def test_web_port_uses_next_available_port(monkeypatch, tmp_path: Path) -> None:
     )
 
     assert plan.web_url == "http://127.0.0.1:8766"
-    assert plan.web_command[-1] == "8766"
+    assert plan.launcher_port == 8766
 
 
 def test_web_port_can_start_from_custom_port(monkeypatch, tmp_path: Path) -> None:
@@ -193,7 +195,7 @@ def test_web_port_can_start_from_custom_port(monkeypatch, tmp_path: Path) -> Non
     )
 
     assert plan.web_url == "http://127.0.0.1:9001"
-    assert plan.web_command[-1] == "9001"
+    assert plan.launcher_port == 9001
 
 
 def test_no_web_keeps_launcher_and_activate_shell(monkeypatch, tmp_path: Path) -> None:
@@ -238,15 +240,20 @@ def test_no_activate_shell_disables_shell_launch(monkeypatch, tmp_path: Path) ->
 def test_write_web_launcher_creates_executable_command_file(tmp_path: Path) -> None:
     installer = _load_installer()
     launcher = tmp_path / "WriterYang_WebUI.command"
-    command = ["/opt/conda/envs/WriterYang_260531/bin/novel", "web", "--port", "8765"]
+    config = tmp_path / "WriterYang_WebUI.config.json"
+    command = ["/opt/conda/envs/WriterYang_260531/bin/novel", "web-launch", "--config", str(config), "--open"]
 
-    installer._write_web_launcher(launcher, command, cwd=tmp_path, url="http://127.0.0.1:8765")
+    installer._write_web_launcher(launcher, command, cwd=tmp_path, config_path=config)
+    installer._write_web_launcher_config(config, host="127.0.0.1", port=8765)
 
     content = launcher.read_text(encoding="utf-8")
+    config_payload = json.loads(config.read_text(encoding="utf-8"))
     assert "WriterYang_260531" in content
-    assert "novel web" in content
-    assert "http://127.0.0.1:8765" in content
-    assert "/dev/tcp/$WRITERYANG_WEB_HOST/$WRITERYANG_WEB_PORT" in content
+    assert "web-launch" in content
+    assert "WRITERYANG_WEB_LAUNCHER_CONFIG" in content
+    assert str(config) in content
+    assert config_payload["port"] == 8765
+    assert config_payload["host"] == "127.0.0.1"
     assert launcher.stat().st_mode & 0o111
 
 
@@ -276,11 +283,8 @@ def test_no_open_web_starts_server_without_browser(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(installer, "find_conda", lambda env: "/opt/conda/bin/conda")
     monkeypatch.setattr(installer, "existing_conda_env_names", lambda conda: set())
     monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
-    opened: list[str] = []
     calls: list[list[str]] = []
     web_calls: list[list[str]] = []
-    monkeypatch.setattr(installer.webbrowser, "open", lambda url: opened.append(url))
-    monkeypatch.setattr(installer, "_wait_for_web_server", lambda url: True)
 
     def fake_run(command, *, cwd):
         calls.append(command)
@@ -299,29 +303,18 @@ def test_no_open_web_starts_server_without_browser(monkeypatch, tmp_path: Path) 
     code = installer.main(["--no-open-web", "--launcher-path", str(tmp_path / "WriterYang_WebUI.command")])
 
     assert code == 0
-    assert opened == []
-    assert web_calls[-1][-4:] == ["--host", "127.0.0.1", "--port", "8765"]
+    assert web_calls[-1][-1] == "--no-open"
+    assert web_calls[-1][1:3] == ["web-launch", "--config"]
+    assert (tmp_path / "WriterYang_WebUI.config.json").is_file()
 
 
-def test_default_install_opens_browser_after_server_is_ready(monkeypatch, tmp_path: Path) -> None:
+def test_default_install_starts_web_launch_command(monkeypatch, tmp_path: Path) -> None:
     installer = _load_installer()
     monkeypatch.setattr(installer, "find_conda", lambda env: "/opt/conda/bin/conda")
     monkeypatch.setattr(installer, "existing_conda_env_names", lambda conda: set())
     monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
-    opened: list[str] = []
     calls: list[list[str]] = []
     events: list[str] = []
-
-    def fake_open(url):
-        events.append("open")
-        opened.append(url)
-
-    def fake_wait_for_web_server(url):
-        events.append("ready")
-        return True
-
-    monkeypatch.setattr(installer.webbrowser, "open", fake_open)
-    monkeypatch.setattr(installer, "_wait_for_web_server", fake_wait_for_web_server)
 
     def fake_run(command, *, cwd):
         calls.append(command)
@@ -342,9 +335,11 @@ def test_default_install_opens_browser_after_server_is_ready(monkeypatch, tmp_pa
     code = installer.main(["--launcher-path", str(tmp_path / "WriterYang_WebUI.command")])
 
     assert code == 0
-    assert opened == ["http://127.0.0.1:8765"]
-    assert calls[-1][-4:] == ["--host", "127.0.0.1", "--port", "8765"]
-    assert events[-4:] == ["popen", "ready", "open", "wait"]
+    assert calls[-1][1:3] == ["web-launch", "--config"]
+    assert "--no-open" not in calls[-1]
+    assert events[-2:] == ["popen", "wait"]
+    assert (tmp_path / "WriterYang_WebUI.command").is_file()
+    assert (tmp_path / "WriterYang_WebUI.config.json").is_file()
 
 
 def test_interactive_no_web_enters_new_environment_shell(monkeypatch, tmp_path: Path) -> None:

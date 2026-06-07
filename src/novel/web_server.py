@@ -3,9 +3,11 @@ from __future__ import annotations
 import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 
+from novel.core.web_launcher import WEB_HOST_ENV, WEB_PORT_ENV, WEB_URL_ENV
 from novel.web_api import handle_api_request
 
 
@@ -52,6 +54,9 @@ def run_web_server(host: str = "127.0.0.1", port: int = 8765) -> None:
                 f"novel web --port {port + 1}"
             ) from exc
         raise WebServerError(f"无法在 {host}:{port} 启动 Web UI：{exc}") from exc
+    os.environ[WEB_HOST_ENV] = host
+    os.environ[WEB_PORT_ENV] = str(port)
+    os.environ[WEB_URL_ENV] = f"http://{host}:{port}"
     print(f"WriterYang Web UI: http://{host}:{port}")
     try:
         server.serve_forever()

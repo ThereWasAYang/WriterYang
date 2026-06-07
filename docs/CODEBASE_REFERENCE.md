@@ -85,6 +85,7 @@
 - `src/novel/core/structured_generation.py`
 - `src/novel/core/usage.py`
 - `src/novel/core/validation.py`
+- `src/novel/core/web_launcher.py`
 - `src/novel/core/workflow.py`
 - `src/novel/core/workspace.py`
 
@@ -112,7 +113,8 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_print_dry_run_provider()`：显示将使用的 provider 配置，不调用 API。
 - `_validation_payload()` / `_status_payload()`：把 core result 转为 CLI JSON payload。
 - `_format_usage_summary()`：格式化 provider usage。
-- `_resolve_web_port()`：Web 端口解析，读取项目配置并处理冲突提示。
+- `_resolve_web_port()`：普通 `novel web` 端口解析，读取项目配置。
+- `_cmd_web_launch()`：启动器专用入口，读取 `WriterYang_WebUI.config.json`，端口占用时临时选择下一个空闲端口。
 - `completion_script()`：生成 shell completion。
 - `run_doctor()` / `format_doctor_result()` / `_doctor_*()`：环境、项目、配置、安全检查。
 - `_audit_issue_lines()`：把 audit issue 展示给用户。
@@ -169,7 +171,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_export_markdown()`：调用 Markdown export。
 - `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
 - `_save_provider_config()`：保存非密钥 provider 配置，写前校验和备份。
-- `_setup_default_provider()` / `_setup_embedding()` / `_setup_web_port()`：Web 初始引导 API；调用 `core/setup_guide.py`，真实 key 写项目 `.env`，响应只返回 env 名和测试结果。
+- `_setup_default_provider()` / `_setup_embedding()` / `_setup_web_port()`：Web 初始引导 API；默认 API 和 embedding 调用 `core/setup_guide.py`，启动器端口调用 `core/web_launcher.py`；真实 key 写项目 `.env`，响应只返回 env 名和测试结果。
 - `_setup_recommend_port()` / `_setup_open_web()`：推荐可用端口并返回 Web UI URL；Web 场景不另起服务端。
 - `_index_refresh()`：调用 `refresh_search_index()`，刷新关键词索引或显式刷新真实 embedding 向量，并返回最新 search status。
 - `_chapter_memory_generate()` / `_chapter_memory_rebuild()`：Web 端生成单章或批量补全 stale/missing ChapterMemory。
@@ -378,6 +380,13 @@ JSON Schema 导出：
 - `is_port_available()` / `find_available_port()`：检查和推荐 Web UI 端口。
 - `configure_web_port()` / `update_project_web_port()`：写入 `project.yaml.web.default_port`。
 - `_ping_model_provider()` / `_ping_embedding_provider()`：最小真实连通性测试，失败时不打印密钥。
+
+### `core/web_launcher.py`
+
+- `WebLauncherConfig`：启动器级 Web UI 端口配置，保存到未追踪的 `WriterYang_WebUI.config.json`。
+- `save_web_launcher_port_config()`：保存启动器端口前验证端口可用；当前 Web UI 正在使用的端口允许保存。
+- `recommend_web_launcher_port()` / `find_available_port()`：为启动器端口设置推荐可保存端口。
+- `write_web_launcher_command()`：生成动态 `WriterYang_WebUI.command`，下次启动时读取 config 文件。
 
 ### `core/embeddings.py`
 

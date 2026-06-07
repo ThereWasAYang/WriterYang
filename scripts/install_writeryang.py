@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -15,7 +15,6 @@ import subprocess
 import sys
 import time
 from urllib.parse import urlparse
-import webbrowser
 from typing import Mapping, Optional, Sequence
 
 
@@ -23,6 +22,9 @@ PYTHON_VERSION = "3.12"
 ENV_PREFIX = "WriterYang"
 WEB_HOST = "127.0.0.1"
 DEFAULT_WEB_PORT = 8765
+WEB_LAUNCHER_CONFIG_FILENAME = "WriterYang_WebUI.config.json"
+WEB_LAUNCHER_CONFIG_ENV = "WRITERYANG_WEB_LAUNCHER_CONFIG"
+WEB_LAUNCHER_PATH_ENV = "WRITERYANG_WEB_LAUNCHER_PATH"
 
 
 @dataclass(frozen=True)
@@ -41,7 +43,10 @@ class InstallPlan:
     web_url: str | None = None
     web_command: list[str] | None = None
     launcher_path: Path | None = None
+    launcher_config_path: Path | None = None
     launcher_command: list[str] | None = None
+    launcher_host: str = WEB_HOST
+    launcher_port: int = DEFAULT_WEB_PORT
     activate_shell: ShellLaunch | None = None
 
 
@@ -86,15 +91,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not args.dry_run:
         for command in plan.commands:
             _run(command, cwd=repo_root)
-        if plan.launcher_path and plan.launcher_command:
-            _write_web_launcher(plan.launcher_path, plan.launcher_command, cwd=repo_root, url=plan.web_url)
+        if plan.launcher_config_path:
+            _write_web_launcher_config(
+                plan.launcher_config_path,
+                host=plan.launcher_host,
+                port=plan.launcher_port,
+            )
+        if plan.launcher_path and plan.launcher_command and plan.launcher_config_path:
+            _write_web_launcher(
+                plan.launcher_path,
+                plan.launcher_command,
+                cwd=repo_root,
+                config_path=plan.launcher_config_path,
+            )
         if plan.web_command:
             print("\nStarting WriterYang Web UI. Press Ctrl+C to stop.")
+            web_command = [*plan.web_command, "--no-open"] if args.no_open_web else plan.web_command
             _run_web_command(
-                plan.web_command,
+                web_command,
                 cwd=repo_root,
-                url=plan.web_url,
-                open_browser=not args.no_open_web,
             )
         if plan.activate_shell and is_interactive_terminal(os.environ):
             print("\nEntering the new WriterYang environment shell. Type exit to return.")
@@ -119,11 +134,18 @@ def build_install_plan(
     conda = find_conda(env)
     install_args = editable_install_args(dev=dev)
     base_name = dated_env_base_name(now)
+    resolved_launcher_path = _resolve_launcher_path(repo_root, launcher_path)
+    launcher_config_path = _launcher_config_path(resolved_launcher_path)
     if conda:
         env_name = unique_name(base_name, existing_conda_env_names(conda))
         env_prefix = conda_env_prefix(conda, env_name)
         env_python = conda_env_python_path(env_prefix)
-        web = build_web_launch(conda_env_prefix=env_prefix, start_port=web_port, check_port=check_web_port)
+        web = build_web_launch(
+            conda_env_prefix=env_prefix,
+            launcher_config_path=launcher_config_path,
+            start_port=web_port,
+            check_port=check_web_port,
+        )
         commands = [
             [conda, "create", "-n", env_name, f"python={PYTHON_VERSION}", "-y"],
             [str(env_python), "-m", "pip", "install", "--upgrade", "pip"],
@@ -137,8 +159,11 @@ def build_install_plan(
             verify_commands=["novel --version", "novel doctor"],
             web_url=web.url,
             web_command=web.command if start_web else None,
-            launcher_path=_resolve_launcher_path(repo_root, launcher_path),
-            launcher_command=web.command,
+            launcher_path=resolved_launcher_path,
+            launcher_config_path=launcher_config_path,
+            launcher_command=web.launcher_command,
+            launcher_host=web.host,
+            launcher_port=web.port,
             activate_shell=build_activate_shell(env=env, env_name=env_name, conda_env_prefix=env_prefix)
             if activate_shell
             else None,
@@ -151,7 +176,12 @@ def build_install_plan(
     env_name = unique_name(base_name, existing_venv_names(venv_root))
     venv_path = venv_root / env_name
     venv_python = venv_python_path(venv_path)
-    web = build_web_launch(venv_path=venv_path, start_port=web_port, check_port=check_web_port)
+    web = build_web_launch(
+        venv_path=venv_path,
+        launcher_config_path=launcher_config_path,
+        start_port=web_port,
+        check_port=check_web_port,
+    )
     commands = [
         [python, "-m", "venv", str(venv_path)],
         [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"],
@@ -165,8 +195,11 @@ def build_install_plan(
         verify_commands=["novel --version", "novel doctor"],
         web_url=web.url,
         web_command=web.command if start_web else None,
-        launcher_path=_resolve_launcher_path(repo_root, launcher_path),
-        launcher_command=web.command,
+        launcher_path=resolved_launcher_path,
+        launcher_config_path=launcher_config_path,
+        launcher_command=web.launcher_command,
+        launcher_host=web.host,
+        launcher_port=web.port,
         activate_shell=build_activate_shell(venv_path=venv_path, env=env) if activate_shell else None,
     )
 
@@ -175,6 +208,9 @@ def build_install_plan(
 class WebLaunch:
     url: str
     command: list[str]
+    launcher_command: list[str]
+    host: str
+    port: int
 
 
 def editable_install_args(*, dev: bool) -> list[str]:
@@ -185,6 +221,7 @@ def editable_install_args(*, dev: bool) -> list[str]:
 def build_web_launch(
     *,
     start_port: int,
+    launcher_config_path: Path,
     host: str = WEB_HOST,
     conda_env_prefix: Path | None = None,
     venv_path: Path | None = None,
@@ -193,12 +230,14 @@ def build_web_launch(
     port = find_available_port(host, start_port) if check_port else validate_port(start_port)
     url = f"http://{host}:{port}"
     if conda_env_prefix:
-        command = [str(conda_env_novel_path(conda_env_prefix)), "web", "--host", host, "--port", str(port)]
+        novel_path = str(conda_env_novel_path(conda_env_prefix))
     elif venv_path:
-        command = [str(venv_novel_path(venv_path)), "web", "--host", host, "--port", str(port)]
+        novel_path = str(venv_novel_path(venv_path))
     else:
         raise RuntimeError("web launch requires either conda_env_prefix or venv_path")
-    return WebLaunch(url=url, command=command)
+    command = [novel_path, "web-launch", "--config", str(launcher_config_path)]
+    launcher_command = [*command, "--open"]
+    return WebLaunch(url=url, command=command, launcher_command=launcher_command, host=host, port=port)
 
 
 def build_activate_shell(
@@ -366,48 +405,32 @@ def _resolve_launcher_path(repo_root: Path, launcher_path: Path | None) -> Path:
     return path
 
 
-def _write_web_launcher(path: Path, command: list[str], *, cwd: Path, url: str | None) -> None:
+def _launcher_config_path(launcher_path: Path) -> Path:
+    return launcher_path.with_name(WEB_LAUNCHER_CONFIG_FILENAME)
+
+
+def _write_web_launcher_config(path: Path, *, host: str, port: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    open_url = _launcher_open_after_ready_script(url)
+    payload = {
+        "host": host,
+        "port": validate_port(port),
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_web_launcher(path: Path, command: list[str], *, cwd: Path, config_path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     content = (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"cd {shlex.quote(str(cwd))}\n"
-        f"echo 'WriterYang Web UI: {url or ''}'\n"
-        f"{open_url}"
+        f"export {WEB_LAUNCHER_PATH_ENV}={shlex.quote(str(path))}\n"
+        f"export {WEB_LAUNCHER_CONFIG_ENV}={shlex.quote(str(config_path))}\n"
         f"exec {shlex.join(command)}\n"
     )
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
-
-
-def _launcher_open_after_ready_script(url: str | None) -> str:
-    if not url:
-        return ""
-    parsed = urlparse(url)
-    host = parsed.hostname or WEB_HOST
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    quoted_url = shlex.quote(url)
-    return (
-        "WRITERYANG_WEB_HOST=" + shlex.quote(host) + "\n"
-        "WRITERYANG_WEB_PORT=" + shlex.quote(str(port)) + "\n"
-        "WRITERYANG_WEB_URL=" + quoted_url + "\n"
-        "(\n"
-        "  i=0\n"
-        "  while [ \"$i\" -lt 150 ]; do\n"
-        "    if (: >/dev/tcp/$WRITERYANG_WEB_HOST/$WRITERYANG_WEB_PORT) >/dev/null 2>&1; then\n"
-        "      if command -v open >/dev/null 2>&1; then\n"
-        "        open \"$WRITERYANG_WEB_URL\" >/dev/null 2>&1 || true\n"
-        "      elif command -v xdg-open >/dev/null 2>&1; then\n"
-        "        xdg-open \"$WRITERYANG_WEB_URL\" >/dev/null 2>&1 || true\n"
-        "      fi\n"
-        "      exit 0\n"
-        "    fi\n"
-        "    i=$((i + 1))\n"
-        "    sleep 0.1\n"
-        "  done\n"
-        ") &\n"
-    )
 
 
 def _print_plan(plan: InstallPlan, *, dry_run: bool) -> None:
@@ -423,6 +446,8 @@ def _print_plan(plan: InstallPlan, *, dry_run: bool) -> None:
         print(f"{prefix}web_url: {plan.web_url}")
     if plan.launcher_path and plan.launcher_command:
         print(f"{prefix}launcher_path: {plan.launcher_path}")
+        if plan.launcher_config_path:
+            print(f"{prefix}launcher_config_path: {plan.launcher_config_path}")
         print(f"{prefix}launcher_command: {shlex.join(plan.launcher_command)}")
     if plan.activate_shell:
         print(f"{prefix}activate_shell: {shlex.join(plan.activate_shell.command)}")
@@ -435,6 +460,8 @@ def _print_next_steps(plan: InstallPlan) -> None:
         print(f"  {command}")
     if plan.launcher_path:
         print(f"  Web UI launcher: {plan.launcher_path}")
+    if plan.launcher_config_path:
+        print(f"  Web UI launcher config: {plan.launcher_config_path}")
     if plan.web_url:
         print(f"  Web UI: {plan.web_url}")
         if plan.web_command:
@@ -453,15 +480,10 @@ def _run(command: list[str], *, cwd: Path, env: Mapping[str, str] | None = None)
     subprocess.run(command, cwd=cwd, env=merged_env if env else None, check=True)
 
 
-def _run_web_command(command: list[str], *, cwd: Path, url: str | None, open_browser: bool) -> None:
+def _run_web_command(command: list[str], *, cwd: Path) -> None:
     print(f"$ {shlex.join(command)}")
     process = subprocess.Popen(command, cwd=cwd)
     try:
-        if open_browser and url:
-            if _wait_for_web_server(url):
-                webbrowser.open(url)
-            else:
-                print(f"Web UI is still starting. If the browser does not open, visit: {url}", file=sys.stderr)
         returncode = process.wait()
         if returncode not in {0, -signal.SIGINT, 130}:
             raise subprocess.CalledProcessError(returncode, command)

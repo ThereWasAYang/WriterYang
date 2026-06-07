@@ -577,7 +577,7 @@ def _run_init_setup_guide(root: Path) -> tuple[list[str], bool, int]:
 
     recommended_port = find_available_port(8765)
     while True:
-        port_text = _prompt_text("Web UI 端口", str(recommended_port))
+        port_text = _prompt_text("CLI Web UI 默认端口", str(recommended_port))
         try:
             requested_port = int(port_text)
         except ValueError:
@@ -588,7 +588,7 @@ def _run_init_setup_guide(root: Path) -> tuple[list[str], bool, int]:
             print(f"端口 {requested_port} 已被占用，将改用 {replacement}。")
             requested_port = replacement
         port_result = configure_web_port(root, requested_port=requested_port)
-        output_lines.append(f"Web UI 默认端口已写入 project.yaml：{port_result.selected_port}")
+        output_lines.append(f"CLI Web UI 默认端口已写入 project.yaml：{port_result.selected_port}")
         open_web = _prompt_yes_no("是否现在打开 Web UI？", default=True)
         return output_lines, open_web, port_result.selected_port
 

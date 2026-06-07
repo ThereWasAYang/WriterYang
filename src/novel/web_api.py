@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import re
 import sys
-from typing import Literal, cast
+from typing import Literal, Mapping, cast
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel, Field
@@ -58,9 +58,8 @@ from novel.core.setup_guide import (
     SetupGuideError,
     configure_default_provider,
     configure_embedding_provider,
-    configure_web_port,
-    find_available_port,
 )
+import novel.core.web_launcher as web_launcher
 from novel.core.schemas import (
     AgentsConfig,
     AuditReport,
@@ -200,6 +199,9 @@ def handle_api_request(
     except MemoryRepairError as exc:
         _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="memory_repair_error", error=exc)
         return _failure(400, "memory_repair_error", str(exc), request_id=request_id)
+    except web_launcher.PortUnavailableError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=409, code="port_unavailable", error=exc)
+        return _failure(409, "port_unavailable", str(exc), request_id=request_id)
     except SetupGuideError as exc:
         _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="setup_guide_error", error=exc)
         return _failure(400, "setup_guide_error", str(exc), request_id=request_id)
@@ -830,8 +832,14 @@ def _init_project(data: dict[str, object]) -> dict[str, object]:
 
 def _setup_recommend_port(query: dict[str, str]) -> dict[str, object]:
     start = _optional_int(query.get("start_port")) or 8765
-    host = query.get("host") or "127.0.0.1"
-    selected = find_available_port(start, host=host)
+    current_host, current_port = _current_web_endpoint(query)
+    host = query.get("host") or current_host or "127.0.0.1"
+    selected = web_launcher.recommend_web_launcher_port(
+        start,
+        host=host,
+        current_host=current_host,
+        current_port=current_port,
+    )
     return {
         "host": host,
         "requested_port": start,
@@ -903,17 +911,39 @@ def _setup_embedding(data: dict[str, object]) -> dict[str, object]:
 
 
 def _setup_web_port(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    host = _optional_string(data.get("host")) or "127.0.0.1"
+    current_host, current_port = _current_web_endpoint(data)
+    host = _optional_string(data.get("host")) or current_host or "127.0.0.1"
     requested = _optional_int(data.get("port")) or 8765
-    result = configure_web_port(root, requested_port=requested, host=host)
+    config_path = (
+        Path(_required_string(data.get("launcher_config_path"), "launcher_config_path")).expanduser().resolve()
+        if _optional_string(data.get("launcher_config_path"))
+        else web_launcher.launcher_config_path_from_env()
+    )
+    result = web_launcher.save_web_launcher_port_config(
+        config_path,
+        host=host,
+        requested_port=requested,
+        current_host=current_host,
+        current_port=current_port,
+    )
+    launcher_path = web_launcher.launcher_path_from_env()
+    try:
+        web_launcher.write_web_launcher_command(
+            launcher_path,
+            config_path=result.config_path,
+            cwd=Path.cwd(),
+        )
+    except Exception:
+        launcher_path = None
     return {
-        "project_path": str(result.project_path),
+        "launcher_config_path": str(result.config_path),
+        "launcher_path": str(launcher_path) if launcher_path else "",
         "host": result.host,
         "requested_port": result.requested_port,
         "selected_port": result.selected_port,
         "available": result.requested_port == result.selected_port,
         "url": result.url,
+        "message": "Web UI 启动器端口已保存。下次通过 WriterYang_WebUI.command 启动时会使用这个端口。",
     }
 
 
@@ -2631,6 +2661,13 @@ def _configured_web_port(root: Path) -> int:
     return 8765
 
 
+def _current_web_endpoint(values: Mapping[str, object]) -> tuple[str | None, int | None]:
+    env_host, env_port = web_launcher.current_web_endpoint_from_env()
+    current_host = _optional_string(values.get("current_host")) or env_host
+    current_port = _optional_int(values.get("current_port")) or env_port
+    return current_host, current_port
+
+
 def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
@@ -2651,6 +2688,22 @@ def _runtime_summary() -> dict[str, object]:
     environment = conda_env or (Path(virtual_env).name if virtual_env else prefix_name)
     managed = bool(re.fullmatch(r"WriterYang_\d{6}(?:\d{2})?", environment or ""))
     source = "conda" if conda_env else ("venv" if virtual_env else "python")
+    current_host, current_port = web_launcher.current_web_endpoint_from_env()
+    launcher_config_path = web_launcher.launcher_config_path_from_env()
+    default_port = current_port or 8765
+    try:
+        launcher_config = web_launcher.load_web_launcher_config(
+            launcher_config_path,
+            default_host=current_host or "127.0.0.1",
+            default_port=default_port,
+        )
+        launcher_host = launcher_config.host
+        launcher_port = launcher_config.port
+        launcher_config_valid = True
+    except Exception:
+        launcher_host = current_host or "127.0.0.1"
+        launcher_port = default_port
+        launcher_config_valid = False
     return {
         "python": sys.executable,
         "python_prefix": sys.prefix,
@@ -2658,6 +2711,16 @@ def _runtime_summary() -> dict[str, object]:
         "environment_source": source,
         "version": __version__,
         "managed_install": managed,
+        "current_web_host": current_host,
+        "current_web_port": current_port,
+        "launcher_config_path": str(launcher_config_path),
+        "launcher_config_host": launcher_host,
+        "launcher_config_port": launcher_port,
+        "launcher_config_valid": launcher_config_valid,
+        "launcher_port_matches_current": bool(
+            current_port == launcher_port and current_host and current_host == launcher_host
+        ),
+        "launcher_port_fallback": os.environ.get(web_launcher.WEB_PORT_FALLBACK_ENV) == "1",
         "warning": "" if managed else "当前 Web UI 可能不是从 WriterYang 专用环境启动的，建议使用安装脚本生成的 WriterYang_WebUI.command 启动。",
     }
 

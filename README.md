@@ -18,7 +18,7 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 
 安装完成后，脚本会以 editable 模式安装当前源码目录。之后你更新代码或拉取新版本后，只需要重启 Web UI，就会加载新的源码和前端静态文件，不需要每次重新安装。脚本还会自动寻找可用 Web UI 端口，打印完整地址并弹出浏览器。默认从 `8765` 开始；如果端口被占用，会自动尝试下一个端口。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
 
-脚本还会生成 `WriterYang_WebUI.command` 启动器。之后不懂命令行的用户可以直接双击这个文件启动 Web UI；启动器会固定使用安装脚本创建的新环境。Web server 停止后，交互式终端会进入一个已经激活新环境的子 shell，后续 `novel ...` 命令默认走这个新环境；输入 `exit` 可以回到原终端。
+脚本还会生成 `WriterYang_WebUI.command` 启动器和同目录的 `WriterYang_WebUI.config.json`。之后不懂命令行的用户可以直接双击启动器打开 Web UI；启动器会固定使用安装脚本创建的新环境，并从 config 文件读取下次启动端口。Web UI 中保存端口会先验证端口可用，再更新这个 config 文件；如果下次启动时该端口临时被占用，启动器会自动改用下一个空闲端口并提示用户重新保存端口。Web server 停止后，交互式终端会进入一个已经激活新环境的子 shell，后续 `novel ...` 命令默认走这个新环境；输入 `exit` 可以回到原终端。
 
 也可以直接运行 Python 入口：
 
@@ -166,7 +166,7 @@ novel init "雨夜旧车站" --path ./rain-station
 - 输入一组 OpenAI-compatible API Key、base URL 和模型名，作为所有 Agent 的缺省 API 配置。
 - 工具会先做一次连通性测试；通过后才把真实 key 写入项目根目录 `.env`，并把 `config/agents.yaml` 的顶层 `default` 指向对应环境变量名。
 - 可选配置 embedding API；跳过后仍可使用关键词/FTS 检索。
-- 选择 Web UI 默认端口；如果端口被占用会自动推荐下一个可用端口，并写入 `project.yaml`。
+- 选择 CLI Web UI 默认端口；如果端口被占用会自动推荐下一个可用端口，并写入 `project.yaml`。这个端口只影响 `novel web --path ...`，不影响 `WriterYang_WebUI.command` 的启动器配置。
 - 最后默认打开 Web UI。
 
 `.env` 是本地私密运行文件，会被 `.gitignore`、Web 文件树、导出和日志排除。`config/agents.yaml` 不保存真实密钥；之后可以在这个文件中为单个 Agent 覆盖模型、`thinking.type`、`temperature`、`max_tokens`、超时和重试等参数。
@@ -607,7 +607,7 @@ novel web --path ./rain-station --host 127.0.0.1 --port 9000
 novel web --path ./rain-station --open
 ```
 
-默认端口从项目的 `project.yaml` 读取：
+普通 `novel web --path ...` 的默认端口从项目的 `project.yaml` 读取：
 
 ```yaml
 web:
@@ -615,6 +615,8 @@ web:
 ```
 
 如果没有配置，默认使用 `8765`。命令行 `--port` 会覆盖项目配置。端口被占用时，命令会给出清晰错误提示并退出，例如建议改用 `novel web --port 8766`。
+
+`WriterYang_WebUI.command` 使用启动器配置 `WriterYang_WebUI.config.json`，不读取小说项目的 `project.yaml.web.default_port`。Web UI 页面里的端口设置更新的是启动器配置；保存时会验证端口可用。若启动器启动时发现配置端口已被占用，会临时改用下一个空闲端口，并在运行环境面板提醒用户重新保存端口。
 
 打开 `http://127.0.0.1:8765`。如果希望 CLI 启动服务时自动打开浏览器，可以使用 `novel web --open`；默认和 `--no-open` 都不会自动打开。Web UI 顶部有 5 个主页面：主页、创作工作台、小说状态管理、模型与检索配置、运行日志 / 项目文件。Web API 调用同一套 core service，不返回真实 API Key。长任务执行时会显示已用时和最近操作；当前任务相关按钮会临时禁用，但取消当前 Session 任务和刷新类按钮仍可用。完成后会保留真实返回消息和 Session 状态，不会被自动刷新覆盖。
 

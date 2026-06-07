@@ -29,6 +29,7 @@
     let latestSelectedAuditIssue = null;
     let latestSettingChangeClarificationId = "";
     let latestHeaderMessageDetails = "";
+    let runtimeSummary = {};
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
@@ -76,6 +77,15 @@
     function setProjectPathValue(path) {
       $("projectPath").value = path || "";
       localStorage.setItem("writeryang.projectPath", $("projectPath").value);
+    }
+
+    function currentWebEndpointPayload() {
+      const protocolDefaultPort = window.location.protocol === "https:" ? 443 : 80;
+      const currentPort = Number(window.location.port || protocolDefaultPort);
+      return {
+        current_host: window.location.hostname || "127.0.0.1",
+        current_port: currentPort,
+      };
     }
 
     function chapterNumber() {
@@ -206,7 +216,11 @@
     async function loadRuntime() {
       try {
         const data = await apiGet("/api/runtime", {});
-        renderRuntime(data.runtime || {});
+        runtimeSummary = data.runtime || {};
+        if (!$("setupWebPort").value && runtimeSummary.launcher_config_port) {
+          $("setupWebPort").value = runtimeSummary.launcher_config_port;
+        }
+        renderRuntime(runtimeSummary);
       } catch (error) {
         $("runtimePanel").innerHTML = `<b>运行环境</b><div class="status-bad">${escapeHtml(error.message)}</div>`;
       }
@@ -219,6 +233,9 @@
         <b>运行环境：${escapeHtml(runtime.environment || "未知")}</b>
         <div>版本：${escapeHtml(runtime.version || "")}</div>
         <div>Python：${escapeHtml(runtime.python || "")}</div>
+        <div>当前 Web UI：${escapeHtml(runtime.current_web_host || window.location.hostname || "127.0.0.1")}:${escapeHtml(runtime.current_web_port || window.location.port || "")}</div>
+        <div>下次启动器端口：${escapeHtml(runtime.launcher_config_host || "127.0.0.1")}:${escapeHtml(runtime.launcher_config_port || "未设置")}</div>
+        ${runtime.launcher_port_fallback ? '<div class="status-bad">本次启动时配置端口被占用，已临时改用当前端口。建议重新保存一个可用端口。</div>' : ""}
         ${runtime.warning ? `<div class="status-bad">${escapeHtml(runtime.warning)}</div>` : "<div>已使用 WriterYang 专用环境。</div>"}
       `;
     }
@@ -544,15 +561,18 @@
         showSetupGuide(true);
         await recommendSetupPort();
         await refreshAll({ silent: true });
-        setMessage(`项目已初始化：${projectPath()}。请完成项目初始引导，配置默认 API、可选 embedding 和 Web UI 端口。`);
+        setMessage(`项目已初始化：${projectPath()}。请完成项目初始引导，配置默认 API、可选 embedding 和下次启动器端口。`);
       });
     }
 
     async function recommendSetupPort() {
       try {
-        const data = await apiGet("/api/setup/recommend-port", { start_port: $("setupWebPort").value || "8765" });
+        const data = await apiGet("/api/setup/recommend-port", {
+          start_port: $("setupWebPort").value || runtimeSummary.launcher_config_port || "8765",
+          ...currentWebEndpointPayload(),
+        });
         $("setupWebPort").value = data.selected_port || 8765;
-        setSetupStatus(`推荐可用端口：${data.selected_port}，地址：${data.url}`);
+        setSetupStatus(`推荐可保存端口：${data.selected_port}。下次通过 WriterYang_WebUI.command 启动时会使用该端口。`);
         return data;
       } catch (error) {
         setSetupStatus(error.message, true);
@@ -658,27 +678,20 @@
 
     async function setupSavePort() {
       return withBusy("保存 Web UI 端口", async () => {
-        const data = await apiPost("/api/setup/web-port", {
+        const payload = {
           path: projectPath(),
           port: Number($("setupWebPort").value || "8765"),
-        });
+          ...currentWebEndpointPayload(),
+        };
+        if (runtimeSummary.launcher_config_path) {
+          payload.launcher_config_path = runtimeSummary.launcher_config_path;
+        }
+        const data = await apiPost("/api/setup/web-port", payload);
         $("setupWebPort").value = data.selected_port;
-        setSetupStatus(`Web UI 端口已保存：${data.url}`);
+        setSetupStatus(data.message || `Web UI 启动器端口已保存：${data.url}`);
+        await loadRuntime();
         await refreshAll({ silent: true });
       });
-    }
-
-    async function setupOpenWeb() {
-      try {
-        const data = await apiPost("/api/setup/open-web", {
-          path: projectPath(),
-          port: Number($("setupWebPort").value || "8765"),
-        });
-        window.open(data.url, "_blank", "noopener");
-        setSetupStatus(`已打开 Web UI：${data.url}`);
-      } catch (error) {
-        setSetupStatus(error.message, true);
-      }
     }
 
     function inspirationPayload(force) {
@@ -2171,7 +2184,6 @@
     $("setupEmbedding").addEventListener("click", setupEmbedding);
     $("setupRecommendPort").addEventListener("click", recommendSetupPort);
     $("setupSavePort").addEventListener("click", setupSavePort);
-    $("setupOpenWeb").addEventListener("click", setupOpenWeb);
     $("planChapter").addEventListener("click", () => runAction("/api/plan-chapter", "生成计划"));
     $("writeChapter").addEventListener("click", () => runAction("/api/write-chapter", "写章节"));
     $("polishChapter").addEventListener("click", () => runAction("/api/polish-chapter", "润色"));

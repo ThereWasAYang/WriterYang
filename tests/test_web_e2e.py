@@ -94,6 +94,45 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
         server.server_close()
 
 
+def test_web_ui_initializes_project_under_custom_parent_directory(tmp_path: Path) -> None:
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    parent = tmp_path / "custom-parent"
+    root = parent / "雨夜旧车站"
+    try:
+        port = _free_port()
+    except PermissionError:
+        pytest.skip("local port binding is not permitted in this sandbox")
+    server = ThreadingHTTPServer(("127.0.0.1", port), _handler_class())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{port}/")
+            page.fill("#projectParentPath", str(parent))
+            page.fill("#projectTitle", "雨夜旧车站")
+            page.fill("#projectGenre", "悬疑")
+            page.wait_for_function(
+                f"() => document.querySelector('#projectInitPathPreview')?.textContent?.includes({json.dumps(str(root))})"
+            )
+            page.click("#initProject")
+            page.wait_for_function(
+                f"() => document.querySelector('#projectPath')?.value === {json.dumps(str(root))}"
+            )
+            page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('项目已初始化')")
+            assert (root / "project.yaml").is_file()
+            assert (root / "config" / "agents.yaml").is_file()
+            browser.close()
+    except Exception as exc:
+        if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
+            pytest.skip("Playwright browser binaries are not installed")
+        raise
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def _workspace_ready_for_generation(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

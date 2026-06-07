@@ -102,7 +102,7 @@ from novel.core.providers import ProviderFactory
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
 from novel.core.workflow import GenerateChapterOptions, ProviderName, generate_chapter
-from novel.core.workspace import InitOptions, init_workspace, is_default_inspiration_placeholder
+from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace, is_default_inspiration_placeholder
 
 
 APIResponse = tuple[int, dict[str, object]]
@@ -182,6 +182,9 @@ def handle_api_request(
     except ProjectLockError as exc:
         _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=409, code="project_locked", error=exc)
         return _failure(409, "project_locked", str(exc), request_id=request_id)
+    except WorkspaceExistsError as exc:
+        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=409, code="workspace_exists", error=exc)
+        return _failure(409, "workspace_exists", str(exc), request_id=request_id)
     except FileNotFoundError as exc:
         _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=404, code="file_not_found", error=exc)
         return _failure(404, "file_not_found", str(exc), request_id=request_id)

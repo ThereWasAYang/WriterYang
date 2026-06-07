@@ -841,6 +841,23 @@ def test_api_init_project_endpoint_creates_workspace(tmp_path: Path) -> None:
     assert (root / "config" / "agents.yaml").is_file()
 
 
+def test_api_init_project_endpoint_reports_existing_workspace(tmp_path: Path) -> None:
+    root = tmp_path / "web-created"
+    init_workspace(InitOptions(title="已有项目", root=root))
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/init-project",
+        "",
+        json.dumps({"path": str(root), "title": "新武侠", "genre": "武侠"}),
+    )
+
+    assert status == 409
+    assert payload["ok"] is False
+    error = payload["error"]  # type: ignore[index]
+    assert error["code"] == "workspace_exists"  # type: ignore[index]
+
+
 def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="Web Canon", root=root))
@@ -1729,6 +1746,8 @@ def test_frontend_basic_render() -> None:
     frontend = f"{html}\n{app_css}\n{app_js}"
 
     assert 'id="projectPath"' in html
+    assert 'id="projectParentPath"' in html
+    assert 'id="projectInitPathPreview"' in html
     assert 'id="runtimePanel"' in html
     assert 'id="messageDetails" class="message-detail-button hidden"' in html
     assert '<link rel="stylesheet" href="/static/app.css">' in html
@@ -1856,6 +1875,11 @@ def test_frontend_basic_render() -> None:
     assert 'id="toggleProjectInit"' in html
     assert 'id="projectInitPanel"' in html
     assert 'id="initProject"' in html
+    assert "defaultProjectParentPath = \"myNovel\"" in app_js
+    assert "writeryang.projectParentPath" in app_js
+    assert "safeProjectDirectoryName" in app_js
+    assert "newProjectRootPath" in app_js
+    assert "setProjectPathValue(data.root || targetPath)" in app_js
     assert 'id="setupGuidePanel"' in html
     assert 'id="setupDefaultProvider"' in html
     assert 'id="setupEmbedding"' in html

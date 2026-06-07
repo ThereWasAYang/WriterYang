@@ -1,6 +1,7 @@
     const $ = (id) => document.getElementById(id);
     const chapterFileTypes = ["plan", "draft", "polished", "audit", "chapter_memory"];
     const inspirationPreviewPath = "memory/inspiration.md";
+    const defaultProjectParentPath = "myNovel";
     const providerAgentNames = [
       "orchestrator", "inspiration", "canon", "plot", "writer",
       "polish", "audit", "state_update", "chapter_memory", "revision",
@@ -31,6 +32,50 @@
 
     function projectPath() {
       return $("projectPath").value.trim() || ".";
+    }
+
+    function projectParentPath() {
+      return $("projectParentPath").value.trim() || defaultProjectParentPath;
+    }
+
+    function projectTitleValue() {
+      return $("projectTitle").value.trim() || "未命名小说";
+    }
+
+    function safeProjectDirectoryName(title) {
+      const fallback = "未命名小说";
+      const raw = String(title || "").trim() || fallback;
+      const normalized = raw
+        .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!normalized || /^\.+$/.test(normalized)) return fallback;
+      return normalized;
+    }
+
+    function joinProjectPath(parent, child) {
+      const base = String(parent || defaultProjectParentPath).trim() || defaultProjectParentPath;
+      const directory = safeProjectDirectoryName(child);
+      if (base === "/") return `/${directory}`;
+      if (/^[A-Za-z]:$/.test(base)) return `${base}\\${directory}`;
+      if (/^[A-Za-z]:[\\/]$/.test(base)) return `${base}${directory}`;
+      const separator = base.includes("\\") && !base.includes("/") ? "\\" : "/";
+      return `${base.replace(/[\\/]+$/, "")}${separator}${directory}`;
+    }
+
+    function newProjectRootPath() {
+      return joinProjectPath(projectParentPath(), projectTitleValue());
+    }
+
+    function updateProjectInitPathPreview() {
+      const preview = $("projectInitPathPreview");
+      if (!preview) return;
+      preview.textContent = `最终项目目录：${newProjectRootPath()}`;
+    }
+
+    function setProjectPathValue(path) {
+      $("projectPath").value = path || "";
+      localStorage.setItem("writeryang.projectPath", $("projectPath").value);
     }
 
     function chapterNumber() {
@@ -486,17 +531,20 @@
 
     async function initProject() {
       return withBusy("初始化项目", async () => {
+        const title = projectTitleValue();
+        const targetPath = newProjectRootPath();
         const data = await apiPost("/api/init-project", {
-          path: projectPath(),
-          title: $("projectTitle").value.trim() || "未命名小说",
+          path: targetPath,
+          title,
           genre: $("projectGenre").value.trim(),
         });
+        setProjectPathValue(data.root || targetPath);
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         setProjectInitVisible(false);
         showSetupGuide(true);
         await recommendSetupPort();
         await refreshAll({ silent: true });
-        setMessage("项目已初始化。请完成项目初始引导，配置默认 API、可选 embedding 和 Web UI 端口。");
+        setMessage(`项目已初始化：${projectPath()}。请完成项目初始引导，配置默认 API、可选 embedding 和 Web UI 端口。`);
       });
     }
 
@@ -2219,4 +2267,16 @@
     });
     $("projectPath").value = localStorage.getItem("writeryang.projectPath") || "";
     $("projectPath").addEventListener("change", () => localStorage.setItem("writeryang.projectPath", $("projectPath").value));
+    $("projectParentPath").value = localStorage.getItem("writeryang.projectParentPath") || defaultProjectParentPath;
+    $("projectParentPath").addEventListener("input", () => {
+      localStorage.setItem("writeryang.projectParentPath", $("projectParentPath").value);
+      updateProjectInitPathPreview();
+    });
+    $("projectParentPath").addEventListener("change", () => {
+      localStorage.setItem("writeryang.projectParentPath", $("projectParentPath").value);
+      updateProjectInitPathPreview();
+    });
+    $("projectTitle").addEventListener("input", updateProjectInitPathPreview);
+    $("projectTitle").addEventListener("change", updateProjectInitPathPreview);
+    updateProjectInitPathPreview();
     loadRuntime();

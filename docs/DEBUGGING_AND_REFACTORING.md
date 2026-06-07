@@ -290,7 +290,7 @@ pytest tests/test_security.py -q
 
 - `.env.example` 只包含变量名或空值，不写真实 key。
 - `config/agents.yaml` 和 `config/embeddings.yaml` 只写 env name。
-- 示例项目不包含 raw API key。
+- 初始化模板不包含 raw API key。
 - 错误输出、provider logs、model_io logs 不泄漏 Authorization/API Key。
 
 ## 9. 真实 API smoke 建议
@@ -298,7 +298,7 @@ pytest tests/test_security.py -q
 真实 API 测试不要混入普通 CI。建议：
 
 1. 在本机 `.env.real` 配好变量。
-2. 用临时 workspace 运行，不污染示例项目。
+2. 用临时 workspace 运行，不污染真实项目或固定样板。
 3. 所有 Agent 先用同一 provider 验证最短流程，再分 agent 调参。
 4. 失败后保留 `runs/` 作为证据。
 5. 评审收口类改动的成功标准至少包括：`provider_ping --allow-network` 通过、`pytest -m real_api` 通过、一章最短 `smoke_session.py --provider config --model <model>` 完成并 `novel validate`、Markdown export 成功。`--model` 会写入临时项目 `config/agents.yaml` 的 default model，确保 Session 子命令也使用同一真实模型。发布前可再跑两章 accepted 的较长 smoke。

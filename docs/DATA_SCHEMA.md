@@ -267,8 +267,8 @@ project.yaml
 示例：
 
 ```yaml
-project_id: "novel_rain_station"
-title: "雨夜旧车站"
+project_id: "novel_sample_project"
+title: "新书名"
 language: "zh-CN"
 genre:
   - "悬疑"

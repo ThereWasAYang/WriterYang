@@ -15,8 +15,6 @@
 | `.github/workflows/tests.yml` | CI：pytest、build、secret scan、ruff、blocking mypy、Web E2E。 | 改 CI 阶段或 Python 版本。 |
 | `.github/workflows/release.yml` | tag 触发 GitHub Release 构建。 | 发布流程调整。 |
 | `schemas/*.schema.json` | 从 Pydantic models 导出的 JSON Schema。 | schema 变化后重新导出。 |
-| `examples/rain_station/` | 雨夜旧车站示例项目。 | README smoke、真实 provider 配置模板。 |
-| `examples/wuxia_mountain_sect/` | 武侠长篇示例项目。 | 中文用户配置参考、validate 示例。 |
 | `scripts/` | 确定性工具脚本。 | 一键安装、本地质量门禁、pre-push hook 安装、Session smoke、provider ping、debug bundle、Web UI smoke、项目健康报告。 |
 
 ## 2. 包入口
@@ -829,7 +827,7 @@ Provider 用量统计：
 
 这些脚本只组合现有 CLI/core，不复制业务决策。
 
-## 14. 配置和示例
+## 14. 配置和模板
 
 ### `config/agents.yaml`
 
@@ -854,13 +852,7 @@ Provider 用量统计：
 
 embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu embedding-3 或 OpenAI-compatible 真实接口。DashScope text-embedding-v4 模板使用 `dimensions: 2048` 和 `batch_size: 10`；`local_hash` 只用于测试 fixture。
 
-### `examples/rain_station/`
-
-雨夜旧车站示例。用于 README smoke、真实 DeepSeek 模板、mock 模板。
-
-### `examples/wuxia_mountain_sect/`
-
-武侠长篇示例。配置项带中文注释，适合新用户复制参考。
+初始化模板由 `novel init` 基于 `core/workspace.py` 生成。涉及模板字段、默认 provider、目录结构或初始 memory 文件的改动，需要同步 `tests/test_workspace.py` 和 packaging smoke 测试。
 
 ## 15. 修改点速查
 

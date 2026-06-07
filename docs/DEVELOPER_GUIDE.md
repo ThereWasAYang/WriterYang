@@ -30,7 +30,6 @@ src/novel/
   core/                 # 可复用业务逻辑，CLI/Web 共用
   prompts/              # Agent system prompt 模板
 schemas/                # 由 Pydantic 导出的 JSON Schema
-examples/               # 可验证示例项目
 tests/                  # 单元、集成、Web、真实 API 标记测试
 docs/                   # 用户、集成、开发文档
 scripts/                # 本地质量门禁、smoke、排障、provider ping 等工具脚本

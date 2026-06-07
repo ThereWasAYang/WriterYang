@@ -15,6 +15,7 @@ import novel
 from novel.core.io import load_yaml
 from novel.cli import build_parser, main
 from novel.core.validation import validate_project
+from novel.core.workspace import InitOptions, init_workspace
 
 
 def test_novel_version_command_runs() -> None:
@@ -30,45 +31,44 @@ def test_novel_version_command_runs() -> None:
     assert result.stderr == ""
 
 
-def test_example_project_validates() -> None:
-    report = validate_project(Path("examples/rain_station"))
+def test_initialized_template_project_validates(tmp_path: Path) -> None:
+    root = tmp_path / "template-project"
+    init_workspace(InitOptions(title="模板校验", root=root))
+
+    report = validate_project(root)
 
     assert report.ok, [message.message for message in report.messages]
 
 
-def test_wuxia_example_project_validates() -> None:
-    report = validate_project(Path("examples/wuxia_mountain_sect"))
+def test_initialized_template_project_validates_from_cli(tmp_path: Path) -> None:
+    root = tmp_path / "template-project"
+    init_code, init_stdout, init_stderr = _run_cli(
+        ["init", "模板校验", "--path", str(root), "--no-guide", "--json", "--quiet"]
+    )
+    code, stdout, stderr = _run_cli(["validate", "--path", str(root), "--json", "--quiet"])
 
-    assert report.ok, [message.message for message in report.messages]
-
-
-def test_example_project_validates_from_cli() -> None:
-    code, stdout, stderr = _run_cli(["validate", "--path", "examples/rain_station", "--json"])
-
+    assert init_code == 0
+    assert init_stderr == ""
+    assert '"ok": true' in init_stdout
     assert code == 0
     assert stderr == ""
     assert '"ok": true' in stdout
 
 
-def test_wuxia_example_project_validates_from_cli() -> None:
-    code, stdout, stderr = _run_cli(["validate", "--path", "examples/wuxia_mountain_sect", "--json"])
+def test_initialized_template_configs_include_provider_defaults(tmp_path: Path) -> None:
+    root = tmp_path / "template-project"
+    init_workspace(InitOptions(title="模板校验", root=root))
 
-    assert code == 0
-    assert stderr == ""
-    assert '"ok": true' in stdout
+    agents_config = load_yaml(root / "config" / "agents.yaml")
+    embeddings_config = load_yaml(root / "config" / "embeddings.yaml")
 
-
-def test_example_agent_configs_include_real_and_mock_templates() -> None:
-    real_config = load_yaml(Path("examples/rain_station/config/agents.yaml"))
-    mock_config = load_yaml(Path("examples/rain_station/config/agents.mock.yaml"))
-
-    default = real_config["default"]
-    writer = real_config["agents"]["writer"]
-    revision = real_config["agents"]["revision"]
-    assert default["provider"] == "deepseek"
+    default = agents_config["default"]
+    writer = agents_config["agents"]["writer"]
+    revision = agents_config["agents"]["revision"]
+    assert default["provider"] == "openai_compatible"
     assert default["thinking"]["type"] == "disabled"
-    assert default["base_url_env"] == "WRITERYANG_REAL_BASE_URL"
-    assert default["api_key_env"] == "WRITERYANG_REAL_API_KEY"
+    assert default["base_url_env"] == "OPENAI_BASE_URL"
+    assert default["api_key_env"] == "OPENAI_API_KEY"
     assert default["json_response_format"] == "auto"
     assert writer["inherit_default"] is True
     assert writer["provider"] == default["provider"]
@@ -77,9 +77,9 @@ def test_example_agent_configs_include_real_and_mock_templates() -> None:
     assert revision["inherit_default"] is True
     assert revision["provider"] == default["provider"]
     assert revision["model"] == default["model"]
-
-    assert mock_config["agents"]["writer"]["provider"] == "mock"
-    assert mock_config["agents"]["revision"]["provider"] == "mock"
+    assert embeddings_config["active_provider"] == "dashscope"
+    assert embeddings_config["providers"]["test_local_hash"]["provider"] == "local_hash"
+    assert embeddings_config["providers"]["dashscope"]["api_key_env"] == "DASHSCOPE_API_KEY"
 
 
 def test_readme_documents_all_agent_model_roles() -> None:
@@ -119,7 +119,8 @@ def test_readme_core_commands_match_cli() -> None:
         "novel accept-chapter",
         "novel export markdown",
         "novel --version",
-        "novel validate --path examples/wuxia_mountain_sect",
+        'tmp_project="$(mktemp -d)/writeryang-template"',
+        'novel init "模板校验" --path "$tmp_project" --no-guide',
         "./install.sh",
         "python scripts/install_writeryang.py --dry-run",
         "python scripts/install_writeryang.py --web-port 9000",

@@ -47,13 +47,15 @@ python -c "from pathlib import Path; from novel.core.security import scan_securi
 
 项目文件可以包含 `OPENAI_API_KEY` 这类环境变量名，但不能包含真实 key 值。`.env.example` 只能包含空值变量名，例如 `OPENAI_API_KEY=`。
 
-## 4. 示例项目
+## 4. 初始化模板
 
-验证内置示例：
+验证当前 `novel init` 模板：
 
 ```bash
-novel validate --path examples/rain_station
-novel status --path examples/rain_station
+tmp_project="$(mktemp -d)/writeryang-template"
+novel init "模板校验" --path "$tmp_project" --no-guide
+novel validate --path "$tmp_project"
+novel status --path "$tmp_project"
 ```
 
 ## 5. 构建包

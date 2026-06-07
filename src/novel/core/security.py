@@ -47,9 +47,6 @@ def scan_security(root: Path, *, tracked_only: bool = True) -> SecurityScanResul
     for rel in (
         "config/agents.yaml",
         "config/embeddings.yaml",
-        "examples/rain_station/config/agents.yaml",
-        "examples/rain_station/config/agents.mock.yaml",
-        "examples/rain_station/config/embeddings.yaml",
     ):
         path = root / rel
         if path.exists():

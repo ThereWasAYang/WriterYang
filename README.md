@@ -177,17 +177,16 @@ novel init "雨夜旧车站" --path ./rain-station
 novel init "雨夜旧车站" --path ./rain-station --no-guide
 ```
 
-也可以验证内置示例项目：
+也可以验证当前初始化模板。模板由 `novel init` 基于当前代码生成，不在仓库中保存固定样板项目：
 
 ```bash
-novel validate --path examples/rain_station
-novel status --path examples/rain_station
-novel validate --path examples/wuxia_mountain_sect
-novel status --path examples/wuxia_mountain_sect
+tmp_project="$(mktemp -d)/writeryang-template"
+novel init "模板校验" --path "$tmp_project" --no-guide
+novel validate --path "$tmp_project"
+novel status --path "$tmp_project"
 ```
 
-示例项目的 `config/agents.yaml` 是 DeepSeek 真实 API 配置模板，使用顶层 `default` 缺省 API 配置，并显式关闭 `thinking`。如果只想离线测试流程，可以参考 `config/agents.mock.yaml`，或者在命令中显式传入 `--provider mock`。
-`examples/wuxia_mountain_sect` 是武侠长篇示例，配置项带中文注释，适合作为新项目配置模板。
+如果只想离线测试流程，在命令中显式传入 `--provider mock`，不要把 `mock` 写成真实项目的 `default`。
 
 生成文件默认不会静默覆盖已有用户数据。
 
@@ -326,11 +325,7 @@ agents:
 
 Web UI 会根据当前 `provider` 标记参数是否会进入 provider payload：不会生效的字段显示为 `NA` 并禁用。`thinking.type` 只在 `deepseek` / `zai` 下可编辑；`reasoning` 只在 `deepseek` 且 `thinking.type: enabled` 时发送为 `reasoning_effort`；`temperature` 在 `deepseek + thinking enabled` 和 `mock` 下显示 `NA`。`timeout_seconds`、`max_retries` 是本地 HTTP 调用参数，仍会生效并保持可编辑。
 
-示例项目提供两个配置文件：
-
-- `examples/rain_station/config/agents.yaml`：DeepSeek 真实 API 模板，使用顶层 `default` 和显式 `inherit_default` 继承快照。使用智谱 GLM 时把 `default.provider` 改为 `zai`，并把 `base_url_env` / `api_key_env` 指向智谱的环境变量名；保存 default 后所有继承 Agent 会同步刷新。
-- `examples/rain_station/config/agents.mock.yaml`：mock provider 模板，只适合测试、文档示例和无 API Key 的本地演示。
-- `examples/rain_station/config/embeddings.yaml`：embedding provider 模板，默认指向真实 DashScope 配置；本地 hash embedding 只保留为测试项。
+新项目的 `config/agents.yaml` 和 `config/embeddings.yaml` 由 `novel init` 使用当前模板生成。真实创作建议配置顶层 `default`，让各 Agent 通过 `inherit_default: true` 继承；离线测试使用命令行 `--provider mock` 覆盖。
 
 厂商差异：
 
@@ -727,7 +722,9 @@ pytest
 pytest tests/test_web.py
 pytest -m web_e2e
 python -m build
-novel validate --path examples/rain_station
+tmp_project="$(mktemp -d)/writeryang-template"
+novel init "模板校验" --path "$tmp_project" --no-guide
+novel validate --path "$tmp_project"
 ```
 
 版本变化记录见 [CHANGELOG.md](CHANGELOG.md)。
@@ -760,9 +757,8 @@ ZAI_MODEL=
 运行真实 API 测试：
 
 ```bash
-python scripts/provider_ping.py --project examples/rain_station --provider config --allow-network --json
+python scripts/smoke_session.py --provider config --chapters 1 --model "$WRITERYANG_REAL_MODEL" --keep --json
 pytest -m real_api
-python scripts/smoke_session.py --provider config --chapters 1 --model "$WRITERYANG_REAL_MODEL" --json
 ```
 
 ## FAQ
@@ -787,4 +783,4 @@ python scripts/smoke_session.py --provider config --chapters 1 --model "$WRITERY
 
 Copyright 2026 ThereWasAYang.
 
-本项目基于 [Apache License 2.0](LICENSE) 开源。该协议适用于整个仓库，包括代码、文档、schemas 和示例项目。
+本项目基于 [Apache License 2.0](LICENSE) 开源。该协议适用于整个仓库，包括代码、文档和 schemas。

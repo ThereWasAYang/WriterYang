@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import fnmatch
 import re
+import subprocess
 from pathlib import Path
 
 
@@ -20,17 +22,57 @@ def test_env_example_contains_only_variable_names_with_empty_values() -> None:
         assert re.fullmatch(r"[A-Z][A-Z0-9_]*=", line), line
 
 
-def test_gitignore_protects_local_env_and_build_outputs() -> None:
-    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+def test_repository_does_not_track_local_sensitive_or_build_files() -> None:
+    completed = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    tracked_paths = [path for path in completed.stdout.split("\0") if path]
 
-    assert ".env" in gitignore
-    assert ".env.example" not in {
-        entry.strip()
-        for entry in gitignore.splitlines()
-        if entry.strip() and not entry.strip().startswith("#")
+    violations = [path for path in tracked_paths if _is_local_sensitive_or_build_file(path)]
+
+    assert violations == []
+
+
+def _is_local_sensitive_or_build_file(path: str) -> bool:
+    parts = Path(path).parts
+    filename = parts[-1]
+    local_doc_paths = {
+        "AGENTS.md",
+        "docs/PRODUCT_SPEC.md",
+        "docs/ARCHITECTURE.md",
+        "docs/WORKFLOW.md",
+        "docs/ROADMAP.md",
     }
-    assert "dist/" in gitignore
-    assert "build/" in gitignore
+    local_dirs = {
+        ".agents",
+        ".codex",
+        ".idea",
+        ".mypy_cache",
+        ".playwright-cli",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        ".vscode",
+        "build",
+        "dist",
+        "venv",
+    }
+
+    if filename.startswith(".env") and filename != ".env.example":
+        return True
+    if path in local_doc_paths:
+        return True
+    if any(part in local_dirs or part.endswith(".egg-info") for part in parts):
+        return True
+    if "runs" in parts and filename != ".gitkeep":
+        return True
+    if path.endswith(("memory/search_index.json", "memory/search_index.sqlite")):
+        return True
+    return fnmatch.fnmatch(filename, "*.bak_*")
 
 
 def test_docs_mention_current_generated_files() -> None:

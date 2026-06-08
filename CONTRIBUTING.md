@@ -42,7 +42,7 @@ python scripts/check_local.py --strict-mypy
 ## 文档和示例
 
 - 面向作者和普通使用者的文档尽量用中文。
-- 示例项目必须能通过 `novel validate --path examples/<name>`。
+- 文档示例应能用 `novel init` 创建临时 workspace 后复现，并通过 `novel validate --path <workspace>`。
 
 ## Pull Request
 
@@ -51,4 +51,4 @@ python scripts/check_local.py --strict-mypy
 - 已运行非真实 API 测试。
 - 已运行 lint/type check，且 mypy 为 0 errors。
 - 没有提交本地密钥、缓存、构建产物或项目锁。
-- README、docs、examples 与实际 CLI 命令一致。
+- README、docs 与实际 CLI 命令一致。

@@ -1378,7 +1378,7 @@ def _timeline_pointer_index(data: dict[str, object]) -> list[str]:
     lines = [
         "  collection: /events",
         "  add event path: /events/-",
-        "  common event fields: id, chapter, summary, narrative_position, story_position, event_role, certainty, causes, effects, state_change_ids",
+        "  common event fields: id, summary, narrative_position, story_position, event_role, certainty, causes, effects, state_change_ids",
     ]
     if not isinstance(events, list) or not events:
         lines.append("  existing events: none; use /events/- for add")
@@ -1970,10 +1970,8 @@ def _chapters_from_timeline_operations(root: Path, operations: list[MemoryRepair
             continue
         event = _list_entity_at(timeline, "events", parts[1])
         if isinstance(event, dict):
-            chapter = _coerce_positive_int(event.get("chapter"))
             narrative = event.get("narrative_position")
-            if not chapter and isinstance(narrative, dict):
-                chapter = _coerce_positive_int(narrative.get("chapter"))
+            chapter = _coerce_positive_int(narrative.get("chapter")) if isinstance(narrative, dict) else None
             if chapter:
                 chapters.add(chapter)
     return chapters
@@ -2564,13 +2562,17 @@ def _preflight_character_role_value(value: object, location: str) -> list[str]:
     if role.lower() in NARRATIVE_CHARACTER_ROLES:
         return []
     phrases = _identity_phrases(role)
-    if not phrases:
-        return []
+    if phrases:
+        return [
+            f"{location}: Character.role semantic preflight failed: role={role!r} looks like identity/rank/profession, "
+            "but role must be narrative role only. Use Chinese narrative roles such as 主角/主要人物/配角/次要人物, "
+            "and move identity phrase(s) into tags: "
+            + ", ".join(phrases[:8])
+        ]
+    allowed = "、".join(sorted(NARRATIVE_CHARACTER_ROLES))
     return [
-        f"{location}: Character.role semantic preflight failed: role={role!r} looks like identity/rank/profession, "
-        "but role must be narrative role only. Use 主角/主要人物/配角/次要人物 or compatible legacy protagonist/supporting/minor/antagonist, "
-        "and move identity phrase(s) into tags: "
-        + ", ".join(phrases[:8])
+        f"{location}: Character.role semantic preflight failed: role={role!r} is not a supported Chinese narrative role. "
+        f"Use one of: {allowed}"
     ]
 
 

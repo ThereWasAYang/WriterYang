@@ -10,6 +10,7 @@ from typing import Iterable, Literal
 from novel.core.io import atomic_write_json
 from novel.core.json_extract import strip_code_fence
 from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.security import redact_secret_text
 
 
 InteractionMode = Literal["internal_task", "user_facing"]
@@ -332,14 +333,7 @@ def _contains_workspace_language(text: str) -> bool:
 
 
 def _redact_sensitive(text: str) -> str:
-    redacted = re.sub(
-        r"(?i)authorization\s*:\s*bearer\s+[A-Za-z0-9._\-]+",
-        "Authorization: Bearer [redacted]",
-        text,
-    )
-    redacted = re.sub(r"(?i)bearer\s+[A-Za-z0-9._\-]{12,}", "Bearer [redacted]", redacted)
-    redacted = re.sub(r"\bsk-[A-Za-z0-9_\-]{8,}\b", "[redacted-secret]", redacted)
-    return redacted
+    return redact_secret_text(text)
 
 
 def _utc_now() -> str:

@@ -77,6 +77,7 @@ def test_internal_json_rejects_natural_language_question() -> None:
 def test_violation_log_redacts_secret_like_values(tmp_path) -> None:
     error = AgentOutputContractError("bad output", reason_codes=("clarification_request",))
 
+    api_key = "sk-" + "secret123456789"
     path = write_agent_output_violation_log(
         tmp_path,
         invocation=AgentInvocationContext(
@@ -86,10 +87,10 @@ def test_violation_log_redacts_secret_like_values(tmp_path) -> None:
         ),
         contract=AgentOutputContract(output_kind="markdown", target_name="chapter draft"),
         model_request=ModelRequest(system_prompt="s", user_prompt="u", request_id="req_001"),
-        output="Authorization: Bearer sk-secret123456789\n请补充角色设定。",
+        output=f"Authorization: Bearer {api_key}\n请补充角色设定。",
         error=error,
     )
 
     text = path.read_text(encoding="utf-8")
-    assert "sk-secret123456789" not in text
+    assert api_key not in text
     assert "Authorization: Bearer [redacted]" in text

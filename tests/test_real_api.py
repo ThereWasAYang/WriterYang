@@ -625,9 +625,11 @@ def _write_real_agents_config(path: Path, env: dict[str, str]) -> None:
         "default": default_config,
         "agents": {
             "plot": {
+                "inherit_default": True,
                 "temperature": 0.2,
             },
             "orchestrator": {
+                "inherit_default": True,
                 "temperature": 0,
             }
         }

@@ -11,7 +11,7 @@ import pytest
 from novel.core.io import atomic_write_text, backup_file
 from novel.core.locking import ProjectLock, ProjectLockError
 from novel.core import security as security_module
-from novel.core.security import scan_security, validate_env_example, validate_secret_config_file
+from novel.core.security import redact_secret_text, scan_security, validate_env_example, validate_secret_config_file
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -56,6 +56,27 @@ def test_config_rejects_literal_api_key(tmp_path: Path) -> None:
     assert findings
     assert findings[0].code == "unsafe_config_secret"
     assert "sk-test-real-looking-secret-value" not in findings[0].message
+
+
+def test_redact_secret_text_masks_common_secret_shapes() -> None:
+    secret = "secret-provider-token"
+    short_key = "sk-" + "testsecret"
+    project_key = "sk-proj-" + "abcdefghijklmnop"
+    bearer_token = "abcdefghijklmnopqrstuvwxyz"
+    text = (
+        f"Authorization: Bearer {secret}\n"
+        f"api_key={short_key}\n"
+        f"raw {project_key}\n"
+        f"bearer {bearer_token}"
+    )
+
+    redacted = redact_secret_text(text, extra_secrets=(secret,))
+
+    assert secret not in redacted
+    assert short_key not in redacted
+    assert project_key not in redacted
+    assert bearer_token not in redacted
+    assert "Authorization: Bearer [redacted]" in redacted
 
 
 def test_atomic_write_preserves_original_on_replace_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

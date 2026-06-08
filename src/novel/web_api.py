@@ -15,6 +15,15 @@ from pydantic import BaseModel, Field
 import yaml
 
 from novel import __version__
+from novel.core.agent_defaults import (
+    DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
+    DEFAULT_AGENT_MAX_TOKENS,
+    DEFAULT_AGENT_TEMPERATURE,
+    DEFAULT_AGENT_TIMEOUT_SECONDS,
+    STANDARD_AGENT_NAMES,
+    agent_business_fields,
+    inherited_agent_config_patch,
+)
 from novel.core.app_logging import log_app_warning
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import (
@@ -47,7 +56,6 @@ from novel.core.memory_repair import (
     SettingChangeSuggestionResult,
     answer_setting_change_clarification,
     apply_memory_repair,
-    suggest_memory_repair,
     suggest_setting_change_interactive,
 )
 from novel.core.migration import MigrationError, migrate_project
@@ -76,7 +84,7 @@ from novel.core.schemas import (
     VectorContextMode,
     MemoryChangeStage,
 )
-from novel.core.security import validate_secret_config_file
+from novel.core.security import redact_secret_text, validate_secret_config_file
 from novel.core.session import (
     SessionActionOptions,
     SessionInstructionOptions,
@@ -99,7 +107,13 @@ from novel.core.session import (
     start_session,
     undo_rewrite,
 )
-from novel.core.providers import ProviderError, ProviderFactory, provider_parameter_capabilities, resolve_json_response_format
+from novel.core.providers import (
+    ProviderContextLimitError,
+    ProviderError,
+    ProviderFactory,
+    provider_parameter_capabilities,
+    resolve_json_response_format,
+)
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
 from novel.core.workflow import GenerateChapterOptions, ProviderName, generate_chapter
@@ -114,18 +128,7 @@ EXCLUDED_FILENAMES = {
     "search_index.sqlite",
     ".DS_Store",
 }
-EDITABLE_AGENT_NAMES = {
-    "orchestrator",
-    "inspiration",
-    "canon",
-    "plot",
-    "writer",
-    "polish",
-    "audit",
-    "state_update",
-    "chapter_memory",
-    "revision",
-}
+EDITABLE_AGENT_NAMES = set(STANDARD_AGENT_NAMES)
 
 
 class WebErrorPayload(BaseModel):
@@ -207,6 +210,17 @@ def handle_api_request(
     except SetupGuideError as exc:
         _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="setup_guide_error", error=exc)
         return _failure(400, "setup_guide_error", str(exc), request_id=request_id)
+    except ProviderContextLimitError as exc:
+        _log_web_api_failure(
+            path,
+            query,
+            data_for_log,
+            request_id=request_id,
+            status=400,
+            code="provider_context_limit_exceeded",
+            error=exc,
+        )
+        return _failure(400, "provider_context_limit_exceeded", str(exc), request_id=request_id)
     except MigrationError as exc:
         _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="migration_error", error=exc)
         return _failure(400, "migration_error", str(exc), request_id=request_id)
@@ -304,8 +318,6 @@ def _post_routes():
         "/api/inspire": ("web inspire", _inspire, True),
         "/api/canon/suggest": ("web canon suggest", _canon_suggest, True),
         "/api/canon/apply": ("web canon apply", _canon_apply, True),
-        "/api/orchestrator/memory-repair/suggest": ("web memory repair suggest", _memory_repair_suggest, True),
-        "/api/orchestrator/memory-repair/apply": ("web memory repair apply", _memory_repair_apply, True),
         "/api/settings/change/suggest": ("web setting change suggest", _settings_change_suggest, True),
         "/api/settings/change/answer": ("web setting change answer", _settings_change_answer, True),
         "/api/settings/change/apply": ("web setting change apply", _settings_change_apply, True),
@@ -772,12 +784,17 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         cleaned = _clean_agent_config_patch(patch)
         inherit_default = cleaned.get("inherit_default")
         if inherit_default is True:
-            default_config = _validated_default_agent_snapshot(updated)
             if agent_name == "default":
                 raise WebAPIError("invalid_request", "default config cannot inherit default", status=400)
             if agent_name not in EDITABLE_AGENT_NAMES and agent_name not in agents:
                 raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
-            agents[agent_name] = {**default_config, "inherit_default": True}
+            current_agent = agents.get(agent_name)
+            current_mapping = current_agent if isinstance(current_agent, dict) else None
+            agents[agent_name] = {
+                **inherited_agent_config_patch(agent_name, current_mapping),
+                **agent_business_fields(cleaned),
+                "inherit_default": True,
+            }
             continue
         if agent_name not in agents or not isinstance(agents[agent_name], dict):
             if agent_name not in EDITABLE_AGENT_NAMES:
@@ -826,13 +843,13 @@ def _validated_default_agent_snapshot(config: dict[str, object]) -> dict[str, ob
 
 
 def _refresh_inherited_agent_snapshots(config: dict[str, object]) -> None:
-    default_snapshot = _validated_default_agent_snapshot(config)
     raw_agents = config.get("agents")
     agents = raw_agents if isinstance(raw_agents, dict) else {}
     for agent_name in sorted(EDITABLE_AGENT_NAMES):
         current = agents.get(agent_name)
+        current_mapping = current if isinstance(current, dict) else None
         if current is None or (isinstance(current, dict) and current.get("inherit_default") is True):
-            agents[agent_name] = {**default_snapshot, "inherit_default": True}
+            agents[agent_name] = inherited_agent_config_patch(agent_name, current_mapping)
     config["agents"] = agents
 
 
@@ -841,8 +858,6 @@ def _validate_provider_payload_config(config: AgentsConfig) -> None:
     if config.default is not None:
         _validate_json_response_format_for_provider("default", config.default)
     for agent_name, agent_config in config.agents.items():
-        if getattr(agent_config, "inherit_default", False) is True:
-            continue
         try:
             resolved = resolver.resolve_agent_config(config, agent_name)
         except Exception as exc:
@@ -938,10 +953,10 @@ def _setup_default_provider(data: dict[str, object]) -> dict[str, object]:
         api_key=_required_string(data.get("api_key"), "api_key"),
         model=_required_string(data.get("model"), "model"),
         thinking_type=_optional_string(data.get("thinking_type")) or "disabled",
-        temperature=_optional_float(data.get("temperature"), 0.5),
-        max_context_tokens=_optional_int(data.get("max_context_tokens")) or 128000,
-        max_tokens=_optional_int(data.get("max_tokens")) or 8192,
-        timeout_seconds=_optional_float(data.get("timeout_seconds"), 60.0),
+        temperature=_optional_float(data.get("temperature"), DEFAULT_AGENT_TEMPERATURE),
+        max_context_tokens=_optional_int(data.get("max_context_tokens")) or DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
+        max_tokens=_optional_int(data.get("max_tokens")) or DEFAULT_AGENT_MAX_TOKENS,
+        timeout_seconds=_optional_float(data.get("timeout_seconds"), DEFAULT_AGENT_TIMEOUT_SECONDS),
         max_retries=_optional_int(data.get("max_retries")) or 1,
         ping=bool(data.get("ping", True)),
     )
@@ -1128,57 +1143,6 @@ def _canon_applied_proposal_payload(root: Path, record: CanonAppliedProposalReco
         "validation_warning_count": log.validation_warning_count,
         "applied_at": log.applied_at.isoformat(),
         "status": log.status,
-    }
-
-
-def _memory_repair_suggest(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    request = _optional_string(data.get("request")) or _optional_string(data.get("instruction"))
-    if not request:
-        raise WebAPIError("invalid_request", "request is required", status=400)
-    provider = _optional_string(data.get("provider")) or "config"
-    result = suggest_memory_repair(root, request, provider_name=provider)
-    return {
-        **_legacy_memory_repair_deprecation("/api/settings/change/suggest"),
-        "proposal": result.proposal.model_dump(mode="json"),
-        "proposal_path": str(result.proposal_path),
-        "proposal_relative_path": _relative(root, result.proposal_path),
-        "markdown_path": str(result.markdown_path),
-        "markdown_relative_path": _relative(root, result.markdown_path),
-        "management_events": _management_event_summary(root),
-    }
-
-
-def _memory_repair_apply(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    proposal_path_text = _optional_string(data.get("proposal_path")) or _optional_string(data.get("proposal_file"))
-    if not proposal_path_text:
-        raise WebAPIError("invalid_request", "proposal_path is required", status=400)
-    proposal_path = _safe_workspace_file(root, proposal_path_text)
-    try:
-        result = apply_memory_repair(root, proposal_path)
-    except MemoryRepairError as exc:
-        raise WebAPIError(
-            "memory_repair_error",
-            str(exc),
-            status=400,
-            details=_memory_repair_apply_error_details(root, proposal_path),
-        ) from exc
-    return {
-        **_legacy_memory_repair_deprecation("/api/settings/change/apply"),
-        "proposal": result.proposal.model_dump(mode="json"),
-        "apply_log": result.apply_log.model_dump(mode="json"),
-        "apply_log_path": str(result.apply_log_path),
-        "apply_log_relative_path": _relative(root, result.apply_log_path),
-        "management_events": _management_event_summary(root),
-    }
-
-
-def _legacy_memory_repair_deprecation(replacement_endpoint: str) -> dict[str, object]:
-    return {
-        "deprecated": True,
-        "replacement_endpoint": replacement_endpoint,
-        "deprecation_message": "该 legacy memory repair API 保留兼容；新集成请使用项目设定变更 API。",
     }
 
 
@@ -2026,11 +1990,15 @@ def _effective_agent_config_summary(path: Path) -> dict[str, object]:
         has_config_entry = name in config.agents
         selected = config.agents.get(name)
         explicit_inherit = bool(getattr(selected, "inherit_default", False)) if selected is not None else False
-        override = (
+        raw_override: dict[str, object] = (
             selected.model_dump(mode="json", exclude_unset=True, exclude_none=True, exclude={"inherit_default"})
             if selected is not None
             else {}
         )
+        if explicit_inherit:
+            override = cast(dict[str, object], _sanitize_config(agent_business_fields(raw_override)))
+        else:
+            override = cast(dict[str, object], _sanitize_config(raw_override))
         try:
             resolved = resolver.resolve_agent_config(config, name)
         except Exception as exc:
@@ -2041,14 +2009,16 @@ def _effective_agent_config_summary(path: Path) -> dict[str, object]:
                 "inherit_default": explicit_inherit,
                 "inherits_default": explicit_inherit,
                 "override_fields": sorted(override),
-                "override": _sanitize_config(override),
+                "override": override,
                 "error": _safe_error(str(exc)),
             }
             continue
-        has_override = has_config_entry and not explicit_inherit
+        has_override = has_config_entry and (bool(override) or not explicit_inherit)
         source = (
-            "default"
-            if explicit_inherit or not has_config_entry
+            "default + agent behavior"
+            if explicit_inherit
+            else "default"
+            if not has_config_entry
             else "default + agent override"
             if config.default is not None
             else "agent override"
@@ -2059,8 +2029,8 @@ def _effective_agent_config_summary(path: Path) -> dict[str, object]:
             "has_override": has_override,
             "inherit_default": explicit_inherit or (not has_config_entry and config.default is not None),
             "inherits_default": explicit_inherit or (not has_config_entry and config.default is not None),
-            "override_fields": [] if explicit_inherit else sorted(override),
-            "override": {} if explicit_inherit else _sanitize_config(override),
+            "override_fields": sorted(override),
+            "override": override,
             "config": _sanitize_config(resolved.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})),
             "parameter_capabilities": _parameter_capabilities_payload(resolved),
         }
@@ -2349,10 +2319,10 @@ def _state_timeline_visual_summary(state: object, timeline: object, canon: dict[
             story = event.get("story_position") if isinstance(event.get("story_position"), dict) else {}
             entry = {
                 "id": event_id,
-                "chapter": narrative.get("chapter", event.get("chapter")),
-                "scene": narrative.get("scene", event.get("scene")),
+                "chapter": narrative.get("chapter"),
+                "scene": narrative.get("scene"),
                 "sequence": narrative.get("sequence"),
-                "story_time": story.get("time_label", event.get("in_story_time")),
+                "story_time": story.get("time_label"),
                 "story_order": story.get("order"),
                 "story_thread_id": story.get("thread_id"),
                 "event_role": event.get("event_role"),
@@ -2862,10 +2832,9 @@ def _relative(root: Path, path: Path) -> str:
 
 
 def _safe_error(exc: Exception | str) -> str:
-    message = str(exc)
-    redacted = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[redacted-api-key]", message)
-    redacted = re.sub(r"(?i)(api[_-]?key\s*[:=]\s*)[^\s,;]+", r"\1[redacted]", redacted)
-    for key, value in os.environ.items():
-        if value and ("KEY" in key or "TOKEN" in key or "SECRET" in key):
-            redacted = redacted.replace(value, "[redacted]")
-    return redacted
+    env_secrets = tuple(
+        value
+        for key, value in os.environ.items()
+        if value and ("KEY" in key or "TOKEN" in key or "SECRET" in key)
+    )
+    return redact_secret_text(str(exc), extra_secrets=env_secrets)

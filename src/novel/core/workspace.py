@@ -6,6 +6,11 @@ import json
 from pathlib import Path
 import re
 
+from novel.core.agent_defaults import (
+    STANDARD_AGENT_NAMES,
+    default_agent_config,
+    inherited_agent_config_patch,
+)
 from novel.core.io import atomic_write_text
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 
@@ -219,57 +224,58 @@ def _project_yaml(
 
 
 def _agents_yaml() -> str:
-    agents = (
-        "orchestrator",
-        "inspiration",
-        "canon",
-        "plot",
-        "writer",
-        "polish",
-        "audit",
-        "revision",
-        "state_update",
-        "chapter_memory",
-    )
     lines = [
         f"schema_version: {CURRENT_SCHEMA_VERSION}\n",
         "default:\n",
-        '  provider: "openai_compatible"\n',
-        '  base_url_env: "OPENAI_BASE_URL"\n',
-        '  api_key_env: "OPENAI_API_KEY"\n',
-        '  model: "model-name"\n',
-        '  reasoning: "medium"\n',
-        "  thinking:\n",
-        '    type: "disabled"\n',
-        "  max_context_tokens: 128000\n",
-        "  max_tokens: 8192\n",
-        "  temperature: 0.5\n",
-        "  timeout_seconds: 60\n",
-        "  max_retries: 1\n",
-        '  json_response_format: "auto"\n',
+        *_yaml_config_lines(default_agent_config(), indent=2),
         "agents:\n",
     ]
-    for name in agents:
+    for name in STANDARD_AGENT_NAMES:
         lines.extend(
             [
                 f"  {name}:\n",
-                "    inherit_default: true\n",
-                '    provider: "openai_compatible"\n',
-                '    base_url_env: "OPENAI_BASE_URL"\n',
-                '    api_key_env: "OPENAI_API_KEY"\n',
-                '    model: "model-name"\n',
-                '    reasoning: "medium"\n',
-                "    thinking:\n",
-                '      type: "disabled"\n',
-                "    max_context_tokens: 128000\n",
-                "    max_tokens: 8192\n",
-                "    temperature: 0.5\n",
-                "    timeout_seconds: 60\n",
-                "    max_retries: 1\n",
-                '    json_response_format: "auto"\n',
+                *_yaml_config_lines(inherited_agent_config_patch(name), indent=4),
             ]
         )
     return "".join(lines)
+
+
+_AGENT_CONFIG_FIELD_ORDER = (
+    "inherit_default",
+    "provider",
+    "base_url_env",
+    "api_key_env",
+    "model",
+    "reasoning",
+    "thinking",
+    "max_context_tokens",
+    "max_tokens",
+    "temperature",
+    "timeout_seconds",
+    "max_retries",
+    "json_response_format",
+)
+
+
+def _yaml_config_lines(config: dict[str, object], *, indent: int) -> list[str]:
+    lines: list[str] = []
+    prefix = " " * indent
+    ordered_keys = [key for key in _AGENT_CONFIG_FIELD_ORDER if key in config]
+    ordered_keys.extend(key for key in config if key not in _AGENT_CONFIG_FIELD_ORDER)
+    for key in ordered_keys:
+        if key not in config:
+            continue
+        value = config[key]
+        if isinstance(value, dict):
+            lines.append(f"{prefix}{key}:\n")
+            lines.extend(_yaml_config_lines(value, indent=indent + 2))
+        elif isinstance(value, bool):
+            lines.append(f"{prefix}{key}: {str(value).lower()}\n")
+        elif isinstance(value, str):
+            lines.append(f'{prefix}{key}: "{value}"\n')
+        else:
+            lines.append(f"{prefix}{key}: {value}\n")
+    return lines
 
 
 def _embeddings_yaml() -> str:

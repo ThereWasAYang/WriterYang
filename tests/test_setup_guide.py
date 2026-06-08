@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from novel.core.provider_config import resolve_agent_config
 from novel.core.env import load_project_env, read_project_env_file
 from novel.core.io import load_yaml
 from novel.core.setup_guide import (
@@ -50,9 +51,13 @@ def test_configure_default_provider_writes_env_and_yaml_without_secret(
     assert agents["default"]["base_url_env"] == DEFAULT_BASE_URL_ENV  # type: ignore[index]
     assert agents["default"]["model"] == "example-model"  # type: ignore[index]
     assert agents["agents"]["writer"]["inherit_default"] is True  # type: ignore[index]
-    assert agents["agents"]["writer"]["api_key_env"] == DEFAULT_API_KEY_ENV  # type: ignore[index]
-    assert agents["agents"]["writer"]["base_url_env"] == DEFAULT_BASE_URL_ENV  # type: ignore[index]
-    assert agents["agents"]["writer"]["model"] == "example-model"  # type: ignore[index]
+    assert "api_key_env" not in agents["agents"]["writer"]  # type: ignore[index]
+    assert "base_url_env" not in agents["agents"]["writer"]  # type: ignore[index]
+    assert "model" not in agents["agents"]["writer"]  # type: ignore[index]
+    writer = resolve_agent_config(root / "config" / "agents.yaml", "writer")
+    assert writer.api_key_env == DEFAULT_API_KEY_ENV
+    assert writer.base_url_env == DEFAULT_BASE_URL_ENV
+    assert writer.model == "example-model"
     assert "secret-key" not in (root / "config" / "agents.yaml").read_text(encoding="utf-8")
     assert captured["url"] == "https://api.example.test/v1/chat/completions"
     assert captured["authorization"] == "Bearer secret-key"

@@ -18,7 +18,7 @@ CLI/Web/Session
   -> atomic write artifact
 ```
 
-Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API；如果当前 Agent 标记为 `inherit_default: true`，运行时直接使用当前 `default`。旧项目里的差异字段仍会与 `default` 合并；显式 `--provider mock` 会绕过真实 API 配置，仅用于测试/调试。
+Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API；如果当前 Agent 标记为 `inherit_default: true`，运行时继承当前 `default` 的 provider/model/base URL/API env/json_response_format/max_tokens/max_context_tokens/timeout/retry，并叠加 Agent 自己的 `temperature`、`thinking`、`reasoning` 业务字段。没有显式 `inherit_default: true` 的 partial override 不再兼容；Agent 要么继承 default 并只写业务 patch，要么保存完整独立配置。显式 `--provider mock` 会绕过真实 API 配置，仅用于测试/调试。
 
 `ModelRequest` 字段：
 
@@ -43,7 +43,8 @@ Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API；如果�
 - `--vector-context auto|on|off` 控制语义召回；`auto` 只在真实 embedding provider 配置完整且环境变量齐全时启用，失败会回退 FTS 并写入 ContextBundle warning。旧 `--use-vector-context` 是 `on` 的兼容别名。
 - 检索 query 会拼接章节号、用户 instruction、ChapterPlan 的 goal/summary/must_include/scenes 等稳定信息。
 - ChapterPlan 明确引用的 `timeline_event_ids` 会最高优先级进入 ContextBundle；此外，检索层会按结构化 focus entity ID 召回关键历史/记忆类 timeline event，不用自然语言关键词猜事件 ID。
-- state/timeline 默认完整进入 prompt；当 `project.yaml.context_budget.enabled` 为 `true` 时，会先走 `core/context_budget.py`：focus 实体和近 N 章保留全量，远期内容折叠成 digest；小项目未裁剪时仍渲染原 JSON，保护兼容性。
+- state/timeline 默认完整进入 prompt。`project.yaml.context_budget.enabled` 当前默认为 `false`，原因是现有预算策略过小，远小于模型上下文窗口，容易限制模型能力；后续计划实现动态上下文预算系统后再重新开启裁剪。当手动开启预算时，会先走 `core/context_budget.py`：focus 实体和近 N 章保留全量，远期内容折叠成 digest。
+- Provider 发送请求前会对最终 messages 做 CJK-aware prompt token 粗估；超过 `max_context_tokens` 时抛出 `ProviderContextLimitError` 并中断任务。
 
 ## 2. Inspiration Agent
 

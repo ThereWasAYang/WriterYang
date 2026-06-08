@@ -150,7 +150,7 @@ from novel.core.orchestrator import (
     orchestrate,
 )
 from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
-from novel.core.security import scan_security
+from novel.core.security import redact_secret_text, scan_security
 from novel.core.setup_guide import (
     SetupGuideError,
     configure_default_provider,
@@ -427,11 +427,12 @@ def _print_json(payload: object) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
 def _safe_message(message: str) -> str:
-    redacted = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[redacted-api-key]", message)
-    for key, value in os.environ.items():
-        if value and ("KEY" in key or "TOKEN" in key or "SECRET" in key):
-            redacted = redacted.replace(value, "[redacted]")
-    return redacted
+    env_secrets = tuple(
+        value
+        for key, value in os.environ.items()
+        if value and ("KEY" in key or "TOKEN" in key or "SECRET" in key)
+    )
+    return redact_secret_text(message, extra_secrets=env_secrets)
 
 def _command_lock(args: argparse.Namespace, root: Path, task: str, *, enabled: bool = True):
     if not enabled:

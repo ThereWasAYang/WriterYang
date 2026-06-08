@@ -632,7 +632,7 @@ def _chapter_timeline_events(context: ChapterMemoryContext) -> list[TimelineEven
         proposal_ids = {event.id for event in context.proposal.timeline_events}
         applied = [event for event in context.timeline.events if event.id in proposal_ids]
         return applied or context.proposal.timeline_events
-    return [event for event in context.timeline.events if event.chapter == context.chapter_number]
+    return [event for event in context.timeline.events if event.narrative_position.chapter == context.chapter_number]
 
 
 def _timeline_ids(root: Path) -> set[str]:

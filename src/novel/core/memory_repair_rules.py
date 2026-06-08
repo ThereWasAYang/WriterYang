@@ -83,7 +83,7 @@ COLLECTION_SCHEMA_HINTS: dict[str, str] = {
     "memory/canon/characters.json": (
         "strict add value schema: Character {id, name, role, reader_visible_summary, aliases[], private_author_notes?, "
         "appearance: object|null, personality: object|null, relationships: Relationship[], abilities: Ability[], secrets: Secret[], tags[]}.\n"
-        "Character.role is narrative role only: use 主角, 主要人物, 配角, 次要人物 by default; legacy protagonist/supporting/minor/antagonist are compatible.\n"
+        "Character.role is narrative role only: use Chinese narrative roles such as 主角, 主要人物, 配角, 次要人物.\n"
         "Never put family rank, sect identity, profession, or jianghu identity in role; phrases such as 谢家长女, 谢家次子, 张家幼女, 唐门二房之女, 江湖散人, 武当俗家弟子 must go into tags and summary/notes.\n"
         "Ability {name: string, description: string, limitations?: string|null}; never use string arrays for abilities.\n"
         "Secret {id: snake_case, visibility: reader_visible|hidden|partially_revealed, description: string, planned_reveal?: string|null}; never use string arrays for secrets."
@@ -159,12 +159,6 @@ NARRATIVE_CHARACTER_ROLES = {
     "导师",
     "线索人物",
     "群像主角",
-    "protagonist",
-    "main",
-    "main_character",
-    "supporting",
-    "minor",
-    "antagonist",
 }
 
 CHARACTER_ROLE_IDENTITY_PATTERNS = (

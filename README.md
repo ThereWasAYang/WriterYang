@@ -255,7 +255,7 @@ novel show state --path ./rain-station
 
 ## Provider 配置
 
-真实项目必须在 `config/agents.yaml` 中配置至少一个顶层 `default` API。新项目默认让所有标准 Agent 显式 `inherit_default: true`，并在每个继承 Agent 条目里保存一份 `default` 参数快照；运行时仍以当前 `default` 为准。项目文件只保存环境变量名，不保存真实 API Key。
+真实项目必须在 `config/agents.yaml` 中配置至少一个顶层 `default` API。新项目默认让所有标准 Agent 显式 `inherit_default: true`，继承 provider/model/base URL/API env/json_response_format/max_tokens/max_context_tokens/timeout/retry 等调用参数；`temperature`、`thinking`、`reasoning` 保留各 Agent 的业务默认值或业务 patch。项目文件只保存环境变量名，不保存真实 API Key。
 
 ```yaml
 default:
@@ -266,26 +266,17 @@ default:
   json_response_format: "auto"
   reasoning: "medium"
   max_context_tokens: 128000
-  max_tokens: 8192
+  max_tokens: 24000
   temperature: 0.5
-  timeout_seconds: 60
+  timeout_seconds: 120
   max_retries: 1
   thinking:
     type: "disabled"
 agents:
   writer:
     inherit_default: true
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "deepseek-chat"
-    json_response_format: "auto"
-    reasoning: "medium"
-    max_context_tokens: 128000
-    max_tokens: 8192
-    temperature: 0.5
-    timeout_seconds: 60
-    max_retries: 1
+    reasoning: "high"
+    temperature: 0.8
     thinking:
       type: "disabled"
   audit:
@@ -297,9 +288,9 @@ agents:
     json_response_format: "auto"
     reasoning: "low"
     max_context_tokens: 128000
-    max_tokens: 8192
+    max_tokens: 24000
     temperature: 0.2
-    timeout_seconds: 60
+    timeout_seconds: 120
     max_retries: 1
     thinking:
       type: "disabled"
@@ -317,13 +308,15 @@ agents:
 | `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。结构化输出默认使用 `json_object`。 |
 | `mock` | 测试 / 调试 | 不调用真实 API，仅用于自动化测试、离线 smoke 和文档演示。真实创作不要把它作为 default。 |
 
-解析顺序是：显式 `--provider mock` 测试覆盖 > `inherit_default: true` 直接使用当前 `default` > 当前 Agent 独立配置或旧差异覆盖合并 `default` > fallback Agent 配置 > 仅使用 `default`。如果没有 `default` 且目标 Agent 也没有完整配置，运行时会报错；`novel validate`、`novel doctor` 和 Web UI 的“Agent 模型配置”页会提前给出告警。Web UI 中勾选“继承default”会刷新并锁定所有参数；取消勾选会先复制 `default` 参数，再允许单独编辑。
+解析顺序是：显式 `--provider mock` 测试覆盖 > `inherit_default: true` 使用当前 `default` 的调用参数并叠加 Agent 业务字段 > 当前 Agent 独立完整配置 > fallback Agent 配置 > 仅使用 `default`。没有 `inherit_default: true` 的 partial override 不再兼容；如果目标 Agent 不是完整配置，运行时会报错，`novel validate`、`novel doctor` 和 Web UI 的“Agent 模型配置”页会提前给出告警。Web UI 中勾选“继承default”只锁定调用参数，仍允许编辑 `temperature`、`thinking.type`、`reasoning`；取消勾选会先复制当前生效配置，再保存独立完整配置。
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
 
 `json_response_format` 用于控制结构化 Agent 的 provider payload，取值为 `auto`、`json_object`、`json_schema`、`json_schema_strict`。默认 `auto` 保持兼容：`openai` 使用 `json_schema`，`deepseek` / `zai` / `openai_compatible` 使用 `json_object`。[DeepSeek 官方 JSON Output](https://api-docs.deepseek.com/zh-cn/guides/json_mode) 要求请求体设置 `response_format: {"type":"json_object"}`，并且 prompt 中包含 `json` 和期望结构示例；WriterYang 会自动追加标准 JSON mode guard 和紧凑 schema skeleton。`json_schema_strict` 只允许显式 opt-in；DeepSeek / ZAI 下配置 strict 会在本地报清晰错误，不会发出请求。
 
 Web UI 会根据当前 `provider` 标记参数是否会进入 provider payload：不会生效的字段显示为 `NA` 并禁用。`thinking.type` 只在 `deepseek` / `zai` 下可编辑；`reasoning` 只在 `deepseek` 且 `thinking.type: enabled` 时发送为 `reasoning_effort`；`temperature` 在 `deepseek + thinking enabled` 和 `mock` 下显示 `NA`。`timeout_seconds`、`max_retries` 是本地 HTTP 调用参数，仍会生效并保持可编辑。
+
+Provider 发送请求前会对最终 messages 做 CJK-aware prompt token 粗估；估算值超过当前 `max_context_tokens` 时会抛出 `ProviderContextLimitError` 并中断任务，不会继续调用真实 API。`project.yaml.context_budget.enabled` 默认仍为 `false`：当前预算策略过小，远小于主流模型上下文窗口，容易限制模型能力。后续计划改成动态上下文预算系统后再重新开启预算裁剪。
 
 新项目的 `config/agents.yaml` 和 `config/embeddings.yaml` 由 `novel init` 使用当前模板生成。真实创作建议配置顶层 `default`，让各 Agent 通过 `inherit_default: true` 继承；离线测试使用命令行 `--provider mock` 覆盖。
 
@@ -657,7 +650,7 @@ web:
 - 项目搜索：在 Web UI 中搜索角色、地点、物品、时间线事件和章节文本。默认使用 FTS；语义检索模式为 `auto` 时只在 embedding 配置完整时启用，兼容勾选“强制使用 embedding 语义检索”时会按 `on` 处理。
 - 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Agent / Provider / Model 的统计。
 - 项目迁移：项目检查后会 dry-run 检查 schema 是否需要迁移；如需迁移，主页会显示“一键迁移项目 Schema”按钮，执行时使用项目锁、备份和现有迁移逻辑。
-- Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；非 `default` Agent 通过“继承default”勾选项控制是否跟随 default。勾选后字段刷新为 default 并锁定，取消勾选后先复制 default 再开放编辑；当前 provider 不会使用的字段显示 `NA` 并禁用。保存 default 会同步刷新所有继承 Agent 的前台显示和 `config/agents.yaml` 快照。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
+- Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；非 `default` Agent 通过“继承default”勾选项控制是否跟随 default。勾选后只锁定 provider/model/API env/token/timeout 等调用字段，`temperature`、`thinking.type`、`reasoning` 仍可编辑并保存为业务 patch；取消勾选后先复制当前生效配置再开放为独立完整配置。当前 provider 不会使用的字段显示 `NA` 并禁用。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，显示“Embedding API 已配置”、当前 provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。API Key 只写入项目 `.env`，保存前会用当前批量和维度验证真实 API，保存成功后清空输入框并自动刷新语义向量索引。
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。
 - 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。

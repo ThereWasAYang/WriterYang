@@ -66,6 +66,10 @@ def test_schema_payloads_cover_project_json_files() -> None:
     assert "narrative_position" in event_props
     assert "story_position" in event_props
     assert "event_role" in event_props
+    assert "chapter" not in event_props
+    assert "scene" not in event_props
+    assert "in_story_time" not in event_props
+    assert timeline_defs["TimelineEvent"].get("additionalProperties") is False
 
 
 def test_model_output_schema_payloads_cover_agent_structured_outputs() -> None:

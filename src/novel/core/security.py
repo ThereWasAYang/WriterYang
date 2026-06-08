@@ -10,9 +10,14 @@ import yaml
 
 RAW_SECRET_PATTERNS = (
     re.compile(r"\bsk-proj-[A-Za-z0-9_\-]{12,}\b"),
-    re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}\b"),
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}\b"),
     re.compile(r"\bBearer\s+[A-Za-z0-9_\-\.]{20,}\b", re.IGNORECASE),
 )
+AUTHORIZATION_BEARER_PATTERN = re.compile(
+    r"(?i)\b(authorization\s*:\s*)bearer\s+[A-Za-z0-9._\-]+"
+)
+BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{8,}\b")
+API_KEY_ASSIGNMENT_PATTERN = re.compile(r"(?i)(api[_-]?key\s*[:=]\s*)[^\s,;}]+")
 ENV_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 SECRET_KEY_WORDS = ("api_key", "apikey", "secret", "token", "access_key")
 IGNORED_TRACKED_SUFFIXES = {".pyc", ".png", ".jpg", ".jpeg", ".gif", ".docx", ".sqlite"}
@@ -83,8 +88,15 @@ def validate_secret_config_file(path: Path) -> tuple[SecurityFinding, ...]:
     return tuple(findings)
 
 
-def redact_secret_text(text: str) -> str:
+def redact_secret_text(text: str, *, extra_secrets: tuple[str, ...] = ()) -> str:
     redacted = text
+    for secret in extra_secrets:
+        if secret:
+            redacted = redacted.replace(secret, "[redacted]")
+            redacted = redacted.replace(f"Bearer {secret}", "Bearer [redacted]")
+    redacted = AUTHORIZATION_BEARER_PATTERN.sub(r"\1Bearer [redacted]", redacted)
+    redacted = BEARER_PATTERN.sub("Bearer [redacted]", redacted)
+    redacted = API_KEY_ASSIGNMENT_PATTERN.sub(r"\1[redacted]", redacted)
     for pattern in RAW_SECRET_PATTERNS:
         redacted = pattern.sub("[redacted-secret]", redacted)
     return redacted
@@ -169,6 +181,9 @@ def _looks_like_raw_secret_assignment(line: str) -> bool:
         return False
     match = re.match(r"^([A-Z0-9_\-]*(?:API[_-]?KEY|TOKEN|SECRET|ACCESS[_-]?KEY)[A-Z0-9_\-]*)\s*[:=]\s*(.+)$", stripped)
     if not match:
+        return False
+    name = match.group(1)
+    if name.endswith(("_PATTERN", "_PATTERNS", "_WORDS")):
         return False
     value = match.group(2).strip().rstrip(",").strip().strip("\"'")
     if not value or value.startswith("${") or value.startswith("$") or value.startswith(("(", "[", "{")):

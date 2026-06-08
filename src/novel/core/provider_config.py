@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from novel.core.agent_defaults import agent_business_fields
 from novel.core.env import load_project_env
 from novel.core.io import load_yaml_model
 from novel.core.providers import (
@@ -113,7 +114,8 @@ def resolve_agent_config_source(
         if candidate in agents:
             config = agents[candidate]
             if getattr(config, "inherit_default", False) is True and agents_config.default is not None:
-                return "default"
+                raw_patch = config.model_dump(mode="python", exclude_unset=True, exclude_none=True)
+                return f"default+agent:{candidate}" if agent_business_fields(raw_patch) else "default"
             if isinstance(config, AgentConfig) and agents_config.default is None:
                 return f"agent:{candidate}"
             return f"default+agent:{candidate}"

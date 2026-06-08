@@ -203,7 +203,7 @@ def _mock_character_operations(root: Path, request: str) -> list[MemoryRepairOpe
                 value={
                     "id": new_id,
                     "name": name,
-                    "role": "supporting",
+                    "role": "配角",
                     "reader_visible_summary": f"{name}是用户新增的人物设定。",
                     "aliases": [],
                     "private_author_notes": "由 setting-change mock proposal 新增。",

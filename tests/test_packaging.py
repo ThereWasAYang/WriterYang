@@ -70,13 +70,17 @@ def test_initialized_template_configs_include_provider_defaults(tmp_path: Path) 
     assert default["base_url_env"] == "OPENAI_BASE_URL"
     assert default["api_key_env"] == "OPENAI_API_KEY"
     assert default["json_response_format"] == "auto"
+    assert default["max_tokens"] == 24000
+    assert default["max_context_tokens"] == 128000
+    assert default["timeout_seconds"] == 120
     assert writer["inherit_default"] is True
-    assert writer["provider"] == default["provider"]
-    assert writer["model"] == default["model"]
-    assert writer["temperature"] == default["temperature"]
+    assert "provider" not in writer
+    assert "model" not in writer
+    assert writer["temperature"] == 0.8
+    assert writer["reasoning"] == "high"
     assert revision["inherit_default"] is True
-    assert revision["provider"] == default["provider"]
-    assert revision["model"] == default["model"]
+    assert "provider" not in revision
+    assert "model" not in revision
     assert embeddings_config["active_provider"] == "dashscope"
     assert embeddings_config["providers"]["test_local_hash"]["provider"] == "local_hash"
     assert embeddings_config["providers"]["dashscope"]["api_key_env"] == "DASHSCOPE_API_KEY"

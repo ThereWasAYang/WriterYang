@@ -47,7 +47,7 @@ def test_load_json_and_yaml_models(tmp_path: Path) -> None:
             {
                 "id": "char_lin_che",
                 "name": "林澈",
-                "role": "protagonist",
+                "role": "主角",
                 "reader_visible_summary": "旧物修复师。",
             },
             ensure_ascii=False,
@@ -62,24 +62,24 @@ def test_load_json_and_yaml_models(tmp_path: Path) -> None:
     assert character.id == "char_lin_che"
 
 
-def test_timeline_event_rejects_legacy_and_dual_position_mismatch() -> None:
+def test_timeline_event_rejects_legacy_top_level_fields() -> None:
     payload = {
-        "id": "event_mismatch",
+        "id": "event_legacy",
         "chapter": 2,
         "scene": 1,
         "in_story_time": "第2章",
         "narrative_position": {"chapter": 1, "scene": 1},
         "story_position": {"time_label": "第2章"},
-        "summary": "字段不一致。",
+        "summary": "旧字段不再接受。",
         "reader_visible": True,
     }
 
     try:
         TimelineEvent.model_validate(payload)
     except Exception as exc:
-        assert "chapter must match narrative_position.chapter" in str(exc)
+        assert "chapter" in str(exc)
     else:
-        raise AssertionError("expected timeline compatibility failure")
+        raise AssertionError("expected legacy timeline field rejection")
 
 
 def test_validate_fresh_workspace_passes(tmp_path: Path) -> None:
@@ -128,6 +128,8 @@ def test_validate_warns_when_agent_config_uses_mock(tmp_path: Path) -> None:
                 "agents:",
                 "  writer:",
                 '    provider: "mock"',
+                '    api_key_env: "MOCK_API_KEY"',
+                '    model: "mock-model"',
             ]
         )
         + "\n",
@@ -175,8 +177,8 @@ def test_validate_canon_does_not_warn_about_chapter_timeline_context(tmp_path: P
             "events": [
                 {
                     "id": "event_existing",
-                    "chapter": 1,
-                    "in_story_time": "第一章",
+                    "narrative_position": {"chapter": 1},
+                    "story_position": {"time_label": "第一章"},
                     "summary": "已有事件。",
                     "reader_visible": True,
                 }
@@ -217,7 +219,7 @@ def test_validate_reports_duplicate_character_ids(tmp_path: Path) -> None:
                 {
                     "id": "char_lin_che",
                     "name": "林澈",
-                    "role": "protagonist",
+                    "role": "主角",
                     "reader_visible_summary": "旧物修复师。",
                 },
                 {
@@ -246,7 +248,7 @@ def test_validate_reports_missing_required_fields(tmp_path: Path) -> None:
                 {
                     "id": "char_lin_che",
                     "name": "林澈",
-                    "role": "protagonist",
+                    "role": "主角",
                 }
             ]
         },
@@ -268,7 +270,7 @@ def test_validate_warns_for_missing_cross_file_references(tmp_path: Path) -> Non
                 {
                     "id": "char_lin_che",
                     "name": "林澈",
-                    "role": "protagonist",
+                    "role": "主角",
                     "reader_visible_summary": "旧物修复师。",
                     "relationships": [
                         {"target_id": "char_missing", "type": "盟友"}
@@ -283,8 +285,8 @@ def test_validate_warns_for_missing_cross_file_references(tmp_path: Path) -> Non
             "events": [
                 {
                     "id": "event_001",
-                    "chapter": 1,
-                    "in_story_time": "第1天",
+                    "narrative_position": {"chapter": 1},
+                    "story_position": {"time_label": "第1天"},
                     "summary": "林澈来到旧车站。",
                     "reader_visible": True,
                     "location_id": "loc_missing",
@@ -311,7 +313,7 @@ def test_validate_reports_state_transition_errors(tmp_path: Path) -> None:
                 {
                     "id": "char_lin_che",
                     "name": "林澈",
-                    "role": "protagonist",
+                    "role": "主角",
                     "reader_visible_summary": "旧物修复师。",
                 }
             ]
@@ -407,8 +409,8 @@ def test_validate_reports_duplicate_possession_owner_and_dead_participant(tmp_pa
             "events": [
                 {
                     "id": "event_after_death",
-                    "chapter": 2,
-                    "in_story_time": "第二章",
+                    "narrative_position": {"chapter": 2},
+                    "story_position": {"time_label": "第二章"},
                     "summary": "甲再次出现。",
                     "reader_visible": True,
                     "participant_ids": ["char_a"],

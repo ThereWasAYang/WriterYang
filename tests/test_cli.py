@@ -120,7 +120,7 @@ def test_show_characters_cli_formats_character_list(tmp_path: Path) -> None:
     assert stderr == ""
     assert "Characters:" in stdout
     assert "- 林澈 [char_lin_che]" in stdout
-    assert "Role: protagonist" in stdout
+    assert "Role: 主角" in stdout
     assert "Aliases: 阿澈" in stdout
 
 
@@ -184,7 +184,7 @@ def _write_sample_project_data(root: Path) -> None:
                     "id": "char_lin_che",
                     "name": "林澈",
                     "aliases": ["阿澈"],
-                    "role": "protagonist",
+                    "role": "主角",
                     "reader_visible_summary": "年轻的旧物修复师，性格沉静。",
                     "tags": ["主角"],
                 }
@@ -258,9 +258,8 @@ def _write_sample_project_data(root: Path) -> None:
             "events": [
                 {
                     "id": "event_001",
-                    "chapter": 1,
-                    "scene": 1,
-                    "in_story_time": "第1天，23:40",
+                    "narrative_position": {"chapter": 1, "scene": 1},
+                    "story_position": {"time_label": "第1天，23:40"},
                     "location_id": "loc_old_station",
                     "participant_ids": ["char_lin_che"],
                     "summary": "林澈第一次听见旧广播。",

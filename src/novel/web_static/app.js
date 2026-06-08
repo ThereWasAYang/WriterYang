@@ -1591,6 +1591,7 @@
     }
 
     function applyProviderCapabilityState(disableAll = false) {
+      const inheritLocksCallFields = Boolean(disableAll);
       if ($("providerThinkingTypeField").value === "__na__") {
         $("providerThinkingTypeField").value = "disabled";
       }
@@ -1614,7 +1615,7 @@
           if (input.value === "NA" || input.value === "__na__") {
             input.value = field === "thinking" ? "disabled" : "";
           }
-          input.disabled = disableAll;
+          input.disabled = false;
         }
         setCapabilityNote(noteId, capability);
       });
@@ -1623,9 +1624,9 @@
         "providerApiKeyEnvField", "providerMaxTokensField", "providerMaxContextTokensField",
         "providerTimeoutSecondsField", "providerMaxRetriesField",
       ].forEach((id) => {
-        $(id).disabled = disableAll;
+        $(id).disabled = inheritLocksCallFields;
       });
-      $("providerFieldEditor").disabled = disableAll;
+      $("providerFieldEditor").disabled = false;
       renderProviderAdvancedStatus();
       return caps;
     }
@@ -1657,6 +1658,20 @@
       }
       if (Object.prototype.hasOwnProperty.call(agent, "json_response_format")) {
         editable.json_response_format = agent.json_response_format;
+      }
+      return editable;
+    }
+
+    function providerBusinessPatchAllowedByCapabilities(agent, capabilities) {
+      const editable = {};
+      if (capabilities.reasoning?.effective !== false && Object.prototype.hasOwnProperty.call(agent, "reasoning")) {
+        editable.reasoning = agent.reasoning;
+      }
+      if (capabilities.temperature?.effective !== false && Object.prototype.hasOwnProperty.call(agent, "temperature")) {
+        editable.temperature = agent.temperature;
+      }
+      if (capabilities.thinking?.effective !== false && agent.thinking?.type) {
+        editable.thinking = { type: agent.thinking.type };
       }
       return editable;
     }
@@ -1702,7 +1717,13 @@
       $("providerTimeoutSecondsField").value = agent.timeout_seconds ?? "";
       $("providerMaxRetriesField").value = agent.max_retries ?? "";
       const caps = applyProviderCapabilityState(name !== "default" && inheritsDefault);
-      $("providerFieldEditor").value = JSON.stringify(providerEditablePatch(agent, caps), null, 2);
+      $("providerFieldEditor").value = JSON.stringify(
+        name !== "default" && inheritsDefault
+          ? providerBusinessPatchAllowedByCapabilities(agent, caps)
+          : providerEditablePatch(agent, caps),
+        null,
+        2,
+      );
       renderProviderEffectivePanel();
     }
 
@@ -1720,8 +1741,19 @@
 
     function providerAgentDisplayConfig(name, inheritsDefault = providerAgentInheritsDefault(name)) {
       if (name === "default") return providerDefaultDisplayConfig();
-      if (inheritsDefault) return providerDefaultDisplayConfig();
+      if (inheritsDefault) {
+        const current = providerEffectiveCache?.[name]?.config || providerConfigCache?.agents?.[name] || {};
+        return { ...providerDefaultDisplayConfig(), ...providerBusinessFields(current) };
+      }
       return providerEffectiveCache?.[name]?.config || providerConfigCache?.agents?.[name] || providerDefaultDisplayConfig();
+    }
+
+    function providerBusinessFields(config) {
+      const business = {};
+      if (Object.prototype.hasOwnProperty.call(config, "reasoning")) business.reasoning = config.reasoning;
+      if (Object.prototype.hasOwnProperty.call(config, "temperature")) business.temperature = config.temperature;
+      if (config.thinking?.type) business.thinking = { type: config.thinking.type };
+      return business;
     }
 
     function fillProviderForm(agent) {
@@ -1744,7 +1776,7 @@
       const name = $("providerAgentSelect").value;
       if (name === "default") return;
       const inheritsDefault = $("providerInheritDefaultField").checked;
-      fillProviderForm(providerDefaultDisplayConfig());
+      fillProviderForm(providerAgentDisplayConfig(name, inheritsDefault));
       applyProviderCapabilityState(inheritsDefault);
       renderProviderEffectivePanel();
     }
@@ -1800,6 +1832,39 @@
       return patch;
     }
 
+    function buildProviderBusinessPatchFromForm() {
+      const patch = {};
+      const caps = currentProviderCapabilities();
+      if (caps.reasoning?.effective !== false) {
+        const reasoning = $("providerReasoningField").value.trim();
+        if (reasoning) patch.reasoning = reasoning;
+      }
+      const thinkingType = $("providerThinkingTypeField").value.trim();
+      if (caps.thinking?.effective !== false) patch.thinking = { type: thinkingType || "disabled" };
+      if (caps.temperature?.effective !== false) {
+        const raw = $("providerTemperatureField").value.trim();
+        if (raw) {
+          const value = Number(raw);
+          if (Number.isNaN(value)) throw new Error("temperature 必须是数字");
+          patch.temperature = value;
+        }
+      }
+      return patch;
+    }
+
+    function providerBusinessPatchFromEditorAndForm() {
+      const raw = $("providerFieldEditor").value.trim();
+      let advanced = {};
+      if (raw) {
+        advanced = JSON.parse(raw);
+        if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) {
+          throw new Error("高级 JSON 必须是对象");
+        }
+      }
+      const patch = { ...advanced, ...buildProviderBusinessPatchFromForm() };
+      return providerBusinessPatchAllowedByCapabilities(patch, currentProviderCapabilities());
+    }
+
     function providerPatchFromEditorAndForm() {
       const raw = $("providerFieldEditor").value.trim();
       let advanced = {};
@@ -1819,8 +1884,14 @@
         const raw = $("providerFieldEditor").value.trim();
         const advanced = raw ? JSON.parse(raw) : {};
         if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) return;
-        const patch = { ...advanced, ...buildProviderPatchFromForm() };
-        $("providerFieldEditor").value = JSON.stringify(providerPatchAllowedByCapabilities(patch, currentProviderCapabilities()), null, 2);
+        const inheritsDefault = $("providerAgentSelect").value !== "default" && $("providerInheritDefaultField").checked;
+        const patch = inheritsDefault
+          ? { ...advanced, ...buildProviderBusinessPatchFromForm() }
+          : { ...advanced, ...buildProviderPatchFromForm() };
+        const allowed = inheritsDefault
+          ? providerBusinessPatchAllowedByCapabilities(patch, currentProviderCapabilities())
+          : providerPatchAllowedByCapabilities(patch, currentProviderCapabilities());
+        $("providerFieldEditor").value = JSON.stringify(allowed, null, 2);
       } catch {
         // Keep the user's JSON untouched until save surfaces the parse error.
       }
@@ -1843,7 +1914,9 @@
         if (agentName === "default") {
           payload.default = providerPatchFromEditorAndForm();
         } else if ($("providerInheritDefaultField").checked) {
-          payload.agents = { [agentName]: { inherit_default: true } };
+          const patch = providerBusinessPatchFromEditorAndForm();
+          patch.inherit_default = true;
+          payload.agents = { [agentName]: patch };
         } else {
           const patch = providerPatchFromEditorAndForm();
           patch.inherit_default = false;
@@ -1862,19 +1935,21 @@
       const name = $("providerAgentSelect").value;
       const effective = providerEffectiveCache?.[name] || {};
       const uiInheritsDefault = name !== "default" && $("providerInheritDefaultField").checked;
-      const config = uiInheritsDefault ? providerDefaultDisplayConfig() : effective.config || providerAgentDisplayConfig(name, false) || {};
-      const source = uiInheritsDefault ? "default" : effective.source_label || effective.source || "unresolved";
-      const overrideFields = uiInheritsDefault ? [] : effective.override_fields || [];
+      const config = uiInheritsDefault
+        ? providerAgentDisplayConfig(name, true)
+        : effective.config || providerAgentDisplayConfig(name, false) || {};
+      const source = effective.source_label || effective.source || (uiInheritsDefault ? "default + agent behavior" : "unresolved");
+      const overrideFields = effective.override_fields || [];
       const caps = currentProviderCapabilities();
       let inheritance = "未解析";
       if (name === "default" && source === "default") {
         inheritance = "默认配置";
       } else if (uiInheritsDefault || effective.inherit_default || effective.inherits_default) {
-        inheritance = "全部继承 default";
+        inheritance = "继承 default 调用参数";
       } else if (effective.has_override) {
         inheritance = source === "default + agent override" ? "default + agent override" : "Agent 覆盖配置";
       } else if (source === "default") {
-        inheritance = "全部继承 default";
+        inheritance = "继承 default 调用参数";
       }
       const rows = [
         ["来源", source],

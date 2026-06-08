@@ -362,7 +362,7 @@ def build_canon_user_prompt(
         f"类型：{', '.join(project.genre)}\n\n"
         "请输出严格 JSON，结构如下：\n"
         "{\n"
-        '  "characters": [{"id": "char_x", "name": "姓名", "role": "protagonist", "reader_visible_summary": "读者可见摘要", "aliases": [], "relationships": [], "tags": []}],\n'
+        '  "characters": [{"id": "char_x", "name": "姓名", "role": "主角", "reader_visible_summary": "读者可见摘要", "aliases": [], "relationships": [], "tags": []}],\n'
         '  "locations": [{"id": "loc_x", "name": "地点名", "type": "station", "reader_visible_summary": "读者可见摘要", "connected_location_ids": [], "rules": [], "tags": []}],\n'
         '  "items": [{"id": "item_x", "name": "物品名", "type": "clue", "reader_visible_summary": "读者可见摘要", "special_properties": [], "tags": []}],\n'
         '  "world_rules": [{"id": "rule_x", "name": "规则名", "description": "规则说明", "visibility": "reader_visible", "limitations": [], "known_by_character_ids": []}],\n'
@@ -707,7 +707,7 @@ def default_mock_canon_proposal_json() -> str:
                     "id": "char_lin_che",
                     "name": "林澈",
                     "aliases": ["阿澈"],
-                    "role": "protagonist",
+                    "role": "主角",
                     "reader_visible_summary": "年轻的旧物修复师，性格沉静，习惯从旧物痕迹里寻找答案。",
                     "private_author_notes": "他与旧车站过去的异常事件有关，但本人记忆并不完整。",
                     "tags": ["主角", "旧物修复", "追查者"],

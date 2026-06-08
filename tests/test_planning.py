@@ -236,8 +236,8 @@ def test_plan_chapter_normalizes_required_context_reference_buckets(tmp_path: Pa
                 "events": [
                     {
                         "id": "event_existing",
-                        "chapter": 1,
-                        "in_story_time": "第一章",
+                        "narrative_position": {"chapter": 1},
+                        "story_position": {"time_label": "第一章"},
                         "summary": "已有事件。",
                         "reader_visible": True,
                     }

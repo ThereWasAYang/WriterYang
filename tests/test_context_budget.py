@@ -152,8 +152,6 @@ def _event(
 ) -> TimelineEvent:
     return TimelineEvent(
         id=event_id,
-        chapter=chapter,
-        in_story_time=f"第{chapter}天",
         summary=summary,
         reader_visible=reader_visible,
         narrative_position={"chapter": chapter},

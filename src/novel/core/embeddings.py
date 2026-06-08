@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import socket
 import time
 from typing import Mapping
@@ -15,6 +14,7 @@ from urllib import error, request
 from novel.core.env import load_project_env
 from novel.core.io import load_yaml_model
 from novel.core.schemas import EmbeddingProviderConfig, EmbeddingsConfig
+from novel.core.security import redact_secret_text
 
 
 class EmbeddingError(RuntimeError):
@@ -448,11 +448,7 @@ def _http_error_json_detail(raw: Mapping[str, object]) -> str:
 
 
 def _redact_embedding_error_text(text: str, *, secret: str) -> str:
-    redacted = text.replace(secret, "[redacted]") if secret else text
-    redacted = re.sub(r"(?i)bearer\s+[A-Za-z0-9._\-]+", "Bearer [redacted]", redacted)
-    redacted = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[redacted-api-key]", redacted)
-    redacted = re.sub(r"(?i)(api[_-]?key\s*[:=]\s*)[^\s,;}]+", r"\1[redacted]", redacted)
-    return redacted
+    return redact_secret_text(text, extra_secrets=(secret,))
 
 
 def _query_terms(text: str) -> list[str]:

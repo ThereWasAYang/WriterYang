@@ -1,21 +1,11 @@
 {
   "$defs": {
     "TimelineEvent": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
           "title": "Id",
-          "type": "string"
-        },
-        "chapter": {
-          "minimum": 1,
-          "title": "Chapter",
-          "type": "integer"
-        },
-        "in_story_time": {
-          "minLength": 1,
-          "title": "In Story Time",
           "type": "string"
         },
         "summary": {
@@ -26,19 +16,6 @@
         "reader_visible": {
           "title": "Reader Visible",
           "type": "boolean"
-        },
-        "scene": {
-          "anyOf": [
-            {
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Scene"
         },
         "narrative_position": {
           "$ref": "#/$defs/TimelineNarrativePosition"
@@ -116,8 +93,6 @@
       },
       "required": [
         "id",
-        "chapter",
-        "in_story_time",
         "summary",
         "reader_visible",
         "narrative_position",

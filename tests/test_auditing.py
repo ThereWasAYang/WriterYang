@@ -276,9 +276,6 @@ def test_audit_precheck_flags_timeline_reversed_cause(tmp_path: Path) -> None:
             "events": [
                 {
                     "id": "event_effect",
-                    "chapter": 1,
-                    "scene": 1,
-                    "in_story_time": "第1天",
                     "narrative_position": {"chapter": 1, "scene": 1},
                     "story_position": {"time_label": "第1天", "order": 1, "thread_id": "main"},
                     "summary": "结果先被呈现。",
@@ -286,9 +283,6 @@ def test_audit_precheck_flags_timeline_reversed_cause(tmp_path: Path) -> None:
                 },
                 {
                     "id": "event_cause",
-                    "chapter": 1,
-                    "scene": 2,
-                    "in_story_time": "第1天稍早",
                     "narrative_position": {"chapter": 1, "scene": 2},
                     "story_position": {"time_label": "第1天稍晚", "order": 2, "thread_id": "main"},
                     "summary": "被错误记录为发生在结果之后的原因。",
@@ -316,17 +310,15 @@ def test_audit_precheck_allows_flashback_without_story_order(tmp_path: Path) -> 
             "events": [
                 {
                     "id": "event_current",
-                    "chapter": 1,
-                    "scene": 1,
-                    "in_story_time": "第1天",
+                    "narrative_position": {"chapter": 1, "scene": 1},
+                    "story_position": {"time_label": "第1天"},
                     "summary": "当前事件。",
                     "reader_visible": True,
                 },
                 {
                     "id": "event_memory",
-                    "chapter": 1,
-                    "scene": 2,
-                    "in_story_time": "十年前",
+                    "narrative_position": {"chapter": 1, "scene": 2},
+                    "story_position": {"time_label": "十年前"},
                     "summary": "角色回忆旧事。",
                     "reader_visible": True,
                     "event_role": "flashback",

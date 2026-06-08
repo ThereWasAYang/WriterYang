@@ -254,7 +254,7 @@ def test_setting_change_suggest_preflights_operation_value_schema(tmp_path: Path
                 "value": {
                     "id": "char_bad_schema",
                     "name": "坏字段人物",
-                    "role": "supporting",
+                    "role": "配角",
                     "reader_visible_summary": "字段类型不符合 schema。",
                     "appearance": "字符串外貌",
                     "personality": "字符串性格",
@@ -297,7 +297,7 @@ def test_setting_change_preflight_reports_all_invalid_target_files(tmp_path: Pat
                 "value": {
                     "id": "char_bad",
                     "name": "坏人物",
-                    "role": "supporting",
+                    "role": "配角",
                     "reader_visible_summary": "坏人物。",
                     "abilities": ["字符串能力"],
                 },
@@ -895,7 +895,7 @@ def test_setting_change_target_schema_retry_repairs_invalid_model_value(tmp_path
                 "value": {
                     "id": "char_retry",
                     "name": "重试人物",
-                    "role": "supporting",
+                    "role": "配角",
                     "reader_visible_summary": "需要修复字段类型。",
                     "abilities": ["剑法"],
                 },
@@ -915,7 +915,7 @@ def test_setting_change_target_schema_retry_repairs_invalid_model_value(tmp_path
                 "value": {
                     "id": "char_retry",
                     "name": "重试人物",
-                    "role": "supporting",
+                    "role": "配角",
                     "reader_visible_summary": "需要修复字段类型。",
                     "appearance": {"summary": "未详述"},
                     "personality": {"summary": "谨慎"},
@@ -1769,9 +1769,8 @@ def _workspace_with_timeline_event(tmp_path: Path) -> Path:
                 "events": [
                     {
                         "id": "event_wrong_current",
-                        "chapter": 2,
-                        "scene": 1,
-                        "in_story_time": "多年前",
+                        "narrative_position": {"chapter": 2, "scene": 1},
+                        "story_position": {"time_label": "多年前"},
                         "event_role": "current_action",
                         "summary": "这个事件实际是回忆。",
                         "reader_visible": True,
@@ -1796,7 +1795,7 @@ def _workspace_with_character(tmp_path: Path, character_id: str, name: str) -> P
                     {
                         "id": character_id,
                         "name": name,
-                        "role": "protagonist",
+                        "role": "主角",
                         "reader_visible_summary": f"{name}的旧设定。",
                     }
                 ]

@@ -340,17 +340,18 @@ def _validate_agent_names(
             if agents.default is None:
                 report.error(path, f"agent {name} inherits default but default API config is missing")
             continue
+        if isinstance(config, AgentConfigPatch):
+            provided = set(config.model_dump(exclude_none=True)) - {"inherit_default"}
+            missing_fields = sorted({"provider", "model", "api_key_env"} - provided)
+            detail = f": missing {', '.join(missing_fields)}" if missing_fields else ""
+            report.error(
+                path,
+                f"agent {name} is incomplete; set inherit_default: true or provide a full independent config{detail}",
+            )
+            continue
         _validate_agent_env_presence(report, root, path, name, config)
         if config.provider and config.provider.lower() == "mock":
             report.warning(path, f"agent {name} uses mock provider; mock is intended for tests only")
-        if agents.default is None and isinstance(config, AgentConfigPatch):
-            provided = set(config.model_dump(exclude_none=True)) - {"inherit_default"}
-            missing_fields = sorted({"provider", "model", "api_key_env"} - provided)
-            if missing_fields:
-                report.error(
-                    path,
-                    f"agent {name} is incomplete without a default API config: missing {', '.join(missing_fields)}",
-                )
 
 
 def _validate_single_agent_config(

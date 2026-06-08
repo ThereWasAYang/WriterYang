@@ -518,9 +518,12 @@ def _write_timeline_events(root: Path, events: list[dict[str, object]]) -> None:
     normalized_events: list[dict[str, object]] = []
     for event in events:
         chapter = event.get("chapter", 1)
+        event_data = {
+            key: value for key, value in event.items() if key not in {"chapter", "scene", "in_story_time"}
+        }
         normalized_events.append(
             {
-                **event,
+                **event_data,
                 "narrative_position": {"chapter": chapter},
                 "story_position": {"time_label": str(event.get("in_story_time", "未知"))},
             }

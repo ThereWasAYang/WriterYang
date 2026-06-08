@@ -82,8 +82,6 @@ Timeline 记录已经发生的事件。事件应尽量包含：
 
 - `id`：稳定事件 ID。
 - `summary`：事件摘要。
-- `chapter`：兼容字段，必须等于 `narrative_position.chapter`。
-- `in_story_time`：兼容字段，必须等于 `story_position.time_label`。
 - `narrative_position`：正文呈现顺序，包含 chapter / scene / sequence。
 - `story_position`：故事世界顺序，包含 time_label / order / thread_id / certainty；非线性叙事无法确认真实顺序时可以不填 order。
 - `participant_ids`：参与人物 ID。

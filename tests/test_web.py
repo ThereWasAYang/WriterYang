@@ -151,7 +151,7 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     assert payload["data"]["embedding_api"]["dimensions"] == 2048  # type: ignore[index]
     assert payload["data"]["embedding_api"]["batch_size"] == 10  # type: ignore[index]
     assert payload["data"]["embedding_api"]["effective_batch_size"] == 10  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default"  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default + agent behavior"  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["inherits_default"] is True  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["config"]["api_key_env"] == "OPENAI_API_KEY"  # type: ignore[index]
     env_entries = payload["data"]["agents"]["env"]  # type: ignore[index]
@@ -665,7 +665,7 @@ def test_api_provider_config_save_updates_default_config(tmp_path: Path) -> None
     content = payload["data"]["config"]["content"]  # type: ignore[index]
     assert content["default"]["model"] == "web-default-model"  # type: ignore[index]
     assert content["agents"]["writer"]["inherit_default"] is True  # type: ignore[index]
-    assert content["agents"]["writer"]["model"] == "web-default-model"  # type: ignore[index]
+    assert "model" not in content["agents"]["writer"]  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["config"]["model"] == "web-default-model"  # type: ignore[index]
 
 
@@ -701,7 +701,7 @@ def test_api_provider_config_save_can_add_known_agent_override(tmp_path: Path) -
     assert content["agents"]["revision"]["inherit_default"] is False  # type: ignore[index]
 
 
-def test_api_provider_config_save_inherited_agent_snapshot(tmp_path: Path) -> None:
+def test_api_provider_config_save_inherited_agent_business_patch(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 
     status, payload = handle_api_request(
@@ -711,7 +711,7 @@ def test_api_provider_config_save_inherited_agent_snapshot(tmp_path: Path) -> No
         json.dumps(
             {
                 "path": str(root),
-                "agents": {"writer": {"inherit_default": True}},
+                "agents": {"writer": {"inherit_default": True, "temperature": 0.7, "reasoning": "high"}},
             }
         ),
     )
@@ -719,7 +719,10 @@ def test_api_provider_config_save_inherited_agent_snapshot(tmp_path: Path) -> No
     assert status == 200
     content = payload["data"]["config"]["content"]  # type: ignore[index]
     assert content["agents"]["writer"]["inherit_default"] is True  # type: ignore[index]
-    assert content["agents"]["writer"]["model"] == content["default"]["model"]  # type: ignore[index]
+    assert "model" not in content["agents"]["writer"]  # type: ignore[index]
+    assert content["agents"]["writer"]["temperature"] == 0.7  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["config"]["model"] == content["default"]["model"]  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["writer"]["config"]["temperature"] == 0.7  # type: ignore[index]
     assert payload["data"]["effective_agents"]["writer"]["inherits_default"] is True  # type: ignore[index]
 
 
@@ -747,14 +750,15 @@ def test_api_provider_config_default_save_does_not_overwrite_independent_agent(t
     assert content["agents"]["writer"]["inherit_default"] is False  # type: ignore[index]
     assert content["agents"]["writer"]["model"] == "custom-writer"  # type: ignore[index]
     assert content["agents"]["audit"]["inherit_default"] is True  # type: ignore[index]
-    assert content["agents"]["audit"]["model"] == "new-default-model"  # type: ignore[index]
+    assert "model" not in content["agents"]["audit"]  # type: ignore[index]
+    assert payload["data"]["effective_agents"]["audit"]["config"]["model"] == "new-default-model"  # type: ignore[index]
 
 
 def test_api_provider_config_clear_agent_override_restores_default(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     config_path = root / "config" / "agents.yaml"
     before = resolve_agent_config(config_path, "writer")
-    assert before.max_tokens == 8192
+    assert before.max_tokens == 24000
 
     status, payload = handle_api_request(
         "POST",
@@ -769,7 +773,7 @@ def test_api_provider_config_clear_agent_override_restores_default(tmp_path: Pat
     assert "writer" not in payload["data"]["config"]["content"]["agents"]  # type: ignore[index]
     after = resolve_agent_config(config_path, "writer")
     assert after.model == "model-name"
-    assert after.max_tokens == 8192
+    assert after.max_tokens == 24000
     assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default"  # type: ignore[index]
     assert list((root / "config").glob("agents.yaml.bak_*"))
 
@@ -1156,7 +1160,7 @@ def test_api_inspire_refuses_to_overwrite_user_inspiration_without_force(tmp_pat
     assert "web_api_failure" in app_log.read_text(encoding="utf-8")
 
 
-def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -> None:
+def test_api_setting_change_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     timeline_path = root / "memory" / "state" / "timeline.json"
     timeline_path.write_text(
@@ -1165,9 +1169,8 @@ def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -
                 "events": [
                     {
                         "id": "event_wrong_current",
-                        "chapter": 2,
-                        "scene": 1,
-                        "in_story_time": "多年前",
+                        "narrative_position": {"chapter": 2, "scene": 1},
+                        "story_position": {"time_label": "多年前"},
                         "event_role": "current_action",
                         "summary": "实际是回忆。",
                         "reader_visible": True,
@@ -1183,7 +1186,7 @@ def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -
 
     suggest_status, suggest_payload = handle_api_request(
         "POST",
-        "/api/orchestrator/memory-repair/suggest",
+        "/api/settings/change/suggest",
         "",
         json.dumps(
                 {
@@ -1196,18 +1199,14 @@ def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -
     proposal_path = suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
     apply_status, apply_payload = handle_api_request(
         "POST",
-        "/api/orchestrator/memory-repair/apply",
+        "/api/settings/change/apply",
         "",
         json.dumps({"path": str(root), "proposal_path": proposal_path}),
     )
     events_status, events_payload = handle_api_request("GET", "/api/management-events", f"path={root}", None)
 
     assert suggest_status == 200
-    assert suggest_payload["data"]["deprecated"] is True  # type: ignore[index]
-    assert suggest_payload["data"]["replacement_endpoint"] == "/api/settings/change/suggest"  # type: ignore[index]
     assert apply_status == 200
-    assert apply_payload["data"]["deprecated"] is True  # type: ignore[index]
-    assert apply_payload["data"]["replacement_endpoint"] == "/api/settings/change/apply"  # type: ignore[index]
     assert apply_payload["data"]["apply_log"]["status"] == "applied"  # type: ignore[index]
     timeline = TimelineFile.model_validate(json.loads(timeline_path.read_text(encoding="utf-8")))
     assert timeline.events[0].event_role == "flashback"
@@ -1215,6 +1214,23 @@ def test_api_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -
     serialized_events = json.dumps(events_payload, ensure_ascii=False)
     assert "memory_repair_proposed" in serialized_events
     assert "memory_repair_applied" in serialized_events
+
+
+def test_api_legacy_memory_repair_endpoints_return_404(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    for endpoint in (
+        "/api/orchestrator/memory-repair/suggest",
+        "/api/orchestrator/memory-repair/apply",
+    ):
+        status, payload = handle_api_request(
+            "POST",
+            endpoint,
+            "",
+            json.dumps({"path": str(root)}),
+        )
+
+        assert status == 404
+        assert payload["error"]["code"] == "not_found"  # type: ignore[index]
 
 
 def test_api_setting_change_suggest_apply_syncs_outline_session(tmp_path: Path) -> None:
@@ -1746,7 +1762,7 @@ def test_api_setting_change_apply_error_includes_apply_log_details(tmp_path: Pat
                         "value": {
                             "id": "char_bad_schema",
                             "name": "坏字段人物",
-                            "role": "supporting",
+                            "role": "配角",
                             "reader_visible_summary": "字段类型不符合 schema。",
                             "abilities": ["字符串能力"],
                         },
@@ -2193,7 +2209,7 @@ def test_frontend_basic_render() -> None:
     assert "warnBackendVersionMismatch" in app_js
     assert "Web UI 后台版本不匹配" in app_js
     assert "renderProviderEffectivePanel" in app_js
-    assert "全部继承 default" in app_js
+    assert "继承 default 调用参数" in app_js
     assert "resizeTextareaToContent" not in app_js
     assert "saveEmbeddingConfig" in app_js
     assert 'hasResponseField(setup, "embedding_api")' in app_js

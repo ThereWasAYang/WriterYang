@@ -202,9 +202,6 @@ def _timeline_event(
 ) -> dict[str, object]:
     return {
         "id": event_id,
-        "chapter": chapter,
-        "scene": scene,
-        "in_story_time": f"故事时间 {story_order}",
         "summary": event_id,
         "reader_visible": True,
         "narrative_position": {"chapter": chapter, "scene": scene},

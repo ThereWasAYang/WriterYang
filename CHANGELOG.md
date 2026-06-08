@@ -10,7 +10,7 @@
 - state update 增加更细的冲突检测，包括 `old_value` 不匹配、timeline 引用不存在的 state change、重复 possession holder 等。
 - 增加 `schemas/*.schema.json` 和 `novel schema export`，供外部工具使用 JSON Schema 校验项目文件。
 - 扩展 validation 的跨文件检查：chapter metadata、draft/polished front matter、audit audited_file、timeline state_change_ids、timeline causes/effects、location active_events、死亡角色后续出场、物品持有人/位置差异等。
-- 示例项目的 `config/agents.yaml` 改为真实 DeepSeek 配置模板，并新增 `config/agents.mock.yaml` 供无 API Key 测试使用。
+- 默认 `config/agents.yaml` 改为顶层 `default` API + 标准 Agent `inherit_default: true` 业务 patch；离线测试通过显式 `--provider mock` 覆盖。
 - 增加 `deepseek` 和 `zai` provider 适配，厂商私有 `thinking.type` 只对对应 provider 生效，并解析响应中的 `reasoning_content`。
 - Provider 调用增加错误分类、retry/backoff、timeout 处理、streaming 输出、`max_tokens` 配置和安全调用日志。
 - Prompt 模板从代码中抽出到 `src/novel/prompts/`，增加关键约束测试。
@@ -20,7 +20,7 @@
 - 搜索索引增强：增加中文 n-gram 分词、字段权重、章节过滤、结果高亮、SQLite FTS5 和本地 hash embedding 向量表。
 - 增加真实 embedding provider 抽象和适配：`local_hash`、阿里 DashScope `text-embedding-v4`、智谱 `embedding-3`，并为 `index rebuild` / `search --use-vector` 接入可配置 embedding。
 - 明确中文长篇小说默认工作流，新增新手快速开始、memory 手动编辑说明和模型配置最佳实践文档。
-- 新增武侠长篇示例项目 `examples/wuxia_mountain_sect`，配置文件带中文注释并可离线校验。
+- `.gitignore` 纳入版本控制，默认忽略 `.env*`、缓存、构建产物、`runs/`、本地 agent 协作文档和私密项目规划文档。
 - CI 扩展为 pytest、build、secret scan、ruff lint、阻断式 mypy type check、Web E2E 和 CLI 入口检查。
 - `cli.py` 顶层命令分发重构为同文件 handler 表，并收口 mypy 类型错误到 0。
 - Web UI 增加项目搜索、schema 迁移入口和用量统计页；搜索默认使用 FTS，只有显式启用语义检索才调用 embedding。

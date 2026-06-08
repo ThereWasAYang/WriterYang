@@ -4,7 +4,7 @@ WriterYang 支持给不同 agent 配不同模型。推荐原则是：结构化�
 
 ## Provider 字段
 
-真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。新项目默认让所有标准 Agent 勾选“继承default”，YAML 中保存 `inherit_default: true` 和 default 参数快照；运行时仍以当前 `default` 为准。只有确实需要单独调参时，才取消继承并保存独立 Agent 配置。真实 API Key 写入项目 `.env`，YAML 只保存环境变量名。
+真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。新项目默认让所有标准 Agent 勾选“继承default”，YAML 中保存 `inherit_default: true` 和 Agent 业务参数 patch；运行时继承当前 `default` 的调用参数，并保留各 Agent 的 `temperature`、`thinking`、`reasoning`。只有确实需要单独切换 provider/model/base URL/API env/token/timeout 时，才取消继承并保存完整独立 Agent 配置。真实 API Key 写入项目 `.env`，YAML 只保存环境变量名。
 
 ```yaml
 default:
@@ -15,20 +15,17 @@ default:
   json_response_format: "auto"
   thinking:
     type: "disabled"
+  max_context_tokens: 128000
   temperature: 0.5
-  max_tokens: 8192
+  max_tokens: 24000
+  timeout_seconds: 120
 agents:
   writer:
     inherit_default: true
-    provider: "deepseek"
-    base_url_env: "WRITERYANG_REAL_BASE_URL"
-    api_key_env: "WRITERYANG_REAL_API_KEY"
-    model: "deepseek-chat"
-    json_response_format: "auto"
+    reasoning: "high"
     thinking:
       type: "disabled"
-    temperature: 0.5
-    max_tokens: 8192
+    temperature: 0.8
   audit:
     inherit_default: false
     provider: "deepseek"
@@ -38,11 +35,13 @@ agents:
     json_response_format: "auto"
     thinking:
       type: "disabled"
+    max_context_tokens: 128000
     temperature: 0.2
-    max_tokens: 8192
+    max_tokens: 24000
+    timeout_seconds: 120
 ```
 
-解析顺序：显式 `--provider mock` 测试覆盖 > Agent 覆盖合并 `default` > fallback Agent 覆盖合并 `default` > 仅使用 `default`。缺少 `default` 时，`validate`、`doctor` 和 Web UI 会告警；运行到未配置 Agent 时会失败。
+解析顺序：显式 `--provider mock` 测试覆盖 > `inherit_default: true` 继承 default 调用参数并叠加业务 patch > 完整独立 Agent 配置 > fallback Agent > 仅使用 `default`。没有 `inherit_default: true` 的 partial override 不再兼容；缺少 `default` 或 Agent 配置不完整时，`validate`、`doctor` 和 Web UI 会告警，运行到未配置 Agent 时会失败。
 
 `config/agents.yaml` 的 `provider` 当前支持：
 

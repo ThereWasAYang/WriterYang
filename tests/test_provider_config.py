@@ -85,7 +85,7 @@ def test_default_config_and_agent_partial_override(tmp_path: Path) -> None:
     assert writer.model == "default-model"
     assert writer.api_key_env == "DEFAULT_API_KEY"
     assert writer.temperature == 0.9
-    assert writer.max_tokens == 24000
+    assert writer.max_tokens == 8192
     assert writer.json_response_format == "json_object"
     assert audit.provider == "deepseek"
     assert audit.temperature == 0.2
@@ -129,10 +129,10 @@ def test_inherit_default_ignores_stale_agent_snapshot(tmp_path: Path) -> None:
     descriptor = describe_agent_provider(config_path, "writer")
 
     assert config.model == "fresh-default-model"
-    assert config.temperature == 0.4
+    assert config.temperature == 0.9
     assert config.max_tokens == 8192
     assert config.inherit_default is False
-    assert descriptor.source == "default"
+    assert descriptor.source == "default+agent:writer"
 
 
 def test_explicit_non_inherited_agent_uses_independent_config(tmp_path: Path) -> None:
@@ -174,6 +174,33 @@ def test_explicit_non_inherited_agent_uses_independent_config(tmp_path: Path) ->
     assert config.inherit_default is False
 
 
+def test_partial_agent_without_inherit_default_is_rejected(tmp_path: Path) -> None:
+    config_path = tmp_path / "agents.partial.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {
+                    "provider": "deepseek",
+                    "api_key_env": "DEFAULT_API_KEY",
+                    "model": "default-model",
+                    "thinking": {"type": "disabled"},
+                },
+                "agents": {"writer": {"temperature": 0.8}},
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        resolve_agent_config(config_path, "writer")
+    except Exception as exc:
+        assert "set inherit_default: true" in str(exc)
+    else:
+        raise AssertionError("expected partial agent config rejection")
+
+
 def test_missing_agent_uses_default_config(tmp_path: Path) -> None:
     config_path = _default_agents_config(tmp_path)
 
@@ -191,7 +218,7 @@ def test_fallback_agent_merges_with_default_config(tmp_path: Path) -> None:
 
     assert config.provider == "deepseek"
     assert config.temperature == 0.9
-    assert config.max_tokens == 24000
+    assert config.max_tokens == 8192
 
 
 def test_load_revision_provider_prefers_revision_agent_config(tmp_path: Path) -> None:
@@ -465,8 +492,8 @@ def _default_agents_config(tmp_path: Path) -> Path:
                     "json_response_format": "json_object",
                 },
                 "agents": {
-                    "writer": {"temperature": 0.9, "max_tokens": 24000},
-                    "audit": {"temperature": 0.2},
+                    "writer": {"inherit_default": True, "temperature": 0.9},
+                    "audit": {"inherit_default": True, "temperature": 0.2},
                 },
             },
             allow_unicode=True,

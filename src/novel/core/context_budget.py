@@ -107,7 +107,7 @@ def select_timeline_view(
         if is_focus or is_required:
             mandatory.append(event)
             continue
-        if event.chapter >= recent_min or event.event_role in _KEY_EVENT_ROLES:
+        if event.narrative_position.chapter >= recent_min or event.event_role in _KEY_EVENT_ROLES:
             optional.append(event)
     remaining_slots = max(config.max_full_timeline_events - len(mandatory), 0)
     optional_keep = sorted(optional, key=_timeline_optional_priority, reverse=True)[:remaining_slots]
@@ -189,7 +189,7 @@ def render_state_for_prompt(view: StateView) -> str:
 def _timeline_optional_priority(event: TimelineEvent) -> tuple[int, int, int]:
     role_score = 1 if event.event_role in _KEY_EVENT_ROLES else 0
     visible_score = 1 if event.reader_visible else 0
-    return (event.chapter, role_score, visible_score)
+    return (event.narrative_position.chapter, role_score, visible_score)
 
 
 def _timeline_digest(events: list[TimelineEvent], *, task: ContextTask, digest_dropped: bool) -> str:
@@ -197,7 +197,8 @@ def _timeline_digest(events: list[TimelineEvent], *, task: ContextTask, digest_d
     if not visible_events:
         return "No reader-visible folded timeline events for this task."
     lines: list[str] = []
-    for chapter, grouped in groupby(sorted(visible_events, key=lambda event: event.chapter), key=lambda event: event.chapter):
+    sorted_events = sorted(visible_events, key=lambda event: event.narrative_position.chapter)
+    for chapter, grouped in groupby(sorted_events, key=lambda event: event.narrative_position.chapter):
         chapter_events = list(grouped)
         summaries = [event.summary.strip() for event in chapter_events if event.summary.strip()]
         shown = summaries[:3]

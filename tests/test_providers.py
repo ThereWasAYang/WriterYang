@@ -12,6 +12,7 @@ from novel.core.providers import (
     ModelRequest,
     ModelResponse,
     OpenAICompatibleProvider,
+    ProviderContextLimitError,
     ProviderError,
     ProviderRateLimitError,
     ProviderFactory,
@@ -200,6 +201,25 @@ def test_provider_config_can_force_json_object_for_openai() -> None:
 
     assert isinstance(provider, OpenAICompatibleProvider)
     assert provider.json_response_format == "json_object"
+
+
+def test_openai_compatible_provider_fails_fast_when_prompt_exceeds_context() -> None:
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        max_context_tokens=8,
+    )
+    request = ModelRequest(system_prompt="系统提示", user_prompt="这是一段很长的中文提示，会超过窗口")
+
+    payload = provider.debug_payload(request, stream=False)
+
+    assert isinstance(payload, dict)
+    with pytest.raises(ProviderContextLimitError) as exc_info:
+        provider.generate(request)
+    message = str(exc_info.value)
+    assert "estimated_prompt_tokens" in message
+    assert "max_context_tokens=8" in message
 
 
 def test_deepseek_provider_rejects_strict_json_schema_for_chat() -> None:

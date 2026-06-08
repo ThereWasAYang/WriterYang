@@ -11,6 +11,7 @@ import time
 from typing import Iterable, Mapping
 from urllib import error, request
 
+from novel.core.agent_defaults import agent_business_fields
 from novel.core.io import atomic_write_json
 from novel.core.json_schema import (
     model_output_schema_payload,
@@ -18,6 +19,7 @@ from novel.core.json_schema import (
     strict_model_output_schema_payload,
 )
 from novel.core.schemas import AgentConfig, AgentConfigPatch
+from novel.core.security import redact_secret_text
 from novel.core.usage import refresh_provider_usage_summary_for_log
 
 
@@ -75,6 +77,10 @@ class ProviderNetworkError(ProviderError):
 
 class ProviderResponseError(ProviderError):
     """Raised when a provider returns invalid or unsupported response data."""
+
+
+class ProviderContextLimitError(ProviderError):
+    """Raised before a request when the assembled prompt exceeds the configured context window."""
 
 
 @dataclass(frozen=True)
@@ -273,7 +279,10 @@ class LoggingModelProvider(ModelProvider):
         model_io_dir = self.root / "runs" / "model_io"
         model_io_path = model_io_dir / f"{request_id}.json"
         secret_values = self._secret_values()
-        payload = _redact_data(self.provider.debug_payload(model_request, stream=stream), secret_values)
+        try:
+            payload = _redact_data(self.provider.debug_payload(model_request, stream=stream), secret_values)
+        except Exception as exc:
+            payload = {"debug_payload_error": _redact_text(str(exc), secret_values)}
         log = {
             "schema_version": "1.0",
             "request_id": request_id,
@@ -421,6 +430,7 @@ class OpenAICompatibleProvider(ModelProvider):
     thinking_type: str | None = None
     reasoning_effort: str | None = None
     max_tokens: int | None = None
+    max_context_tokens: int | None = None
     json_response_format: str = "auto"
     timeout_seconds: float = 60.0
     max_retries: int = 0
@@ -437,6 +447,7 @@ class OpenAICompatibleProvider(ModelProvider):
             thinking_type=self.thinking_type,
             reasoning_effort=self.reasoning_effort,
             max_tokens=self.max_tokens,
+            max_context_tokens=self.max_context_tokens,
             json_response_format=self.json_response_format,
             timeout_seconds=self.timeout_seconds,
             max_retries=self.max_retries,
@@ -476,6 +487,7 @@ class OpenAICompatibleProvider(ModelProvider):
             thinking_type=config.thinking.type if provider_name in {"deepseek", "zai"} else None,
             reasoning_effort=config.reasoning if provider_name == "deepseek" else None,
             max_tokens=config.max_tokens,
+            max_context_tokens=config.max_context_tokens,
             json_response_format=resolve_json_response_format(provider_name, config.json_response_format),
             timeout_seconds=timeout_seconds or config.timeout_seconds or 60.0,
             max_retries=config.max_retries or 0,
@@ -491,9 +503,15 @@ class OpenAICompatibleProvider(ModelProvider):
         yield from self._request_stream(payload, model_request)
 
     def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
-        return self._payload(model_request, stream=stream)
+        return self._payload(model_request, stream=stream, validate_context=False)
 
-    def _payload(self, model_request: ModelRequest, *, stream: bool) -> dict[str, object]:
+    def _payload(
+        self,
+        model_request: ModelRequest,
+        *,
+        stream: bool,
+        validate_context: bool = True,
+    ) -> dict[str, object]:
         json_format = self._effective_json_response_format()
         schema_payload = (
             model_output_schema_payload(model_request.json_schema_name)
@@ -513,6 +531,8 @@ class OpenAICompatibleProvider(ModelProvider):
         messages = _messages_from_request(model_request)
         if model_request.json_schema_name and use_json_object:
             messages = _ensure_json_mode_messages(messages, model_request.json_schema_name)
+        if validate_context:
+            _validate_context_window(messages, max_context_tokens=self.max_context_tokens)
         payload: dict[str, object] = {
             "model": self.model,
             "messages": messages,
@@ -776,7 +796,10 @@ def _merge_agent_config(
     if getattr(agent_config, "inherit_default", False) is True:
         if default_config is None:
             raise ProviderError("config/agents.yaml agent inherits default but default API config is missing")
-        return default_config.model_copy(update={"inherit_default": False})
+        merged = default_config.model_dump(mode="python")
+        merged.update(agent_business_fields(agent_config.model_dump(mode="python", exclude_unset=True, exclude_none=True)))
+        merged["inherit_default"] = False
+        return AgentConfig.model_validate(merged)
     if default_config is None:
         if isinstance(agent_config, AgentConfig):
             return agent_config.model_copy(update={"inherit_default": False})
@@ -785,10 +808,14 @@ def _merge_agent_config(
             "config/agents.yaml agent override is incomplete and no default API config is defined"
             + (f": missing {missing}" if missing else "")
         )
-    merged = default_config.model_dump(mode="python")
-    merged.update(agent_config.model_dump(mode="python", exclude_unset=True, exclude_none=True))
-    merged["inherit_default"] = False
-    return AgentConfig.model_validate(merged)
+    if isinstance(agent_config, AgentConfigPatch):
+        missing = ", ".join(sorted(_missing_required_agent_fields(agent_config)))
+        raise ProviderError(
+            "config/agents.yaml agent config is incomplete; set inherit_default: true for a default-inheriting "
+            "business patch or provide a full independent agent config"
+            + (f": missing {missing}" if missing else "")
+        )
+    return agent_config.model_copy(update={"inherit_default": False})
 
 
 def _missing_required_agent_fields(config: AgentConfigPatch) -> set[str]:
@@ -887,12 +914,50 @@ def _redact_data(value: object, secret_values: tuple[str, ...]) -> object:
 def _redact_text(value: str | None, secret_values: tuple[str, ...]) -> str | None:
     if value is None:
         return None
-    redacted = value.replace("Authorization", "[redacted-header]")
-    for secret in secret_values:
-        if secret:
-            redacted = redacted.replace(secret, "[redacted]")
-            redacted = redacted.replace(f"Bearer {secret}", "Bearer [redacted]")
-    return redacted
+    return redact_secret_text(value, extra_secrets=secret_values)
+
+
+def _validate_context_window(
+    messages: list[dict[str, str]],
+    *,
+    max_context_tokens: int | None,
+) -> None:
+    if max_context_tokens is None:
+        return
+    estimated = _estimate_messages_tokens(messages)
+    if estimated <= max_context_tokens:
+        return
+    char_count = sum(len(message.get("content", "")) for message in messages)
+    raise ProviderContextLimitError(
+        "assembled prompt exceeds max_context_tokens: "
+        f"estimated_prompt_tokens={estimated}, max_context_tokens={max_context_tokens}, message_chars={char_count}. "
+        "Context budget is disabled by default; shorten project context or use a larger-context model before retrying."
+    )
+
+
+def _estimate_messages_tokens(messages: list[dict[str, str]]) -> int:
+    total = 2
+    for message in messages:
+        total += 4
+        total += _estimate_text_tokens(message.get("content", ""))
+    return total
+
+
+def _estimate_text_tokens(text: str) -> int:
+    cjk = 0
+    other = 0
+    for char in text:
+        codepoint = ord(char)
+        if (
+            0x3400 <= codepoint <= 0x9FFF
+            or 0xF900 <= codepoint <= 0xFAFF
+            or 0x3040 <= codepoint <= 0x30FF
+            or 0xAC00 <= codepoint <= 0xD7AF
+        ):
+            cjk += 1
+        else:
+            other += 1
+    return cjk + ((other + 3) // 4 if other else 0)
 
 
 def _is_retryable_http_status(status: int) -> bool:

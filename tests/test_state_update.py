@@ -212,8 +212,8 @@ def test_apply_state_update_fails_on_duplicate_timeline_event_id(tmp_path: Path)
                 "events": [
                     {
                         "id": "event_001_001",
-                        "chapter": 1,
-                        "in_story_time": "第1天，雨夜",
+                        "narrative_position": {"chapter": 1},
+                        "story_position": {"time_label": "第1天，雨夜"},
                         "summary": "已存在事件。",
                         "reader_visible": True,
                     }
@@ -361,15 +361,16 @@ def test_state_update_reference_normalization_moves_item_holder_location_to_loca
     validate_state_update_proposal(root, normalized, check_existing_timeline_ids=False)
 
 
-def test_parse_state_update_proposal_normalizes_legacy_story_time_alias() -> None:
+def test_parse_state_update_proposal_rejects_legacy_timeline_fields() -> None:
     data = json.loads(default_mock_state_update_proposal_json(1))
-    data["timeline_events"][0]["in_story_time"] = "错误的旧别名"
-    data["timeline_events"][0]["story_position"]["time_label"] = "第一章夜雨中"
+    data["timeline_events"][0]["in_story_time"] = "旧别名"
 
-    proposal = parse_state_update_proposal(json.dumps(data, ensure_ascii=False))
-
-    assert proposal.timeline_events[0].in_story_time == "第一章夜雨中"
-    assert any("normalized timeline event" in warning for warning in proposal.warnings)
+    try:
+        parse_state_update_proposal(json.dumps(data, ensure_ascii=False))
+    except Exception as exc:
+        assert "in_story_time" in str(exc)
+    else:
+        raise AssertionError("expected legacy timeline field rejection")
 
 
 def test_parse_state_update_proposal_normalizes_list_field_strings() -> None:
@@ -427,9 +428,8 @@ def test_validate_state_update_rejects_timeline_order_regression(tmp_path: Path)
                 "events": [
                     {
                         "id": "event_existing_scene_2",
-                        "chapter": 1,
-                        "scene": 2,
-                        "in_story_time": "第一章第二场",
+                        "narrative_position": {"chapter": 1, "scene": 2},
+                        "story_position": {"time_label": "第一章第二场"},
                         "summary": "已有较晚事件。",
                         "reader_visible": True,
                     }
@@ -442,7 +442,6 @@ def test_validate_state_update_rejects_timeline_order_regression(tmp_path: Path)
         encoding="utf-8",
     )
     proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
-    proposal.timeline_events[0].scene = 1
 
     try:
         validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
@@ -460,9 +459,6 @@ def test_validate_state_update_allows_earlier_story_order_when_narrative_advance
                 "events": [
                     {
                         "id": "event_current",
-                        "chapter": 1,
-                        "scene": 1,
-                        "in_story_time": "第1天",
                         "narrative_position": {"chapter": 1, "scene": 1},
                         "story_position": {"time_label": "第1天", "order": 10, "thread_id": "main"},
                         "summary": "当前事件。",
@@ -478,7 +474,6 @@ def test_validate_state_update_allows_earlier_story_order_when_narrative_advance
     )
     proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
     event = proposal.timeline_events[0]
-    event.scene = 2
     event.narrative_position.scene = 2
     event.story_position.order = 1
     event.story_position.thread_id = "main"
@@ -492,7 +487,6 @@ def test_validate_state_update_allows_earlier_story_order_when_narrative_advance
 def test_validate_state_update_rejects_timeline_scene_outside_plan(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
-    proposal.timeline_events[0].scene = 3
     proposal.timeline_events[0].narrative_position.scene = 3
 
     try:
@@ -506,7 +500,7 @@ def test_validate_state_update_rejects_timeline_scene_outside_plan(tmp_path: Pat
 def test_state_update_repairs_timeline_scene_outside_plan(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     bad_data = json.loads(default_mock_state_update_proposal_json(1))
-    bad_data["timeline_events"][0]["scene"] = 3
+    bad_data["timeline_events"][0]["narrative_position"]["scene"] = 3
     provider = MockProvider(
         fake_response=[
             json.dumps(bad_data, ensure_ascii=False),
@@ -516,21 +510,21 @@ def test_state_update_repairs_timeline_scene_outside_plan(tmp_path: Path) -> Non
 
     result = propose_state_update(StateUpdateProposeOptions(root=root, chapter_number=1), provider)
 
-    assert result.proposal.timeline_events[0].scene == 1
+    assert result.proposal.timeline_events[0].narrative_position.scene == 1
     assert len(provider.requests) == 2
 
 
-def test_validate_state_update_rejects_timeline_compatibility_mismatch(tmp_path: Path) -> None:
+def test_validate_state_update_rejects_timeline_chapter_mismatch(tmp_path: Path) -> None:
     root = _workspace_with_audit(tmp_path)
     proposal = parse_state_update_proposal(default_mock_state_update_proposal_json(1))
-    proposal.timeline_events[0].scene = 2
+    proposal.timeline_events[0].narrative_position.chapter = 2
 
     try:
         validate_state_update_proposal(root, proposal, check_existing_timeline_ids=False)
     except Exception as exc:
-        assert "scene must match narrative_position.scene" in str(exc)
+        assert "narrative_position.chapter must match proposal chapter_number" in str(exc)
     else:
-        raise AssertionError("expected timeline compatibility failure")
+        raise AssertionError("expected timeline chapter mismatch failure")
 
 
 def test_accept_chapter_passed_audit_applies_update_and_marks_accepted(tmp_path: Path) -> None:

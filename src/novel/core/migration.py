@@ -167,6 +167,9 @@ def _migrate_timeline_events(events: object) -> None:
             event["story_position"] = {
                 "time_label": event.get("in_story_time"),
             }
+        event.pop("chapter", None)
+        event.pop("scene", None)
+        event.pop("in_story_time", None)
 
 
 def _reject_newer_version(path: Path, raw_version: object) -> None:

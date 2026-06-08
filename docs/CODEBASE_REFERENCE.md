@@ -42,6 +42,7 @@
 - `src/novel/web_api.py`
 - `src/novel/web_server.py`
 - `src/novel/core/__init__.py`
+- `src/novel/core/agent_defaults.py`
 - `src/novel/core/agent_output.py`
 - `src/novel/core/app_logging.py`
 - `src/novel/core/auditing.py`
@@ -222,7 +223,7 @@ Web UI 交互脚本。负责：
 - 章节编辑器：离开页面前未保存提醒，`Ctrl/Cmd+S` 保存新版本。
 - 章节对照、编辑器、audit evidence 定位、diff、文件树读取。
 - Provider / embedding 配置、索引刷新、状态/时间线、项目管家和运行日志 API 调用。
-- Agent 模型配置页用表单编辑 `provider`、`model`、`base_url_env`、`api_key_env`、`thinking.type`、`temperature`、`max_tokens` 等非密钥字段。配置页使用专用两栏布局，Agent 配置面板比检索索引面板更宽；非 `default` Agent 通过“继承default”checkbox 控制 `inherit_default`。勾选时字段显示 default 并禁用，保存为 default 快照；取消勾选时复制 default 并保存独立完整配置。`/api/provider-config` 会返回 provider 参数 capability，前端把当前 provider 不会发送的字段显示为 `NA` 并禁用。右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。真实 API Key 仍只通过 `.env` / 初始引导管理。
+- Agent 模型配置页用表单编辑 `provider`、`model`、`base_url_env`、`api_key_env`、`thinking.type`、`temperature`、`max_tokens` 等非密钥字段。配置页使用专用两栏布局，Agent 配置面板比检索索引面板更宽；非 `default` Agent 通过“继承default”checkbox 控制 `inherit_default`。勾选时只锁定 provider/model/base URL/API env/token/timeout/retry/json response format 等调用字段，仍允许编辑 `temperature`、`thinking.type`、`reasoning`，保存为业务参数 patch；取消勾选时复制当前生效配置并保存独立完整配置。`/api/provider-config` 会返回 provider 参数 capability，前端把当前 provider 不会发送的字段显示为 `NA` 并禁用。右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。真实 API Key 仍只通过 `.env` / 初始引导管理。
 - Embedding API 配置页块复用 `/api/setup/embedding`，要求用户每次重填 Base URL、API Key、provider、模型名、`dimensions` 和 `batch_size`；保存前用当前批量和维度做真实 provider 验证，保存成功后清空输入框，并自动调用 `/api/index/refresh` 刷新语义向量索引。
 - 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入主页状态、顶部检查摘要、调试页文件查看和下一步提示。
 - 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
@@ -399,6 +400,13 @@ Embedding provider：
 - `_vectors_from_openai_raw()`：解析 embedding 返回。
 
 ## 7. Agent 输出守卫
+
+### `core/agent_defaults.py`
+
+- `DEFAULT_AGENT_CONFIG`：顶层 `default` API 推荐默认值。
+- `AGENT_BUSINESS_DEFAULTS`：各标准 Agent 的 `temperature`、`thinking`、`reasoning` 业务默认值。
+- `inherited_agent_config_patch()`：生成 `inherit_default: true` 的业务 patch，用于 workspace 初始化、setup guide 和 Web API 保存。
+- `agent_business_fields()`：过滤继承状态下允许保留的业务字段。
 
 ### `core/agent_output.py`
 
@@ -831,7 +839,7 @@ Provider 用量统计：
 
 ### `config/agents.yaml`
 
-真实项目应配置顶层 `default` API；新项目默认写入 `inherit_default: true` 的 Agent 快照，运行时直接使用当前 `default`。旧项目只写差异字段的写法仍可兼容合并。完整独立配置或 `default` 支持：
+真实项目应配置顶层 `default` API；新项目默认写入 `inherit_default: true` 的 Agent 业务 patch，运行时继承当前 `default` 的调用参数并叠加 `temperature`、`thinking`、`reasoning`。没有 `inherit_default: true` 的 partial override 不再兼容。完整独立配置或 `default` 支持：
 
 - `provider`
 - `base_url_env`

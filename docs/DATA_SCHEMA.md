@@ -73,7 +73,7 @@ Canon 数据示例：
 {
   "id": "char_lin_che",
   "name": "林澈",
-  "role": "protagonist",
+  "role": "主角",
   "reader_visible_summary": "年轻的旧物修复师，性格沉静。",
   "private_author_notes": "他小时候曾在旧车站失踪三天，但本人没有完整记忆。"
 }
@@ -312,7 +312,7 @@ config/agents.yaml
 
 用途：
 
-定义默认 model API 和 per-agent 配置。真实项目应定义顶层 `default`；新项目会为标准 Agent 写入 `inherit_default: true` 和 default 参数快照。运行时如果看到 `inherit_default: true`，会直接使用当前 `default`，不会使用快照里的陈旧字段。
+定义默认 model API 和 per-agent 配置。真实项目应定义顶层 `default`；新项目会为标准 Agent 写入 `inherit_default: true` 和 Agent 业务参数 patch。运行时如果看到 `inherit_default: true`，会继承当前 `default` 的调用参数，并保留 Agent 自己的 `temperature`、`thinking`、`reasoning`。
 
 示例：
 
@@ -327,25 +327,18 @@ default:
   thinking:
     type: disabled
   max_context_tokens: 128000
-  max_tokens: 8192
+  max_tokens: 24000
   temperature: 0.5
-  timeout_seconds: 60
+  timeout_seconds: 120
   max_retries: 1
 
 agents:
   orchestrator:
     inherit_default: true
-    provider: deepseek
-    base_url_env: WRITERYANG_REAL_BASE_URL
-    api_key_env: WRITERYANG_REAL_API_KEY
-    model: deepseek-chat
-    json_response_format: auto
     reasoning: medium
-    max_context_tokens: 128000
-    max_tokens: 8192
-    temperature: 0.5
-    timeout_seconds: 60
-    max_retries: 1
+    temperature: 0.3
+    thinking:
+      type: disabled
 
   audit:
     inherit_default: false
@@ -356,9 +349,9 @@ agents:
     json_response_format: auto
     reasoning: low
     max_context_tokens: 128000
-    max_tokens: 8192
+    max_tokens: 24000
     temperature: 0.2
-    timeout_seconds: 60
+    timeout_seconds: 120
     max_retries: 1
 ```
 
@@ -366,10 +359,10 @@ agents:
 
 - 永远不要在此文件中保存原始 API key。
 - 这里只保存环境变量名。
-- `default` config 是真实项目中每个 Agent 的 fallback。
-- `inherit_default: true` 只能用于非 `default` Agent，表示该 Agent 运行时完全使用当前 `default`；保存 default 时 Web API 会刷新这些 Agent 的参数快照。
+- `default` config 是真实项目中每个 Agent 的调用参数 fallback。
+- `inherit_default: true` 只能用于非 `default` Agent，表示该 Agent 继承 `default` 的 provider、model、base URL、API env、`json_response_format`、`max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries`，同时保留自身 `temperature`、`thinking`、`reasoning`。
 - `inherit_default: false` 表示该 Agent 是独立完整配置，可覆盖 provider、model、base URL、reasoning mode、thinking、token limit 和 temperature。
-- 没有 `inherit_default` 的旧 partial override 仍按历史规则与 `default` 合并，用于兼容旧项目。
+- 没有 `inherit_default: true` 的 partial override 不再兼容；要么声明继承并只写业务 patch，要么写完整独立配置。
 - 每个 Agent 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
 - `mock` 仅用于测试和显式 debug run；不要把它作为真实项目默认值。
 - 实现层应在运行 Agent 前验证所需环境变量是否存在。
@@ -554,7 +547,7 @@ memory/canon/characters.json
 - `name`
 - `role`
   - 语义：叙事角色，不是家族身份、门派身份、排行、职业或江湖身份。
-  - 新生成设定默认使用中文叙事角色值：`主角`、`主要人物`、`配角`、`次要人物`；历史数据中的 `protagonist`、`supporting`、`minor`、`antagonist` 仍兼容。
+  - 新生成设定必须使用中文叙事角色值，例如 `主角`、`主要人物`、`配角`、`次要人物`；不再接受 `protagonist`、`supporting`、`minor`、`antagonist` 等 legacy 英文角色名。
   - 例如 `谢家长女`、`谢家次子`、`唐门二房之女`、`江湖散人`、`武当俗家弟子` 应写入 `tags`，并可保留在 `reader_visible_summary` 或 `private_author_notes`。
 - `reader_visible_summary`
 
@@ -890,9 +883,6 @@ memory/state/timeline.json
   "events": [
     {
       "id": "event_001",
-      "chapter": 1,
-      "scene": 2,
-      "in_story_time": "第1天，23:40",
       "narrative_position": {
         "chapter": 1,
         "scene": 2,
@@ -924,8 +914,6 @@ memory/state/timeline.json
 必填字段：
 
 - `id`
-- `chapter`
-- `in_story_time`
 - `narrative_position`
 - `story_position`
 - `summary`
@@ -933,7 +921,6 @@ memory/state/timeline.json
 
 推荐字段：
 
-- `scene`
 - `event_role`
 - `location_id`
 - `participant_ids`
@@ -946,7 +933,7 @@ Validation 规则：
 
 - Event ID 必须唯一。
 - Event 应按 `narrative_position.chapter`、`narrative_position.scene` 和 `narrative_position.sequence` 排序。
-- Legacy `chapter`、`scene`、`in_story_time` 必须分别匹配 `narrative_position.chapter`、`narrative_position.scene` 和 `story_position.time_label`。
+- 顶层 legacy 字段 `chapter`、`scene`、`in_story_time` 不再属于 `TimelineEvent`，应分别写入 `narrative_position.chapter`、`narrative_position.scene` 和 `story_position.time_label`。
 - `causes` / `effects` 的顺序只有在两个 event 位于同一 `story_position.thread_id` 且拥有可比较的 `story_position.order` 时，才构成硬性冲突。
 - 当真实故事世界顺序未知时，可以省略 `story_position.order`；不要从叙事顺序反推它。
 - Participants 应引用已有角色。

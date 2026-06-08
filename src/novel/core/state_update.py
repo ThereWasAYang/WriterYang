@@ -544,7 +544,10 @@ def validate_state_update_proposal(
         _validate_state_change_field(change, character_ids, location_ids, item_ids)
 
     for event in proposal.timeline_events:
-        _validate_timeline_event_compatibility(event)
+        if event.narrative_position.chapter != proposal.chapter_number:
+            raise StateUpdateError(
+                f"timeline event {event.id} narrative_position.chapter must match proposal chapter_number"
+            )
         if event.location_id and event.location_id not in location_ids:
             raise StateUpdateError(f"timeline event {event.id} references missing location: {event.location_id}")
         for participant_id in event.participant_ids:
@@ -575,15 +578,6 @@ def validate_state_update_proposal(
     for message in canon_report.warnings:
         warnings.append(f"canon warning: {message.message}")
     return warnings
-
-
-def _validate_timeline_event_compatibility(event) -> None:
-    if event.chapter != event.narrative_position.chapter:
-        raise StateUpdateError(f"timeline event {event.id} chapter must match narrative_position.chapter")
-    if event.scene != event.narrative_position.scene:
-        raise StateUpdateError(f"timeline event {event.id} scene must match narrative_position.scene")
-    if event.in_story_time != event.story_position.time_label:
-        raise StateUpdateError(f"timeline event {event.id} in_story_time must match story_position.time_label")
 
 
 def _validate_proposed_timeline_scene_bounds(root: Path, proposal: StateUpdateProposal) -> None:
@@ -777,7 +771,7 @@ def build_state_update_user_prompt(
         '  "created_at": "2026-05-23T00:00:00Z"\n'
         "}\n\n"
         "StateChange 字段：id, chapter, entity_id, field, old_value, new_value, reason, source。\n"
-        "TimelineEvent 字段：id, chapter, scene, in_story_time, narrative_position, story_position, "
+        "TimelineEvent 字段：id, summary, reader_visible, narrative_position, story_position, "
         "event_role, location_id, participant_ids, summary, reader_visible, causes, effects, state_change_ids, tags。\n"
         "- narrative_position 包含 chapter, scene, sequence，表示正文呈现顺序。\n"
         "- story_position 包含 time_label, order, thread_id, certainty，表示故事世界时间；无法判断真实顺序时 order 留空。\n"
@@ -792,7 +786,7 @@ def build_state_update_user_prompt(
         "- 不要把 field 写成 location 或 holder；应写成 location_id 或 holder_id。\n\n"
         "时间线顺序约束：\n"
         "- timeline_events 必须按正文呈现顺序输出，即 narrative_position 单调递增。\n"
-        "- timeline_event.scene 必须与 narrative_position.scene 一致，并对应 ChapterPlan 中实际发生的 scene_number。\n"
+        "- narrative_position.scene 必须对应 ChapterPlan 中实际发生的 scene_number。\n"
         "- narrative_position.scene 不得超过 ChapterPlan.scenes 的最大 scene_number。\n"
         "- 插叙、回忆、揭示旧事时，narrative_position 仍写正文出现位置，story_position 写故事世界时间。\n"
         "- 不要为了倒序/插叙把 narrative_position 倒退；如果无法判断 scene，宁可省略 scene 或写入 warnings。\n"
@@ -924,37 +918,6 @@ def _normalize_state_update_data(data: object) -> object:
             item = dict(event)
             if "location" in item and "location_id" not in item:
                 item["location_id"] = item.pop("location")
-            narrative = item.get("narrative_position")
-            if not isinstance(narrative, dict):
-                item["narrative_position"] = {
-                    "chapter": item.get("chapter"),
-                    "scene": item.get("scene"),
-                }
-            else:
-                narrative = dict(narrative)
-                if narrative.get("chapter") is None and item.get("chapter") is not None:
-                    narrative["chapter"] = item.get("chapter")
-                if narrative.get("scene") is None and item.get("scene") is not None:
-                    narrative["scene"] = item.get("scene")
-                item["narrative_position"] = narrative
-            story = item.get("story_position")
-            if not isinstance(story, dict):
-                item["story_position"] = {
-                    "time_label": item.get("in_story_time"),
-                }
-            else:
-                story = dict(story)
-                time_label = story.get("time_label")
-                in_story_time = item.get("in_story_time")
-                if time_label is None and in_story_time is not None:
-                    story["time_label"] = in_story_time
-                elif isinstance(time_label, str) and time_label and in_story_time != time_label:
-                    item["in_story_time"] = time_label
-                    event_id = item.get("id") or "unknown_event"
-                    warnings.append(
-                        f"normalized timeline event {event_id} in_story_time to story_position.time_label"
-                    )
-                item["story_position"] = story
             normalized_events.append(item)
         normalized["timeline_events"] = normalized_events
     if warnings:
@@ -1070,9 +1033,6 @@ def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
             "timeline_events": [
                 {
                     "id": f"event_{chapter_number:03d}_001",
-                    "chapter": chapter_number,
-                    "scene": 1,
-                    "in_story_time": "第1天，雨夜",
                     "narrative_position": {
                         "chapter": chapter_number,
                         "scene": 1,

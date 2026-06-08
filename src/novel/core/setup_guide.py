@@ -6,6 +6,14 @@ import os
 import socket
 from typing import Literal, Mapping
 
+from novel.core.agent_defaults import (
+    DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
+    DEFAULT_AGENT_MAX_TOKENS,
+    DEFAULT_AGENT_TEMPERATURE,
+    DEFAULT_AGENT_TIMEOUT_SECONDS,
+    STANDARD_AGENT_NAMES,
+    inherited_agent_config_patch,
+)
 from novel.core.embeddings import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
     EmbeddingError,
@@ -36,18 +44,7 @@ DEFAULT_API_KEY_ENV = "WRITERYANG_DEFAULT_API_KEY"
 DEFAULT_BASE_URL_ENV = "WRITERYANG_DEFAULT_BASE_URL"
 DEFAULT_EMBEDDING_API_KEY_ENV = "WRITERYANG_EMBEDDING_API_KEY"
 DEFAULT_EMBEDDING_BASE_URL_ENV = "WRITERYANG_EMBEDDING_BASE_URL"
-DEFAULT_INHERITING_AGENT_NAMES = (
-    "orchestrator",
-    "inspiration",
-    "canon",
-    "plot",
-    "writer",
-    "polish",
-    "audit",
-    "state_update",
-    "chapter_memory",
-    "revision",
-)
+DEFAULT_INHERITING_AGENT_NAMES = STANDARD_AGENT_NAMES
 
 
 class SetupGuideError(RuntimeError):
@@ -101,10 +98,10 @@ def configure_default_provider(
     model: str,
     provider: str = "openai_compatible",
     thinking_type: str = "disabled",
-    temperature: float = 0.5,
-    max_tokens: int = 8192,
-    max_context_tokens: int = 128000,
-    timeout_seconds: float = 60.0,
+    temperature: float = DEFAULT_AGENT_TEMPERATURE,
+    max_tokens: int = DEFAULT_AGENT_MAX_TOKENS,
+    max_context_tokens: int = DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
+    timeout_seconds: float = DEFAULT_AGENT_TIMEOUT_SECONDS,
     max_retries: int = 1,
     ping: bool = True,
 ) -> ProviderSetupResult:
@@ -158,7 +155,8 @@ def update_default_agent_config(root: Path, config: AgentConfig) -> Path:
     for agent_name in DEFAULT_INHERITING_AGENT_NAMES:
         current = agents.get(agent_name)
         if current is None or (isinstance(current, dict) and current.get("inherit_default") is True):
-            agents[agent_name] = {**default_snapshot, "inherit_default": True}
+            current_mapping = current if isinstance(current, dict) else None
+            agents[agent_name] = inherited_agent_config_patch(agent_name, current_mapping)
     data["agents"] = agents
     AgentsConfig.model_validate(data)
     backup_if_exists(config_path, reason="setup_guide_agents")

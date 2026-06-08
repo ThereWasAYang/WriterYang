@@ -1258,6 +1258,7 @@ def _timeline_documents(root: Path) -> list[SearchDocument]:
         if not isinstance(event, dict):
             continue
         event_id = str(event.get("id") or f"event_{len(documents) + 1}")
+        narrative = event.get("narrative_position") if isinstance(event.get("narrative_position"), dict) else {}
         documents.append(
             SearchDocument(
                 id=event_id,
@@ -1267,7 +1268,7 @@ def _timeline_documents(root: Path) -> list[SearchDocument]:
                 text=_json_text(event),
                 metadata={
                     "event_id": event_id,
-                    "chapter": event.get("chapter"),
+                    "chapter": narrative.get("chapter"),
                     "location_id": event.get("location_id"),
                     "participant_ids": event.get("participant_ids", []),
                 },

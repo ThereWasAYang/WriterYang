@@ -90,6 +90,9 @@ def test_migrate_timeline_events_to_dual_positions(tmp_path: Path) -> None:
     assert event["narrative_position"] == {"chapter": 3, "scene": 2}
     assert event["story_position"] == {"time_label": "十年前"}
     assert "order" not in event["story_position"]
+    assert "chapter" not in event
+    assert "scene" not in event
+    assert "in_story_time" not in event
 
 
 def test_migrate_dry_run_does_not_write(tmp_path: Path) -> None:

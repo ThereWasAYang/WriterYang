@@ -101,6 +101,8 @@ thinking:
 | `state_update` | 提取状态和时间线变化。 | 信息抽取、引用一致性。 | `temperature: 0-0.3`，`reasoning: low-medium`。 |
 | `chapter_memory` | 生成 accepted 章节检索记忆。 | 结构化摘要、来源引用、可见性分级。 | `temperature: 0-0.2`，`reasoning: low-medium`，`max_tokens: 4096-8192`。 |
 
+表中的 `max_tokens`、`max_context_tokens`、`timeout_seconds` 属于调用参数。Agent 勾选 `inherit_default: true` 时这些字段统一继承顶层 `default`，不能只在继承态下单独覆盖；如果确实需要某个 Agent 使用不同的调用参数，请在 Web UI 取消“继承default”，或在 YAML 中写完整独立 Agent 配置。
+
 ## 参数解释
 
 - `model`：模型名。不同厂商不同，请以厂商控制台为准。
@@ -117,9 +119,9 @@ thinking:
 ## 推荐落地策略
 
 1. 先配置顶层 `default` 真实 API，并用 `novel doctor --project <project>` 检查环境变量是否存在。
-2. Agent 默认继承 `default`；只给 `writer`、`plot`、`revision`、`audit` 等重点 Agent 覆盖差异参数。
+2. Agent 默认继承 `default`；只给 `writer`、`plot`、`revision`、`audit` 等重点 Agent 覆盖 `temperature`、`thinking`、`reasoning` 业务参数。
 3. JSON 输出类 Agent 先低温测试，确认 schema 稳定。
-4. 正文类 Agent 再调温度和 `max_tokens`。
+4. 正文类 Agent 先调温度；如果还需要单独调 `max_tokens`、`timeout_seconds` 等调用参数，再取消继承并保存完整独立配置。
 5. 如需离线熟悉流程，显式传 `--provider mock`，不要把 mock 写成真实项目 default。
 6. 真实 API 上线前运行：
 

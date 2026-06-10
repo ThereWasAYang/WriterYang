@@ -219,7 +219,7 @@ Web API 在 `src/novel/web_api.py`。新增接口时：
 6. 不要把真实 API Key、Authorization、env value 返回前端。
 7. 前端只调用 API，不复制业务逻辑。
 
-现有 Web 搜索、迁移和用量展示都只是 core service 的薄包装：`/api/search` 调用 `core/search.search_project()`，`/api/migration-status` 和 `/api/migrate` 调用 `core/migration.migrate_project()`，`/api/usage` 调用 `core/usage.summarize_provider_usage()`。后续扩展这些能力时也应保持同样分层。
+现有 Web 搜索、导出和用量展示都只是 core service 的薄包装：`/api/search` 调用 `core/search.search_project()`，`/api/export/markdown` 和 `/api/export/docx` 调用 `core/exporting`，`/api/usage` 调用 `core/usage.summarize_provider_usage()`。后续扩展这些能力时也应保持同样分层。
 
 如果 API 保存文件，必须复用 core 的文件安全语义：默认不覆盖、版本化保存、必要备份、项目锁。
 

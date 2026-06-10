@@ -11,9 +11,9 @@ from novel.cli import main
 from novel.core.io import load_json_model
 from novel.core.memory_repair import (
     MemoryRepairError,
+    _memory_repair_user_prompt,
     answer_setting_change_clarification,
     apply_memory_repair,
-    build_memory_repair_user_prompt,
     generate_memory_change_batch_plan,
     generate_memory_change_clarification_decision,
     parse_memory_repair_decision,
@@ -1280,7 +1280,7 @@ def test_setting_change_apply_rejects_location_description_path_without_backup(t
 def test_setting_change_prompt_includes_lightweight_paths_after_first_twenty(tmp_path: Path) -> None:
     root = _workspace_with_twenty_one_characters(tmp_path)
 
-    prompt = build_memory_repair_user_prompt(
+    prompt = _memory_repair_user_prompt(
         root,
         "把白霜瀚开篇设定改成暗中调查桃花源旧族。",
         change_kind="setting_change",
@@ -1452,7 +1452,7 @@ def test_setting_change_modifies_character_summary(tmp_path: Path) -> None:
 def test_setting_change_prompt_includes_json_pointer_structure(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
 
-    prompt = build_memory_repair_user_prompt(
+    prompt = _memory_repair_user_prompt(
         root,
         "把 char_lin_che 设定为林澈表面温和但做决定非常谨慎",
         change_kind="setting_change",
@@ -1467,7 +1467,7 @@ def test_setting_change_prompt_includes_json_pointer_structure(tmp_path: Path) -
 def test_setting_change_prompt_uses_system_owned_pointer_mapping(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
 
-    prompt = build_memory_repair_user_prompt(
+    prompt = _memory_repair_user_prompt(
         root,
         "新增人物谢蛰雨，隐藏真相是她出身桃花源旧族，并在开篇埋伏笔。",
         change_kind="setting_change",
@@ -1488,7 +1488,7 @@ def test_setting_change_prompt_uses_system_owned_pointer_mapping(tmp_path: Path)
 def test_setting_change_pointer_context_uses_schema_fields(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
 
-    prompt = build_memory_repair_user_prompt(root, "新增隐藏真相和伏笔", change_kind="setting_change")
+    prompt = _memory_repair_user_prompt(root, "新增隐藏真相和伏笔", change_kind="setting_change")
 
     assert "common item fields: id, title, description, visibility, importance, related_entity_ids, planned_reveal, foreshadowing_ids" in prompt
     assert "common item fields: id, type, title, introduced_in_chapter, description, status, importance, reader_visible, hidden_truth, hidden_truth_id, planned_payoff, related_entity_ids" in prompt

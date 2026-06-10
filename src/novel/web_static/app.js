@@ -1088,22 +1088,8 @@
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         renderValidationStatus(data);
         renderNextStep({ validation: data });
-        await checkMigrationStatus();
         setMessage(`项目检查完成：${data.error_count || 0} 个错误，${data.warning_count || 0} 个警告`);
       });
-    }
-
-    async function checkMigrationStatus() {
-      try {
-        const data = await apiGet("/api/migration-status", { path: projectPath() });
-        renderMigrationStatus(data);
-        return data;
-      } catch (error) {
-        $("migrationStatusPanel").className = "metric status-bad";
-        $("migrationStatusPanel").textContent = `项目迁移检查失败：${error.message}`;
-        $("runMigration").classList.add("hidden");
-        throw error;
-      }
     }
 
     async function generateChapterMemory(chapter) {
@@ -1133,28 +1119,31 @@
       });
     }
 
-    function renderMigrationStatus(data) {
-      const changed = Boolean(data.changed);
-      $("migrationStatusPanel").className = `metric ${changed ? "status-warn" : "status-ok"}`;
-      $("migrationStatusPanel").innerHTML = `
-        <b>项目迁移：${changed ? "需要迁移" : "无需迁移"}</b>
-        <div>schema: ${escapeHtml(data.from_version ?? "unknown")} -> ${escapeHtml(data.to_version ?? "unknown")}</div>
-        ${(data.updated_files || []).length ? `<div>涉及文件：${escapeHtml((data.updated_files || []).join(", "))}</div>` : ""}
-      `;
-      $("runMigration").classList.toggle("hidden", !changed);
+    function exportPayload() {
+      const payload = {
+        path: projectPath(),
+        include_unaccepted: $("exportIncludeUnaccepted").checked,
+        force: $("exportForce").checked,
+      };
+      const chapters = $("exportChapters").value.trim();
+      const title = $("exportTitle").value.trim();
+      const fromChapter = $("exportFromChapter").value.trim();
+      const toChapter = $("exportToChapter").value.trim();
+      const output = $("exportOutput").value.trim();
+      if (chapters) payload.chapters = chapters;
+      if (title) payload.title = title;
+      if (fromChapter) payload.from_chapter = Number(fromChapter);
+      if (toChapter) payload.to_chapter = Number(toChapter);
+      if (output) payload.output = output;
+      return payload;
     }
 
-    async function runMigration() {
-      return withBusy("项目迁移", async () => {
-        const data = await apiPost("/api/migrate", { path: projectPath() });
+    async function runExport(endpoint, label) {
+      return withBusy(label, async () => {
+        const data = await apiPost(endpoint, exportPayload());
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
-        renderMigrationStatus(data);
-        if (data.validation) {
-          renderValidationStatus(data.validation);
-          renderNextStep({ validation: data.validation });
-        }
         await refreshAll({ silent: true });
-        setMessage(`项目迁移完成：${(data.updated_files || []).length} 个文件已更新`);
+        setMessage(actionMessage(label, data));
       });
     }
 
@@ -2529,7 +2518,6 @@
     $("refreshProject").addEventListener("click", refreshAll);
     $("refreshProjectFiles").addEventListener("click", refreshAll);
     $("validateProject").addEventListener("click", validateProject);
-    $("runMigration").addEventListener("click", runMigration);
     $("toggleProjectInit").addEventListener("click", toggleProjectInit);
     $("initProject").addEventListener("click", initProject);
     $("setupDefaultProvider").addEventListener("click", setupDefaultProvider);
@@ -2569,7 +2557,8 @@
     $("openWorkbenchSettingChangeProposal").addEventListener("click", () => openSettingChangeProposalFile("workbench"));
     $("settingChangeWorkbenchApply").addEventListener("click", () => settingChangeApply({ syncSession: $("settingChangeSyncSession").checked }));
     $("rebuildChapterMemory").addEventListener("click", rebuildChapterMemory);
-    $("exportMarkdown").addEventListener("click", () => runAction("/api/export/markdown", "导出 Markdown"));
+    $("exportMarkdown").addEventListener("click", () => runExport("/api/export/markdown", "导出 Markdown"));
+    $("exportDocx").addEventListener("click", () => runExport("/api/export/docx", "导出 DOCX"));
     $("sessionStart").addEventListener("click", () => {
       $("sessionId").value = "";
       runSessionAction("/api/session/start", sessionPayload({ includeSessionId: false }), "创建 Session 大纲");

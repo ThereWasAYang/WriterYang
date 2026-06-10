@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import webbrowser  # noqa: F401
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,7 +20,6 @@ from novel.cli_commands.generation import (
     _cmd_write_chapter,
 )
 from novel.cli_commands.memory import (
-    _accepted_chapter_numbers as _accepted_chapter_numbers,  # noqa: F401
     _cmd_chapter_memory,
     _cmd_memory_repair,
     _cmd_setting_change,
@@ -48,9 +46,7 @@ from novel.cli_shared import (
     _add_polish_mode_arg,
     _add_search_context_args,
     _apply_project_alias,
-    _resolve_web_port as _resolve_web_port,  # noqa: F401
 )
-from novel.cli_shared import _audit_issue_lines as _audit_issue_lines  # noqa: F401
 
 
 def build_parser() -> argparse.ArgumentParser:

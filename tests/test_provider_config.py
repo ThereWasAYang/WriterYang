@@ -49,14 +49,16 @@ def test_each_agent_reads_independent_config(tmp_path: Path) -> None:
         assert config.json_response_format == "json_schema"
 
 
-def test_provider_factory_create_for_agent_supports_mock_override(tmp_path: Path) -> None:
+def test_provider_factory_resolve_then_create_supports_mock_override(tmp_path: Path) -> None:
     agents_config = load_agents_config(_agents_config(tmp_path))
 
-    provider = ProviderFactory(env={}).create_for_agent(
+    factory = ProviderFactory(env={})
+    config = factory.resolve_agent_config(
         agents_config,
         "writer",
         provider_override="mock",
     )
+    provider = factory.create(config)
 
     assert isinstance(provider, MockProvider)
 
@@ -290,10 +292,12 @@ def test_missing_api_key_env_is_clear_and_does_not_leak_secret(tmp_path: Path) -
     agents_config = load_agents_config(_agents_config(tmp_path))
 
     try:
-        ProviderFactory(env={"WRITER_BASE_URL": "https://example.test/v1"}).create_for_agent(
+        factory = ProviderFactory(env={"WRITER_BASE_URL": "https://example.test/v1"})
+        config = factory.resolve_agent_config(
             agents_config,
             "writer",
         )
+        factory.create(config)
     except MissingProviderEnvError as exc:
         message = str(exc)
     else:

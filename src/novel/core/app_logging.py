@@ -21,7 +21,13 @@ def _write_app_log(root: Path, level: str, event: str, fields: dict[str, object]
             "level": level,
             "event": event,
         }
-        payload.update({key: _sanitize(value) for key, value in fields.items() if value is not None})
+        payload.update(
+            {
+                key: _sanitize(value, limit=4000 if key == "traceback" else 1000)
+                for key, value in fields.items()
+                if value is not None
+            }
+        )
         logger.warning(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     except Exception:
         return
@@ -42,20 +48,20 @@ def _logger_for_root(root: Path) -> logging.Logger:
     return logger
 
 
-def _sanitize(value: object) -> object:
+def _sanitize(value: object, *, limit: int = 1000) -> object:
     if isinstance(value, Path):
-        return _truncate(redact_secret_text(str(value)))
+        return _truncate(redact_secret_text(str(value)), limit=limit)
     if isinstance(value, str):
-        return _truncate(redact_secret_text(value))
+        return _truncate(redact_secret_text(value), limit=limit)
     if isinstance(value, (int, float, bool)) or value is None:
         return value
     if isinstance(value, list):
-        return [_sanitize(item) for item in value[:50]]
+        return [_sanitize(item, limit=limit) for item in value[:50]]
     if isinstance(value, tuple):
-        return [_sanitize(item) for item in value[:50]]
+        return [_sanitize(item, limit=limit) for item in value[:50]]
     if isinstance(value, dict):
-        return {str(key): _sanitize(item) for key, item in list(value.items())[:50]}
-    return _truncate(redact_secret_text(str(value)))
+        return {str(key): _sanitize(item, limit=limit) for key, item in list(value.items())[:50]}
+    return _truncate(redact_secret_text(str(value)), limit=limit)
 
 
 def _truncate(value: str, limit: int = 1000) -> str:

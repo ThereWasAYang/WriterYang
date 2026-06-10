@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import traceback
 from typing import Literal, Mapping, cast
 from urllib.parse import parse_qs
 
@@ -45,7 +46,7 @@ from novel.core.chapter_memory import (
 )
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.env import load_project_env
-from novel.core.exporting import MarkdownExportOptions, export_markdown, parse_chapter_selector
+from novel.core.exporting import DocxExportOptions, MarkdownExportOptions, export_docx, export_markdown, parse_chapter_selector
 from novel.core.inspiration import InspirationOptions, load_inspiration_provider, run_inspiration_agent
 from novel.core.inspection import format_canon, get_project_status
 from novel.core.io import atomic_write_model_json, atomic_write_text, atomic_write_yaml, backup_if_exists, load_json, load_json_model, load_yaml
@@ -58,7 +59,6 @@ from novel.core.memory_repair import (
     apply_memory_repair,
     suggest_setting_change_interactive,
 )
-from novel.core.migration import MigrationError, migrate_project
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.search import SearchError, refresh_search_index, search_index_status, search_project
@@ -221,9 +221,6 @@ def handle_api_request(
             error=exc,
         )
         return _failure(400, "provider_context_limit_exceeded", str(exc), request_id=request_id)
-    except MigrationError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="migration_error", error=exc)
-        return _failure(400, "migration_error", str(exc), request_id=request_id)
     except SearchError as exc:
         _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="search_error", error=exc)
         return _failure(400, "search_error", str(exc), request_id=request_id)
@@ -242,7 +239,6 @@ def _get_routes():
         "/api/projects": lambda query: {"projects": _list_projects(Path(query.get("root", ".")))},
         "/api/project/status": _project_status_api,
         "/api/validate": lambda query: _validate_project(_root_from_query(query)),
-        "/api/migration-status": lambda query: _migration_status(_root_from_query(query)),
         "/api/canon": lambda query: {"summary": format_canon(_root_from_query(query))},
         "/api/canon/applied-proposals": _canon_applied_proposals,
         "/api/chapters": lambda query: {"chapters": _list_chapters(_root_from_query(query))},
@@ -289,6 +285,7 @@ def _log_web_api_failure(
         code=code,
         error_type=error.__class__.__name__,
         error=str(error),
+        traceback=traceback.format_exc() if code == "operation_failed" else None,
     )
 
 
@@ -305,11 +302,11 @@ def _post_routes():
         "/api/polish-chapter": ("web polish-chapter", _polish_chapter, True),
         "/api/audit-chapter": ("web audit-chapter", _audit_chapter, True),
         "/api/export/markdown": ("web export markdown", _export_markdown, True),
+        "/api/export/docx": ("web export docx", _export_docx, True),
         "/api/generate-chapter": ("web generate-chapter", _generate_chapter, True),
         "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, True),
         "/api/provider-config": ("web provider config", _save_provider_config, True),
         "/api/index/refresh": ("web index refresh", _index_refresh, True),
-        "/api/migrate": ("web migrate", _migrate_project_api, True),
         "/api/init-project": ("web init project", _init_project, True),
         "/api/setup/default-provider": ("web setup default provider", _setup_default_provider, True),
         "/api/setup/embedding": ("web setup embedding", _setup_embedding, True),
@@ -563,6 +560,28 @@ def _export_markdown(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
     result = export_markdown(
         MarkdownExportOptions(
+            root=root,
+            chapters=parse_chapter_selector(_optional_string(data.get("chapters"))),
+            from_chapter=_optional_int(data.get("from_chapter")),
+            to_chapter=_optional_int(data.get("to_chapter")),
+            include_unaccepted=bool(data.get("include_unaccepted")),
+            output_path=Path(str(data["output"])) if data.get("output") else None,
+            title=_optional_string(data.get("title")),
+            force=bool(data.get("force")),
+        )
+    )
+    return {
+        "output_path": str(result.output_path),
+        "manifest_path": str(result.manifest_path),
+        "chapters": list(result.exported_chapters),
+        "warnings": list(result.warnings),
+    }
+
+
+def _export_docx(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    result = export_docx(
+        DocxExportOptions(
             root=root,
             chapters=parse_chapter_selector(_optional_string(data.get("chapters"))),
             from_chapter=_optional_int(data.get("from_chapter")),
@@ -1567,30 +1586,6 @@ def _search_api(query: dict[str, str]) -> dict[str, object]:
             }
             for result in results
         ],
-    }
-
-
-def _migration_status(root: Path) -> dict[str, object]:
-    _require_workspace(root)
-    result = migrate_project(root, dry_run=True)
-    return _migration_payload(root, result)
-
-
-def _migrate_project_api(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    _require_workspace(root)
-    result = migrate_project(root, dry_run=False)
-    payload = _migration_payload(root, result)
-    payload["validation"] = _validate_project(root)
-    return payload
-
-
-def _migration_payload(root: Path, result) -> dict[str, object]:
-    return {
-        "changed": result.changed,
-        "from_version": result.from_version,
-        "to_version": result.to_version,
-        "updated_files": [_relative(root, path) for path in result.updated_files],
     }
 
 

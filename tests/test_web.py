@@ -5,7 +5,7 @@ import errno
 from datetime import datetime, timezone
 from pathlib import Path
 
-from novel.cli import _resolve_web_port
+from novel.cli_shared import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import atomic_write_model_json, load_json_model, load_yaml
 from novel.core.planning import default_mock_chapter_plan_json
@@ -887,28 +887,21 @@ def test_api_search_endpoint_uses_fts_and_returns_results(tmp_path: Path) -> Non
     assert "api_key" not in serialized.lower()
 
 
-def test_api_migration_status_and_apply_endpoint(tmp_path: Path) -> None:
-    root = _workspace_ready_for_generation(tmp_path)
-    project_path = root / "project.yaml"
-    project_yaml = load_yaml(project_path)
-    project_yaml.pop("schema_version", None)
-    project_path.write_text(json.dumps(project_yaml, ensure_ascii=False), encoding="utf-8")
+def test_api_export_docx_endpoint(tmp_path: Path) -> None:
+    root = _workspace_with_accepted_chapter_memory_sources(tmp_path, [1, 2])
 
-    dry_status, dry_payload = handle_api_request("GET", "/api/migration-status", f"path={root}", None)
-    apply_status, apply_payload = handle_api_request(
+    status, payload = handle_api_request(
         "POST",
-        "/api/migrate",
+        "/api/export/docx",
         "",
-        json.dumps({"path": str(root)}),
+        json.dumps({"path": str(root), "chapters": "1,2", "force": True}),
     )
 
-    assert dry_status == 200
-    assert dry_payload["data"]["changed"] is True  # type: ignore[index]
-    assert "project.yaml" in dry_payload["data"]["updated_files"]  # type: ignore[operator]
-    assert apply_status == 200
-    assert apply_payload["data"]["changed"] is True  # type: ignore[index]
-    assert apply_payload["data"]["validation"]["error_count"] == 0  # type: ignore[index]
-    assert "schema_version" in project_path.read_text(encoding="utf-8")
+    assert status == 200
+    data = payload["data"]
+    assert data["output_path"].endswith("exports/novel.docx")  # type: ignore[index]
+    assert data["chapters"] == [1, 2]  # type: ignore[index]
+    assert (root / "exports" / "novel.docx").is_file()
 
 
 def test_api_session_revise_outline_keeps_session_id(tmp_path: Path) -> None:
@@ -1157,7 +1150,10 @@ def test_api_inspire_refuses_to_overwrite_user_inspiration_without_force(tmp_pat
     assert "用户已经写好的灵感" in inspiration_path.read_text(encoding="utf-8")
     app_log = root / "runs" / "app.log"
     assert app_log.is_file()
-    assert "web_api_failure" in app_log.read_text(encoding="utf-8")
+    log_text = app_log.read_text(encoding="utf-8")
+    assert "web_api_failure" in log_text
+    assert "traceback" in log_text
+    assert "InspirationError" in log_text
 
 
 def test_api_setting_change_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -> None:
@@ -2001,8 +1997,9 @@ def test_frontend_basic_render() -> None:
     assert 'id="usageStats"' in html
     assert 'id="loadUsage"' in html
     assert 'id="usagePanel"' in html
-    assert 'id="migrationStatusPanel"' in html
-    assert 'id="runMigration"' in html
+    assert 'id="exportDocx"' in html
+    assert 'id="exportChapters"' in html
+    assert 'id="exportIncludeUnaccepted"' in html
     assert 'id="providerConfig"' in html
     assert "config-layout" in html
     assert "provider-config-grid" in html
@@ -2151,9 +2148,8 @@ def test_frontend_basic_render() -> None:
     assert "/api/validate" in app_js
     assert "/api/runtime" in app_js
     assert "/api/search" in app_js
-    assert "/api/migration-status" in app_js
-    assert "/api/migrate" in app_js
     assert "/api/usage" in app_js
+    assert "/api/export/docx" in app_js
     assert "/api/session/revise-outline" in app_js
     assert "/api/session/revise-content" in app_js
     assert "/api/session/revise-audit" in app_js

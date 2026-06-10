@@ -27,6 +27,7 @@ def test_generate_json_with_repair_retries_after_parse_error(tmp_path: Path) -> 
 
     assert result == {"ok": True}
     assert len(provider.requests) == 2
+    assert provider.requests[1].user_prompt.startswith("original\n\n")
     assert "repair" in provider.requests[1].user_prompt
 
 

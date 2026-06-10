@@ -1213,16 +1213,6 @@ def _memory_repair_user_prompt(
     )
 
 
-def build_memory_repair_user_prompt(
-    root: Path,
-    request: str,
-    *,
-    change_kind: MemoryChangeKind | None = None,
-    stage: MemoryChangeStage | None = None,
-) -> str:
-    return _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage)
-
-
 def _memory_change_batch_plan_user_prompt(
     root: Path,
     request: str,

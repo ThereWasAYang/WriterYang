@@ -17,17 +17,6 @@ STANDARD_AGENT_NAMES = (
     "chapter_memory",
 )
 
-INHERITED_AGENT_CONFIG_FIELDS = {
-    "provider",
-    "model",
-    "api_key_env",
-    "base_url_env",
-    "max_context_tokens",
-    "max_tokens",
-    "timeout_seconds",
-    "max_retries",
-    "json_response_format",
-}
 AGENT_BUSINESS_CONFIG_FIELDS = {"reasoning", "thinking", "temperature"}
 
 DEFAULT_AGENT_TEMPERATURE = 0.5
@@ -87,12 +76,4 @@ def agent_business_fields(config: Mapping[str, object]) -> dict[str, object]:
         key: deepcopy(value)
         for key, value in config.items()
         if key in AGENT_BUSINESS_CONFIG_FIELDS and value is not None
-    }
-
-
-def inherited_config_fields(config: Mapping[str, object]) -> dict[str, object]:
-    return {
-        key: deepcopy(value)
-        for key, value in config.items()
-        if key in INHERITED_AGENT_CONFIG_FIELDS and value is not None
     }

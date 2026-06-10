@@ -82,6 +82,7 @@
 - `src/novel/core/setup_guide.py`
 - `src/novel/core/state_update.py`
 - `src/novel/core/structured_generation.py`
+- `src/novel/core/timeutil.py`
 - `src/novel/core/usage.py`
 - `src/novel/core/validation.py`
 - `src/novel/core/web_launcher.py`
@@ -97,7 +98,6 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `build_parser()`：定义所有 CLI 命令、子命令和参数。
 - `main(argv)`：命令分发入口，只解析参数、应用 `--project` alias，并通过 `_COMMAND_HANDLERS` 调用对应 handler。
 - `_COMMAND_HANDLERS`：顶层命令到 `cli_commands/` handler 的 dispatch map，避免在 `main()` 中复用不同 result 类型。
-- `_audit_issue_lines`：从 `cli_shared.py` re-export，保持既有测试和外部导入兼容。
 
 ### `src/novel/cli_shared.py`
 
@@ -164,10 +164,9 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_inspire()`：Web 端生成 inspiration，调用 Inspiration service。
 - `_canon_suggest()` / `_canon_apply()`：Web 端 canon proposal 和 apply，调用 Canon service 并保持 proposal/apply 分离。
 - `_validate_project()` / `_validation_message_payload()`：只读项目检查 API，复用 `validate_project()`，返回 errors/warnings 摘要供 Web UI 显示。
-- `_migration_status()` / `_migrate_project_api()`：Web 端 schema migration dry-run 和执行入口；执行迁移时走项目锁、备份和 `migrate_project()`。
 - `_search_api()`：Web 项目搜索入口，复用 `search_project()`；默认 FTS，只有 `use_vector=1` 才会触发真实 embedding 检索和必要的向量刷新。
 - `_plan_chapter()`、`_write_chapter()`、`_polish_chapter()`、`_audit_chapter()`、`_generate_chapter()`：调用对应 core service。
-- `_export_markdown()`：调用 Markdown export。
+- `_export_markdown()` / `_export_docx()`：调用 Markdown / DOCX export。
 - `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
 - `_save_provider_config()`：保存非密钥 provider 配置，写前校验和备份。
 - `_setup_default_provider()` / `_setup_embedding()` / `_setup_web_port()`：Web 初始引导 API；默认 API 和 embedding 调用 `core/setup_guide.py`，启动器端口调用 `core/web_launcher.py`；真实 key 写项目 `.env`，响应只返回 env 名和测试结果。
@@ -266,8 +265,8 @@ Core 包标记文件。当前不导出业务 API；调用方应从具体 service
 - `load_json_model()` / `load_yaml_model()`：读取并校验 Pydantic model。
 - `atomic_write_text()` / `atomic_write_bytes()`：同目录临时文件、fsync、`os.replace` 原子写。
 - `atomic_write_json()` / `atomic_write_model_json()` / `atomic_write_yaml()`：结构化写入。
+- `append_jsonl()`：追加 JSONL 事件或调用日志。
 - `backup_file()` / `backup_if_exists()`：时间戳备份。
-- `atomic_write_text_with_backup()`：备份后写文本。
 - `_fsync_directory()`：确保目录项刷盘。
 
 所有重要写入必须使用本模块。
@@ -304,9 +303,8 @@ schema version 迁移：
 - `migrate_project()`：补齐缺失 `schema_version`，拒绝更新版本项目。
 - `MigrationResult` / `MigrationError`：结果和错误。
 - `_schema_versioned_*_paths()`：列出要迁移的 YAML/JSON。
-- `_migrate_yaml()` / `_migrate_json()`：迁移单个 YAML/JSON 文件。
+- `_migrate_yaml()` / `_migrate_json()`：给单个 YAML/JSON 文件补齐当前 schema version。
 - `_set_schema_version()`：补齐或更新 schema version。
-- `_migrate_timeline_events()`：把旧 timeline event 补齐为 narrative/story 双轨结构。
 - `_reject_newer_version()`：拒绝高于当前工具版本的项目文件，避免降级写坏数据。
 
 ### `core/json_schema.py`
@@ -534,7 +532,7 @@ ChapterPlan 引用提取：
 - `audit_chapter()`：读取章节资料、跑 deterministic precheck、调用 Audit Agent、写 `audit.json`。
 - `load_audit_context()`：加载 plan、draft/polished、style、canon、state、timeline、search context。
 - `run_deterministic_prechecks()`：文件/schema/front matter/canon/state/timeline/consistency 检查。
-- `_validate_audited_body_against_plan()` / `_validate_hidden_truth_not_revealed()`：正文和 hidden truth 检查。
+- `_validate_audited_body_against_plan()`：正文是否明显偏离 plan 的 deterministic 检查；hidden truth 提前揭示由 `core/consistency.py` 检查。
 - `build_audit_user_prompt()` / `parse_audit_report()`。
 - `_generate_audit_report_with_repair()`：输出守卫 + schema repair。
 - `combine_audit_reports()`：合并 deterministic 和模型审核。
@@ -641,7 +639,7 @@ orchestrator 项目管家修复 proposal：
 - `generate_memory_change_clarification_decision()` / `parse_memory_change_clarification_decision()`：调用 Orchestrator/Memory Manager provider 输出结构化 clarification gate；提问只通过 schema 返回，不在最终 patch 阶段自然语言提问。澄清问题不得要求用户提供目标文件、字段、visibility、JSON Pointer 或完整文件结构。
 - `generate_memory_repair_decision()` / `parse_memory_repair_decision()`：调用 Orchestrator/Memory Manager provider 输出 target files、JSON Pointer operations、confidence 和 assumptions。信息不足时返回空 operations，不用关键词硬猜正式 patch；对模型常见的安全 add 路径错误会在 Pydantic 校验前归一，例如 `/characters/char_x` 转为 `/characters/-` 并补齐可推断的 `file/reason`。
 - `apply_memory_repair()`：校验 proposal，限制白名单文件，先执行 schema/semantic preflight，再按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
-- `build_memory_repair_user_prompt()` / `_memory_pointer_index()`：组装 MemoryRepairDecision prompt，注入目标文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径示例；集合字段提示来自当前 schema，避免 hidden_truths/foreshadowing 字段漂移，并说明 `Character.role` 只表示叙事角色、身份短语应进入 `tags`。
+- `_memory_repair_user_prompt()` / `_memory_pointer_index()`：组装 MemoryRepairDecision prompt，注入目标文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径示例；集合字段提示来自当前 schema，避免 hidden_truths/foreshadowing 字段漂移，并说明 `Character.role` 只表示叙事角色、身份短语应进入 `tags`。
 - `render_memory_repair_markdown()`：把 proposal 渲染为用户可读说明。
 - `core/memory_repair_rules.py`：白名单文件、domain 映射、collection key、schema hint、设定变更映射规则和 Character.role 语义规则。
 - `core/memory_repair_mock.py`：仅用于 mock/config fixture 的启发式测试路径，不作为真实业务推断路径。
@@ -774,7 +772,6 @@ Provider 用量统计：
 - `PROMPT_VERSION`：当前最新聚合 prompt 版本。
 - `PROMPT_VERSIONS`：逐模板版本映射，覆盖每个非 partial prompt。
 - `load_prompt_template(name)`：按名称读取 `.txt`，并解析 `{{partial:name}}` 共享片段。
-- `render_prompt_template(name, **values)`：简单 format 渲染。
 - `prompts/partials/*.txt`：只放共享规则片段，例如 ContextBundle 长期记忆说明和内部任务不反问约束。
 
 ## 12. Tests 目录

@@ -14,8 +14,9 @@ from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.chapter_memory import render_chapter_memory_prompt_text
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.management import record_management_event
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
-from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.providers import ModelProvider, ModelRequest, ProviderOutputTruncatedError
 from novel.core.prompts import load_prompt_template
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
@@ -121,25 +122,37 @@ def write_chapter_draft(
         ),
         context=format_canon_summary(canon),
     )
-    body = _clean_body(
-        generate_with_output_guard(
-            provider,
-            model_request,
-            root=root,
-            invocation=AgentInvocationContext(
-                agent_name="writer",
-                caller="cli",
-                interaction_mode="internal_task",
-                task="write_chapter",
-                chapter_number=options.chapter_number,
-            ),
-            contract=AgentOutputContract(
-                output_kind="markdown",
-                target_name="chapter draft Markdown body",
-            ),
-            stream=True,
+    try:
+        body = _clean_body(
+            generate_with_output_guard(
+                provider,
+                model_request,
+                root=root,
+                invocation=AgentInvocationContext(
+                    agent_name="writer",
+                    caller="cli",
+                    interaction_mode="internal_task",
+                    task="write_chapter",
+                    chapter_number=options.chapter_number,
+                ),
+                contract=AgentOutputContract(
+                    output_kind="markdown",
+                    target_name="chapter draft Markdown body",
+                ),
+                stream=True,
+            )
         )
-    )
+    except ProviderOutputTruncatedError as exc:
+        record_management_event(
+            root,
+            "provider_output_truncated",
+            f"第 {options.chapter_number} 章草稿生成被 max_tokens 截断，未写入 draft.md。",
+            source="writer",
+            target_files=[str(draft_path.relative_to(root))],
+            status="error",
+            details={"chapter_number": options.chapter_number, "error": str(exc)},
+        )
+        raise DraftingError(str(exc)) from exc
     if not body:
         raise DraftingError("writer provider returned empty draft content")
 

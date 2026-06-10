@@ -63,6 +63,7 @@ ManagementEventType = Literal[
     "memory_repair_proposed",
     "memory_repair_applied",
     "memory_repair_failed",
+    "provider_output_truncated",
 ]
 CreationSessionStatus = Literal[
     "drafting_intent",

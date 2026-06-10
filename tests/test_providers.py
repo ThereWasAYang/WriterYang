@@ -48,7 +48,7 @@ def test_mock_provider_returns_fake_model_response() -> None:
     )
     provider = MockProvider(fake_response=fake_response)
 
-    response = provider.chat(ModelRequest(system_prompt="s", user_prompt="u"))
+    response = provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
 
     assert response is fake_response
     assert response.content == "fake content"
@@ -396,7 +396,7 @@ def test_provider_sends_max_tokens_from_agent_config(monkeypatch: pytest.MonkeyP
 
         def read(self) -> bytes:
             return (
-                b'{"choices":[{"message":{"content":"ok"}}],'
+                b'{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],'
                 b'"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}'
             )
 
@@ -430,7 +430,7 @@ def test_provider_retries_retryable_http_errors(monkeypatch: pytest.MonkeyPatch)
 
         def read(self) -> bytes:
             return (
-                b'{"choices":[{"message":{"content":"ok"}}],'
+                b'{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],'
                 b'"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}'
             )
 
@@ -506,7 +506,7 @@ def test_provider_writes_safe_call_log(monkeypatch: pytest.MonkeyPatch, tmp_path
 
         def read(self) -> bytes:
             return (
-                b'{"choices":[{"message":{"content":"ok"}}],'
+                b'{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],'
                 b'"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}'
             )
 
@@ -521,6 +521,7 @@ def test_provider_writes_safe_call_log(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert entry["prompt_tokens"] == 7
     assert entry["completion_tokens"] == 3
     assert entry["total_tokens"] == 10
+    assert entry["finish_reason"] == "stop"
     assert secret not in text
     assert "Authorization" not in text
     usage = json.loads((tmp_path / "provider_usage.json").read_text(encoding="utf-8"))
@@ -598,7 +599,7 @@ def test_logging_provider_links_openai_call_log_to_model_io(
 
         def read(self) -> bytes:
             return (
-                b'{"choices":[{"message":{"content":"ok","reasoning_content":"think"}}],'
+                b'{"choices":[{"message":{"content":"ok","reasoning_content":"think"},"finish_reason":"stop"}],'
                 b'"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}'
             )
 
@@ -609,6 +610,8 @@ def test_logging_provider_links_openai_call_log_to_model_io(
     assert response.content == "ok"
     provider_call = json.loads((tmp_path / "runs" / "provider_calls.jsonl").read_text(encoding="utf-8"))
     assert provider_call["model_io_path"].startswith("runs/model_io/provider_")
+    assert provider_call["agent_name"] == "audit"
+    assert provider_call["finish_reason"] == "stop"
     model_io_path = tmp_path / provider_call["model_io_path"]
     data = json.loads(model_io_path.read_text(encoding="utf-8"))
     assert data["request_id"] == provider_call["request_id"]
@@ -616,6 +619,8 @@ def test_logging_provider_links_openai_call_log_to_model_io(
     assert data["request"]["payload"]["messages"][0]["content"] == "s"
     assert data["response"]["content"] == "ok"
     assert data["response"]["reasoning_content"] == "think"
+    assert data["finish_reason"] == "stop"
+    assert data["response"]["finish_reason"] == "stop"
     assert data["response"]["raw_response"]["choices"][0]["message"]["content"] == "ok"
     text = model_io_path.read_text(encoding="utf-8") + (tmp_path / "runs" / "provider_calls.jsonl").read_text(encoding="utf-8")
     assert secret not in text
@@ -697,6 +702,8 @@ def test_provider_stream_parses_sse_chunks(monkeypatch: pytest.MonkeyPatch) -> N
             return (
                 b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
                 b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+                b'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+                b'"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}}\n\n'
                 b"data: [DONE]\n\n"
             )
 
@@ -710,6 +717,61 @@ def test_provider_stream_parses_sse_chunks(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert "".join(chunks) == "hello world"
     assert captured["body"]["stream"] is True  # type: ignore[index]
+    assert captured["body"]["stream_options"] == {"include_usage": True}  # type: ignore[index]
+
+
+def test_logging_provider_records_stream_usage_finish_reason_and_agent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    inner = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        log_path=tmp_path / "runs" / "provider_calls.jsonl",
+    )
+    provider = LoggingModelProvider(
+        provider=inner,
+        agent_name="writer",
+        provider_name="openai",
+        model="test-model",
+        root=tmp_path,
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return (
+                b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+                b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+                b'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+                b'"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}}\n\n'
+                b"data: [DONE]\n\n"
+            )
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: FakeResponse())
+
+    response = provider.stream_response(ModelRequest(system_prompt="s", user_prompt="u"))
+
+    assert response.content == "hello world"
+    assert response.token_usage
+    assert response.token_usage.total_tokens == 10
+    assert response.finish_reason == "stop"
+    provider_call = json.loads((tmp_path / "runs" / "provider_calls.jsonl").read_text(encoding="utf-8"))
+    assert provider_call["agent_name"] == "writer"
+    assert provider_call["stream"] is True
+    assert provider_call["finish_reason"] == "stop"
+    assert provider_call["prompt_tokens"] == 8
+    model_io = json.loads((tmp_path / provider_call["model_io_path"]).read_text(encoding="utf-8"))
+    assert model_io["token_usage"]["total_tokens"] == 10
+    assert model_io["finish_reason"] == "stop"
+    usage = json.loads((tmp_path / "runs" / "provider_usage.json").read_text(encoding="utf-8"))
+    assert usage["by_agent"]["writer"]["total_tokens"] == 10
 
 
 def test_openai_compatible_provider_uses_json_object_for_structured_outputs(

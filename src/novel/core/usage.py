@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any
 
 from novel.core.io import atomic_write_json
+from novel.core.timeutil import utc_now_iso
 
 
 class UsageError(RuntimeError):
@@ -158,7 +158,9 @@ def _safe_last_call(entry: dict[str, Any]) -> dict[str, Any]:
         "attempt_count",
         "duration_ms",
         "stream",
+        "agent_name",
         "json_schema_name",
+        "finish_reason",
         "http_status",
         "error_type",
         "prompt_tokens",
@@ -174,4 +176,4 @@ def _optional_int(value: object) -> int | None:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return utc_now_iso()

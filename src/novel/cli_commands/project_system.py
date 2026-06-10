@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import webbrowser
 from pathlib import Path
 
 from novel.core.inspection import (
@@ -277,9 +278,7 @@ def _cmd_web_launch(args: argparse.Namespace) -> int:
 
 
 def _open_browser(url: str) -> None:
-    import novel.cli as cli_module
-
-    cli_module.webbrowser.open(url)
+    webbrowser.open(url)
 
 
 def _open_browser_when_ready(url: str, timeout_seconds: float = 15.0) -> None:

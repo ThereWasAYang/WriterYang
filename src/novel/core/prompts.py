@@ -36,11 +36,6 @@ def load_prompt_template(name: str) -> str:
     return _resolve_prompt_partials(text)
 
 
-def render_prompt_template(name: str, **values: object) -> str:
-    template = load_prompt_template(name)
-    return template.format(**{key: str(value) for key, value in values.items()})
-
-
 def _resolve_prompt_partials(text: str, *, seen: frozenset[str] = frozenset()) -> str:
     def replace(match: re.Match[str]) -> str:
         partial_name = match.group(1)

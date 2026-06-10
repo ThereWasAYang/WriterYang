@@ -91,6 +91,12 @@ def atomic_write_yaml(path: Path, data: object) -> None:
     atomic_write_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
 
 
+def append_jsonl(path: Path, data: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
+
+
 def backup_file(path: Path, *, reason: str | None = None) -> Path:
     path = path.expanduser()
     if not path.exists():
@@ -113,18 +119,6 @@ def backup_if_exists(path: Path, *, reason: str | None = None) -> Path | None:
     if not path.exists():
         return None
     return backup_file(path, reason=reason)
-
-
-def atomic_write_text_with_backup(
-    path: Path,
-    content: str,
-    *,
-    backup: bool,
-    reason: str | None = None,
-) -> Path | None:
-    backup_path = backup_if_exists(path, reason=reason) if backup else None
-    atomic_write_text(path, content)
-    return backup_path
 
 
 def _safe_backup_reason(reason: str | None) -> str:

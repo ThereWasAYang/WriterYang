@@ -25,7 +25,8 @@
         "canon_drift_proposed",
         "memory_repair_proposed",
         "memory_repair_applied",
-        "memory_repair_failed"
+        "memory_repair_failed",
+        "provider_output_truncated"
       ],
       "title": "Event Type",
       "type": "string"

@@ -7,12 +7,13 @@ import json
 import os
 from pathlib import Path
 
-from novel.cli import _accepted_chapter_numbers, main
+from novel.cli import main
 from novel.core import chapter_memory as chapter_memory_module
 from novel.core import state_update as state_update_module
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, default_mock_audit_report_json
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.chapter_memory import (
+    accepted_chapter_numbers as _accepted_chapter_numbers,
     default_mock_chapter_memory_json,
     load_chapter_memories,
     load_chapter_memory_context,

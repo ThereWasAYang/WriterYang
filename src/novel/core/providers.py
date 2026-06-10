@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -12,7 +11,7 @@ from typing import Iterable, Mapping
 from urllib import error, request
 
 from novel.core.agent_defaults import agent_business_fields
-from novel.core.io import atomic_write_json
+from novel.core.io import append_jsonl, atomic_write_json
 from novel.core.json_schema import (
     model_output_schema_payload,
     model_output_schema_skeleton,
@@ -20,6 +19,7 @@ from novel.core.json_schema import (
 )
 from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.security import redact_secret_text
+from novel.core.timeutil import new_request_id, utc_now_iso
 from novel.core.usage import refresh_provider_usage_summary_for_log
 
 
@@ -30,6 +30,7 @@ class ModelRequest:
     context: str | None = None
     json_schema_name: str | None = None
     request_id: str | None = None
+    agent_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ class ModelResponse:
     raw_response: object | None = None
     token_usage: TokenUsage | None = None
     reasoning_content: str | None = None
+    finish_reason: str | None = None
 
 
 class ProviderError(RuntimeError):
@@ -83,6 +85,10 @@ class ProviderContextLimitError(ProviderError):
     """Raised before a request when the assembled prompt exceeds the configured context window."""
 
 
+class ProviderOutputTruncatedError(ProviderError):
+    """Raised when the provider reports that output was cut off by max_tokens."""
+
+
 @dataclass(frozen=True)
 class ProviderCallLog:
     request_id: str
@@ -95,7 +101,9 @@ class ProviderCallLog:
     attempt_count: int
     duration_ms: int
     stream: bool
+    agent_name: str | None = None
     json_schema_name: str | None = None
+    finish_reason: str | None = None
     http_status: int | None = None
     error_type: str | None = None
     error_message: str | None = None
@@ -110,11 +118,13 @@ class ModelProvider(ABC):
     def generate(self, model_request: ModelRequest) -> ModelResponse:
         """Generate text from a model request."""
 
-    def chat(self, model_request: ModelRequest) -> ModelResponse:
-        return self.generate(model_request)
-
     def stream(self, model_request: ModelRequest) -> Iterable[str]:
-        yield self.generate(model_request).content
+        response = self.stream_response(model_request)
+        if response.content:
+            yield response.content
+
+    def stream_response(self, model_request: ModelRequest) -> ModelResponse:
+        return self.generate(model_request)
 
     def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
         return None
@@ -138,6 +148,15 @@ class MockProvider(ModelProvider):
             yield from self.stream_chunks
             return
         yield self._coerce_response(self._next_fake_response()).content
+
+    def stream_response(self, model_request: ModelRequest) -> ModelResponse:
+        self.requests.append(model_request)
+        if self.stream_chunks is not None:
+            return ModelResponse(
+                content="".join(self.stream_chunks),
+                raw_response={"stream": True, "stream_chunks": len(self.stream_chunks)},
+            )
+        return self._coerce_response(self._next_fake_response())
 
     def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
         payload: dict[str, object] = {
@@ -174,6 +193,7 @@ class MockProvider(ModelProvider):
                 raw_response=dict(fake_response),
                 token_usage=token_usage,
                 reasoning_content=reasoning if isinstance(reasoning, str) else None,
+                finish_reason=str(fake_response["finish_reason"]) if fake_response.get("finish_reason") is not None else None,
             )
         return ModelResponse(content=self.fixed_text, raw_response=self.fixed_text)
 
@@ -188,7 +208,11 @@ class LoggingModelProvider(ModelProvider):
 
     def generate(self, model_request: ModelRequest) -> ModelResponse:
         request_id = model_request.request_id or _request_id()
-        request_with_id = replace(model_request, request_id=request_id)
+        request_with_id = replace(
+            model_request,
+            request_id=request_id,
+            agent_name=model_request.agent_name or self.agent_name,
+        )
         started = time.monotonic()
         started_at = _utc_now()
         try:
@@ -220,16 +244,17 @@ class LoggingModelProvider(ModelProvider):
         )
         return response
 
-    def stream(self, model_request: ModelRequest) -> Iterable[str]:
+    def stream_response(self, model_request: ModelRequest) -> ModelResponse:
         request_id = model_request.request_id or _request_id()
-        request_with_id = replace(model_request, request_id=request_id)
+        request_with_id = replace(
+            model_request,
+            request_id=request_id,
+            agent_name=model_request.agent_name or self.agent_name,
+        )
         started = time.monotonic()
         started_at = _utc_now()
-        chunks: list[str] = []
         try:
-            for chunk in self.provider.stream(request_with_id):
-                chunks.append(chunk)
-                yield chunk
+            response = self.provider.stream_response(request_with_id)
         except Exception as exc:
             self._write_model_io(
                 request_with_id,
@@ -239,8 +264,6 @@ class LoggingModelProvider(ModelProvider):
                 duration_ms=_duration_ms(started),
                 status="failed",
                 stream=True,
-                stream_chunks=len(chunks),
-                response=ModelResponse(content="".join(chunks)),
                 error_payload={
                     "type": exc.__class__.__name__,
                     "message": _redact_text(str(exc), self._secret_values()),
@@ -255,9 +278,15 @@ class LoggingModelProvider(ModelProvider):
             duration_ms=_duration_ms(started),
             status="success",
             stream=True,
-            stream_chunks=len(chunks),
-            response=ModelResponse(content="".join(chunks)),
+            stream_chunks=_stream_chunk_count(response),
+            response=response,
         )
+        return response
+
+    def stream(self, model_request: ModelRequest) -> Iterable[str]:
+        response = self.stream_response(model_request)
+        if response.content:
+            yield response.content
 
     def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
         return self.provider.debug_payload(model_request, stream=stream)
@@ -296,6 +325,7 @@ class LoggingModelProvider(ModelProvider):
             "stream": stream,
             "stream_chunks": stream_chunks,
             "json_schema_name": model_request.json_schema_name,
+            "finish_reason": response.finish_reason if response else None,
             "request": {
                 "system_prompt": _redact_text(model_request.system_prompt, secret_values),
                 "user_prompt": _redact_text(model_request.user_prompt, secret_values),
@@ -308,7 +338,7 @@ class LoggingModelProvider(ModelProvider):
             "provider_call_log_path": "runs/provider_calls.jsonl",
         }
         atomic_write_json(model_io_path, log)
-        _append_jsonl(
+        append_jsonl(
             model_io_dir / "index.jsonl",
             {
                 "request_id": request_id,
@@ -320,6 +350,7 @@ class LoggingModelProvider(ModelProvider):
                 "status": status,
                 "stream": stream,
                 "json_schema_name": model_request.json_schema_name,
+                "finish_reason": response.finish_reason if response else None,
                 "model_io_path": f"runs/model_io/{request_id}.json",
             },
         )
@@ -498,9 +529,14 @@ class OpenAICompatibleProvider(ModelProvider):
         raw = self._request_json(payload, model_request, stream=False)
         return _model_response_from_openai_raw(raw)
 
-    def stream(self, model_request: ModelRequest) -> Iterable[str]:
+    def stream_response(self, model_request: ModelRequest) -> ModelResponse:
         payload = self._payload(model_request, stream=True)
-        yield from self._request_stream(payload, model_request)
+        return self._request_stream_response(payload, model_request)
+
+    def stream(self, model_request: ModelRequest) -> Iterable[str]:
+        response = self.stream_response(model_request)
+        if response.content:
+            yield response.content
 
     def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
         return self._payload(model_request, stream=stream, validate_context=False)
@@ -539,6 +575,8 @@ class OpenAICompatibleProvider(ModelProvider):
         }
         if stream:
             payload["stream"] = True
+            if self.api_provider in {"deepseek", "openai"}:
+                payload["stream_options"] = {"include_usage": True}
         if self.temperature is not None and not (
             self.api_provider == "deepseek" and self.thinking_type == "enabled"
         ):
@@ -591,11 +629,17 @@ class OpenAICompatibleProvider(ModelProvider):
         payload: Mapping[str, object],
         model_request: ModelRequest,
     ) -> Iterable[str]:
+        response = self._request_stream_response(payload, model_request)
+        if response.content:
+            yield response.content
+
+    def _request_stream_response(
+        self,
+        payload: Mapping[str, object],
+        model_request: ModelRequest,
+    ) -> ModelResponse:
         response_body = self._send_with_retry(payload, model_request, stream=True)
-        for line in response_body.splitlines():
-            chunk = _stream_content_from_line(line)
-            if chunk:
-                yield chunk
+        return _model_response_from_openai_sse(response_body)
 
     def _send_with_retry(
         self,
@@ -625,10 +669,11 @@ class OpenAICompatibleProvider(ModelProvider):
                 )
                 with request.urlopen(http_request, timeout=self.timeout_seconds) as response:
                     response_body = response.read().decode("utf-8")
-                usage = _token_usage_from_response_body(response_body)
+                usage, finish_reason = _response_metadata_from_body(response_body, stream=stream)
                 self._write_call_log(
                     ProviderCallLog(
                         request_id=request_id,
+                        agent_name=model_request.agent_name,
                         provider=self.api_provider,
                         model=self.model,
                         endpoint=_safe_endpoint(endpoint),
@@ -639,6 +684,7 @@ class OpenAICompatibleProvider(ModelProvider):
                         duration_ms=_duration_ms(started),
                         stream=stream,
                         json_schema_name=model_request.json_schema_name,
+                        finish_reason=finish_reason,
                         prompt_tokens=usage.prompt_tokens if usage else None,
                         completion_tokens=usage.completion_tokens if usage else None,
                         total_tokens=usage.total_tokens if usage else None,
@@ -687,6 +733,7 @@ class OpenAICompatibleProvider(ModelProvider):
         self._write_call_log(
             ProviderCallLog(
                 request_id=request_id,
+                agent_name=model_request.agent_name,
                 provider=self.api_provider,
                 model=self.model,
                 endpoint=_safe_endpoint(endpoint),
@@ -707,9 +754,7 @@ class OpenAICompatibleProvider(ModelProvider):
     def _write_call_log(self, entry: ProviderCallLog) -> None:
         if not self.log_path:
             return
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.log_path.open("a", encoding="utf-8") as file:
-            file.write(json.dumps(entry.__dict__, ensure_ascii=False, default=str) + "\n")
+        append_jsonl(self.log_path, entry.__dict__)
         try:
             refresh_provider_usage_summary_for_log(self.log_path)
         except Exception:
@@ -731,24 +776,6 @@ class ProviderFactory:
                 provider_instance = provider_instance.with_log_path(self.log_path)
             return provider_instance
         raise ProviderError(f"unsupported provider: {config.provider}")
-
-    def create_for_agent(
-        self,
-        agents_config: object,
-        agent_name: str,
-        *,
-        fallback_agents: tuple[str, ...] = (),
-        provider_override: str | None = None,
-        model_override: str | None = None,
-    ) -> ModelProvider:
-        config = self.resolve_agent_config(
-            agents_config,
-            agent_name,
-            fallback_agents=fallback_agents,
-            provider_override=provider_override,
-            model_override=model_override,
-        )
-        return self.create(config)
 
     def resolve_agent_config(
         self,
@@ -857,11 +884,11 @@ def resolve_json_response_format(provider_name: str, configured: str) -> str:
 
 
 def _request_id() -> str:
-    return "provider_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return new_request_id("provider")
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return utc_now_iso()
 
 
 def _duration_ms(started: float) -> int:
@@ -878,18 +905,13 @@ def _response_payload(response: ModelResponse | None, secret_values: tuple[str, 
     return {
         "content": _redact_text(response.content, secret_values),
         "reasoning_content": _redact_text(response.reasoning_content, secret_values),
+        "finish_reason": response.finish_reason,
         "raw_response": _redact_data(response.raw_response, secret_values),
     }
 
 
 def _token_usage_payload(token_usage: TokenUsage | None) -> dict[str, int | None] | None:
     return asdict(token_usage) if token_usage else None
-
-
-def _append_jsonl(path: Path, data: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
 
 
 def _redact_data(value: object, secret_values: tuple[str, ...]) -> object:
@@ -1005,42 +1027,106 @@ def _ensure_json_mode_messages(
 
 
 def _stream_content_from_line(line: str) -> str | None:
-    line = line.strip()
-    if not line or not line.startswith("data:"):
+    raw = _stream_raw_from_line(line)
+    if raw is None:
         return None
-    data = line.removeprefix("data:").strip()
+    content, _reasoning = _stream_content_from_raw(raw)
+    return content
+
+
+def _stream_raw_from_line(line: str) -> Mapping[str, object] | None:
+    stripped = line.strip()
+    if not stripped or not stripped.startswith("data:"):
+        return None
+    data = stripped.removeprefix("data:").strip()
     if data == "[DONE]":
         return None
     try:
         raw = json.loads(data)
     except json.JSONDecodeError:
         return None
+    return raw if isinstance(raw, Mapping) else None
+
+
+def _stream_content_from_raw(raw: Mapping[str, object]) -> tuple[str | None, str | None]:
+    choices = raw.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None, None
+    first_choice = choices[0]
+    if not isinstance(first_choice, Mapping):
+        return None, None
+    delta = first_choice.get("delta")
+    if isinstance(delta, Mapping):
+        content = delta.get("content")
+        reasoning = delta.get("reasoning_content")
+        return (
+            content if isinstance(content, str) else None,
+            reasoning if isinstance(reasoning, str) else None,
+        )
+    message = first_choice.get("message")
+    if isinstance(message, Mapping):
+        content = message.get("content")
+        reasoning = message.get("reasoning_content")
+        return (
+            content if isinstance(content, str) else None,
+            reasoning if isinstance(reasoning, str) else None,
+        )
+    return None, None
+
+
+def _finish_reason_from_raw(raw: Mapping[str, object]) -> str | None:
     choices = raw.get("choices")
     if not isinstance(choices, list) or not choices:
         return None
     first_choice = choices[0]
     if not isinstance(first_choice, Mapping):
         return None
-    delta = first_choice.get("delta")
-    if isinstance(delta, Mapping):
-        content = delta.get("content")
-        if isinstance(content, str):
-            return content
-    message = first_choice.get("message")
-    if isinstance(message, Mapping):
-        content = message.get("content")
-        if isinstance(content, str):
-            return content
-    return None
+    finish_reason = first_choice.get("finish_reason")
+    return finish_reason if isinstance(finish_reason, str) else None
+
+
+def _model_response_from_openai_sse(response_body: str) -> ModelResponse:
+    content_chunks: list[str] = []
+    reasoning_chunks: list[str] = []
+    raw_chunks: list[dict[str, object]] = []
+    token_usage: TokenUsage | None = None
+    finish_reason: str | None = None
+    for line in response_body.splitlines():
+        raw = _stream_raw_from_line(line)
+        if raw is None:
+            continue
+        raw_chunks.append(dict(raw))
+        usage = raw.get("usage")
+        if isinstance(usage, Mapping):
+            token_usage = _token_usage_from_raw(usage)
+        chunk, reasoning = _stream_content_from_raw(raw)
+        if chunk:
+            content_chunks.append(chunk)
+        if reasoning:
+            reasoning_chunks.append(reasoning)
+        raw_finish_reason = _finish_reason_from_raw(raw)
+        if raw_finish_reason:
+            finish_reason = raw_finish_reason
+    return ModelResponse(
+        content="".join(content_chunks),
+        raw_response={"chunks": raw_chunks, "stream_chunks": len(raw_chunks)},
+        token_usage=token_usage,
+        reasoning_content="".join(reasoning_chunks) or None,
+        finish_reason=finish_reason,
+    )
 
 
 def _model_response_from_openai_raw(raw: Mapping[str, object]) -> ModelResponse:
     content = ""
     reasoning_content = None
+    finish_reason = None
     choices = raw.get("choices")
     if isinstance(choices, list) and choices:
         first_choice = choices[0]
         if isinstance(first_choice, Mapping):
+            raw_finish_reason = first_choice.get("finish_reason")
+            if isinstance(raw_finish_reason, str):
+                finish_reason = raw_finish_reason
             message = first_choice.get("message")
             if isinstance(message, Mapping):
                 raw_content = message.get("content")
@@ -1057,6 +1143,7 @@ def _model_response_from_openai_raw(raw: Mapping[str, object]) -> ModelResponse:
         raw_response=dict(raw),
         token_usage=token_usage,
         reasoning_content=reasoning_content,
+        finish_reason=finish_reason,
     )
 
 
@@ -1069,14 +1156,34 @@ def _token_usage_from_raw(raw: Mapping[str, object]) -> TokenUsage:
 
 
 def _token_usage_from_response_body(response_body: str) -> TokenUsage | None:
+    usage, _finish_reason = _response_metadata_from_body(response_body, stream=False)
+    return usage
+
+
+def _response_metadata_from_body(response_body: str, *, stream: bool) -> tuple[TokenUsage | None, str | None]:
+    if stream:
+        response = _model_response_from_openai_sse(response_body)
+        return response.token_usage, response.finish_reason
     try:
         raw = json.loads(response_body)
     except json.JSONDecodeError:
-        return None
+        return None, None
     if not isinstance(raw, Mapping):
-        return None
-    usage = raw.get("usage")
-    return _token_usage_from_raw(usage) if isinstance(usage, Mapping) else None
+        return None, None
+    response = _model_response_from_openai_raw(raw)
+    return response.token_usage, response.finish_reason
+
+
+def _stream_chunk_count(response: ModelResponse) -> int:
+    raw = response.raw_response
+    if isinstance(raw, Mapping):
+        stream_chunks = raw.get("stream_chunks")
+        if isinstance(stream_chunks, int):
+            return stream_chunks
+        chunks = raw.get("chunks")
+        if isinstance(chunks, list):
+            return len(chunks)
+    return 1 if response.content else 0
 
 
 def _optional_int(value: object) -> int | None:

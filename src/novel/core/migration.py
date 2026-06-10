@@ -131,9 +131,6 @@ def _migrate_json(
 ) -> None:
     before = json.dumps(data, ensure_ascii=False, sort_keys=True)
     _set_schema_version(path, data)
-    if path.name == "timeline.json" or path.name == "state_update_proposal.json":
-        _migrate_timeline_events(data.get("events"))
-        _migrate_timeline_events(data.get("timeline_events"))
     after = json.dumps(data, ensure_ascii=False, sort_keys=True)
     if after == before:
         return
@@ -148,28 +145,6 @@ def _set_schema_version(path: Path, data: dict[str, object]) -> None:
     if raw_version is not None:
         _reject_newer_version(path, raw_version)
     data["schema_version"] = CURRENT_SCHEMA_VERSION
-
-
-def _migrate_timeline_events(events: object) -> None:
-    if not isinstance(events, list):
-        return
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        narrative = event.get("narrative_position")
-        if not isinstance(narrative, dict):
-            event["narrative_position"] = {
-                "chapter": event.get("chapter"),
-                "scene": event.get("scene"),
-            }
-        story = event.get("story_position")
-        if not isinstance(story, dict):
-            event["story_position"] = {
-                "time_label": event.get("in_story_time"),
-            }
-        event.pop("chapter", None)
-        event.pop("scene", None)
-        event.pop("in_story_time", None)
 
 
 def _reject_newer_version(path: Path, raw_version: object) -> None:

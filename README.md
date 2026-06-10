@@ -249,7 +249,7 @@ novel show state --path ./rain-station
 ```
 
 项目根目录的 `schemas/*.schema.json` 是从 Pydantic models 生成的 JSON Schema，可供外部工具校验项目 JSON/YAML 结构。
-核心 YAML/JSON 文件都包含 `schema_version`，用于后续兼容迁移。旧项目可以运行 `novel migrate --path ./rain-station` 自动补齐缺失版本字段。
+核心 YAML/JSON 文件都包含 `schema_version`。当前项目未商用，不保留旧 timeline 格式迁移；`novel migrate --path ./rain-station` 只用于给缺失版本号的本地文件补齐当前 `schema_version`，遇到更新版本会拒绝写入。
 
 系统 prompt 模板位于 `src/novel/prompts/`，会随包一起分发。关键约束有单元测试保护，避免后续修改时丢失“不要修改 canon/state/timeline”“不要提前揭示 hidden_truths”“只输出 JSON/正文”等边界。
 
@@ -325,9 +325,9 @@ Provider 发送请求前会对最终 messages 做 CJK-aware prompt token 粗估�
 - `deepseek`：默认 base URL 为 `https://api.deepseek.com`，发送 `thinking.type`；开启 thinking 时会发送 `reasoning_effort`，并避免发送无效的 `temperature`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
 - `zai`：默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，发送 `thinking.type`；响应中的 `reasoning_content` 会保存在 provider 原始响应和 `ModelResponse.reasoning_content` 中，不混入正文。
 
-Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。这是轻量元数据日志，只记录 provider、model、endpoint、耗时、重试次数、状态、错误类型、token 用量和对应的 `model_io_path`，不记录真实 API Key。
+Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。这是轻量元数据日志，只记录 agent、provider、model、endpoint、耗时、重试次数、状态、错误类型、token 用量、`finish_reason` 和对应的 `model_io_path`，不记录真实 API Key。
 
-为了方便 debug，每次 Agent 模型调用还会把完整输入输出写入 `runs/model_io/{request_id}.json`，并追加摘要到 `runs/model_io/index.jsonl`。完整日志包含 system prompt、user prompt、上下文、发送给 provider 的安全请求体、模型正文输出、reasoning 内容、原始响应和错误信息；不会写入 HTTP header、Authorization、真实 API Key 或环境变量值。注意：这些日志会包含小说正文、隐藏设定和作者指令，仅适合本地排查，默认不应提交到 Git。
+为了方便 debug，每次 Agent 模型调用还会把完整输入输出写入 `runs/model_io/{request_id}.json`，并追加摘要到 `runs/model_io/index.jsonl`。完整日志包含 system prompt、user prompt、上下文、发送给 provider 的安全请求体、模型正文输出、reasoning 内容、`finish_reason`、原始响应和错误信息；不会写入 HTTP header、Authorization、真实 API Key 或环境变量值。注意：这些日志会包含小说正文、隐藏设定和作者指令，仅适合本地排查，默认不应提交到 Git。
 
 每次真实 provider 调用完成后，工具会根据调用日志刷新 `runs/provider_usage.json`，用于实时统计当前小说项目的累计调用量和 token 消耗。可以用下面的命令查看：
 
@@ -636,7 +636,7 @@ web:
 
 当前 Web 工作台还支持：
 
-- 主页：初始化项目、打开项目、项目初始引导、项目检查、项目迁移提示、项目摘要、章节列表和下一步提示。
+- 主页：初始化项目、打开项目、项目初始引导、项目检查、项目摘要、章节列表、导出 Markdown / DOCX 和下一步提示。
 - 创作工作台：生成灵感、Canon 建议、Session 大纲协商、正文生成、审核修订、认可归档、章节对照、章节编辑器、Audit 定位和 Revision diff。
 - 小说状态管理：Canon 摘要、状态 / 时间线、项目管家和后台管理动态。
 - 模型与检索配置：Agent 模型配置、Embedding API 重新配置、embedding 状态、FTS / embedding 索引刷新。
@@ -648,8 +648,8 @@ web:
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
 - 项目搜索：在 Web UI 中搜索角色、地点、物品、时间线事件和章节文本。默认使用 FTS；语义检索模式为 `auto` 时只在 embedding 配置完整时启用，兼容勾选“强制使用 embedding 语义检索”时会按 `on` 处理。
-- 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Agent / Provider / Model 的统计。
-- 项目迁移：项目检查后会 dry-run 检查 schema 是否需要迁移；如需迁移，主页会显示“一键迁移项目 Schema”按钮，执行时使用项目锁、备份和现有迁移逻辑。
+- 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Agent / Provider / Model 的统计；stream 调用会尽量记录 provider 返回的 usage 和 `finish_reason`。
+- 导出：主页可导出 Markdown 或 DOCX，可指定章节列表、章节范围、标题、输出路径、是否包含未 accepted 章节，以及是否覆盖已有导出文件。
 - Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；非 `default` Agent 通过“继承default”勾选项控制是否跟随 default。勾选后只锁定 provider/model/API env/token/timeout 等调用字段，`temperature`、`thinking.type`、`reasoning` 仍可编辑并保存为业务 patch；取消勾选后先复制当前生效配置再开放为独立完整配置。当前 provider 不会使用的字段显示 `NA` 并禁用。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，显示“Embedding API 已配置”、当前 provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。API Key 只写入项目 `.env`，保存前会用当前批量和维度验证真实 API，保存成功后清空输入框并自动刷新语义向量索引。
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。

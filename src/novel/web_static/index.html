@@ -54,8 +54,6 @@
           </div>
           <button id="validateProject" style="width: 100%; margin-top: 8px;">项目检查</button>
           <div id="validationStatusPanel" class="metric" style="margin-top: 8px;">项目检查结果：未运行</div>
-          <div id="migrationStatusPanel" class="metric" style="margin-top: 8px;">项目迁移：未检查</div>
-          <button id="runMigration" class="hidden" style="width: 100%; margin-top: 8px;">一键迁移项目 Schema</button>
           <button id="toggleProjectInit" style="width: 100%; margin-top: 8px;">隐藏新建项目选项</button>
           <div id="projectInitPanel" class="panel" style="margin-top: 8px;">
             <h2 style="margin-top: 0;">新建项目</h2>
@@ -77,7 +75,38 @@
             <button id="homeGoWorkbench">开始 / 继续创作</button>
             <button id="homeGoConfig">检查模型配置</button>
           </div>
-          <button id="exportMarkdown" style="width: 100%; margin-top: 8px;">导出 Markdown</button>
+          <div class="grid two" style="margin-top: 8px;">
+            <div>
+              <label for="exportChapters">导出章节</label>
+              <input id="exportChapters" placeholder="例如 1,2,3；留空为全部 accepted">
+            </div>
+            <div>
+              <label for="exportTitle">导出标题</label>
+              <input id="exportTitle" placeholder="留空使用项目标题">
+            </div>
+            <div>
+              <label for="exportFromChapter">起始章节</label>
+              <input id="exportFromChapter" type="number" min="1" step="1">
+            </div>
+            <div>
+              <label for="exportToChapter">结束章节</label>
+              <input id="exportToChapter" type="number" min="1" step="1">
+            </div>
+          </div>
+          <label class="row" style="justify-content: flex-start; gap: 8px; margin-top: 8px;">
+            <input id="exportIncludeUnaccepted" type="checkbox" style="width: auto;">
+            <span>包含未认可章节</span>
+          </label>
+          <label class="row" style="justify-content: flex-start; gap: 8px;">
+            <input id="exportForce" type="checkbox" style="width: auto;">
+            <span>覆盖已有导出文件</span>
+          </label>
+          <label for="exportOutput">输出路径</label>
+          <input id="exportOutput" placeholder="留空使用 exports/novel.md 或 exports/novel.docx">
+          <div class="actions">
+            <button id="exportMarkdown">导出 Markdown</button>
+            <button id="exportDocx">导出 DOCX</button>
+          </div>
         </div>
 
         <div class="panel">

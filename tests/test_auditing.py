@@ -5,7 +5,8 @@ from io import StringIO
 import json
 from pathlib import Path
 
-from novel.cli import _audit_issue_lines, main
+from novel.cli import main
+from novel.cli_shared import _audit_issue_lines
 from novel.core.auditing import (
     ChapterAuditOptions,
     audit_chapter,

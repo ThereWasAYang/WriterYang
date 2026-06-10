@@ -12,7 +12,7 @@ from novel.core.workspace import InitOptions, init_workspace
 def test_web_cli_open_flag_controls_browser_launch(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    import novel.cli as cli_module
+    import novel.cli_commands.project_system as project_system_module
     import novel.web_server as web_server_module
 
     started: list[tuple[str, int]] = []
@@ -22,7 +22,7 @@ def test_web_cli_open_flag_controls_browser_launch(tmp_path: Path, monkeypatch) 
         started.append((host, port))
 
     monkeypatch.setattr(web_server_module, "run_web_server", fake_run_web_server)
-    monkeypatch.setattr(cli_module.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(project_system_module.webbrowser, "open", lambda url: opened.append(url))
 
     open_code, _, open_stderr = _run_cli(
         ["web", "--path", str(root), "--host", "127.0.0.1", "--port", "61355", "--open"]

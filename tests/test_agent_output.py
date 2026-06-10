@@ -6,10 +6,11 @@ from novel.core.agent_output import (
     AgentInvocationContext,
     AgentOutputContract,
     AgentOutputContractError,
+    generate_with_output_guard,
     validate_agent_output,
     write_agent_output_violation_log,
 )
-from novel.core.providers import ModelRequest
+from novel.core.providers import MockProvider, ModelRequest, ProviderOutputTruncatedError
 
 
 def test_internal_task_rejects_clarification_question() -> None:
@@ -94,3 +95,19 @@ def test_violation_log_redacts_secret_like_values(tmp_path) -> None:
     text = path.read_text(encoding="utf-8")
     assert api_key not in text
     assert "Authorization: Bearer [redacted]" in text
+
+
+def test_generate_with_output_guard_raises_on_truncated_output_without_repair(tmp_path) -> None:
+    provider = MockProvider(fake_response={"content": '{"ok":', "finish_reason": "length"})
+
+    with pytest.raises(ProviderOutputTruncatedError) as exc:
+        generate_with_output_guard(
+            provider,
+            ModelRequest(system_prompt="s", user_prompt="u"),
+            root=tmp_path,
+            invocation=AgentInvocationContext(agent_name="audit", interaction_mode="internal_task"),
+            contract=AgentOutputContract(output_kind="json", target_name="AuditReport", json_schema_name="AuditReport"),
+        )
+
+    assert "finish_reason=length" in str(exc.value)
+    assert len(provider.requests) == 1

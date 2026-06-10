@@ -10,6 +10,7 @@ from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.drafting import (
     ChapterDraftingOptions,
+    DraftingError,
     write_chapter_draft,
 )
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
@@ -68,6 +69,24 @@ def test_writer_output_question_twice_fails_without_writing_draft(tmp_path: Path
     assert "agent output violated contract after repair retry" in message
     assert not (root / "memory" / "chapters" / "001" / "draft.md").exists()
     assert len(list((root / "runs" / "agent_output_violations").glob("*.json"))) == 2
+
+
+def test_truncated_writer_output_fails_without_writing_draft_and_records_event(tmp_path: Path) -> None:
+    root = _workspace_with_plan(tmp_path)
+    provider = MockProvider(fake_response={"content": "雨声压低了旧车站", "finish_reason": "length"})
+
+    try:
+        write_chapter_draft(ChapterDraftingOptions(root=root, chapter_number=1), provider)
+    except DraftingError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected truncation failure")
+
+    assert "finish_reason=length" in message
+    assert not (root / "memory" / "chapters" / "001" / "draft.md").exists()
+    events = (root / "memory" / "management_events.jsonl").read_text(encoding="utf-8")
+    assert "provider_output_truncated" in events
+    assert "未写入 draft.md" in events
 
 
 def test_write_chapter_cli_creates_draft_with_front_matter(tmp_path: Path) -> None:

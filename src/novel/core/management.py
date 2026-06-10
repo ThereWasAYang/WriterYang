@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Literal
 
-from novel.core.io import atomic_write_text
+from novel.core.io import append_jsonl
 from novel.core.schemas import ManagementEvent, ManagementEventType
+from novel.core.timeutil import new_request_id, utc_now
 
 
 def record_management_event(
@@ -30,8 +31,7 @@ def record_management_event(
         created_at=_utc_now(),
     )
     path = management_events_path(root)
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    atomic_write_text(path, existing + event.model_dump_json() + "\n")
+    append_jsonl(path, event.model_dump(mode="json"))
     return event
 
 
@@ -55,8 +55,8 @@ def management_events_path(root: Path) -> Path:
 
 
 def _new_event_id() -> str:
-    return "mgmt_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return new_request_id("mgmt")
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return utc_now()

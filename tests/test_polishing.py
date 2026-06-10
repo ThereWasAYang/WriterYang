@@ -10,7 +10,7 @@ from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
-from novel.core.polishing import ChapterPolishingOptions, polish_chapter
+from novel.core.polishing import ChapterPolishingOptions, PolishingError, polish_chapter
 from novel.core.providers import MockProvider
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -37,6 +37,24 @@ def test_mock_provider_can_generate_polished_body(tmp_path: Path) -> None:
     assert "尽量保持长度：是" in provider.requests[0].user_prompt
     assert "编辑模式：deep" in provider.requests[0].user_prompt
     assert "不要输出解释、分析、修改说明、JSON 或大纲" in provider.requests[0].system_prompt
+
+
+def test_truncated_polish_output_fails_without_writing_polished_and_records_event(tmp_path: Path) -> None:
+    root = _workspace_with_draft(tmp_path)
+    provider = MockProvider(fake_response={"content": "雨声更深", "finish_reason": "length"})
+
+    try:
+        polish_chapter(ChapterPolishingOptions(root=root, chapter_number=1), provider)
+    except PolishingError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected truncation failure")
+
+    assert "finish_reason=length" in message
+    assert not (root / "memory" / "chapters" / "001" / "polished.md").exists()
+    events = (root / "memory" / "management_events.jsonl").read_text(encoding="utf-8")
+    assert "provider_output_truncated" in events
+    assert "未写入 polished.md" in events
 
 
 def test_polish_chapter_cli_creates_polished_markdown_with_front_matter(tmp_path: Path) -> None:

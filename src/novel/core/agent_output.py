@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 import re
 import time
 from pathlib import Path
@@ -9,8 +8,9 @@ from typing import Iterable, Literal
 
 from novel.core.io import atomic_write_json
 from novel.core.json_extract import strip_code_fence
-from novel.core.providers import ModelProvider, ModelRequest
+from novel.core.providers import ModelProvider, ModelRequest, ModelResponse, ProviderOutputTruncatedError
 from novel.core.security import redact_secret_text
+from novel.core.timeutil import new_request_id, utc_now_iso
 
 
 InteractionMode = Literal["internal_task", "user_facing"]
@@ -55,8 +55,10 @@ def generate_with_output_guard(
     contract: AgentOutputContract,
     stream: bool = False,
 ) -> str:
-    request = _request_with_id(model_request)
-    output = _call_provider(provider, request, stream=stream)
+    request = _request_with_id(replace(model_request, agent_name=model_request.agent_name or invocation.agent_name))
+    response = _call_provider(provider, request, stream=stream)
+    _raise_if_truncated(response, request=request, invocation=invocation, contract=contract)
+    output = response.content
     first_error: AgentOutputContractError | None = None
     try:
         validate_agent_output(output, invocation=invocation, contract=contract)
@@ -76,6 +78,7 @@ def generate_with_output_guard(
     repair_request = _request_with_id(
         replace(
             model_request,
+            agent_name=model_request.agent_name or invocation.agent_name,
             user_prompt=build_output_contract_repair_prompt(
                 original_prompt=model_request.user_prompt,
                 invalid_output=output,
@@ -86,16 +89,17 @@ def generate_with_output_guard(
         )
     )
     repaired_output = _call_provider(provider, repair_request, stream=stream)
+    _raise_if_truncated(repaired_output, request=repair_request, invocation=invocation, contract=contract)
     try:
-        validate_agent_output(repaired_output, invocation=invocation, contract=contract)
-        return repaired_output
+        validate_agent_output(repaired_output.content, invocation=invocation, contract=contract)
+        return repaired_output.content
     except AgentOutputContractError as second_error:
         write_agent_output_violation_log(
             root,
             invocation=invocation,
             contract=contract,
             model_request=repair_request,
-            output=repaired_output,
+            output=repaired_output.content,
             error=second_error,
         )
         raise AgentOutputContractError(
@@ -199,10 +203,26 @@ def write_agent_output_violation_log(
     return path
 
 
-def _call_provider(provider: ModelProvider, request: ModelRequest, *, stream: bool) -> str:
+def _call_provider(provider: ModelProvider, request: ModelRequest, *, stream: bool) -> ModelResponse:
     if stream:
-        return "".join(provider.stream(request))
-    return provider.generate(request).content
+        return provider.stream_response(request)
+    return provider.generate(request)
+
+
+def _raise_if_truncated(
+    response: ModelResponse,
+    *,
+    request: ModelRequest,
+    invocation: AgentInvocationContext,
+    contract: AgentOutputContract,
+) -> None:
+    if response.finish_reason != "length":
+        return
+    raise ProviderOutputTruncatedError(
+        f"{invocation.agent_name} output for {contract.target_name} was truncated "
+        "because provider finish_reason=length. Increase this agent's max_tokens "
+        f"or reduce the output size before retrying. request_id={request.request_id or 'unknown'}"
+    )
 
 
 def _request_with_id(request: ModelRequest) -> ModelRequest:
@@ -210,7 +230,7 @@ def _request_with_id(request: ModelRequest) -> ModelRequest:
 
 
 def _new_request_id() -> str:
-    return "agent_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f") + f"_{time.time_ns() % 1000000:06d}"
+    return new_request_id("agent") + f"_{time.time_ns() % 1000000:06d}"
 
 
 def _looks_like_json_payload(text: str) -> bool:
@@ -337,4 +357,4 @@ def _redact_sensitive(text: str) -> str:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return utc_now_iso()

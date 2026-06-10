@@ -33,7 +33,6 @@ from novel.core.schemas import (
     EntityState,
     ProjectConfig,
     TimelineFile,
-    HiddenTruthsFile,
     VectorContextMode,
 )
 from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
@@ -394,43 +393,6 @@ def _validate_audited_body_against_plan(
             suggested_fix="Review whether the chapter drifted away from plan.json; revise or update the plan if intentional.",
         )
     )
-
-
-def _validate_hidden_truth_not_revealed(
-    root: Path,
-    options: ChapterAuditOptions,
-    context: AuditContext,
-    issues: list[AuditIssue],
-    passed_checks: list[str],
-) -> None:
-    path = root / "memory" / "canon" / "hidden_truths.json"
-    try:
-        truths = load_json_model(path, HiddenTruthsFile)
-    except Exception:
-        return
-    leaked: list[str] = []
-    for truth in truths.hidden_truths:
-        reveal_chapter = truth.planned_reveal.chapter if truth.planned_reveal else None
-        if reveal_chapter is not None and reveal_chapter <= options.chapter_number:
-            continue
-        for fragment in (truth.title.strip(), truth.description.strip()):
-            if fragment and fragment in context.audited_body:
-                leaked.append(truth.id)
-                break
-    if leaked:
-        issues.append(
-            _issue(
-                issue_id="audit_precheck_hidden_truth_reveal",
-                severity="high",
-                issue_type="premature_reveal",
-                description="Audited chapter appears to reveal hidden_truths before their planned reveal chapter.",
-                source=str(path),
-                quote=", ".join(sorted(leaked)),
-                suggested_fix="Remove or disguise the hidden truth text, or explicitly update planned_reveal if this reveal is intentional.",
-            )
-        )
-    else:
-        passed_checks.append("hidden_truth_text_not_directly_revealed")
 
 
 def load_audit_provider(
@@ -795,25 +757,6 @@ def _has_specific_audit_evidence(issue: dict[str, object]) -> bool:
         if source and quote:
             return True
     return False
-
-
-def _issue_text(issue: dict[str, object]) -> str:
-    parts = [
-        str(issue.get("type") or ""),
-        str(issue.get("description") or ""),
-        str(issue.get("suggested_fix") or ""),
-    ]
-    evidence = issue.get("evidence")
-    if isinstance(evidence, list):
-        for item in evidence:
-            if isinstance(item, dict):
-                parts.append(str(item.get("source") or ""))
-                parts.append(str(item.get("quote") or ""))
-            else:
-                parts.append(str(item))
-    elif evidence is not None:
-        parts.append(str(evidence))
-    return " ".join(parts).lower()
 
 
 def _repair_prompt(

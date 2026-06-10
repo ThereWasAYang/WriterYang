@@ -12,7 +12,7 @@ from novel.core.io import load_json_model
 from novel.core.memory_repair import (
     answer_setting_change_clarification,
     apply_memory_repair,
-    build_memory_repair_user_prompt,
+    _memory_repair_user_prompt,
     generate_memory_change_clarification_decision,
     suggest_setting_change_interactive,
 )
@@ -184,7 +184,7 @@ def test_real_deepseek_setting_change_clarifies_then_generates_pointer_proposal(
     if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
         pytest.skip("DeepSeek setting change clarification smoke requires DeepSeek env in .env.real")
     root = _real_project(tmp_path, env)
-    prompt = build_memory_repair_user_prompt(
+    prompt = _memory_repair_user_prompt(
         root,
         "把 char_lin_che 设定为林澈表面温和但做决定非常谨慎",
         change_kind="setting_change",
@@ -313,7 +313,7 @@ def test_real_setting_change_duplicate_character_id_uses_existing_path(tmp_path:
     root = _real_project(tmp_path, env)
     _write_twenty_one_real_characters(root)
     target_summary = "白霜瀚开篇伪装成云游书生，暗中调查桃花源旧族线索。"
-    prompt = build_memory_repair_user_prompt(
+    prompt = _memory_repair_user_prompt(
         root,
         f"请只修改已有人物白霜瀚（id=char_bai_shuanghan）的 reader_visible_summary 为：{target_summary} 不要新增人物。",
         change_kind="setting_change",
@@ -360,7 +360,7 @@ def test_real_setting_change_location_description_path_uses_location_summary(tmp
     root = _real_project(tmp_path, env)
     _write_taohuayuan_location(root)
     target_summary = "桃花源村隐藏在山中，由秦朝避乱者组建，有奇门遁甲大阵守护。"
-    prompt = build_memory_repair_user_prompt(
+    prompt = _memory_repair_user_prompt(
         root,
         f"请只修改已有地点桃花源村（id=loc_taohuayuan_village）的 reader_visible_summary 为：{target_summary} 不要新增地点。",
         change_kind="setting_change",

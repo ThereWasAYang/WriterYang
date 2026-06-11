@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
 from typing import TYPE_CHECKING, Sequence
+
+from novel.core.timeutil import new_request_id, utc_now_iso
 
 
 DEFAULT_AGENTS = ("orchestrator", "inspiration", "canon", "plot", "writer", "polish", "audit", "state_update")
@@ -46,7 +47,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "ok": ok,
         "project": str(root),
         "allow_network": args.allow_network,
-        "generated_at": _utc_now(),
+        "generated_at": utc_now_iso(),
         "agents": agent_results,
         "embeddings": embedding_results,
     }
@@ -94,7 +95,7 @@ def _check_agent(root: Path, agent: str, *, overrides: ProviderOverrides, allow_
             ModelRequest(
                 system_prompt="You are a WriterYang provider health check. Return exactly OK.",
                 user_prompt="Return OK.",
-                request_id=f"provider_ping_{agent}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}",
+                request_id=new_request_id(f"provider_ping_{agent}"),
             )
         )
         result.update(
@@ -189,11 +190,5 @@ def _print(payload: dict[str, object], json_output: bool) -> None:
             if not isinstance(item, dict):
                 continue
             print(f"- embedding {item['provider']}: {item['status']}")
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

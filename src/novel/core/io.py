@@ -5,11 +5,12 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-from datetime import datetime, timezone
 from typing import TypeVar
 
 import yaml
 from pydantic import BaseModel
+
+from novel.core.timeutil import utc_timestamp
 
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -101,7 +102,7 @@ def backup_file(path: Path, *, reason: str | None = None) -> Path:
     path = path.expanduser()
     if not path.exists():
         raise BackupError(f"cannot back up missing file: {path}")
-    suffix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = utc_timestamp("%Y%m%dT%H%M%SZ")
     reason_part = f".{_safe_backup_reason(reason)}" if reason else ""
     backup_path = path.with_name(f"{path.name}.bak_{suffix}{reason_part}")
     counter = 1

@@ -93,7 +93,7 @@ def summarize_provider_usage(root: Path) -> UsageSummary:
 
 
 def summarize_provider_call_log(log_path: Path) -> UsageSummary:
-    summary = UsageSummary(log_path=log_path, generated_at=_utc_now())
+    summary = UsageSummary(log_path=log_path, generated_at=utc_now_iso())
     if not log_path.exists():
         return summary
     try:
@@ -173,7 +173,3 @@ def _safe_last_call(entry: dict[str, Any]) -> dict[str, Any]:
 
 def _optional_int(value: object) -> int | None:
     return value if isinstance(value, int) else None
-
-
-def _utc_now() -> str:
-    return utc_now_iso()

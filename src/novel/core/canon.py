@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
@@ -20,7 +19,7 @@ from novel.core.management import record_management_event
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     CanonApplyLog,
@@ -38,7 +37,13 @@ from novel.core.schemas import (
     WorldFile,
     VectorContextMode,
 )
-from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
+from novel.core.structured_generation import (
+    REPAIR_ERROR_LIMIT,
+    REPAIR_INVALID_OUTPUT_LIMIT,
+    JsonRepairExhaustedError,
+    generate_json_with_repair,
+)
+from novel.core.timeutil import new_request_id, utc_now
 from novel.core.validation import ValidationReport, validate_canon
 
 
@@ -450,6 +455,7 @@ def _generate_canon_proposal_with_repair(
         user_prompt=user_prompt,
         context=existing_summary,
         json_schema_name="CanonProposal",
+        prompt_version=prompt_template_version("canon_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -483,7 +489,6 @@ def _generate_canon_proposal_with_repair(
             parse=parse_and_validate,
             repair_prompt=lambda invalid_output, error: _repair_prompt(
                 schema_name="CanonProposal",
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -505,12 +510,11 @@ def _canon_proposal_has_changes(proposal: CanonProposal) -> bool:
     )
 
 
-def _repair_prompt(*, schema_name: str, original_prompt: str, invalid_output: str, error: str) -> str:
+def _repair_prompt(*, schema_name: str, invalid_output: str, error: str) -> str:
     return (
-        f"{original_prompt}\n\n"
         f"上一次输出不是合法的 {schema_name}。请只输出修复后的严格 JSON，不要解释。\n"
-        f"错误摘要：\n{error[:4000]}\n\n"
-        f"上一次输出：\n{invalid_output[:12000]}\n"
+        f"错误摘要：\n{error[:REPAIR_ERROR_LIMIT]}\n\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
@@ -857,7 +861,7 @@ def _write_canon_apply_record(
         target_files=target_files,
         proposal_counts=counts,
         validation_warning_count=len(validation_report.warnings),
-        applied_at=_utc_now(),
+        applied_at=utc_now(),
         status="applied",
     )
     atomic_write_model_json(apply_log_path, apply_log)
@@ -906,11 +910,7 @@ def _path_for_apply_log(root: Path, path: Path) -> str:
 
 
 def _new_canon_apply_id() -> str:
-    return "canon_apply_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return new_request_id("canon_apply")
 
 
 def _to_json(data: object) -> str:

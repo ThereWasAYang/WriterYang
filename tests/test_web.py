@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import json
+from contextlib import redirect_stderr
 import errno
+from io import StringIO
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +25,7 @@ from novel.core.schemas import (
 from novel.core.session import SessionResult
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import _locked_write, handle_api_request
+import novel.web_server as web_server
 from novel.web_server import WebServerError, index_html, run_web_server, static_asset_bytes
 
 
@@ -89,6 +92,7 @@ def test_api_runtime_endpoint_reports_environment_without_secrets(monkeypatch) -
     assert runtime["environment"] == "WriterYang_260531"
     assert runtime["managed_install"] is True
     assert runtime["version"]
+    assert Path(str(runtime["default_project_parent"])).name == "WriterYang"
     assert "sk-test-secret-never-return" not in json.dumps(payload, ensure_ascii=False)
 
 
@@ -1009,6 +1013,54 @@ def test_api_init_project_endpoint_creates_workspace(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert (root / "project.yaml").is_file()
     assert (root / "config" / "agents.yaml").is_file()
+
+
+def test_api_init_project_endpoint_anchors_relative_path_to_default_parent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/init-project",
+        "",
+        json.dumps({"path": "relative-created", "title": "相对路径项目"}),
+    )
+
+    root = home / "WriterYang" / "relative-created"
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["data"]["root"] == str(root)  # type: ignore[index]
+    assert (root / "project.yaml").is_file()
+
+
+def test_api_projects_endpoint_lists_compatible_project_contract(tmp_path: Path) -> None:
+    root = tmp_path / "project-a"
+    init_workspace(InitOptions(title="项目A", root=root))
+
+    status, payload = handle_api_request("GET", "/api/projects", f"root={tmp_path}", None)
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert {"path": str(root)} in payload["data"]["projects"]  # type: ignore[index]
+
+
+def test_api_setup_open_web_returns_url_without_opening_browser(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/setup/open-web",
+        "",
+        json.dumps({"path": str(root), "host": "127.0.0.1", "port": 61234}),
+    )
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["data"]["url"] == "http://127.0.0.1:61234"  # type: ignore[index]
+    assert payload["data"]["opened"] is False  # type: ignore[index]
 
 
 def test_api_init_project_endpoint_reports_existing_workspace(tmp_path: Path) -> None:
@@ -2069,7 +2121,10 @@ def test_frontend_basic_render() -> None:
     assert 'id="toggleProjectInit"' in html
     assert 'id="projectInitPanel"' in html
     assert 'id="initProject"' in html
-    assert "defaultProjectParentPath = \"myNovel\"" in app_js
+    assert 'placeholder="~/WriterYang"' in html
+    assert 'defaultProjectParentPath = "~/WriterYang"' in app_js
+    assert "runtimeSummary.default_project_parent" in app_js
+    assert "usesRuntimeDefault" in app_js
     assert "writeryang.projectParentPath" in app_js
     assert "safeProjectDirectoryName" in app_js
     assert "newProjectRootPath" in app_js
@@ -2493,6 +2548,24 @@ def test_web_server_reports_port_conflict(monkeypatch) -> None:
 
     assert "端口 9012 已被占用" in message
     assert "novel web --port" in message
+
+
+def test_web_server_access_log_is_env_controlled(monkeypatch) -> None:
+    handler = object.__new__(web_server._handler_class())
+    handler.client_address = ("127.0.0.1", 12345)
+    handler.requestline = "GET / HTTP/1.1"
+
+    disabled_stderr = StringIO()
+    monkeypatch.delenv("WRITERYANG_WEB_ACCESS_LOG", raising=False)
+    with redirect_stderr(disabled_stderr):
+        handler.log_message("GET %s", "/")
+    assert disabled_stderr.getvalue() == ""
+
+    enabled_stderr = StringIO()
+    monkeypatch.setenv("WRITERYANG_WEB_ACCESS_LOG", "1")
+    with redirect_stderr(enabled_stderr):
+        handler.log_message("GET %s", "/")
+    assert "GET /" in enabled_stderr.getvalue()
 
 
 def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:

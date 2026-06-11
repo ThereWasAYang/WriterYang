@@ -12,6 +12,7 @@ build/
 *.egg-info/
 WriterYang_WebUI.command
 WriterYang_WebUI.config.json
+myNovel/
 .env*
 !.env.example
 .vscode/

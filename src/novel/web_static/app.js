@@ -1,7 +1,7 @@
     const $ = (id) => document.getElementById(id);
     const chapterFileTypes = ["plan", "draft", "polished", "audit", "chapter_memory"];
     const inspirationPreviewPath = "memory/inspiration.md";
-    const defaultProjectParentPath = "myNovel";
+    let defaultProjectParentPath = "~/WriterYang";
     const providerAgentNames = [
       "orchestrator", "inspiration", "canon", "plot", "writer",
       "polish", "audit", "state_update", "chapter_memory", "revision",
@@ -232,6 +232,14 @@
       try {
         const data = await apiGet("/api/runtime", {});
         runtimeSummary = data.runtime || {};
+        const runtimeDefaultProjectParent = String(runtimeSummary.default_project_parent || "").trim();
+        if (runtimeDefaultProjectParent) {
+          defaultProjectParentPath = runtimeDefaultProjectParent;
+          if ($("projectParentPath").dataset.usesRuntimeDefault === "1") {
+            $("projectParentPath").value = defaultProjectParentPath;
+            updateProjectInitPathPreview();
+          }
+        }
         if (!$("setupWebPort").value && runtimeSummary.launcher_config_port) {
           $("setupWebPort").value = runtimeSummary.launcher_config_port;
         }
@@ -2626,12 +2634,16 @@
     });
     $("projectPath").value = localStorage.getItem("writeryang.projectPath") || "";
     $("projectPath").addEventListener("change", () => localStorage.setItem("writeryang.projectPath", $("projectPath").value));
-    $("projectParentPath").value = localStorage.getItem("writeryang.projectParentPath") || defaultProjectParentPath;
+    const savedProjectParentPath = localStorage.getItem("writeryang.projectParentPath");
+    $("projectParentPath").dataset.usesRuntimeDefault = savedProjectParentPath ? "0" : "1";
+    $("projectParentPath").value = savedProjectParentPath || defaultProjectParentPath;
     $("projectParentPath").addEventListener("input", () => {
+      $("projectParentPath").dataset.usesRuntimeDefault = "0";
       localStorage.setItem("writeryang.projectParentPath", $("projectParentPath").value);
       updateProjectInitPathPreview();
     });
     $("projectParentPath").addEventListener("change", () => {
+      $("projectParentPath").dataset.usesRuntimeDefault = "0";
       localStorage.setItem("writeryang.projectParentPath", $("projectParentPath").value);
       updateProjectInitPathPreview();
     });

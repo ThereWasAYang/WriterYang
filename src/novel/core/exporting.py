@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 import hashlib
 import os
 from pathlib import Path
@@ -15,6 +15,7 @@ from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.schemas import ExportManifest, ExportRecord, ExportSourceChapter, ProjectConfig
+from novel.core.timeutil import utc_now_precise
 
 ExportType = Literal["markdown", "docx", "html", "txt"]
 
@@ -265,7 +266,7 @@ def update_export_manifest(
     else:
         manifest = ExportManifest()
     record = ExportRecord(
-        id=_export_id(_utc_now()),
+        id=_export_id(utc_now_precise()),
         type=export_type,
         source_chapters=[chapter.chapter_number for chapter in chapters],
         source_chapter_details=[
@@ -279,7 +280,7 @@ def update_export_manifest(
             for chapter in chapters
         ],
         output_path=_rel(root, output_path),
-        created_at=_utc_now(),
+        created_at=utc_now_precise(),
         title=title,
     )
     manifest.exports.append(record)
@@ -403,11 +404,5 @@ def _rel(root: Path, path: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _export_id(timestamp: datetime) -> str:
     return "export_" + timestamp.strftime("%Y%m%d_%H%M%S_%f")

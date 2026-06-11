@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import socket
@@ -548,11 +547,5 @@ def _print(payload: dict[str, object], json_output: bool) -> None:
     else:
         status = "passed" if payload.get("ok") else "failed"
         print(f"Web UI guide screenshot capture {status}: {payload.get('output')}")
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

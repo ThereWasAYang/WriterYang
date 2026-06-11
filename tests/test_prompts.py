@@ -9,7 +9,7 @@ from novel.core.chapter_memory import build_chapter_memory_system_prompt
 from novel.core.drafting import build_writer_system_prompt
 from novel.core.planning import build_planning_system_prompt
 from novel.core.polishing import build_polish_system_prompt
-from novel.core.prompts import PROMPT_VERSION, PROMPT_VERSIONS, load_prompt_template
+from novel.core.prompts import PROMPT_VERSION, PROMPT_VERSIONS, load_prompt_template, prompt_template_version
 from novel.core.revision import build_revision_system_prompt
 from novel.core.state_update import build_state_update_system_prompt
 
@@ -30,6 +30,8 @@ def test_prompt_versions_cover_non_partial_templates() -> None:
     assert PROMPT_VERSION == max(PROMPT_VERSIONS.values())
     assert PROMPT_VERSIONS["writer_system"] == "2026-06-05"
     assert PROMPT_VERSIONS["orchestrator_ask_intent_system"] == "2026-05-31"
+    assert prompt_template_version("writer_system") == PROMPT_VERSIONS["writer_system"]
+    assert prompt_template_version("writer_system.txt") == PROMPT_VERSIONS["writer_system"]
 
 
 def test_prompt_partials_render_and_raw_prompts_do_not_duplicate_shared_context_text() -> None:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import os
 from pathlib import Path
 import shlex
@@ -12,6 +11,7 @@ from typing import Sequence
 from pydantic import BaseModel, Field
 
 from novel.core.io import atomic_write_model_json, atomic_write_text, load_json_model
+from novel.core.timeutil import utc_now_iso
 
 
 WEB_LAUNCHER_FILENAME = "WriterYang_WebUI.command"
@@ -103,7 +103,7 @@ def save_web_launcher_port_config(
     config = WebLauncherConfig(
         host=host,
         port=requested_port,
-        updated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        updated_at=utc_now_iso(),
     )
     if not _is_current_endpoint(config.host, config.port, current_host=current_host, current_port=current_port):
         if not is_port_available(config.host, config.port):

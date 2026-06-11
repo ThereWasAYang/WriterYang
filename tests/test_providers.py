@@ -605,7 +605,14 @@ def test_logging_provider_links_openai_call_log_to_model_io(
 
     monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: FakeResponse())
 
-    response = provider.generate(ModelRequest(system_prompt="s", user_prompt="u", json_schema_name="AuditReport"))
+    response = provider.generate(
+        ModelRequest(
+            system_prompt="s",
+            user_prompt="u",
+            json_schema_name="AuditReport",
+            prompt_version="2026-06-05",
+        )
+    )
 
     assert response.content == "ok"
     provider_call = json.loads((tmp_path / "runs" / "provider_calls.jsonl").read_text(encoding="utf-8"))
@@ -616,6 +623,7 @@ def test_logging_provider_links_openai_call_log_to_model_io(
     data = json.loads(model_io_path.read_text(encoding="utf-8"))
     assert data["request_id"] == provider_call["request_id"]
     assert data["agent_name"] == "audit"
+    assert data["request"]["prompt_version"] == "2026-06-05"
     assert data["request"]["payload"]["messages"][0]["content"] == "s"
     assert data["response"]["content"] == "ok"
     assert data["response"]["reasoning_content"] == "think"
@@ -762,6 +770,11 @@ def test_logging_provider_records_stream_usage_finish_reason_and_agent(
     assert response.token_usage
     assert response.token_usage.total_tokens == 10
     assert response.finish_reason == "stop"
+    assert isinstance(response.raw_response, dict)
+    assert response.raw_response["stream_chunks"] == 3
+    assert "chunks" not in response.raw_response
+    assert response.raw_response["finish_chunk"]["choices"][0]["finish_reason"] == "stop"  # type: ignore[index]
+    assert response.raw_response["usage_chunk"]["usage"]["total_tokens"] == 10  # type: ignore[index]
     provider_call = json.loads((tmp_path / "runs" / "provider_calls.jsonl").read_text(encoding="utf-8"))
     assert provider_call["agent_name"] == "writer"
     assert provider_call["stream"] is True
@@ -770,6 +783,9 @@ def test_logging_provider_records_stream_usage_finish_reason_and_agent(
     model_io = json.loads((tmp_path / provider_call["model_io_path"]).read_text(encoding="utf-8"))
     assert model_io["token_usage"]["total_tokens"] == 10
     assert model_io["finish_reason"] == "stop"
+    assert "chunks" not in model_io["response"]["raw_response"]
+    assert model_io["response"]["raw_response"]["stream_chunks"] == 3
+    assert model_io["response"]["raw_response"]["usage_chunk"]["usage"]["total_tokens"] == 10
     usage = json.loads((tmp_path / "runs" / "provider_usage.json").read_text(encoding="utf-8"))
     assert usage["by_agent"]["writer"]["total_tokens"] == 10
 

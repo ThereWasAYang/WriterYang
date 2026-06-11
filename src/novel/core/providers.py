@@ -31,6 +31,7 @@ class ModelRequest:
     json_schema_name: str | None = None
     request_id: str | None = None
     agent_name: str | None = None
+    prompt_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -207,14 +208,14 @@ class LoggingModelProvider(ModelProvider):
     root: Path
 
     def generate(self, model_request: ModelRequest) -> ModelResponse:
-        request_id = model_request.request_id or _request_id()
+        request_id = model_request.request_id or new_request_id("provider")
         request_with_id = replace(
             model_request,
             request_id=request_id,
             agent_name=model_request.agent_name or self.agent_name,
         )
         started = time.monotonic()
-        started_at = _utc_now()
+        started_at = utc_now_iso()
         try:
             response = self.provider.generate(request_with_id)
         except Exception as exc:
@@ -222,7 +223,7 @@ class LoggingModelProvider(ModelProvider):
                 request_with_id,
                 request_id=request_id,
                 started_at=started_at,
-                ended_at=_utc_now(),
+                ended_at=utc_now_iso(),
                 duration_ms=_duration_ms(started),
                 status="failed",
                 stream=False,
@@ -236,7 +237,7 @@ class LoggingModelProvider(ModelProvider):
             request_with_id,
             request_id=request_id,
             started_at=started_at,
-            ended_at=_utc_now(),
+            ended_at=utc_now_iso(),
             duration_ms=_duration_ms(started),
             status="success",
             stream=False,
@@ -245,14 +246,14 @@ class LoggingModelProvider(ModelProvider):
         return response
 
     def stream_response(self, model_request: ModelRequest) -> ModelResponse:
-        request_id = model_request.request_id or _request_id()
+        request_id = model_request.request_id or new_request_id("provider")
         request_with_id = replace(
             model_request,
             request_id=request_id,
             agent_name=model_request.agent_name or self.agent_name,
         )
         started = time.monotonic()
-        started_at = _utc_now()
+        started_at = utc_now_iso()
         try:
             response = self.provider.stream_response(request_with_id)
         except Exception as exc:
@@ -260,7 +261,7 @@ class LoggingModelProvider(ModelProvider):
                 request_with_id,
                 request_id=request_id,
                 started_at=started_at,
-                ended_at=_utc_now(),
+                ended_at=utc_now_iso(),
                 duration_ms=_duration_ms(started),
                 status="failed",
                 stream=True,
@@ -274,7 +275,7 @@ class LoggingModelProvider(ModelProvider):
             request_with_id,
             request_id=request_id,
             started_at=started_at,
-            ended_at=_utc_now(),
+            ended_at=utc_now_iso(),
             duration_ms=_duration_ms(started),
             status="success",
             stream=True,
@@ -330,6 +331,7 @@ class LoggingModelProvider(ModelProvider):
                 "system_prompt": _redact_text(model_request.system_prompt, secret_values),
                 "user_prompt": _redact_text(model_request.user_prompt, secret_values),
                 "context": _redact_text(model_request.context, secret_values),
+                "prompt_version": model_request.prompt_version,
                 "payload": payload,
             },
             "response": _response_payload(response, secret_values),
@@ -650,9 +652,9 @@ class OpenAICompatibleProvider(ModelProvider):
     ) -> str:
         endpoint = f"{self.base_url}/chat/completions"
         body = json.dumps(payload).encode("utf-8")
-        request_id = model_request.request_id or _request_id()
+        request_id = model_request.request_id or new_request_id("provider")
         started = time.monotonic()
-        started_at = _utc_now()
+        started_at = utc_now_iso()
         attempts = self.max_retries + 1
         last_error: ProviderError | None = None
         for attempt in range(1, attempts + 1):
@@ -678,7 +680,7 @@ class OpenAICompatibleProvider(ModelProvider):
                         model=self.model,
                         endpoint=_safe_endpoint(endpoint),
                         started_at=started_at,
-                        ended_at=_utc_now(),
+                        ended_at=utc_now_iso(),
                         status="success",
                         attempt_count=attempt,
                         duration_ms=_duration_ms(started),
@@ -738,7 +740,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 model=self.model,
                 endpoint=_safe_endpoint(endpoint),
                 started_at=started_at,
-                ended_at=_utc_now(),
+                ended_at=utc_now_iso(),
                 status="failed",
                 attempt_count=attempt,
                 duration_ms=_duration_ms(started),
@@ -881,14 +883,6 @@ def resolve_json_response_format(provider_name: str, configured: str) -> str:
             "use json_object or auto"
         )
     return configured
-
-
-def _request_id() -> str:
-    return new_request_id("provider")
-
-
-def _utc_now() -> str:
-    return utc_now_iso()
 
 
 def _duration_ms(started: float) -> int:
@@ -1088,17 +1082,20 @@ def _finish_reason_from_raw(raw: Mapping[str, object]) -> str | None:
 def _model_response_from_openai_sse(response_body: str) -> ModelResponse:
     content_chunks: list[str] = []
     reasoning_chunks: list[str] = []
-    raw_chunks: list[dict[str, object]] = []
+    stream_chunks = 0
+    finish_chunk: dict[str, object] | None = None
+    usage_chunk: dict[str, object] | None = None
     token_usage: TokenUsage | None = None
     finish_reason: str | None = None
     for line in response_body.splitlines():
         raw = _stream_raw_from_line(line)
         if raw is None:
             continue
-        raw_chunks.append(dict(raw))
+        stream_chunks += 1
         usage = raw.get("usage")
         if isinstance(usage, Mapping):
             token_usage = _token_usage_from_raw(usage)
+            usage_chunk = dict(raw)
         chunk, reasoning = _stream_content_from_raw(raw)
         if chunk:
             content_chunks.append(chunk)
@@ -1107,9 +1104,14 @@ def _model_response_from_openai_sse(response_body: str) -> ModelResponse:
         raw_finish_reason = _finish_reason_from_raw(raw)
         if raw_finish_reason:
             finish_reason = raw_finish_reason
+            finish_chunk = dict(raw)
     return ModelResponse(
         content="".join(content_chunks),
-        raw_response={"chunks": raw_chunks, "stream_chunks": len(raw_chunks)},
+        raw_response={
+            "stream_chunks": stream_chunks,
+            "finish_chunk": finish_chunk,
+            "usage_chunk": usage_chunk,
+        },
         token_usage=token_usage,
         reasoning_content="".join(reasoning_chunks) or None,
         finish_reason=finish_reason,

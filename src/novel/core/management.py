@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 import json
 from pathlib import Path
 from typing import Literal
@@ -21,14 +20,14 @@ def record_management_event(
     details: dict[str, object] | None = None,
 ) -> ManagementEvent:
     event = ManagementEvent(
-        event_id=_new_event_id(),
+        event_id=new_request_id("mgmt"),
         event_type=event_type,
         message=message,
         source=source,
         target_files=target_files or [],
         status=status,
         details=details or {},
-        created_at=_utc_now(),
+        created_at=utc_now(),
     )
     path = management_events_path(root)
     append_jsonl(path, event.model_dump(mode="json"))
@@ -52,11 +51,3 @@ def load_management_events(root: Path, *, limit: int = 20) -> list[ManagementEve
 
 def management_events_path(root: Path) -> Path:
     return root.resolve() / "memory" / "management_events.jsonl"
-
-
-def _new_event_id() -> str:
-    return new_request_id("mgmt")
-
-
-def _utc_now() -> datetime:
-    return utc_now()

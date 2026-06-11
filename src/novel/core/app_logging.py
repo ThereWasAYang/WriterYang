@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
 
 from novel.core.security import redact_secret_text
+from novel.core.timeutil import utc_now_iso
 
 
 def log_app_warning(root: Path, event: str, **fields: object) -> None:
@@ -17,7 +17,7 @@ def _write_app_log(root: Path, level: str, event: str, fields: dict[str, object]
         resolved = root.expanduser().resolve()
         logger = _logger_for_root(resolved)
         payload: dict[str, object] = {
-            "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "created_at": utc_now_iso(),
             "level": level,
             "event": event,
         }

@@ -39,7 +39,7 @@ Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API；如果�
 通用上下文策略：
 
 - 系统 prompt 通过 `core/prompts.py::load_prompt_template()` 解析 `{{partial:name}}`，共享片段放在 `src/novel/prompts/partials/`；ContextBundle 说明统一称为“系统检索出的长期记忆参考”，不假设 FTS 和 embedding 一定同时存在。
-- `core/prompts.py` 维护聚合 `PROMPT_VERSION` 和逐模板 `PROMPT_VERSIONS`；修改单个 prompt 时必须更新对应模板版本。
+- `core/prompts.py` 维护聚合 `PROMPT_VERSION` 和逐模板 `PROMPT_VERSIONS`；修改单个 prompt 时必须更新对应模板版本。使用模板的 Agent 请求会把单模板版本写入 `ModelRequest.prompt_version` 和 `runs/model_io/{request_id}.json`。
 - `--vector-context auto|on|off` 控制语义召回；`auto` 只在真实 embedding provider 配置完整且环境变量齐全时启用，失败会回退 FTS 并写入 ContextBundle warning。旧 `--use-vector-context` 是 `on` 的兼容别名。
 - 检索 query 会拼接章节号、用户 instruction、ChapterPlan 的 goal/summary/must_include/scenes 等稳定信息。
 - ChapterPlan 明确引用的 `timeline_event_ids` 会最高优先级进入 ContextBundle；此外，检索层会按结构化 focus entity ID 召回关键历史/记忆类 timeline event，不用自然语言关键词猜事件 ID。
@@ -424,7 +424,7 @@ Session 层是用户协作入口。它可以要求用户批准大纲和最终内
 真实模型输出异常时看：
 
 1. `runs/model_io/index.jsonl` 找 request_id。
-2. 打开 `runs/model_io/{request_id}.json` 看 system prompt、user prompt、context、payload、response。
+2. 打开 `runs/model_io/{request_id}.json` 看 `prompt_version`、system prompt、user prompt、context、payload、response。
 3. 如果被输出守卫拦截，看 `runs/agent_output_violations/{request_id}.json`。
 4. 如果 provider 失败，看 `runs/provider_calls.jsonl`。
 

@@ -185,7 +185,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_provider_config_summary()` / `_sanitize_config()` / `_collect_env_names()`：脱敏展示 agent/embedding 配置。
 - `/api/search-status` 对应 `search_index_status()`；只返回 env 名称和是否缺失，不返回真实 env 值。
 - `/api/usage` 对应 `summarize_provider_usage()`；Web 用量统计页展示总调用、成功/失败、token，以及按 Agent / Provider / Model 的摘要。
-- `/api/projects`、`/api/session`、`/api/generate-chapter` 保留为兼容、外部集成或高级调试入口；普通 Web 创作路径优先使用主页、创作工作台和 Session API。
+- `/api/projects`、`/api/session`、`/api/generate-chapter`、`/api/setup/open-web` 保留为兼容 HTTP 契约，详见 `docs/INTEGRATION.md`；普通 Web 创作路径优先使用主页、创作工作台和 Session API。
 - `_state_timeline_summary()` / `_state_timeline_visual_summary()`：状态和时间线可视化摘要。
 - `_audit_annotations()` / `_locate_quote()`：audit evidence 定位正文。
 - `_workspace_diff()`：版本 diff。
@@ -329,7 +329,7 @@ JSON Schema 导出：
 - `ModelResponse`：模型内容、原始响应、token、reasoning。
 - `ModelProvider`：抽象接口。
 - `MockProvider`：测试 provider，支持响应序列和 stream chunks。
-- `LoggingModelProvider`：包裹 provider，写完整 model_io 日志。
+- `LoggingModelProvider`：包裹 provider，写完整 model_io 日志；request 段记录 `prompt_version`，stream 原始响应只保留 chunk 数、finish chunk 和 usage chunk。
 - `OpenAICompatibleProvider`：OpenAI Chat Completions 兼容实现。
 - `ProviderFactory`：根据 `AgentConfig` 创建 provider。
 - `ProviderError` 及子类：env、HTTP、auth、rate limit、timeout、network、response 错误。
@@ -771,6 +771,7 @@ Provider 用量统计：
 
 - `PROMPT_VERSION`：当前最新聚合 prompt 版本。
 - `PROMPT_VERSIONS`：逐模板版本映射，覆盖每个非 partial prompt。
+- `prompt_template_version(name)`：返回单个模板版本，调用方写入 `ModelRequest.prompt_version`，最终进入 `runs/model_io/{request_id}.json`。
 - `load_prompt_template(name)`：按名称读取 `.txt`，并解析 `{{partial:name}}` 共享片段。
 - `prompts/partials/*.txt`：只放共享规则片段，例如 ContextBundle 长期记忆说明和内部任务不反问约束。
 

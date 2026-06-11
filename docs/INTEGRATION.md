@@ -95,6 +95,17 @@ novel search "角色是否知道旧案真相" --project ./rain-station --use-vec
 
 Web API 也提供同等修复入口：`POST /api/chapter-memory/generate` 生成或强制重建单章记忆，`POST /api/chapter-memory/rebuild` 默认批量处理缺失或 stale 的章节记忆。
 
+## 兼容 Web API 契约
+
+以下 Web API 不是前端页面的主要入口，但会作为本地自动化和外部 Agent 的兼容 HTTP 契约保留：
+
+- `GET /api/projects?root=<dir>`：列出 `root` 自身或其一级子目录中的 WriterYang 项目。
+- `GET /api/session?path=<project>&session_id=<id>`：读取 session、progress、audit summary、rewrite events 和后台管理事件。
+- `POST /api/generate-chapter`：调用与 CLI `generate-chapter` 相同的 core workflow；请求体使用 `path`、`chapter_number`、`provider`、`instruction`、`force`、`target_words`、`style_note`、`polish_mode`、`skip_polish`、`skip_audit`、`stop_after`、`use_search_context`、`vector_context`。
+- `POST /api/setup/open-web`：只返回建议打开的本地 Web URL 和 `opened=false`，不会替调用方打开浏览器。
+
+这些接口和普通 Web UI 一样不会返回真实 API Key。长时间运行的创作任务仍建议优先使用 Session API，以便获得 progress、取消和自动修订状态。
+
 ## JSON 输出格式
 
 成功命令返回 `ok: true`：

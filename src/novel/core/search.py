@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -33,6 +32,7 @@ from novel.core.schemas import (
     ContextVisibility,
     VectorContextMode,
 )
+from novel.core.timeutil import utc_now, utc_now_iso, utc_timestamp
 
 
 SearchType = Literal["character", "location", "item", "event", "chapter", "chapter_memory", "all"]
@@ -484,7 +484,7 @@ def retrieve_context_bundle(
         included=selected,
         excluded=sorted(excluded.values(), key=lambda item: (item.type, item.id)),
         warnings=warnings,
-        created_at=_utc_now(),
+        created_at=utc_now(),
     )
 
 
@@ -542,7 +542,7 @@ def write_context_report(root: Path, bundle: ContextBundle, *, force: bool = Fal
     if bundle.chapter_number is None:
         report_dir = root / "runs"
         report_dir.mkdir(parents=True, exist_ok=True)
-        target = report_dir / f"context_report.{bundle.task}.{_utc_now().strftime('%Y%m%d_%H%M%S')}.json"
+        target = report_dir / f"context_report.{bundle.task}.{utc_timestamp('%Y%m%d_%H%M%S')}.json"
     else:
         report_dir = root / "memory" / "chapters" / f"{bundle.chapter_number:03d}"
         report_dir.mkdir(parents=True, exist_ok=True)
@@ -1126,14 +1126,6 @@ def _instruction_requests_hidden_reveal(instruction: str | None) -> bool:
     return any(marker in lowered for marker in ("揭示", "暴露隐藏真相", "隐藏真相", "reveal", "hidden truth"))
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
-
-
-def _utc_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 def search_index_path(root: Path) -> Path:
     return root.resolve() / "memory" / "search_index.json"
 
@@ -1514,7 +1506,7 @@ def _write_search_manifest(
     *,
     provider: EmbeddingProvider | None,
 ) -> None:
-    indexed_at = _utc_iso()
+    indexed_at = utc_now_iso()
     entries = []
     for document in documents:
         vector = vectors.get(document.id)

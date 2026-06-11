@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import re
-import time
 from pathlib import Path
 from typing import Iterable, Literal
 
@@ -179,7 +178,7 @@ def write_agent_output_violation_log(
     output: str,
     error: AgentOutputContractError,
 ) -> Path:
-    request_id = model_request.request_id or _new_request_id()
+    request_id = model_request.request_id or new_request_id("agent")
     path = root.resolve() / "runs" / "agent_output_violations" / f"{request_id}.json"
     log = {
         "schema_version": "1.0",
@@ -197,7 +196,7 @@ def write_agent_output_violation_log(
         "message": str(error),
         "output_excerpt": _redact_sensitive(output)[:2000],
         "output_length": len(output),
-        "created_at": _utc_now(),
+        "created_at": utc_now_iso(),
     }
     atomic_write_json(path, log)
     return path
@@ -226,11 +225,7 @@ def _raise_if_truncated(
 
 
 def _request_with_id(request: ModelRequest) -> ModelRequest:
-    return request if request.request_id else replace(request, request_id=_new_request_id())
-
-
-def _new_request_id() -> str:
-    return new_request_id("agent") + f"_{time.time_ns() % 1000000:06d}"
+    return request if request.request_id else replace(request, request_id=new_request_id("agent"))
 
 
 def _looks_like_json_payload(text: str) -> bool:
@@ -354,7 +349,3 @@ def _contains_workspace_language(text: str) -> bool:
 
 def _redact_sensitive(text: str) -> str:
     return redact_secret_text(text)
-
-
-def _utc_now() -> str:
-    return utc_now_iso()

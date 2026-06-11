@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timezone
 import difflib
 import json
 import os
@@ -68,6 +67,7 @@ from novel.core.setup_guide import (
     configure_default_provider,
     configure_embedding_provider,
 )
+from novel.core.timeutil import new_request_id, utc_now, utc_timestamp
 import novel.core.web_launcher as web_launcher
 from novel.core.schemas import (
     AgentConfig,
@@ -165,7 +165,7 @@ def handle_api_request(
     query_string: str = "",
     body: bytes | str | None = None,
 ) -> APIResponse:
-    request_id = _request_id()
+    request_id = new_request_id("web")
     query = {key: values[-1] for key, values in parse_qs(query_string).items()}
     data_for_log: dict[str, object] | None = None
     try:
@@ -743,7 +743,7 @@ def _save_chapter_file(data: dict[str, object]) -> dict[str, object]:
         from_audit=False,
         audit_file="audit.json" if (chapter_dir / "audit.json").exists() else None,
         audit_issue_ids=[],
-        created_at=datetime.now(timezone.utc).replace(microsecond=0),
+        created_at=utc_now(),
         provider="web_editor",
     )
     log_path = chapter_dir / "revision_log.json"
@@ -924,7 +924,7 @@ def _index_refresh(data: dict[str, object]) -> dict[str, object]:
 
 
 def _init_project(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
+    root = _init_project_root_from_body(data)
     title = _optional_string(data.get("title")) or root.name or "未命名小说"
     genre_value = data.get("genre")
     genre = _split_csv(str(genre_value)) if genre_value else None
@@ -2516,7 +2516,7 @@ def _next_version_path(chapter_dir: Path, target: str) -> Path:
 
 
 def _new_revision_id() -> str:
-    return "revision_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return new_request_id("revision")
 
 
 def _append_web_revision_log(path: Path, chapter_number: int, record: RevisionRecord) -> None:
@@ -2629,6 +2629,14 @@ def _root_from_query(query: dict[str, str]) -> Path:
 
 def _root_from_body(data: dict[str, object]) -> Path:
     return Path(str(data.get("path") or ".")).expanduser().resolve()
+
+
+def _init_project_root_from_body(data: dict[str, object]) -> Path:
+    raw_path = str(data.get("path") or "").strip()
+    path = Path(raw_path or "未命名小说").expanduser()
+    if not path.is_absolute():
+        path = _default_project_parent() / path
+    return path.resolve()
 
 
 def _chapter_number(data: dict[str, object]) -> int:
@@ -2767,12 +2775,7 @@ def _split_csv(value: str) -> list[str]:
 
 
 def _default_canon_proposal_path(root: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    return root / "runs" / f"canon_proposal_{stamp}.json"
-
-
-def _request_id() -> str:
-    return "web_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return root / "runs" / f"canon_proposal_{utc_timestamp()}.json"
 
 
 def _runtime_summary() -> dict[str, object]:
@@ -2805,6 +2808,7 @@ def _runtime_summary() -> dict[str, object]:
         "environment_source": source,
         "version": __version__,
         "managed_install": managed,
+        "default_project_parent": str(_default_project_parent()),
         "current_web_host": current_host,
         "current_web_port": current_port,
         "launcher_config_path": str(launcher_config_path),
@@ -2817,6 +2821,10 @@ def _runtime_summary() -> dict[str, object]:
         "launcher_port_fallback": os.environ.get(web_launcher.WEB_PORT_FALLBACK_ENV) == "1",
         "warning": "" if managed else "当前 Web UI 可能不是从 WriterYang 专用环境启动的，建议使用安装脚本生成的 WriterYang_WebUI.command 启动。",
     }
+
+
+def _default_project_parent() -> Path:
+    return (Path.home() / "WriterYang").expanduser()
 
 
 def _relative(root: Path, path: Path) -> str:

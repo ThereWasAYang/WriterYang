@@ -36,6 +36,11 @@ def load_prompt_template(name: str) -> str:
     return _resolve_prompt_partials(text)
 
 
+def prompt_template_version(name: str) -> str:
+    key = name.removesuffix(".txt")
+    return PROMPT_VERSIONS[key]
+
+
 def _resolve_prompt_partials(text: str, *, seen: frozenset[str] = frozenset()) -> str:
     def replace(match: re.Match[str]) -> str:
         partial_name = match.group(1)

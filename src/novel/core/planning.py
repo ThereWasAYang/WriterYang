@@ -18,7 +18,7 @@ from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     ChapterPlan,
@@ -27,7 +27,12 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
-from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
+from novel.core.structured_generation import (
+    REPAIR_ERROR_LIMIT,
+    REPAIR_INVALID_OUTPUT_LIMIT,
+    JsonRepairExhaustedError,
+    generate_json_with_repair,
+)
 from novel.core.validation import ValidationReport
 
 
@@ -255,6 +260,7 @@ def _generate_chapter_plan_with_repair(
         user_prompt=user_prompt,
         context=canon_summary,
         json_schema_name="ChapterPlan",
+        prompt_version=prompt_template_version("planning_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -291,7 +297,6 @@ def _generate_chapter_plan_with_repair(
             parse=parse_and_validate,
             repair_prompt=lambda invalid_output, error: _repair_prompt(
                 schema_name="ChapterPlan",
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
                 allowed_ids=_allowed_id_summary(canon, state, timeline),
@@ -453,7 +458,6 @@ def _allowed_id_summary(canon: CanonFiles, state: EntityState, timeline: Timelin
 def _repair_prompt(
     *,
     schema_name: str,
-    original_prompt: str,
     invalid_output: str,
     error: str,
     allowed_ids: str,
@@ -463,9 +467,8 @@ def _repair_prompt(
         "请只输出修正后的 JSON，不要解释，不要 Markdown 包装。\n"
         "不要发明角色、地点、物品、state 或 timeline ID；只能使用下方允许 ID。\n\n"
         f"{allowed_ids}\n"
-        f"校验错误摘要：\n{error[:2400]}\n\n"
-        f"上一次输出：\n{invalid_output[:6000]}\n\n"
-        f"原始任务要求：\n{original_prompt[:6000]}\n"
+        f"校验错误摘要：\n{error[:REPAIR_ERROR_LIMIT]}\n\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 

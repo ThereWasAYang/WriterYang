@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Callable, Literal
@@ -29,6 +29,7 @@ from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_
 from novel.core.providers import ModelProvider
 from novel.core.runtime_config import normalize_polish_mode, project_polish_mode
 from novel.core.schemas import AgentRunLog, AgentRunStep, PolishMode, ProjectConfig, VectorContextMode
+from novel.core.timeutil import utc_now_precise
 
 
 StopAfter = Literal["plan", "write", "polish", "audit"]
@@ -344,7 +345,7 @@ def _render_single_pass_polished_markdown(*, chapter_number: int, title: str, bo
         "created_by: writer_agent\n"
         "based_on: draft.md\n"
         "polish_skipped: true\n"
-        f"created_at: {_utc_now()}\n"
+        f"created_at: {utc_now_precise()}\n"
         "---\n\n"
         f"{body.strip()}\n"
     )
@@ -441,7 +442,7 @@ def _load_provider_for_step(
 
 
 def _new_run_log(options: GenerateChapterOptions) -> AgentRunLog:
-    now = _utc_now()
+    now = utc_now_precise()
     return AgentRunLog(
         run_id=_run_id(now),
         task="generate_chapter",
@@ -507,7 +508,7 @@ def _resume_existing_step(
 
 def _fail_run(run_log: AgentRunLog, error: str) -> None:
     run_log.status = "failed"
-    run_log.ended_at = _utc_now()
+    run_log.ended_at = utc_now_precise()
     run_log.errors.append(error)
     run_log.output_files = _unique_outputs(run_log.steps)
 
@@ -519,7 +520,7 @@ def _complete(
     message: str,
 ) -> GenerateChapterResult:
     run_log.status = "completed"
-    run_log.ended_at = _utc_now()
+    run_log.ended_at = utc_now_precise()
     run_log.output_files = _unique_outputs(run_log.steps)
     _write_run_log(root, run_log_path, run_log)
     return GenerateChapterResult(run_log=run_log, run_log_path=run_log_path, message=message)
@@ -554,11 +555,5 @@ def _rel(root: Path, path: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _run_id(timestamp: datetime) -> str:
     return "run_" + timestamp.strftime("%Y%m%d_%H%M%S_%f")

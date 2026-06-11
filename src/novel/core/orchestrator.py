@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -24,7 +23,7 @@ from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.memory_repair import suggest_memory_repair
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
@@ -43,7 +42,13 @@ from novel.core.state_update import (
     load_state_update_provider,
     propose_state_update,
 )
-from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
+from novel.core.structured_generation import (
+    REPAIR_ERROR_LIMIT,
+    REPAIR_INVALID_OUTPUT_LIMIT,
+    JsonRepairExhaustedError,
+    generate_json_with_repair,
+)
+from novel.core.timeutil import utc_now, utc_timestamp
 
 
 OrchestratorTask = Literal[
@@ -200,14 +205,14 @@ def orchestrate(options: OrchestratorOptions) -> OrchestratorResult:
         _execute_plan(root, options, plan, run_log)
     except Exception as exc:
         run_log.status = "failed"
-        run_log.ended_at = _utc_now()
+        run_log.ended_at = utc_now()
         run_log.errors.append(str(exc))
         run_log.output_files = _unique_outputs(run_log.steps)
         _write_run_log(run_log_path, run_log, plan)
         raise OrchestratorError(str(exc)) from exc
 
     run_log.status = "completed"
-    run_log.ended_at = _utc_now()
+    run_log.ended_at = utc_now()
     run_log.output_files = _unique_outputs(run_log.steps)
     _write_run_log(run_log_path, run_log, plan)
     return OrchestratorResult(
@@ -329,6 +334,7 @@ def decide_ask_intent(
         system_prompt=load_prompt_template("orchestrator_ask_intent_system"),
         user_prompt=user_prompt,
         json_schema_name="AskIntentDecision",
+        prompt_version=prompt_template_version("orchestrator_ask_intent_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -356,7 +362,6 @@ def decide_ask_intent(
             contract=contract,
             parse=lambda content: parse_ask_intent_decision(content, fallback_request=instruction),
             repair_prompt=lambda invalid_output, error: _ask_intent_repair_prompt(
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -462,14 +467,13 @@ def _normalize_ask_intent_payload(data: dict[str, object], *, fallback_request: 
     return normalized
 
 
-def _ask_intent_repair_prompt(*, original_prompt: str, invalid_output: str, error: str) -> str:
+def _ask_intent_repair_prompt(*, invalid_output: str, error: str) -> str:
     return (
-        f"{original_prompt}\n\n"
         "上一次输出不能被解析为 AskIntentDecision。\n"
-        f"错误：{error}\n\n"
+        f"错误：{error[:REPAIR_ERROR_LIMIT]}\n\n"
         "请重新只输出一个 JSON object，不要 Markdown 或解释。"
         "task 只能是 session_start / memory_repair_suggest / memory_repair_apply / export / status / show / unknown。\n"
-        f"上一次输出：\n{invalid_output[:3000]}\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
@@ -545,6 +549,7 @@ def route_revision_request(
         user_prompt=user_prompt,
         context=session_summary,
         json_schema_name="RevisionRouteDecision",
+        prompt_version=prompt_template_version("orchestrator_revision_route_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -576,7 +581,6 @@ def route_revision_request(
                 chapter_numbers=chapters,
             ),
             repair_prompt=lambda invalid_output, error: _revision_route_repair_prompt(
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -621,6 +625,7 @@ def route_audit_repair(
         system_prompt=load_prompt_template("audit_repair_route_system"),
         user_prompt=user_prompt,
         json_schema_name="AuditRepairRouteDecision",
+        prompt_version=prompt_template_version("audit_repair_route_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -650,7 +655,6 @@ def route_audit_repair(
             contract=contract,
             parse=lambda content: parse_audit_repair_route_decision(content, audit_report=audit_report),
             repair_prompt=lambda invalid_output, error: _audit_repair_route_repair_prompt(
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -742,13 +746,12 @@ def _normalize_audit_repair_route_payload(data: dict[str, object], *, audit_repo
     return normalized
 
 
-def _audit_repair_route_repair_prompt(*, original_prompt: str, invalid_output: str, error: str) -> str:
+def _audit_repair_route_repair_prompt(*, invalid_output: str, error: str) -> str:
     return (
-        f"{original_prompt}\n\n"
         "上一次输出不能被解析为 AuditRepairRouteDecision。\n"
-        f"错误：{error}\n\n"
+        f"错误：{error[:REPAIR_ERROR_LIMIT]}\n\n"
         "请重新只输出 JSON object。route 只能是 plot_replan / writer_rewrite / revision_rewrite / manual_review。\n"
-        f"上一次输出：\n{invalid_output[:3000]}\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
@@ -835,15 +838,14 @@ def parse_revision_route_decision(
         raise OrchestratorError(f"provider returned invalid RevisionRouteDecision: {exc}") from exc
 
 
-def _revision_route_repair_prompt(*, original_prompt: str, invalid_output: str, error: str) -> str:
+def _revision_route_repair_prompt(*, invalid_output: str, error: str) -> str:
     return (
-        f"{original_prompt}\n\n"
         "上一次输出不能被解析为 RevisionRouteDecision。\n"
-        f"错误：{error}\n\n"
+        f"错误：{error[:REPAIR_ERROR_LIMIT]}\n\n"
         "请重新只输出一个 JSON object，不要 Markdown 或解释。"
         "route 只能是 plot_replan / writer_rewrite / revision_patch；"
         "必须填写被选 route 对应的 instruction 字段。\n"
-        f"上一次输出：\n{invalid_output[:3000]}\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
@@ -1031,7 +1033,7 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
         return outputs
     if plan.task == "canon":
         provider = load_canon_provider(root, provider_name)
-        output_path = root / "runs" / f"canon_proposal_{_timestamp()}.json"
+        output_path = root / "runs" / f"canon_proposal_{utc_timestamp()}.json"
         canon_result = suggest_canon(
             CanonSuggestOptions(
                 root=root,
@@ -1215,7 +1217,7 @@ def _check_limits(options: OrchestratorOptions) -> None:
 
 
 def _new_run_log(plan: OrchestratorPlan) -> AgentRunLog:
-    now = _utc_now()
+    now = utc_now()
     return AgentRunLog(
         run_id=f"run_{now.strftime('%Y%m%d_%H%M%S_%f')}",
         task="ask",
@@ -1340,11 +1342,3 @@ def _rel(root: Path, path: Path | None) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)

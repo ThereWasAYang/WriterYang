@@ -163,7 +163,7 @@ def test_user_docs_exist_and_mention_core_workflow() -> None:
             "刷新关键词索引",
             "刷新语义向量索引",
             "Agent 模型配置",
-            "状态 / 时间线",
+            "状态和时间线",
             "Rewrite Event ID",
             "后台管理动态",
         ),

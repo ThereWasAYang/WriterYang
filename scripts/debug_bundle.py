@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -11,6 +10,8 @@ import shutil
 import subprocess
 import sys
 from typing import Iterable, Sequence
+
+from novel.core.timeutil import utc_now_iso, utc_timestamp
 
 
 IMPORTANT_PATTERNS = (
@@ -66,7 +67,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         copied.append(f"command_outputs/{name}")
 
     manifest = {
-        "created_at": _utc_now(),
+        "created_at": utc_now_iso(),
         "project": str(root),
         "output": str(output),
         "files": copied,
@@ -134,7 +135,7 @@ def _relative(root: Path, path: Path) -> str:
 
 
 def _default_output_dir() -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stamp = utc_timestamp("%Y%m%d_%H%M%S")
     return Path("/tmp") / f"writeryang-debug-bundle-{stamp}"
 
 
@@ -145,11 +146,5 @@ def _print(payload: dict[str, object], json_output: bool) -> None:
         print(f"Debug bundle: {payload['output']}")
         if payload.get("zip_path"):
             print(f"Zip: {payload['zip_path']}")
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

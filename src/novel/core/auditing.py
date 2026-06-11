@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -21,7 +20,7 @@ from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditEvidence,
@@ -35,7 +34,13 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
-from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
+from novel.core.structured_generation import (
+    REPAIR_ERROR_LIMIT,
+    REPAIR_INVALID_OUTPUT_LIMIT,
+    JsonRepairExhaustedError,
+    generate_json_with_repair,
+)
+from novel.core.timeutil import utc_now, utc_now_iso
 from novel.core.validation import validate_canon
 
 
@@ -579,7 +584,7 @@ def _write_audit_recall_log(root: Path, chapter_number: int, entries: list[dict[
     chapter_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_json(
         chapter_dir / "audit_recall.json",
-        {"chapter_number": chapter_number, "created_at": _utc_now(), "requests": entries},
+        {"chapter_number": chapter_number, "created_at": utc_now_iso(), "requests": entries},
     )
 
 
@@ -609,6 +614,7 @@ def _generate_audit_report_with_repair(
         user_prompt=user_prompt,
         context=context.canon_summary,
         json_schema_name="AuditReport",
+        prompt_version=prompt_template_version("audit_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -638,7 +644,6 @@ def _generate_audit_report_with_repair(
             parse=parse_audit_report,
             repair_prompt=lambda invalid_output, error: _repair_prompt(
                 schema_name="AuditReport",
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -762,16 +767,14 @@ def _has_specific_audit_evidence(issue: dict[str, object]) -> bool:
 def _repair_prompt(
     *,
     schema_name: str,
-    original_prompt: str,
     invalid_output: str,
     error: str,
 ) -> str:
     return (
         f"你上一次输出的 {schema_name} JSON 无法通过解析或 schema 校验。\n"
         "请只输出修正后的 JSON，不要解释，不要 Markdown 包装。\n\n"
-        f"校验错误摘要：\n{error[:2400]}\n\n"
-        f"上一次输出：\n{invalid_output[:6000]}\n\n"
-        f"原始任务要求：\n{original_prompt[:6000]}\n"
+        f"校验错误摘要：\n{error[:REPAIR_ERROR_LIMIT]}\n\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
@@ -797,7 +800,7 @@ def combine_audit_reports(
         summary=summary,
         issues=issues,
         passed_checks=checks,
-        created_at=datetime.now(timezone.utc),
+        created_at=utc_now(),
     )
 
 
@@ -819,7 +822,7 @@ def default_mock_audit_report_json(
                 "style_reviewed",
                 "premature_reveal_reviewed",
             ],
-            "created_at": _utc_now(),
+            "created_at": utc_now_iso(),
         },
         ensure_ascii=False,
     )
@@ -995,7 +998,3 @@ def _unique_preserve_order(values: list[str]) -> list[str]:
             result.append(value)
             seen.add(value)
     return result
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

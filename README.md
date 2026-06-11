@@ -327,7 +327,7 @@ Provider 发送请求前会对最终 messages 做 CJK-aware prompt token 粗估�
 
 Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。这是轻量元数据日志，只记录 agent、provider、model、endpoint、耗时、重试次数、状态、错误类型、token 用量、`finish_reason` 和对应的 `model_io_path`，不记录真实 API Key。
 
-为了方便 debug，每次 Agent 模型调用还会把完整输入输出写入 `runs/model_io/{request_id}.json`，并追加摘要到 `runs/model_io/index.jsonl`。完整日志包含 system prompt、user prompt、上下文、发送给 provider 的安全请求体、模型正文输出、reasoning 内容、`finish_reason`、原始响应和错误信息；不会写入 HTTP header、Authorization、真实 API Key 或环境变量值。注意：这些日志会包含小说正文、隐藏设定和作者指令，仅适合本地排查，默认不应提交到 Git。
+为了方便 debug，每次 Agent 模型调用还会把完整输入输出写入 `runs/model_io/{request_id}.json`，并追加摘要到 `runs/model_io/index.jsonl`。完整日志包含 system prompt、user prompt、上下文、`prompt_version`、发送给 provider 的安全请求体、模型正文输出、reasoning 内容、`finish_reason`、原始响应摘要和错误信息；流式响应的原始日志只保留 chunk 数、finish chunk 和 usage chunk，避免把重复 SSE 元数据大量落盘。日志不会写入 HTTP header、Authorization、真实 API Key 或环境变量值。注意：这些日志会包含小说正文、隐藏设定和作者指令，仅适合本地排查，默认不应提交到 Git。
 
 每次真实 provider 调用完成后，工具会根据调用日志刷新 `runs/provider_usage.json`，用于实时统计当前小说项目的累计调用量和 token 消耗。可以用下面的命令查看：
 
@@ -638,7 +638,7 @@ web:
 
 - 主页：初始化项目、打开项目、项目初始引导、项目检查、项目摘要、章节列表、导出 Markdown / DOCX 和下一步提示。
 - 创作工作台：生成灵感、Canon 建议、Session 大纲协商、正文生成、审核修订、认可归档、章节对照、章节编辑器、Audit 定位和 Revision diff。
-- 小说状态管理：Canon 摘要、状态 / 时间线、项目管家和后台管理动态。
+- 小说状态管理：Canon 摘要、状态和时间线、项目管家和后台管理动态。
 - 模型与检索配置：Agent 模型配置、Embedding API 重新配置、embedding 状态、FTS / embedding 索引刷新。
 - 运行日志 / 项目文件：项目搜索、安全文件树、只读文件预览、章节文件查看、运行日志、用量统计和 model I/O 摘要。
 - Inspiration / Canon：可生成 `memory/inspiration.md`，生成 canon proposal，并显式 apply proposal。Web UI 灵感默认走 Markdown 弱总纲，不为 Inspiration 强制开启 provider JSON mode；需要 `inspiration.json` 时可用 CLI 的 `--json` 或后续工具派生。
@@ -653,7 +653,7 @@ web:
 - Agent 模型配置：用表单展示并允许编辑各 Agent 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；非 `default` Agent 通过“继承default”勾选项控制是否跟随 default。勾选后只锁定 provider/model/API env/token/timeout 等调用字段，`temperature`、`thinking.type`、`reasoning` 仍可编辑并保存为业务 patch；取消勾选后先复制当前生效配置再开放为独立完整配置。当前 provider 不会使用的字段显示 `NA` 并禁用。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，显示“Embedding API 已配置”、当前 provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。API Key 只写入项目 `.env`，保存前会用当前批量和维度验证真实 API，保存成功后清空输入框并自动刷新语义向量索引。
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。
-- 状态 / 时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
+- 状态和时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。
 - Session 面板：显示当前 session id、outline/content 状态和章节范围；创建新 session 时会清空旧 id 并使用服务端返回的新 id。
 - 当前任务进度：Session 写作期间显示阶段、章节、轮次、已用时和最近事件；“取消当前 Session 任务”只会在安全边界生效，不会立刻打断当前 LLM 请求。
 - 自动打回重写记录：当 Audit 把正文打回重写时，显示第几章第几轮、打回原因、系统动作和“查看被打回原文”按钮；如果你认为打回不合理，应检查对应 `audit.json`、`memory/state/timeline.json`、`current_state.json` 和 canon 文件。

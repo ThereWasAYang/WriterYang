@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Literal
@@ -20,8 +19,9 @@ from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, 
 from novel.core.management import record_management_event
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest, ProviderOutputTruncatedError
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
+from novel.core.timeutil import utc_now_iso
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -122,6 +122,7 @@ def polish_chapter(
 
     model_request = ModelRequest(
         system_prompt=build_polish_system_prompt(),
+        prompt_version=prompt_template_version("polish_system"),
         user_prompt=build_polish_user_prompt(
             project=project,
             plan=plan,
@@ -178,7 +179,7 @@ def polish_chapter(
         chapter_number=options.chapter_number,
         title=title,
         body=body,
-        created_at=_utc_now(),
+        created_at=utc_now_iso(),
     )
     if options.force:
         backup_if_exists(polished_path, reason="force")
@@ -361,10 +362,6 @@ def _clean_polished_body(content: str) -> str:
         if body.startswith(wrapper):
             body = body[len(wrapper) :].strip()
     return body
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _edit_mode_description(edit_mode: EditMode) -> str:

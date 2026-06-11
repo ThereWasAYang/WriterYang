@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -15,8 +14,9 @@ from novel.core.agent_output import (
 from novel.core.io import atomic_write_text, backup_if_exists, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
+from novel.core.timeutil import utc_now
 from novel.core.schemas import InspirationBrief, ProjectConfig, VectorContextMode
 
 
@@ -77,6 +77,7 @@ def run_inspiration_agent(
         system_prompt=build_inspiration_system_prompt(),
         user_prompt=build_inspiration_user_prompt(project, source_text, search_context=search_context),
         context=_project_context(project),
+        prompt_version=prompt_template_version("inspiration_system"),
     )
     content = generate_with_output_guard(
         provider,
@@ -251,7 +252,7 @@ def _brief_from_response(content: str, source_text: str, source_type: str) -> In
         potential_characters=_extract_list_section(content, "Potential Characters"),
         potential_locations=_extract_list_section(content, "Potential Locations"),
         potential_conflicts=_extract_list_section(content, "Potential Conflicts"),
-        created_at=datetime.now(timezone.utc),
+        created_at=utc_now(),
     )
 
 

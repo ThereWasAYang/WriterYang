@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -31,7 +30,7 @@ from novel.core.memory_repair_ops import (
     restore_backups as _restore_backups,
     unescape_pointer as _unescape_pointer,
 )
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.memory_repair_rules import (
@@ -67,7 +66,13 @@ from novel.core.schemas import (
     MemoryRepairOperation,
     MemoryRepairProposal,
 )
-from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
+from novel.core.structured_generation import (
+    REPAIR_ERROR_LIMIT,
+    REPAIR_INVALID_OUTPUT_LIMIT,
+    JsonRepairExhaustedError,
+    generate_json_with_repair,
+)
+from novel.core.timeutil import new_request_id, utc_now
 from novel.core.validation import validate_project
 
 
@@ -185,7 +190,7 @@ def suggest_memory_repair(
             "warning_count": len(report.warnings),
         },
         notes=_proposal_notes(target_files, operations, notes, change_kind=resolved_kind, audit_issue_ids=audit_issue_ids or []),
-        created_at=_utc_now(),
+        created_at=utc_now(),
     )
     repair_dir = _repair_dir(root, repair_id)
     proposal_path = repair_dir / "proposal.json"
@@ -417,7 +422,7 @@ def suggest_setting_change_interactive(
         provider=provider,
         stage=stage,
         conversation_turns=[
-            MemoryChangeConversationTurn(role="user", content=request, created_at=_utc_now()),
+            MemoryChangeConversationTurn(role="user", content=request, created_at=utc_now()),
         ],
     )
     if decision.status == "needs_clarification" and max_clarification_rounds > 0:
@@ -460,7 +465,7 @@ def answer_setting_change_clarification(
     clarification = load_setting_change_clarification(root, clarification_id)
     if clarification.status != "needs_clarification":
         raise MemoryRepairError(f"setting change clarification is not waiting for input: {clarification_id}")
-    now = _utc_now()
+    now = utc_now()
     turns = [
         *clarification.conversation_turns,
         MemoryChangeConversationTurn(role="user", content=clean_answer, created_at=now),
@@ -481,11 +486,11 @@ def answer_setting_change_clarification(
             MemoryChangeConversationTurn(
                 role="agent",
                 content="\n".join(decision.questions),
-                created_at=_utc_now(),
+                created_at=utc_now(),
             ),
         ]
         clarification.questions = decision.questions
-        clarification.updated_at = _utc_now()
+        clarification.updated_at = utc_now()
         _write_clarification_session(root, clarification)
         return SettingChangeSuggestionResult(status="needs_clarification", clarification=clarification)
     if decision.status == "needs_clarification":
@@ -516,7 +521,7 @@ def answer_setting_change_clarification(
     clarification.status = "proposal_ready"
     clarification.proposal_path = str(proposal_result.proposal_path.relative_to(root))
     clarification.questions = []
-    clarification.updated_at = _utc_now()
+    clarification.updated_at = utc_now()
     clarification.conversation_turns = turns
     _write_clarification_session(root, clarification)
     return SettingChangeSuggestionResult(status="proposal_ready", proposal_result=proposal_result, clarification=clarification)
@@ -553,6 +558,7 @@ def generate_memory_change_clarification_decision(
         system_prompt=load_prompt_template("memory_change_clarification_system"),
         user_prompt=user_prompt,
         json_schema_name="MemoryChangeClarificationDecision",
+        prompt_version=prompt_template_version("memory_change_clarification_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -581,7 +587,6 @@ def generate_memory_change_clarification_decision(
             parse=parse_memory_change_clarification_decision,
             repair_prompt=lambda invalid_output, error: _structured_decision_repair_prompt(
                 schema_name="MemoryChangeClarificationDecision",
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -641,6 +646,7 @@ def generate_memory_change_batch_plan(
         system_prompt=load_prompt_template("memory_change_batch_plan_system"),
         user_prompt=user_prompt,
         json_schema_name="MemoryChangeBatchPlan",
+        prompt_version=prompt_template_version("memory_change_batch_plan_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -669,7 +675,6 @@ def generate_memory_change_batch_plan(
             parse=parse_memory_change_batch_plan,
             repair_prompt=lambda invalid_output, error: _structured_decision_repair_prompt(
                 schema_name="MemoryChangeBatchPlan",
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -770,6 +775,7 @@ def generate_memory_repair_decision(
         system_prompt=load_prompt_template("memory_repair_system"),
         user_prompt=user_prompt,
         json_schema_name="MemoryRepairDecision",
+        prompt_version=prompt_template_version("memory_repair_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -797,7 +803,6 @@ def generate_memory_repair_decision(
             contract=contract,
             parse=parse_memory_repair_decision,
             repair_prompt=lambda invalid_output, error: _repair_decision_repair_prompt(
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -856,6 +861,7 @@ def _repair_memory_repair_decision_target_schema(
                     preflight_errors=preflight_errors,
                 ),
                 json_schema_name="MemoryRepairDecision",
+                prompt_version=prompt_template_version("memory_repair_system"),
             ),
             root=root,
             invocation=AgentInvocationContext(
@@ -1032,7 +1038,7 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
             )
         apply_log = MemoryRepairApplyLog(
             repair_id=proposal.repair_id,
-            applied_at=_utc_now(),
+            applied_at=utc_now(),
             status="applied",
             target_files=touched_files,
             backups=backups,
@@ -1069,7 +1075,7 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
         )
         apply_log = MemoryRepairApplyLog(
             repair_id=proposal.repair_id,
-            applied_at=_utc_now(),
+            applied_at=utc_now(),
             status="rolled_back" if backups else "failed",
             target_files=touched_files,
             backups=backups,
@@ -1424,11 +1430,10 @@ def _collect_ids(value: object) -> list[str]:
     return found
 
 
-def _repair_decision_repair_prompt(*, original_prompt: str, invalid_output: str, error: str) -> str:
+def _repair_decision_repair_prompt(*, invalid_output: str, error: str) -> str:
     return (
-        f"{original_prompt}\n\n"
         "上一次输出不能被解析为 MemoryRepairDecision。\n"
-        f"错误：{error}\n\n"
+        f"错误：{error[:REPAIR_ERROR_LIMIT]}\n\n"
         "请重新只输出 JSON object。不要 Markdown 或解释。\n"
         "修复规则：\n"
         "- 每个 operation 必须包含 op、file、path、reason。\n"
@@ -1437,24 +1442,22 @@ def _repair_decision_repair_prompt(*, original_prompt: str, invalid_output: str,
         "- 如果缺少 file，但 path 能唯一映射到允许文件，请补齐 file。\n"
         "- 不要要求用户提供现有文件结构、目标文件、字段、visibility 或 JSON Pointer；原始 prompt 已提供这些结构上下文。\n"
         "- 只有创作意图本身缺失、替换/删除目标不唯一或删除风险无法安全处理时，operations 才能为空。\n"
-        f"上一次输出：\n{invalid_output[:3000]}\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
 def _structured_decision_repair_prompt(
     *,
     schema_name: str,
-    original_prompt: str,
     invalid_output: str,
     error: str,
 ) -> str:
     return (
-        f"{original_prompt}\n\n"
         f"上一次输出不能被解析为 {schema_name}。\n"
-        f"错误：{error}\n\n"
+        f"错误：{error[:REPAIR_ERROR_LIMIT]}\n\n"
         "请重新只输出 JSON object，不要 Markdown 或解释。\n"
         "不要新增 schema 未定义字段，不要向用户或上游 Agent 提问。\n"
-        f"上一次输出：\n{invalid_output[:3000]}\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
@@ -1488,8 +1491,8 @@ def _target_schema_repair_prompt(
         "或在无法确定时清空 operations 并在 notes 写明原因。\n"
         "- 如果仍无法安全修复，operations 置空并在 notes 中写明 target schema 缺失信息；不要向用户提问。\n\n"
         "目标 schema preflight 错误 / semantic preflight 错误：\n"
-        f"{_format_preflight_errors(preflight_errors, max_chars=6000)}\n\n"
-        f"上一次 MemoryRepairDecision：\n{invalid_json}\n"
+        f"{_format_preflight_errors(preflight_errors, max_chars=REPAIR_ERROR_LIMIT)}\n\n"
+        f"上一次 MemoryRepairDecision：\n{invalid_json[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
@@ -1611,7 +1614,7 @@ def _new_clarification_session(
     chapter_number: int | None,
     audit_issue_ids: list[str],
 ) -> MemoryChangeClarificationSession:
-    now = _utc_now()
+    now = utc_now()
     clarification = MemoryChangeClarificationSession(
         clarification_id=_new_clarification_id(),
         original_request=request,
@@ -2681,12 +2684,8 @@ def _clarification_path(root: Path, clarification_id: str) -> Path:
 
 
 def _new_repair_id() -> str:
-    return "repair_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return new_request_id("repair")
 
 
 def _new_clarification_id() -> str:
-    return "clarify_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return new_request_id("clarify")

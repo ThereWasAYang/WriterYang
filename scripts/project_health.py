@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
 import sys
 from typing import Sequence
+
+from novel.core.timeutil import utc_now_iso
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -19,7 +20,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     root = Path(args.project).expanduser().resolve()
     payload = {
         "ok": True,
-        "generated_at": _utc_now(),
+        "generated_at": utc_now_iso(),
         "project": str(root),
         "validate": _cli_json(["validate", "--project", str(root)]),
         "status": _cli_json(["status", "--project", str(root)]),
@@ -142,11 +143,5 @@ def _print(payload: dict[str, object], json_output: bool) -> None:
             f"- {chapter['chapter']}: audit={chapter['audit_status']} "
             f"blocking={chapter['blocking_issue_count']} accepted={chapter['accepted']}"
         )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

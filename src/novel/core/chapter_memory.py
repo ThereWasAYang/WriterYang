@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -25,7 +24,7 @@ from novel.core.plan_refs import (
 )
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.schemas import (
     AuditReport,
     ChapterMemory,
@@ -41,6 +40,7 @@ from novel.core.schemas import (
     TimelineEvent,
     TimelineFile,
 )
+from novel.core.timeutil import utc_now
 
 
 class ChapterMemoryError(RuntimeError):
@@ -209,7 +209,7 @@ def build_deterministic_chapter_memory(
         chapter_number=context.chapter_number,
         title=context.plan.title,
         status="accepted",
-        generated_at=_utc_now(),
+        generated_at=utc_now(),
         generation_status="deterministic_fallback",
         source=context.source,
         reader_visible_summary=_reader_visible_summary_from_polished(context),
@@ -403,7 +403,7 @@ def parse_chapter_memory(content: str, context: ChapterMemoryContext) -> Chapter
     normalized["chapter_number"] = context.chapter_number
     normalized.setdefault("title", context.plan.title)
     normalized.setdefault("status", "accepted")
-    normalized.setdefault("generated_at", _utc_now().isoformat().replace("+00:00", "Z"))
+    normalized.setdefault("generated_at", utc_now().isoformat().replace("+00:00", "Z"))
     normalized["generation_status"] = "model_generated"
     normalized["source"] = context.source.model_dump(mode="json")
     normalized.setdefault("reader_visible_summary", _reader_visible_summary_from_polished(context))
@@ -448,6 +448,7 @@ def _generate_model_chapter_memory(provider: ModelProvider, context: ChapterMemo
             system_prompt=build_chapter_memory_system_prompt(),
             user_prompt=build_chapter_memory_user_prompt(context),
             json_schema_name="ChapterMemory",
+            prompt_version=prompt_template_version("chapter_memory_system"),
         ),
         root=context.root,
         invocation=AgentInvocationContext(
@@ -770,7 +771,3 @@ def _chapter_dir(root: Path, chapter_number: int) -> Path:
 
 def _rel(root: Path, path: Path) -> str:
     return str(path.relative_to(root))
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)

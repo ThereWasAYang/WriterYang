@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -13,6 +13,8 @@ import tempfile
 import time
 from typing import Sequence
 from urllib import request
+
+from novel.core.timeutil import utc_timestamp
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -24,7 +26,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Print machine-readable output.")
     args = parser.parse_args(argv)
 
-    project = Path(args.project).expanduser().resolve() if args.project else Path(tempfile.mkdtemp(prefix="writeryang-webui-")) / "novel"
+    if args.project:
+        project = Path(args.project).expanduser().resolve()
+        cleanup_project = False
+    else:
+        smoke_title = f"Web UI Smoke {utc_timestamp()}"
+        project = Path(tempfile.mkdtemp(prefix="writeryang-webui-")) / smoke_title
+        cleanup_project = True
     screenshots = Path(args.screenshots).expanduser().resolve() if args.screenshots else project.parent / "screenshots"
     port = args.port or (8765 if args.dry_run else _free_port())
     url = f"http://127.0.0.1:{port}"
@@ -68,6 +76,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             server.wait(timeout=5)
         except subprocess.TimeoutExpired:
             server.kill()
+    if cleanup_project:
+        shutil.rmtree(project, ignore_errors=True)
     _print({"ok": True, "project": str(project), "url": url, "screenshots": str(screenshots)}, args.json)
     return 0
 
@@ -82,8 +92,8 @@ def _run_playwright(url: str, project: Path, screenshots: Path) -> None:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         page.goto(url)
-        page.fill("#projectPath", str(project))
-        page.fill("#projectTitle", "Web UI Smoke")
+        page.fill("#projectParentPath", str(project.parent))
+        page.fill("#projectTitle", project.name)
         page.fill("#projectGenre", "悬疑")
         page.click("#initProject")
         page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('项目已初始化')")
@@ -130,11 +140,5 @@ def _print(payload: dict[str, object], json_output: bool) -> None:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"Web UI smoke {'passed' if payload.get('ok') else 'failed'}: {payload.get('url')}")
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

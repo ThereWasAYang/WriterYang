@@ -96,7 +96,8 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
             self._send_json(status, payload)
 
         def log_message(self, format: str, *args: object) -> None:
-            return
+            if os.environ.get("WRITERYANG_WEB_ACCESS_LOG") == "1":
+                super().log_message(format, *args)
 
         def _send_json(self, status: int, payload: dict[str, object]) -> None:
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -50,6 +49,7 @@ from novel.core.state_update import (
     load_state_update_provider,
     propose_state_update,
 )
+from novel.core.timeutil import new_request_id, utc_now, utc_timestamp
 
 
 ProviderName = str
@@ -144,8 +144,8 @@ def start_session(options: SessionStartOptions) -> SessionResult:
         status="drafting_intent",
         outline_status="draft",
         content_status="not_started",
-        created_at=_utc_now(),
-        updated_at=_utc_now(),
+        created_at=utc_now(),
+        updated_at=utc_now(),
     )
     _ensure_session_mutable(root, session)
     session_dir = _session_dir(root, session_id)
@@ -181,7 +181,7 @@ def revise_outline(options: SessionInstructionOptions) -> SessionResult:
     if not options.instruction or not options.instruction.strip():
         raise CreationSessionError("outline revision requires --instruction")
     merged_intent = f"{session.user_intent}\n\n用户对大纲的修改意见：{options.instruction.strip()}"
-    session = session.model_copy(update={"user_intent": merged_intent, "updated_at": _utc_now()})
+    session = session.model_copy(update={"user_intent": merged_intent, "updated_at": utc_now()})
     session = _write_outline_proposal(
         root,
         session,
@@ -216,7 +216,7 @@ def approve_outline(options: SessionActionOptions) -> SessionResult:
             "status": "outline_approved",
             "outline_status": "approved",
             "approved_outline_path": _rel(root, approved_json),
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _write_session(root, session)
@@ -235,7 +235,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     max_rounds = options.max_auto_revision_rounds
     if max_rounds is None:
         max_rounds = session.max_auto_revision_rounds
-    session = session.model_copy(update={"status": "generating", "content_status": "generating", "updated_at": _utc_now()})
+    session = session.model_copy(update={"status": "generating", "content_status": "generating", "updated_at": utc_now()})
     _write_session(root, session)
     _start_session_progress(root, session.session_id, message="Session 写作任务已开始。")
 
@@ -274,7 +274,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                         "final_output_paths": final_outputs,
                         "audit_history": [*session.audit_history, *audits],
                         "revision_history": [*session.revision_history, *revisions],
-                        "updated_at": _utc_now(),
+                        "updated_at": utc_now(),
                     }
                 )
                 _write_session(root, session)
@@ -442,7 +442,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                         "final_output_paths": final_outputs,
                         "audit_history": [*session.audit_history, *audits],
                         "revision_history": [*session.revision_history, *revisions],
-                        "updated_at": _utc_now(),
+                        "updated_at": utc_now(),
                     }
                 )
                 _write_session(root, session)
@@ -486,7 +486,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 "final_output_paths": final_outputs,
                 "audit_history": [*session.audit_history, *audits],
                 "revision_history": [*session.revision_history, *revisions],
-                "updated_at": _utc_now(),
+                "updated_at": utc_now(),
             }
         )
         _write_session(root, session)
@@ -596,7 +596,7 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
                 "revision_route_history": [*session.revision_route_history, route_record],
                 "audit_history": [*session.audit_history, *audits],
                 "final_output_paths": final_outputs,
-                "updated_at": _utc_now(),
+                "updated_at": utc_now(),
             }
         )
         _write_session(root, session)
@@ -626,7 +626,7 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
             "revision_route_history": [*session.revision_route_history, route_record],
             "audit_history": [*session.audit_history, *audits],
             "final_output_paths": final_outputs,
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _write_session(root, session)
@@ -661,7 +661,7 @@ def _resolve_content_revision_route(
             session_summary=_session_route_summary(root, session),
         )
     return RevisionRouteRecord(
-        created_at=_utc_now(),
+        created_at=utc_now(),
         user_instruction=options.instruction or ("from current audit issues" if options.from_audit else ""),
         from_audit=options.from_audit,
         decision=decision,
@@ -795,7 +795,7 @@ def _refresh_session_outline_from_plans(root: Path, session: CreationSession) ->
         session_id=session.session_id,
         user_intent=session.user_intent,
         chapters=chapters,
-        created_at=_utc_now(),
+        created_at=utc_now(),
     )
     session_dir = _session_dir(root, session.session_id)
     targets = [
@@ -845,7 +845,7 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
             status="success",
         )
     session = session.model_copy(
-        update={"status": "accepted", "content_status": "accepted", "updated_at": _utc_now()}
+        update={"status": "accepted", "content_status": "accepted", "updated_at": utc_now()}
     )
     _write_session(root, session)
     return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session accepted.")
@@ -875,10 +875,10 @@ def archive_session(options: SessionActionOptions) -> SessionResult:
                 source_path=_rel(root, source),
                 archive_path=_rel(root, target),
                 sha256=_sha256(target),
-                created_at=_utc_now(),
+                created_at=utc_now(),
             )
         )
-    manifest = CreationArchiveManifest(session_id=session.session_id, created_at=_utc_now(), entries=entries)
+    manifest = CreationArchiveManifest(session_id=session.session_id, created_at=utc_now(), entries=entries)
     manifest_path = archive_dir / "manifest.json"
     if options.force:
         backup_if_exists(manifest_path, reason="archive")
@@ -888,7 +888,7 @@ def archive_session(options: SessionActionOptions) -> SessionResult:
             "status": "archived",
             "content_status": "archived",
             "archive_paths": [_rel(root, archive_dir), _rel(root, manifest_path)],
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _write_session(root, session)
@@ -924,14 +924,14 @@ def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
         instruction=options.instruction.strip(),
         previous_audit_path=previous_audit_path,
         new_audit_path=_rel(root, audit_path),
-        created_at=_utc_now(),
+        created_at=utc_now(),
     )
     updated_event = event.model_copy(
         update={
             "audit_revision_history": [*event.audit_revision_history, revision],
             "trigger_audit_path": _rel(root, audit_path),
             "status": "unresolved" if _has_hard_issues(_load_audit(root, chapter_number)) else "completed",
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _replace_rewrite_event(root, session.session_id, updated_event)
@@ -951,7 +951,7 @@ def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
         update={
             **status_update,
             "audit_history": [*session.audit_history, _rel(root, audit_path)],
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _write_session(root, session)
@@ -981,7 +981,7 @@ def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
             "restored_from_snapshot_path": event.rejected_text_snapshot_path,
             "status": "unresolved" if _has_hard_issues(_load_audit(root, chapter_number)) else "completed",
             "trigger_audit_path": _rel(root, audit_path),
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _replace_rewrite_event(root, session.session_id, updated_event)
@@ -1001,7 +1001,7 @@ def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         update={
             **status_update,
             "audit_history": [*session.audit_history, _rel(root, audit_path)],
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _write_session(root, session)
@@ -1067,7 +1067,7 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         update={
             "status": "unresolved" if _has_hard_issues(audit_report) else "completed",
             "after_output_path": _rel(root, after_output_path),
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _replace_rewrite_event(root, session.session_id, updated_event)
@@ -1087,7 +1087,7 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
             **status_update,
             "audit_history": [*session.audit_history, _rel(root, _chapter_dir(root, chapter_number) / "audit.json")],
             "revision_history": [*session.revision_history, *new_revisions],
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _write_session(root, session)
@@ -1195,7 +1195,7 @@ def _write_outline_proposal(
         session_id=session.session_id,
         user_intent=session.user_intent,
         chapters=chapters,
-        created_at=_utc_now(),
+        created_at=utc_now(),
     )
     session_dir = _session_dir(root, session.session_id)
     atomic_write_model_json(session_dir / "outline_proposal.json", outline)
@@ -1204,7 +1204,7 @@ def _write_outline_proposal(
         update={
             "status": "outline_proposed",
             "outline_status": "proposed",
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
 
@@ -1233,7 +1233,7 @@ def _run_segment_session(root: Path, session: CreationSession, options: SessionR
             "content_status": "needs_user_review",
             "final_output_paths": revisions,
             "revision_history": [*session.revision_history, *revisions],
-            "updated_at": _utc_now(),
+            "updated_at": utc_now(),
         }
     )
     _write_session(root, session)
@@ -1366,7 +1366,7 @@ def _promote_draft_to_polished(root: Path, chapter_number: int, *, force: bool) 
         "created_by: writer_agent\n"
         "based_on: draft.md\n"
         "polish_skipped: true\n"
-        f"created_at: {_utc_now()}\n"
+        f"created_at: {utc_now()}\n"
         "---\n\n"
         f"{draft.body.strip()}\n",
     )
@@ -1543,7 +1543,7 @@ def _promote_revision_to_polished(root: Path, chapter_number: int, revision_path
         metadata["revision_id"] = revision_id
     if source_file:
         metadata["revision_source_file"] = source_file
-    metadata["promoted_at"] = _utc_now()
+    metadata["promoted_at"] = utc_now()
     metadata_text = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
     backup_if_exists(polished_path, reason="auto_repair")
     atomic_write_text(polished_path, f"---\n{metadata_text}\n---\n\n{document.body.strip()}\n")
@@ -1660,7 +1660,7 @@ def request_session_cancel(root: Path, session_id: str) -> SessionProgress:
 
 
 def _start_session_progress(root: Path, session_id: str, *, message: str) -> SessionProgress:
-    now = _utc_now()
+    now = utc_now()
     event = SessionProgressEvent(stage="session_start", message=message, created_at=now)
     progress = SessionProgress(
         session_id=session_id,
@@ -1686,7 +1686,7 @@ def _record_session_progress(
     round_number: int | None = None,
     error: str | None = None,
 ) -> SessionProgress:
-    now = _utc_now()
+    now = utc_now()
     existing = load_session_progress(root, session_id)
     next_status = status
     if existing.status == "cancel_requested" and status == "running":
@@ -1754,7 +1754,7 @@ def _cancelled_session_result(
 ) -> SessionResult:
     partial_outputs = _session_has_partial_outputs(root, session)
     updates: dict[str, object] = {
-        "updated_at": _utc_now(),
+        "updated_at": utc_now(),
         "final_output_paths": _merge_relative_paths(session.final_output_paths, final_outputs),
         "audit_history": [*session.audit_history, *audits],
         "revision_history": [*session.revision_history, *revisions],
@@ -1827,8 +1827,8 @@ def _start_rewrite_event(
         blocking_issues=_rewrite_issues(audit_report),
         rejected_text_snapshot_path=_rel(root, snapshot_path) if snapshot_path else None,
         before_output_path=_rel(root, before_output) if before_output.exists() else None,
-        created_at=_utc_now(),
-        updated_at=_utc_now(),
+        created_at=utc_now(),
+        updated_at=utc_now(),
     )
     events = [*load_rewrite_events(root, session.session_id), event]
     _write_rewrite_events(root, session.session_id, events)
@@ -1849,7 +1849,7 @@ def _update_rewrite_event(
         if event.event_id != event_id:
             updated_events.append(event)
             continue
-        updates: dict[str, object] = {"status": status, "updated_at": _utc_now()}
+        updates: dict[str, object] = {"status": status, "updated_at": utc_now()}
         if after_output_path:
             updates["after_output_path"] = _rel(root, after_output_path)
         updated_events.append(event.model_copy(update=updates))
@@ -1986,13 +1986,8 @@ def _sha256(path: Path) -> str:
 
 
 def _new_session_id() -> str:
-    return "session_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return new_request_id("session")
 
 
 def _new_rewrite_event_id(chapter_number: int, round_number: int, action: SessionRewriteAction) -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    return f"rewrite_ch{chapter_number:03d}_round{round_number}_{action}_{stamp}"
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return f"rewrite_ch{chapter_number:03d}_round{round_number}_{action}_{utc_timestamp()}"

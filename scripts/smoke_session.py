@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -11,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 from typing import Sequence
+
+from novel.core.timeutil import utc_now_iso
 
 import yaml
 
@@ -48,7 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     report: dict[str, object] = {
-        "started_at": _utc_now(),
+        "started_at": utc_now_iso(),
         "project": str(root),
         "provider": args.provider,
         "chapters": args.chapters,
@@ -81,7 +82,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except RuntimeError:
         ok = False
     finally:
-        report["ended_at"] = _utc_now()
+        report["ended_at"] = utc_now_iso()
         report["ok"] = ok
         _write_report(args.report, report)
         if temp_dir and not args.keep:
@@ -182,11 +183,5 @@ def _print(payload: dict[str, object], json_output: bool) -> None:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"Smoke {'passed' if payload.get('ok') else 'failed'}: {payload.get('project')}")
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

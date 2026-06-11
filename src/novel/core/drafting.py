@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -17,8 +16,9 @@ from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, 
 from novel.core.management import record_management_event
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest, ProviderOutputTruncatedError
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
+from novel.core.timeutil import utc_now_iso
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -105,6 +105,7 @@ def write_chapter_draft(
 
     model_request = ModelRequest(
         system_prompt=build_writer_system_prompt(),
+        prompt_version=prompt_template_version("writer_system"),
         user_prompt=build_writer_user_prompt(
             project=project,
             plan=plan,
@@ -159,7 +160,7 @@ def write_chapter_draft(
     draft_markdown = render_draft_markdown(
         plan=plan,
         body=body,
-        created_at=_utc_now(),
+        created_at=utc_now_iso(),
     )
     chapter_dir.mkdir(parents=True, exist_ok=True)
     if options.force:
@@ -318,10 +319,6 @@ def _clean_body(content: str) -> str:
             lines = lines[:-1]
         body = "\n".join(lines).strip()
     return body
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _chapter_number_text(chapter_number: int) -> str:

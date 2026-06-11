@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -30,7 +29,7 @@ from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditReport,
@@ -48,7 +47,13 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
-from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
+from novel.core.structured_generation import (
+    REPAIR_ERROR_LIMIT,
+    REPAIR_INVALID_OUTPUT_LIMIT,
+    JsonRepairExhaustedError,
+    generate_json_with_repair,
+)
+from novel.core.timeutil import new_request_id, utc_now, utc_now_iso
 from novel.core.validation import validate_canon
 
 
@@ -705,7 +710,7 @@ def mark_chapter_accepted(root: Path, chapter_number: int) -> Path:
     document = _read_front_matter(path)
     metadata = dict(document.metadata)
     metadata["status"] = "accepted"
-    metadata["accepted_at"] = _utc_now()
+    metadata["accepted_at"] = utc_now_iso()
     metadata_text = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
     backup_if_exists(path, reason="accept")
     atomic_write_text(path, f"---\n{metadata_text}\n---\n\n{document.body.strip()}\n")
@@ -721,7 +726,7 @@ def write_chapter_metadata(
 ) -> Path:
     chapter_dir = _chapter_dir(root, chapter_number)
     metadata_path = chapter_dir / "metadata.json"
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     accepted_at = now if status == "accepted" else None
     metadata = ChapterMetadata(
         chapter_number=chapter_number,
@@ -830,6 +835,7 @@ def _generate_state_update_proposal_with_repair(
         user_prompt=user_prompt,
         context=context.canon_summary,
         json_schema_name="StateUpdateProposal",
+        prompt_version=prompt_template_version("state_update_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -866,7 +872,6 @@ def _generate_state_update_proposal_with_repair(
             parse=parse_and_validate,
             repair_prompt=lambda invalid_output, error: _repair_prompt(
                 schema_name="StateUpdateProposal",
-                original_prompt=user_prompt,
                 invalid_output=invalid_output,
                 error=error,
             ),
@@ -980,7 +985,6 @@ def _is_nullish_state_value(value: object) -> bool:
 def _repair_prompt(
     *,
     schema_name: str,
-    original_prompt: str,
     invalid_output: str,
     error: str,
 ) -> str:
@@ -988,9 +992,8 @@ def _repair_prompt(
         f"你上一次输出的 {schema_name} JSON 无法通过解析、schema 校验或引用校验。\n"
         "请只输出修正后的 JSON，不要解释，不要 Markdown 包装。\n"
         "不要创造正文中没有发生的重大事件，不要修改 canon。\n\n"
-        f"校验错误摘要：\n{error[:2400]}\n\n"
-        f"上一次输出：\n{invalid_output[:6000]}\n\n"
-        f"原始任务要求：\n{original_prompt[:6000]}\n"
+        f"校验错误摘要：\n{error[:REPAIR_ERROR_LIMIT]}\n\n"
+        f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
 
@@ -1059,7 +1062,7 @@ def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
                 }
             ],
             "warnings": [],
-            "created_at": _utc_now(),
+            "created_at": utc_now_iso(),
         },
         ensure_ascii=False,
     )
@@ -1242,9 +1245,9 @@ def _new_apply_log(
     timeline_backup_path: Path,
     status: Literal["applied", "rolled_back"],
 ) -> StateUpdateApplyLog:
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     return StateUpdateApplyLog(
-        id="state_apply_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f"),
+        id=new_request_id("state_apply"),
         chapter_number=chapter_number,
         proposal_path=str(proposal_path.relative_to(root)),
         state_path=str(state_path.relative_to(root)),
@@ -1293,7 +1296,3 @@ def _require_unique(values: list[str], label: str) -> None:
 
 def _chapter_dir(root: Path, chapter_number: int) -> Path:
     return root / "memory" / "chapters" / f"{chapter_number:03d}"
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

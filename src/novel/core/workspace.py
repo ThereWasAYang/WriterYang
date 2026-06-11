@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -13,6 +12,7 @@ from novel.core.agent_defaults import (
 )
 from novel.core.io import atomic_write_text
 from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.timeutil import utc_now_iso
 
 
 DEFAULT_WORKSPACE_DIR = "novel-project"
@@ -57,7 +57,7 @@ def init_workspace(options: InitOptions) -> InitResult:
             directory.mkdir(parents=True, exist_ok=False)
             created_dirs.append(directory)
 
-    timestamp = _utc_now()
+    timestamp = utc_now_iso()
     project_id = options.project_id or _project_id_from_title(title)
     genre = options.genre if options.genre else ["未分类"]
 
@@ -156,10 +156,6 @@ def _project_id_from_title(title: str) -> str:
     if not normalized.startswith("novel_"):
         normalized = f"novel_{normalized}"
     return normalized
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _json(data: dict[str, object]) -> str:

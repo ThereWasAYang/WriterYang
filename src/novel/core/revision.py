@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -20,7 +19,7 @@ from novel.core.migration import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditReport,
@@ -33,6 +32,7 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
+from novel.core.timeutil import new_request_id, utc_now, utc_now_iso
 
 
 RevisionTarget = Literal["draft", "polished"]
@@ -126,6 +126,7 @@ def revise_chapter(
             system_prompt=build_revision_system_prompt(),
             user_prompt=build_revision_user_prompt(context, options),
             context=context.canon_summary,
+            prompt_version=prompt_template_version("revision_system"),
         ),
         root=root,
         invocation=AgentInvocationContext(
@@ -156,7 +157,7 @@ def revise_chapter(
         source_file=context.source_file,
         revision_id=revision_id,
         body=body,
-        created_at=_utc_now(),
+        created_at=utc_now_iso(),
     )
     if options.force:
         backup_if_exists(output_path, reason="force")
@@ -172,7 +173,7 @@ def revise_chapter(
         from_audit=options.from_audit,
         audit_file="audit.json" if context.audit else None,
         audit_issue_ids=[issue.id for issue in context.audit.issues] if context.audit else [],
-        created_at=datetime.now(timezone.utc).replace(microsecond=0),
+        created_at=utc_now(),
         provider=provider_name,
     )
     log_path = chapter_dir / "revision_log.json"
@@ -436,15 +437,15 @@ def _write_revision_loop_log(
     results: list[ChapterRevisionResult],
 ) -> Path:
     chapter_dir = root.resolve() / "memory" / "chapters" / f"{chapter_number:03d}"
-    run_id = "revision_loop_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    run_id = new_request_id("revision_loop")
     path = chapter_dir / f"{run_id}.json"
     payload = {
         "schema_version": CURRENT_SCHEMA_VERSION,
         "run_id": run_id,
         "task": "revision_loop",
         "chapter_number": chapter_number,
-        "started_at": results[0].record.created_at.isoformat().replace("+00:00", "Z") if results else _utc_now(),
-        "ended_at": _utc_now(),
+        "started_at": results[0].record.created_at.isoformat().replace("+00:00", "Z") if results else utc_now_iso(),
+        "ended_at": utc_now_iso(),
         "status": "completed",
         "max_rounds": len(results),
         "steps": [
@@ -498,8 +499,4 @@ def _clean_optional(value: str | None) -> str | None:
 
 
 def _new_revision_id() -> str:
-    return f"revision_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return new_request_id("revision")

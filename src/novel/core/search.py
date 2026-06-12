@@ -158,39 +158,18 @@ def rebuild_search_index(
     with_embeddings: bool = False,
 ) -> SearchIndexResult:
     root = root.resolve()
-    if not (root / "project.yaml").exists():
-        raise SearchError(f"{root} does not look like a novel workspace")
+    _require_search_workspace(root)
     documents = _collect_documents(root)
-    index_path = search_index_path(root)
-    sqlite_path = sqlite_search_index_path(root)
-    manifest_path = search_manifest_path(root)
-    payload = {
-        "version": 1,
-        "documents": [_document_to_dict(document) for document in documents],
-    }
-    backup_if_exists(index_path, reason="index_rebuild")
-    atomic_write_json(index_path, payload)
-    provider = (
-        _load_embedding_provider(
-            root,
-            embedding_provider_name,
-            embedding_config_path,
-            allow_local_hash=embedding_provider_name == "local_hash",
-        )
-        if with_embeddings
-        else None
-    )
-    vectors = _write_sqlite_index(sqlite_path, documents, provider=provider, existing_vectors={})
-    _write_search_manifest(root, documents, vectors, provider=provider)
-    return SearchIndexResult(
-        index_path=index_path,
-        document_count=len(documents),
-        sqlite_path=sqlite_path,
-        manifest_path=manifest_path,
+    return _write_search_index_update(
+        root,
+        documents,
+        embedding_provider_name=embedding_provider_name,
+        embedding_config_path=embedding_config_path,
+        with_embeddings=with_embeddings,
+        backup_reason="index_rebuild",
+        existing_vectors={},
         refreshed_count=len(documents),
         deleted_count=0,
-        embedding_document_count=len(vectors),
-        with_embeddings=with_embeddings,
     )
 
 
@@ -202,10 +181,8 @@ def refresh_search_index(
     with_embeddings: bool = False,
 ) -> SearchIndexResult:
     root = root.resolve()
-    if not (root / "project.yaml").exists():
-        raise SearchError(f"{root} does not look like a novel workspace")
+    _require_search_workspace(root)
     documents = _collect_documents(root)
-    index_path = search_index_path(root)
     sqlite_path = sqlite_search_index_path(root)
     manifest_path = search_manifest_path(root)
     old_manifest = _safe_load_manifest(manifest_path)
@@ -219,24 +196,52 @@ def refresh_search_index(
         if old_documents.get(document_id, {}).get("sha256") != source_hash
     }
     deleted_ids = old_ids - current_ids
-    provider = (
-        _load_embedding_provider(
-            root,
-            embedding_provider_name,
-            embedding_config_path,
-            allow_local_hash=embedding_provider_name == "local_hash",
-        )
-        if with_embeddings
-        else None
-    )
     existing_vectors = _load_existing_vectors(sqlite_path)
+    return _write_search_index_update(
+        root,
+        documents,
+        embedding_provider_name=embedding_provider_name,
+        embedding_config_path=embedding_config_path,
+        with_embeddings=with_embeddings,
+        backup_reason="index_refresh",
+        existing_vectors=existing_vectors,
+        refreshed_count=len(changed_ids),
+        deleted_count=len(deleted_ids),
+    )
+
+
+def _require_search_workspace(root: Path) -> None:
+    if not (root / "project.yaml").exists():
+        raise SearchError(f"{root} does not look like a novel workspace")
+
+
+def _write_search_index_update(
+    root: Path,
+    documents: list[SearchDocument],
+    *,
+    embedding_provider_name: str,
+    embedding_config_path: Path | None,
+    with_embeddings: bool,
+    backup_reason: str,
+    existing_vectors: dict[str, VectorRecord],
+    refreshed_count: int,
+    deleted_count: int,
+) -> SearchIndexResult:
+    index_path = search_index_path(root)
+    sqlite_path = sqlite_search_index_path(root)
+    manifest_path = search_manifest_path(root)
     payload = {
         "version": 1,
         "documents": [_document_to_dict(document) for document in documents],
     }
-    if index_path.exists():
-        backup_if_exists(index_path, reason="index_refresh")
+    backup_if_exists(index_path, reason=backup_reason)
     atomic_write_json(index_path, payload)
+    provider = _search_index_embedding_provider(
+        root,
+        embedding_provider_name=embedding_provider_name,
+        embedding_config_path=embedding_config_path,
+        with_embeddings=with_embeddings,
+    )
     vectors = _write_sqlite_index(
         sqlite_path,
         documents,
@@ -249,10 +254,27 @@ def refresh_search_index(
         document_count=len(documents),
         sqlite_path=sqlite_path,
         manifest_path=manifest_path,
-        refreshed_count=len(changed_ids),
-        deleted_count=len(deleted_ids),
+        refreshed_count=refreshed_count,
+        deleted_count=deleted_count,
         embedding_document_count=len(vectors),
         with_embeddings=with_embeddings,
+    )
+
+
+def _search_index_embedding_provider(
+    root: Path,
+    *,
+    embedding_provider_name: str,
+    embedding_config_path: Path | None,
+    with_embeddings: bool,
+) -> EmbeddingProvider | None:
+    if not with_embeddings:
+        return None
+    return _load_embedding_provider(
+        root,
+        embedding_provider_name,
+        embedding_config_path,
+        allow_local_hash=embedding_provider_name == "local_hash",
     )
 
 

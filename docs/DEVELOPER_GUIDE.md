@@ -213,7 +213,7 @@ Web API 在 `src/novel/web_api.py`。新增接口时：
 
 1. 在 `_get_routes()` / `_post_routes()` 注册路径，不要继续扩大 method/path 条件链。
 2. 请求体读取使用 `_json_body()`。
-3. 项目根目录解析使用 `_root_from_query()` 或 `_root_from_body()`。
+3. 项目根目录解析使用 `_root_from_query()`、`_root_from_body()` 或 route 专用 root resolver；写锁、usage marker 和失败日志要使用同一解析结果。
 4. 成功返回 `_success(data)`；失败返回 `_failure(...)`。
 5. 写操作用 `_locked_write()`，并复用 core service。协作式取消这类需要在长任务持锁期间生效的请求可以不走项目写锁，但必须只写受限的运行态文件，并由 core service 校验 session id。
 6. 不要把真实 API Key、Authorization、env value 返回前端。

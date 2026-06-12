@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 
+from novel.core.timeutil import utc_now, utc_now_iso
+
 
 LOCK_FILE_NAME = ".writeryang.lock"
 DEFAULT_STALE_AFTER = timedelta(hours=12)
@@ -49,7 +51,7 @@ class ProjectLock:
         payload = {
             "pid": os.getpid(),
             "task": self.task,
-            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "created_at": utc_now_iso(),
         }
         while True:
             try:
@@ -88,7 +90,7 @@ class ProjectLock:
         if pid is not None and not _pid_exists(pid):
             return True
         created_at = _parse_timestamp(data.get("created_at"))
-        if created_at is not None and datetime.now(timezone.utc) - created_at > self.stale_after:
+        if created_at is not None and utc_now() - created_at > self.stale_after:
             return True
         return False
 

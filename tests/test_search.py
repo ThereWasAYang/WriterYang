@@ -71,6 +71,18 @@ def test_index_refresh_updates_only_changed_documents(tmp_path: Path) -> None:
     assert search_project(root, "蓝色伞柄", limit=5)
 
 
+def test_index_refresh_counts_deleted_documents(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    rebuild_search_index(root)
+    inspiration = root / "memory" / "inspiration.md"
+    inspiration.unlink()
+
+    result = refresh_search_index(root)
+
+    assert result.deleted_count >= 1
+    assert search_index_status(root).fts_status == "indexed"
+
+
 def test_search_finds_character(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
     rebuild_search_index(root)

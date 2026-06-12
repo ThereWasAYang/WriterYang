@@ -153,9 +153,9 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `WebErrorPayload` / `WebResponsePayload`：统一 `{ok,data,error}` 形态。
 - `WebAPIError`：带稳定 code、HTTP status、details 的 API 异常。
 - `handle_api_request()`：统一 API 入口；先解析 method/path/body，再通过 `_get_routes()` / `_post_routes()` 路由表分发到 handler。
-- `_get_routes()` / `_post_routes()`：Web API 顶层路由表。新增 endpoint 时优先在这里登记，避免继续扩大 `if method/path` 链；写操作通过路由元数据进入 `_locked_write()`。
+- `_get_routes()` / `_post_routes()`：Web API 顶层路由表。新增 endpoint 时优先在这里登记，避免继续扩大 `if method/path` 链；写操作通过路由元数据进入 `_locked_write()`，必要时可给 route 指定项目 root resolver。
 - `_success()` / `_failure()`：统一响应结构。
-- `_locked_write()`：Web 写操作项目锁。
+- `_locked_write()`：Web 写操作项目锁；锁、usage marker 和失败日志必须使用同一个 route root resolver。
 - `_runtime_summary()`：返回 Web server 当前 Python 路径、环境名和包版本，帮助确认 Web UI 是否运行在安装器创建的新环境。
 - `_list_projects()`：列出给定根目录下可打开的小说项目，不读取 `.env*`。
 - `get_project_status()` / `format_canon()` / `_list_chapters()`：分别支持项目状态、canon 摘要和章节列表 API。
@@ -691,6 +691,7 @@ orchestrator 项目管家修复 proposal：
 
 - `rebuild_search_index()`：全量构建 JSON/SQLite/manifest 搜索索引，可选真实 embedding。
 - `refresh_search_index()`：增量刷新新增、修改、删除文档；默认只更新 FTS，`with_embeddings=True` 时刷新真实 embedding。
+- `_write_search_index_update()`：rebuild/refresh 共享的内部写索引流程，统一写 JSON、SQLite 和 manifest。
 - `search_index_status()`：返回 FTS 和 embedding freshness 状态，供 CLI/Web 状态栏使用；`search_project(use_vector=True)` 会在真实向量缺失或过期时先调用 embedding refresh。
 - `search_project()`：关键词/字段/类型/章节搜索。
 - `retrieve_context()`：旧的检索入口。

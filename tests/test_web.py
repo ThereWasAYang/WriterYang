@@ -1020,7 +1020,10 @@ def test_api_init_project_endpoint_anchors_relative_path_to_default_parent(
     monkeypatch,
 ) -> None:
     home = tmp_path / "home"
+    service_cwd = tmp_path / "service-cwd"
+    service_cwd.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(service_cwd)
 
     status, payload = handle_api_request(
         "POST",
@@ -1034,6 +1037,19 @@ def test_api_init_project_endpoint_anchors_relative_path_to_default_parent(
     assert payload["ok"] is True
     assert payload["data"]["root"] == str(root)  # type: ignore[index]
     assert (root / "project.yaml").is_file()
+    assert not (service_cwd / "relative-created").exists()
+
+    duplicate_status, duplicate_payload = handle_api_request(
+        "POST",
+        "/api/init-project",
+        "",
+        json.dumps({"path": "relative-created", "title": "相对路径项目"}),
+    )
+
+    assert duplicate_status == 409
+    assert duplicate_payload["ok"] is False
+    assert (root / "runs" / "app.log").is_file()
+    assert not (service_cwd / "relative-created").exists()
 
 
 def test_api_projects_endpoint_lists_compatible_project_contract(tmp_path: Path) -> None:

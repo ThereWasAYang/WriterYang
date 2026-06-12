@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 import difflib
 import json
@@ -121,6 +122,9 @@ from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspa
 
 
 APIResponse = tuple[int, dict[str, object]]
+WebPostHandler = Callable[[dict[str, object]], dict[str, object]]
+RootResolver = Callable[[dict[str, object]], Path]
+PostRoute = tuple[str, WebPostHandler, bool] | tuple[str, WebPostHandler, bool, RootResolver]
 SAFE_FILE_SUFFIXES = {".json", ".jsonl", ".md", ".txt", ".yaml", ".yml"}
 EXCLUDED_DIRS = {".git", ".pytest_cache", "__pycache__", ".mypy_cache", ".ruff_cache"}
 EXCLUDED_FILENAMES = {
@@ -168,6 +172,20 @@ def handle_api_request(
     request_id = new_request_id("web")
     query = {key: values[-1] for key, values in parse_qs(query_string).items()}
     data_for_log: dict[str, object] | None = None
+    root_resolver_for_log: RootResolver | None = None
+
+    def log_failure(status: int, code: str, error: Exception) -> None:
+        _log_web_api_failure(
+            path,
+            query,
+            data_for_log,
+            request_id=request_id,
+            status=status,
+            code=code,
+            error=error,
+            root_resolver=root_resolver_for_log,
+        )
+
     try:
         if method == "GET":
             handler = _get_routes().get(path)
@@ -178,57 +196,50 @@ def handle_api_request(
             data_for_log = data
             route = _post_routes().get(path)
             if route:
-                task, handler, locked = route
-                return _success(_locked_write(data, task, handler) if locked else handler(data))
+                task, handler, locked, root_resolver = _post_route_parts(route)
+                root_resolver_for_log = root_resolver
+                return _success(_locked_write(data, task, handler, root_resolver) if locked else handler(data))
     except WebAPIError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=exc.status, code=exc.code, error=exc)
+        log_failure(exc.status, exc.code, exc)
         return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
     except ProjectLockError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=409, code="project_locked", error=exc)
+        log_failure(409, "project_locked", exc)
         return _failure(409, "project_locked", str(exc), request_id=request_id)
     except WorkspaceExistsError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=409, code="workspace_exists", error=exc)
+        log_failure(409, "workspace_exists", exc)
         return _failure(409, "workspace_exists", str(exc), request_id=request_id)
     except FileNotFoundError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=404, code="file_not_found", error=exc)
+        log_failure(404, "file_not_found", exc)
         return _failure(404, "file_not_found", str(exc), request_id=request_id)
     except PermissionError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=403, code="forbidden_file", error=exc)
+        log_failure(403, "forbidden_file", exc)
         return _failure(403, "forbidden_file", str(exc), request_id=request_id)
     except json.JSONDecodeError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="invalid_json", error=exc)
+        log_failure(400, "invalid_json", exc)
         return _failure(400, "invalid_json", "request body must be valid JSON", request_id=request_id)
     except CanonError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="canon_error", error=exc)
+        log_failure(400, "canon_error", exc)
         return _failure(400, "canon_error", str(exc), request_id=request_id)
     except MemoryRepairError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="memory_repair_error", error=exc)
+        log_failure(400, "memory_repair_error", exc)
         return _failure(400, "memory_repair_error", str(exc), request_id=request_id)
     except web_launcher.PortUnavailableError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=409, code="port_unavailable", error=exc)
+        log_failure(409, "port_unavailable", exc)
         return _failure(409, "port_unavailable", str(exc), request_id=request_id)
     except SetupGuideError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="setup_guide_error", error=exc)
+        log_failure(400, "setup_guide_error", exc)
         return _failure(400, "setup_guide_error", str(exc), request_id=request_id)
     except ProviderContextLimitError as exc:
-        _log_web_api_failure(
-            path,
-            query,
-            data_for_log,
-            request_id=request_id,
-            status=400,
-            code="provider_context_limit_exceeded",
-            error=exc,
-        )
+        log_failure(400, "provider_context_limit_exceeded", exc)
         return _failure(400, "provider_context_limit_exceeded", str(exc), request_id=request_id)
     except SearchError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="search_error", error=exc)
+        log_failure(400, "search_error", exc)
         return _failure(400, "search_error", str(exc), request_id=request_id)
     except ValueError as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="invalid_request", error=exc)
+        log_failure(400, "invalid_request", exc)
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
     except Exception as exc:
-        _log_web_api_failure(path, query, data_for_log, request_id=request_id, status=400, code="operation_failed", error=exc)
+        log_failure(400, "operation_failed", exc)
         return _failure(400, "operation_failed", str(exc), request_id=request_id)
     return _failure(404, "not_found", "not found", request_id=request_id)
 
@@ -274,8 +285,9 @@ def _log_web_api_failure(
     status: int,
     code: str,
     error: Exception,
+    root_resolver: RootResolver | None = None,
 ) -> None:
-    root = _root_for_logging(query, data)
+    root = _root_for_logging(query, data, root_resolver=root_resolver)
     log_app_warning(
         root,
         "web_api_failure",
@@ -289,13 +301,23 @@ def _log_web_api_failure(
     )
 
 
-def _root_for_logging(query: dict[str, str], data: dict[str, object] | None) -> Path:
+def _root_for_logging(
+    query: dict[str, str],
+    data: dict[str, object] | None,
+    *,
+    root_resolver: RootResolver | None = None,
+) -> Path:
     if data and data.get("path") is not None:
+        if root_resolver:
+            try:
+                return root_resolver(data)
+            except Exception:
+                pass
         return Path(str(data.get("path") or ".")).expanduser().resolve()
     return Path(query.get("path") or ".").expanduser().resolve()
 
 
-def _post_routes():
+def _post_routes() -> dict[str, PostRoute]:
     return {
         "/api/plan-chapter": ("web plan-chapter", _plan_chapter, True),
         "/api/write-chapter": ("web write-chapter", _write_chapter, True),
@@ -307,7 +329,7 @@ def _post_routes():
         "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, True),
         "/api/provider-config": ("web provider config", _save_provider_config, True),
         "/api/index/refresh": ("web index refresh", _index_refresh, True),
-        "/api/init-project": ("web init project", _init_project, True),
+        "/api/init-project": ("web init project", _init_project, True, _init_project_root_from_body),
         "/api/setup/default-provider": ("web setup default provider", _setup_default_provider, True),
         "/api/setup/embedding": ("web setup embedding", _setup_embedding, True),
         "/api/setup/web-port": ("web setup web port", _setup_web_port, True),
@@ -334,8 +356,22 @@ def _post_routes():
     }
 
 
-def _locked_write(data: dict[str, object], task: str, handler) -> dict[str, object]:
-    root = _root_from_body(data)
+def _post_route_parts(route: PostRoute) -> tuple[str, WebPostHandler, bool, RootResolver]:
+    if len(route) == 3:
+        task, handler, locked = route
+        return task, handler, locked, _root_from_body
+    task, handler, locked, root_resolver = route
+    return task, handler, locked, root_resolver
+
+
+def _locked_write(
+    data: dict[str, object],
+    task: str,
+    handler: WebPostHandler,
+    root_resolver: RootResolver | None = None,
+) -> dict[str, object]:
+    resolver = root_resolver or _root_from_body
+    root = resolver(data)
     with ProjectLock(root, task=task):
         usage_marker = _provider_call_log_line_count(root)
         result = handler(data)

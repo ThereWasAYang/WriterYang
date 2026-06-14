@@ -16,6 +16,7 @@
     <nav class="main-nav" aria-label="主导航">
       <button class="nav-button active" data-page="homePage">主页</button>
       <button class="nav-button" data-page="workbenchPage">创作工作台</button>
+      <button class="nav-button" data-page="stylePage">文风设置</button>
       <button class="nav-button" data-page="memoryPage">小说状态管理</button>
       <button class="nav-button" data-page="configPage">模型与检索配置</button>
       <button class="nav-button" data-page="logsPage">运行日志 / 项目文件</button>
@@ -432,6 +433,46 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="stylePage" class="app-page">
+      <div class="page-heading">
+        <div>
+          <h2>文风设置</h2>
+          <p class="page-note">编辑长期项目文风；单章临时要求仍写在创作工作台的聊天 / 指令里。</p>
+        </div>
+      </div>
+
+      <div class="grid style-guide-grid">
+        <div class="panel">
+          <div class="row">
+            <h2 style="margin: 0;">定制文笔、文风取向</h2>
+            <button id="loadStyleGuide">加载文风设置</button>
+            <button id="resetStyleGuideTemplate">恢复默认模板</button>
+            <button id="saveStyleGuide" class="primary">保存文风设置</button>
+          </div>
+          <div class="row" style="margin: 8px 0;">
+            <span id="styleGuideDirty" class="badge">未加载</span>
+            <span id="styleGuideMeta" class="badge">当前文件：memory/style_guide.md</span>
+          </div>
+          <textarea id="styleGuideEditor" class="editor" placeholder="加载后编辑长期文风设置。保存会更新 memory/style_guide.md，并自动备份旧文件。"></textarea>
+          <div id="styleGuideStatus" class="message">文风设置：未加载</div>
+        </div>
+
+        <div class="panel">
+          <h2 style="margin-top: 0;">建议分区</h2>
+          <div class="status-list">
+            <div class="metric"><b>整体风格</b><span>氛围、审美、叙述气质。</span></div>
+            <div class="metric"><b>叙事视角</b><span>人称、时态、信息限制。</span></div>
+            <div class="metric"><b>语言要求</b><span>句式、密度、描写偏好。</span></div>
+            <div class="metric"><b>对白要求</b><span>对白比例、口吻边界。</span></div>
+            <div class="metric"><b>节奏</b><span>推进速度、铺垫和留白。</span></div>
+            <div class="metric"><b>禁用项</b><span>禁用词、套路和语气。</span></div>
+            <div class="metric"><b>示例段落</b><span>可模仿的文本样例。</span></div>
+            <div class="metric"><b>修订备注</b><span>后续迭代的调整记录。</span></div>
           </div>
         </div>
       </div>

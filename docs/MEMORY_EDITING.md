@@ -30,6 +30,8 @@ novel status --path <project>
 
 ## `memory/style_guide.md`
 
+Web UI 顶部“文风设置”页可以直接编辑这个文件。保存时会先备份旧文件，再写入新的长期文风设置。
+
 适合写：
 
 - 叙事视角和时态。

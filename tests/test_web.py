@@ -135,6 +135,68 @@ def test_api_read_file_uses_workspace_whitelist(tmp_path: Path) -> None:
     assert bad_payload["error"]["code"] == "forbidden_file"  # type: ignore[index]
 
 
+def test_api_style_guide_reads_existing_file(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    (root / "memory" / "style_guide.md").write_text("保持克制。\n", encoding="utf-8")
+
+    status, payload = handle_api_request("GET", "/api/style-guide", f"path={root}", None)
+
+    assert status == 200
+    data = payload["data"]  # type: ignore[index]
+    assert data["path"] == "memory/style_guide.md"
+    assert data["exists"] is True
+    assert data["content"] == "保持克制。\n"
+    assert "## 整体风格" in data["default_template"]
+
+
+def test_api_style_guide_returns_default_template_when_missing(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    (root / "memory" / "style_guide.md").unlink()
+
+    status, payload = handle_api_request("GET", "/api/style-guide", f"path={root}", None)
+
+    assert status == 200
+    data = payload["data"]  # type: ignore[index]
+    assert data["exists"] is False
+    assert data["content"] == data["default_template"]
+    assert "## 叙事视角" in data["content"]
+
+
+def test_api_style_guide_save_writes_fixed_file_and_backup(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    style_path = root / "memory" / "style_guide.md"
+    style_path.write_text("旧文风。\n", encoding="utf-8")
+    (root / ".env").write_text("SECRET=1\n", encoding="utf-8")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/style-guide",
+        "",
+        json.dumps({"path": str(root), "file": ".env", "content": "新文风。\n"}),
+    )
+
+    assert status == 200
+    data = payload["data"]  # type: ignore[index]
+    assert data["path"] == "memory/style_guide.md"
+    assert data["backup_path"]
+    assert style_path.read_text(encoding="utf-8") == "新文风。\n"
+    assert (root / str(data["backup_path"])).read_text(encoding="utf-8") == "旧文风。\n"
+    assert list((root / "memory").glob("style_guide.md.bak_*.web_style_guide"))
+    assert (root / ".env").read_text(encoding="utf-8") == "SECRET=1\n"
+
+
+def test_api_style_guide_rejects_invalid_project() -> None:
+    status, payload = handle_api_request(
+        "GET",
+        "/api/style-guide",
+        "path=/not-a-workspace",
+        None,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "invalid_project"  # type: ignore[index]
+
+
 def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret-never-return")
@@ -2219,15 +2281,24 @@ def test_frontend_basic_render() -> None:
     assert 'id="currentValidationSummary"' in html
     assert 'data-page="homePage"' in html
     assert 'data-page="workbenchPage"' in html
+    assert 'data-page="stylePage"' in html
     assert 'data-page="memoryPage"' in html
     assert 'data-page="configPage"' in html
     assert 'data-page="logsPage"' in html
     assert 'id="homePage"' in html
     assert 'id="workbenchPage"' in html
+    assert 'id="stylePage"' in html
     assert 'id="memoryPage"' in html
     assert 'id="configPage"' in html
     assert 'id="logsPage"' in html
     assert "创作工作台" in html
+    assert "文风设置" in html
+    assert 'id="styleGuideEditor"' in html
+    assert 'id="loadStyleGuide"' in html
+    assert 'id="saveStyleGuide"' in html
+    assert 'id="resetStyleGuideTemplate"' in html
+    assert 'id="styleGuideStatus"' in html
+    assert "style-guide-grid" in frontend
     assert "小说状态管理" in html
     assert "模型与检索配置" in html
     assert "运行日志 / 项目文件" in html
@@ -2448,6 +2519,11 @@ def test_frontend_basic_render() -> None:
     assert "/api/setup/open-web" not in app_js
     assert "/api/inspire" in app_js
     assert "/api/read-file" in app_js
+    assert "/api/style-guide" in app_js
+    assert "loadStyleGuide" in app_js
+    assert "saveStyleGuide" in app_js
+    assert "resetStyleGuideTemplate" in app_js
+    assert "后续生成会使用新文风设置" in app_js
     assert "/api/canon/suggest" in app_js
     assert "/api/validate" in app_js
     assert "/api/runtime" in app_js

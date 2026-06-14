@@ -73,7 +73,7 @@ def init_workspace(options: InitOptions) -> InitResult:
         root / "config" / "agents.yaml": _agents_yaml(),
         root / "config" / "embeddings.yaml": _embeddings_yaml(),
         root / "memory" / "inspiration.md": _inspiration_markdown(),
-        root / "memory" / "style_guide.md": _style_guide_markdown(),
+        root / "memory" / "style_guide.md": default_style_guide_markdown(),
         root / "memory" / "canon" / "characters.json": _json({"characters": []}),
         root / "memory" / "canon" / "locations.json": _json({"locations": []}),
         root / "memory" / "canon" / "items.json": _json({"items": []}),
@@ -316,15 +316,15 @@ def _inspiration_markdown() -> str:
     )
 
 
-def _style_guide_markdown() -> str:
+def default_style_guide_markdown() -> str:
     return (
-        "# Style Guide\n\n"
-        "## Overall Style\n\n"
-        "## Narrative POV\n\n"
-        "## Prose Requirements\n\n"
-        "## Dialogue Requirements\n\n"
-        "## Pacing\n\n"
-        "## Things to Avoid\n\n"
-        "## Example Passages\n\n"
-        "## Revision Notes\n"
+        "# 文风设置\n\n"
+        "## 整体风格\n\n"
+        "## 叙事视角\n\n"
+        "## 语言要求\n\n"
+        "## 对白要求\n\n"
+        "## 节奏\n\n"
+        "## 禁用项\n\n"
+        "## 示例段落\n\n"
+        "## 修订备注\n"
     )

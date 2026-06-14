@@ -118,7 +118,13 @@ from novel.core.providers import (
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
 from novel.core.workflow import GenerateChapterOptions, ProviderName, generate_chapter
-from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace, is_default_inspiration_placeholder
+from novel.core.workspace import (
+    InitOptions,
+    WorkspaceExistsError,
+    default_style_guide_markdown,
+    init_workspace,
+    is_default_inspiration_placeholder,
+)
 
 
 APIResponse = tuple[int, dict[str, object]]
@@ -133,6 +139,7 @@ EXCLUDED_FILENAMES = {
     ".DS_Store",
 }
 EDITABLE_AGENT_NAMES = set(STANDARD_AGENT_NAMES)
+STYLE_GUIDE_RELATIVE_PATH = "memory/style_guide.md"
 
 
 class WebErrorPayload(BaseModel):
@@ -256,6 +263,7 @@ def _get_routes():
         "/api/chapter-file": lambda query: _read_chapter_file(_root_from_query(query), query),
         "/api/file-tree": lambda query: {"files": _file_tree(_root_from_query(query))},
         "/api/read-file": lambda query: _read_workspace_file(_root_from_query(query), query.get("file") or ""),
+        "/api/style-guide": lambda query: _style_guide(_root_from_query(query)),
         "/api/runs": lambda query: _runs_summary(_root_from_query(query)),
         "/api/usage": lambda query: {"usage": summarize_provider_usage(_root_from_query(query)).as_dict()},
         "/api/search": _search_api,
@@ -327,6 +335,7 @@ def _post_routes() -> dict[str, PostRoute]:
         "/api/export/docx": ("web export docx", _export_docx, True),
         "/api/generate-chapter": ("web generate-chapter", _generate_chapter, True),
         "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, True),
+        "/api/style-guide": ("web style guide save", _save_style_guide, True),
         "/api/provider-config": ("web provider config", _save_provider_config, True),
         "/api/index/refresh": ("web index refresh", _index_refresh, True),
         "/api/init-project": ("web init project", _init_project, True, _init_project_root_from_body),
@@ -740,6 +749,36 @@ def _chapter_memory_result_payload(
         "relative_path": _relative(root, memory_path),
         "generation_status": memory.generation_status,
         "warnings": list(warnings),
+    }
+
+
+def _style_guide(root: Path) -> dict[str, object]:
+    _require_workspace(root)
+    path = root / STYLE_GUIDE_RELATIVE_PATH
+    default_template = default_style_guide_markdown()
+    exists = path.exists()
+    return {
+        "path": STYLE_GUIDE_RELATIVE_PATH,
+        "content": path.read_text(encoding="utf-8") if exists else default_template,
+        "exists": exists,
+        "default_template": default_template,
+    }
+
+
+def _save_style_guide(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    _require_workspace(root)
+    content = str(data.get("content") or "")
+    if not content.strip():
+        raise WebAPIError("invalid_request", "content must not be empty", status=400)
+
+    path = root / STYLE_GUIDE_RELATIVE_PATH
+    backup_path = backup_if_exists(path, reason="web_style_guide")
+    atomic_write_text(path, content.rstrip() + "\n")
+    return {
+        "path": STYLE_GUIDE_RELATIVE_PATH,
+        "backup_path": _relative(root, backup_path) if backup_path else None,
+        "content": path.read_text(encoding="utf-8"),
     }
 
 

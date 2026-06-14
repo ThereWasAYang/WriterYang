@@ -1,6 +1,7 @@
     const $ = (id) => document.getElementById(id);
     const chapterCompareFileTypes = ["plan", "draft", "polished", "audit"];
     const inspirationPreviewPath = "memory/inspiration.md";
+    const styleGuidePath = "memory/style_guide.md";
     const outlinePreviewEndpoints = new Set([
       "/api/session/start",
       "/api/session/revise-outline",
@@ -78,6 +79,9 @@
     let latestSettingChangeClarificationId = "";
     let latestHeaderMessageDetails = "";
     let runtimeSummary = {};
+    let styleGuideDefaultTemplate = "";
+    let styleGuideLoadedContent = "";
+    let styleGuideLoaded = false;
 
     function syncWorkbenchStickyOffset() {
       const header = document.querySelector(".app-header");
@@ -146,6 +150,7 @@
     function setProjectPathValue(path) {
       $("projectPath").value = path || "";
       localStorage.setItem("writeryang.projectPath", $("projectPath").value);
+      resetStyleGuideState();
     }
 
     function recentSessionStorageKey(path = projectPath()) {
@@ -286,6 +291,7 @@
         showTab("projectSearch");
       }
       if (pageId === "memoryPage") loadStateTimeline();
+      if (pageId === "stylePage" && !styleGuideLoaded) loadStyleGuide({ silent: true });
       if (pageId === "configPage") loadProviderConfig();
       if (pageId === "logsPage" && !$("usageStats").classList.contains("hidden")) loadUsage();
       if (pageId === "logsPage" && !$("runLogs").classList.contains("hidden")) loadRuns();
@@ -299,6 +305,25 @@
     function setEmbeddingConfigStatus(text, isError = false) {
       $("embeddingConfigStatus").textContent = text;
       $("embeddingConfigStatus").className = isError ? "message error" : "message";
+    }
+
+    function setStyleGuideStatus(text, isError = false) {
+      $("styleGuideStatus").textContent = text;
+      $("styleGuideStatus").className = isError ? "message error" : "message";
+    }
+
+    function resetStyleGuideState() {
+      styleGuideLoaded = false;
+      styleGuideLoadedContent = "";
+      styleGuideDefaultTemplate = "";
+      const editor = $("styleGuideEditor");
+      if (editor) editor.value = "";
+      const dirty = $("styleGuideDirty");
+      if (dirty) dirty.textContent = "未加载";
+      const meta = $("styleGuideMeta");
+      if (meta) meta.textContent = `当前文件：${styleGuidePath}`;
+      const status = $("styleGuideStatus");
+      if (status) setStyleGuideStatus("文风设置：未加载");
     }
 
     function showSetupGuide(show = true) {
@@ -582,6 +607,68 @@
       } catch (error) {
         setMessage(error.message, true);
       }
+    }
+
+    function updateStyleGuideDirtyState() {
+      if (!styleGuideLoaded) {
+        $("styleGuideDirty").textContent = "未加载";
+        return;
+      }
+      $("styleGuideDirty").textContent =
+        $("styleGuideEditor").value === styleGuideLoadedContent ? "无未保存修改" : "有未保存修改";
+    }
+
+    async function loadStyleGuide(options = {}) {
+      try {
+        const data = await apiGet("/api/style-guide", { path: projectPath() });
+        styleGuideDefaultTemplate = data.default_template || "";
+        styleGuideLoadedContent = data.content || "";
+        styleGuideLoaded = true;
+        $("styleGuideEditor").value = styleGuideLoadedContent;
+        $("styleGuideMeta").textContent = `当前文件：${data.path || styleGuidePath}${data.exists ? "" : "（使用默认模板，保存后创建）"}`;
+        updateStyleGuideDirtyState();
+        setStyleGuideStatus(data.exists ? "文风设置：已加载" : "文风设置：文件缺失，已载入默认模板");
+        if (!options.silent) setMessage("文风设置已加载");
+      } catch (error) {
+        setStyleGuideStatus(error.message, true);
+        if (!options.silent) setMessage(error.message, true);
+      }
+    }
+
+    async function saveStyleGuide() {
+      try {
+        const data = await apiPost("/api/style-guide", {
+          path: projectPath(),
+          content: $("styleGuideEditor").value,
+        });
+        styleGuideLoadedContent = data.content || $("styleGuideEditor").value;
+        styleGuideLoaded = true;
+        $("styleGuideEditor").value = styleGuideLoadedContent;
+        $("styleGuideMeta").textContent = `当前文件：${data.path || styleGuidePath}`;
+        updateStyleGuideDirtyState();
+        const backupText = data.backup_path ? `备份：${data.backup_path}` : "首次创建，无旧文件备份";
+        setStyleGuideStatus(`已保存 ${data.path || styleGuidePath}；${backupText}；后续生成会使用新文风设置。`);
+        await refreshAll({ silent: true });
+        setMessage(`已保存文风设置；${backupText}`);
+      } catch (error) {
+        setStyleGuideStatus(error.message, true);
+        setMessage(error.message, true);
+      }
+    }
+
+    async function restoreStyleGuideTemplate() {
+      if (!styleGuideDefaultTemplate) {
+        await loadStyleGuide({ silent: true });
+      }
+      if (!styleGuideDefaultTemplate) {
+        setStyleGuideStatus("请先打开有效项目后再恢复默认模板。", true);
+        return;
+      }
+      $("styleGuideEditor").value = styleGuideDefaultTemplate || "";
+      styleGuideLoaded = true;
+      updateStyleGuideDirtyState();
+      setStyleGuideStatus("已恢复默认模板（未保存）");
+      setMessage("已恢复默认文风模板，保存后才会写入文件。");
     }
 
     async function runAction(endpoint, label) {
@@ -2814,6 +2901,10 @@
     $("setupEmbedding").addEventListener("click", setupEmbedding);
     $("setupRecommendPort").addEventListener("click", recommendSetupPort);
     $("setupSavePort").addEventListener("click", setupSavePort);
+    $("loadStyleGuide").addEventListener("click", () => loadStyleGuide());
+    $("saveStyleGuide").addEventListener("click", saveStyleGuide);
+    $("resetStyleGuideTemplate").addEventListener("click", restoreStyleGuideTemplate);
+    $("styleGuideEditor").addEventListener("input", updateStyleGuideDirtyState);
     $("planChapter").addEventListener("click", () => runAction("/api/plan-chapter", "生成计划"));
     $("writeChapter").addEventListener("click", () => runAction("/api/write-chapter", "写章节"));
     $("polishChapter").addEventListener("click", () => runAction("/api/polish-chapter", "润色"));
@@ -2921,7 +3012,10 @@
       button.addEventListener("click", () => showTab(button.dataset.tab));
     });
     $("projectPath").value = localStorage.getItem("writeryang.projectPath") || "";
-    $("projectPath").addEventListener("change", () => localStorage.setItem("writeryang.projectPath", $("projectPath").value));
+    $("projectPath").addEventListener("change", () => {
+      localStorage.setItem("writeryang.projectPath", $("projectPath").value);
+      resetStyleGuideState();
+    });
     const savedProjectParentPath = localStorage.getItem("writeryang.projectParentPath");
     $("projectParentPath").dataset.usesRuntimeDefault = savedProjectParentPath ? "0" : "1";
     $("projectParentPath").value = savedProjectParentPath || defaultProjectParentPath;

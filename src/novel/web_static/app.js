@@ -12,6 +12,12 @@
       "/api/session/revise-audit",
       "/api/session/retry-rewrite",
     ]);
+    const debugActionPreviewFiles = {
+      "/api/plan-chapter": "plan",
+      "/api/write-chapter": "draft",
+      "/api/polish-chapter": "polished",
+      "/api/audit-chapter": "audit",
+    };
     let defaultProjectParentPath = "~/WriterYang";
     const providerAgentNames = [
       "orchestrator", "inspiration", "canon", "plot", "writer",
@@ -126,6 +132,20 @@
       localStorage.setItem("writeryang.projectPath", $("projectPath").value);
     }
 
+    function recentSessionStorageKey(path = projectPath()) {
+      return `writeryang.lastSession.${String(path || ".")}`;
+    }
+
+    function rememberSessionId(sessionId) {
+      const value = String(sessionId || "").trim();
+      if (!value) return;
+      localStorage.setItem(recentSessionStorageKey(), value);
+    }
+
+    function recentSessionId() {
+      return localStorage.getItem(recentSessionStorageKey()) || "";
+    }
+
     function currentWebEndpointPayload() {
       const protocolDefaultPort = window.location.protocol === "https:" ? 443 : 80;
       const currentPort = Number(window.location.port || protocolDefaultPort);
@@ -137,6 +157,27 @@
 
     function chapterNumber() {
       return Number($("chapterNumber").value || "1");
+    }
+
+    function compareChapterNumber() {
+      const selected = $("compareChapterSelect")?.value || "";
+      return Number(selected || $("chapterNumber").value || "1");
+    }
+
+    function syncCompareChapterSelect(session = {}) {
+      const select = $("compareChapterSelect");
+      if (!select) return;
+      const range = (session.chapter_range || [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0);
+      const chapters = range.length ? range : [chapterNumber()];
+      const current = chapterNumber();
+      const selected = chapters.includes(current) ? current : chapters[0];
+      select.innerHTML = chapters.map((chapter) => (
+        `<option value="${chapter}">第 ${chapter} 章</option>`
+      )).join("");
+      select.value = String(selected);
+      $("chapterNumber").value = String(selected);
     }
 
     function truncateText(value, maxLength = 120) {
@@ -224,6 +265,7 @@
       if (pageId === "workbenchPage" && ["chapterCompare", "chapterEditor", "auditLocate"].every((id) => $(id).classList.contains("hidden"))) {
         showTab("chapterCompare");
       }
+      if (pageId === "workbenchPage") restoreRecentSessionIfEmpty({ silent: true });
       if (pageId === "logsPage" && ["projectSearch", "projectFiles", "runLogs", "usageStats", "singleFileView"].every((id) => $(id).classList.contains("hidden"))) {
         showTab("projectSearch");
       }
@@ -258,6 +300,7 @@
 
     async function openProject() {
       await refreshAll({ hideProjectInitOnSuccess: true, hideSetupGuideOnSuccess: true });
+      await restoreRecentSessionIfEmpty({ silent: true });
     }
 
     async function loadRuntime() {
@@ -483,6 +526,10 @@
       document.querySelectorAll(".select-chapter").forEach((button) => {
         button.addEventListener("click", () => {
           $("chapterNumber").value = button.dataset.chapter;
+          const compareSelect = $("compareChapterSelect");
+          if (compareSelect && [...compareSelect.options].some((option) => option.value === button.dataset.chapter)) {
+            compareSelect.value = button.dataset.chapter;
+          }
           showMainPage("workbenchPage");
           showTab("chapterCompare");
           loadCompare();
@@ -537,6 +584,7 @@
         const data = await apiPost(endpoint, payload);
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
+        await loadDebugArtifactPreview(endpoint, { silent: true });
         setMessage(actionMessage(label, data));
       });
     }
@@ -560,7 +608,10 @@
         try {
           const data = await apiPost(endpoint, payload);
           const session = data.session || {};
-          if (session.session_id) $("sessionId").value = session.session_id;
+          if (session.session_id) {
+            $("sessionId").value = session.session_id;
+            rememberSessionId(session.session_id);
+          }
           if (data.progress) renderSessionProgress(data.progress);
           renderSessionSummary(data);
           $("fileViewer").textContent = JSON.stringify(data, null, 2);
@@ -823,6 +874,62 @@
       };
     }
 
+    function renderArtifactPreviewPlaceholder(metaId, preId, text, meta = "当前文件：暂无") {
+      $(metaId).textContent = meta;
+      $(preId).textContent = text;
+    }
+
+    function renderArtifactPreview(metaId, preId, data, relPath) {
+      const path = data.path || data.relative_path || relPath;
+      $(metaId).textContent = `当前文件：${path || "暂无"}`;
+      $(preId).textContent = data.content || (path ? `${path} 为空。` : "文件为空。");
+    }
+
+    function renderArtifactPreviewError(metaId, preId, relPath, error, label = "文件") {
+      $(metaId).textContent = relPath ? `当前文件：${relPath}` : "当前文件：暂无";
+      $(preId).textContent = `无法读取${label}：${error.message}`;
+    }
+
+    async function loadWorkspaceArtifactPreview(relPath, target, options = {}) {
+      if (!relPath) {
+        renderArtifactPreviewPlaceholder(target.metaId, target.preId, target.emptyText || "暂无可预览文件。");
+        if (!options.silent) setMessage(target.missingMessage || "暂无可预览文件。", true);
+        return null;
+      }
+      try {
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        renderArtifactPreview(target.metaId, target.preId, data, relPath);
+        if (!options.silent) setMessage(`已读取${target.label || "文件"}：${data.path || relPath}`);
+        return data;
+      } catch (error) {
+        renderArtifactPreviewError(target.metaId, target.preId, relPath, error, target.label || "文件");
+        if (!options.silent) setMessage(error.message, true);
+        return null;
+      }
+    }
+
+    async function loadChapterArtifactPreview(fileType, target, options = {}) {
+      const chapter = options.chapter || chapterNumber();
+      try {
+        const data = await apiGet("/api/chapter-file", {
+          path: projectPath(),
+          chapter,
+          file: fileType,
+        });
+        const relPath = data.relative_path || `memory/chapters/${String(chapter).padStart(3, "0")}/${fileType}`;
+        renderArtifactPreview(target.metaId, target.preId, {
+          ...data,
+          content: data.exists ? data.content : `${relPath} 不存在`,
+        }, relPath);
+        if (!options.silent) setMessage(`已读取${target.label || "章节产物"}：${relPath}`);
+        return data;
+      } catch (error) {
+        renderArtifactPreviewError(target.metaId, target.preId, "", error, target.label || "章节产物");
+        if (!options.silent) setMessage(error.message, true);
+        return null;
+      }
+    }
+
     function outlinePreviewFileFor(session = {}) {
       const sessionId = session.session_id || $("sessionId").value.trim();
       if (!sessionId) return "";
@@ -834,74 +941,90 @@
     }
 
     function renderOutlinePreviewPlaceholder(text = "创建或加载 Session 后，大纲正文会显示在这里。") {
-      $("outlinePreviewMeta").textContent = "当前文件：暂无";
-      $("outlinePreview").textContent = text;
-    }
-
-    function renderOutlinePreview(data, relPath) {
-      $("outlinePreviewMeta").textContent = `当前文件：${data.path || relPath}`;
-      $("outlinePreview").textContent = data.content || `${relPath} 为空。`;
+      renderArtifactPreviewPlaceholder("outlinePreviewMeta", "outlinePreview", text);
     }
 
     async function loadOutlinePreview(session = {}, options = {}) {
       const relPath = outlinePreviewFileFor(session);
-      if (!relPath) {
-        renderOutlinePreviewPlaceholder();
-        if (!options.silent) setMessage("请先创建或填写 Session ID。", true);
-        return null;
-      }
-      try {
-        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
-        renderOutlinePreview(data, relPath);
-        if (!options.silent) setMessage(`已读取大纲：${data.path || relPath}`);
-        return data;
-      } catch (error) {
-        $("outlinePreviewMeta").textContent = `当前文件：${relPath}`;
-        $("outlinePreview").textContent = `无法读取大纲文件：${error.message}`;
-        if (!options.silent) setMessage(error.message, true);
-        return null;
-      }
+      return loadWorkspaceArtifactPreview(relPath, {
+        metaId: "outlinePreviewMeta",
+        preId: "outlinePreview",
+        label: "大纲",
+        emptyText: "创建或加载 Session 后，大纲正文会显示在这里。",
+        missingMessage: "请先创建或填写 Session ID。",
+      }, options);
     }
 
-    async function loadCurrentSession() {
+    async function loadCurrentSession(options = {}) {
       const sessionId = $("sessionId").value.trim();
       if (!sessionId) {
         renderOutlinePreviewPlaceholder();
-        setMessage("请先创建或填写 Session ID。", true);
+        if (!options.silent) setMessage("请先创建或填写 Session ID。", true);
         return null;
       }
       try {
         const data = await apiGet("/api/session", { path: projectPath(), session_id: sessionId });
         renderSessionSummary(data);
         renderNextStep(data);
+        rememberSessionId(sessionId);
         await loadOutlinePreview(data.session || {}, { silent: true });
-        setMessage(`已加载 Session：${sessionId}`);
+        if (!options.silent) setMessage(`已加载 Session：${sessionId}`);
         return data;
       } catch (error) {
         $("outlinePreviewMeta").textContent = `Session：${sessionId}`;
         $("outlinePreview").textContent = `无法加载 Session：${error.message}`;
-        setMessage(error.message, true);
-        return null;
-      }
-    }
-
-    function renderInspirationPreview(data) {
-      $("inspirationPreviewMeta").textContent = `当前文件：${data.path || inspirationPreviewPath}`;
-      $("inspirationPreview").textContent = data.content || "memory/inspiration.md 为空。";
-    }
-
-    async function loadInspirationPreview(options = {}) {
-      try {
-        const data = await apiGet("/api/read-file", { path: projectPath(), file: inspirationPreviewPath });
-        renderInspirationPreview(data);
-        if (!options.silent) setMessage(`已读取灵感：${data.path || inspirationPreviewPath}`);
-        return data;
-      } catch (error) {
-        $("inspirationPreviewMeta").textContent = `当前文件：${inspirationPreviewPath}`;
-        $("inspirationPreview").textContent = `无法读取灵感文件：${error.message}`;
         if (!options.silent) setMessage(error.message, true);
         return null;
       }
+    }
+
+    async function restoreRecentSessionIfEmpty(options = {}) {
+      if ($("sessionId").value.trim()) return null;
+      const sessionId = recentSessionId();
+      if (!sessionId) return null;
+      $("sessionId").value = sessionId;
+      const data = await loadCurrentSession({ silent: true });
+      if (!data) {
+        localStorage.removeItem(recentSessionStorageKey());
+        $("sessionId").value = "";
+        if (!options.silent) setMessage("最近 Session 已失效，请重新创建或填写 Session ID。", true);
+      } else if (!options.silent) {
+        setMessage(`已恢复最近 Session：${sessionId}`);
+      }
+      return data;
+    }
+
+    function renderInspirationPreview(data) {
+      renderArtifactPreview("inspirationPreviewMeta", "inspirationPreview", data, inspirationPreviewPath);
+    }
+
+    async function loadInspirationPreview(options = {}) {
+      return loadWorkspaceArtifactPreview(inspirationPreviewPath, {
+        metaId: "inspirationPreviewMeta",
+        preId: "inspirationPreview",
+        label: "灵感",
+      }, options);
+    }
+
+    async function loadCanonProposalPreview(relPath, options = {}) {
+      const proposalPath = relPath || $("canonProposalPath").value.trim();
+      return loadWorkspaceArtifactPreview(proposalPath, {
+        metaId: "canonProposalPreviewMeta",
+        preId: "canonProposalPreview",
+        label: "Canon proposal",
+        emptyText: "生成或应用 Canon proposal 后，内容会显示在这里。",
+        missingMessage: "暂无 Canon proposal 可预览。",
+      }, options);
+    }
+
+    async function loadDebugArtifactPreview(endpoint, options = {}) {
+      const fileType = debugActionPreviewFiles[endpoint];
+      if (!fileType) return null;
+      return loadChapterArtifactPreview(fileType, {
+        metaId: "debugArtifactPreviewMeta",
+        preId: "debugArtifactPreview",
+        label: "调试产物",
+      }, options);
     }
 
     async function generateInspiration(options = {}) {
@@ -941,7 +1064,11 @@
         if (data.relative_path) $("canonProposalPath").value = data.relative_path;
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
-        setMessage(actionMessage("Canon 建议", data));
+        const previewData = await loadCanonProposalPreview(data.relative_path, { silent: true });
+        setMessage(
+          previewData ? actionMessage("Canon 建议", data) : `${actionMessage("Canon 建议", data)}；预览读取失败，请到“运行日志 / 项目文件”查看。`,
+          !previewData
+        );
       });
     }
 
@@ -957,7 +1084,11 @@
         });
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
         await refreshAll({ silent: true });
-        setMessage(actionMessage("应用 Canon proposal", data));
+        const previewData = await loadCanonProposalPreview(data.proposal_snapshot_relative_path || proposalFile, { silent: true });
+        setMessage(
+          previewData ? actionMessage("应用 Canon proposal", data) : `${actionMessage("应用 Canon proposal", data)}；预览读取失败，请到“运行日志 / 项目文件”查看。`,
+          !previewData
+        );
       });
     }
 
@@ -1276,12 +1407,14 @@
     }
 
     async function loadCompare() {
+      const chapter = compareChapterNumber();
+      $("chapterNumber").value = String(chapter);
       await Promise.all(chapterCompareFileTypes.map(async (type) => {
         const target = $(`${type}Viewer`);
         try {
           const data = await apiGet("/api/chapter-file", {
             path: projectPath(),
-            chapter: chapterNumber(),
+            chapter,
             file: type,
           });
           target.textContent = data.exists ? data.content : `${data.relative_path} 不存在`;
@@ -2324,9 +2457,12 @@
       const session = data.session || {};
       if (!session.session_id) {
         $("sessionPanel").textContent = "未加载 Session";
+        syncCompareChapterSelect({});
         renderRewriteEvents([]);
         return;
       }
+      rememberSessionId(session.session_id);
+      syncCompareChapterSelect(session);
       $("sessionPanel").innerHTML = `
         <span>Session</span>
         <b>${escapeHtml(session.session_id)}</b>
@@ -2658,7 +2794,7 @@
         setMessage("暂无可查看的 Canon proposal 快照。", true);
         return;
       }
-      readWorkspaceFile(latestCanonProposalSnapshotPath);
+      loadCanonProposalPreview(latestCanonProposalSnapshotPath);
     });
     $("refreshFtsIndex").addEventListener("click", () => refreshIndex(false));
     $("refreshEmbeddingIndex").addEventListener("click", () => refreshIndex(true));
@@ -2696,6 +2832,11 @@
     $("cancelSessionTask").addEventListener("click", cancelSessionTask);
     $("viewFile").addEventListener("click", viewFile);
     $("loadCompare").addEventListener("click", loadCompare);
+    $("compareChapterSelect").addEventListener("change", () => {
+      const selected = $("compareChapterSelect").value;
+      if (selected) $("chapterNumber").value = selected;
+      loadCompare();
+    });
     $("loadEditorFile").addEventListener("click", loadEditorFile);
     $("saveEditorVersion").addEventListener("click", saveEditorVersion);
     $("chapterEditorText").addEventListener("input", () => {

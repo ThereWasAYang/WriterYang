@@ -225,6 +225,13 @@
                 <button id="polishChapter">润色</button>
                 <button id="auditChapter">审核</button>
               </div>
+              <div id="debugArtifactPreviewPanel" class="artifact-preview" aria-live="polite">
+                <div class="row">
+                  <h3 style="margin: 0;">调试产物预览</h3>
+                </div>
+                <div id="debugArtifactPreviewMeta" class="preview-meta">当前文件：暂无</div>
+                <pre id="debugArtifactPreview" class="artifact-pre">运行调试动作后，对应产物会显示在这里。</pre>
+              </div>
             </details>
           </div>
 
@@ -305,6 +312,13 @@
               <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
               <div id="canonAppliedProposalPanel" class="metric" style="margin-top: 10px;">已应用 Canon proposal：暂无</div>
               <button id="viewLatestCanonProposal" class="hidden" style="width: 100%; margin-top: 8px;">查看 proposal 内容</button>
+              <div id="canonProposalPreviewPanel" class="artifact-preview" aria-live="polite">
+                <div class="row">
+                  <h3 style="margin: 0;">Canon proposal 预览</h3>
+                </div>
+                <div id="canonProposalPreviewMeta" class="preview-meta">当前文件：暂无</div>
+                <pre id="canonProposalPreview" class="artifact-pre">生成或应用 Canon proposal 后，内容会显示在这里。</pre>
+              </div>
               <div id="inspirationPreviewPanel" class="artifact-preview" aria-live="polite">
                 <div class="row">
                   <h3 style="margin: 0;">灵感预览</h3>
@@ -352,6 +366,9 @@
             <div class="panel">
               <div class="row">
                 <h2 style="margin: 0;">plan / draft / polished / audit 对照</h2>
+                <select id="compareChapterSelect" title="对照章节">
+                  <option value="">当前章节</option>
+                </select>
                 <button id="loadCompare">加载对照</button>
               </div>
               <div id="compareGrid" class="four">

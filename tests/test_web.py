@@ -1186,6 +1186,12 @@ def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
         json.dumps({"path": str(root), "provider": "mock"}),
     )
     proposal_path = suggest_payload["data"]["relative_path"]  # type: ignore[index]
+    read_status, read_payload = handle_api_request(
+        "GET",
+        "/api/read-file",
+        f"path={root}&file={proposal_path}",
+        None,
+    )
     apply_status, apply_payload = handle_api_request(
         "POST",
         "/api/canon/apply",
@@ -1199,6 +1205,10 @@ def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
     assert suggest_status == 200
     assert suggest_payload["ok"] is True
     assert str(proposal_path).startswith("runs/canon_proposal_")
+    assert read_status == 200
+    assert read_payload["data"]["path"] == proposal_path  # type: ignore[index]
+    assert '"characters"' in read_payload["data"]["content"]  # type: ignore[index]
+    assert "旧车站" in read_payload["data"]["content"]  # type: ignore[index]
     assert apply_status == 200
     assert apply_payload["data"]["validation_ok"] is True  # type: ignore[index]
     apply_data = apply_payload["data"]  # type: ignore[assignment]
@@ -2185,6 +2195,10 @@ def test_frontend_basic_render() -> None:
     assert 'id="outlinePreviewMeta"' in html
     assert 'id="outlinePreview"' in html
     assert 'id="reloadOutlinePreview"' in html
+    assert 'id="debugArtifactPreviewPanel"' in html
+    assert 'id="debugArtifactPreviewMeta"' in html
+    assert 'id="debugArtifactPreview"' in html
+    assert 'id="compareChapterSelect"' in html
     assert 'id="rewriteEventsPanel"' in html
     assert "本次修改路由" in app_js
     assert "/api/session/progress" in app_js
@@ -2244,8 +2258,14 @@ def test_frontend_basic_render() -> None:
     assert "重新生成会覆盖 memory/inspiration.md。确认继续吗？" in app_js
     assert "loadInspirationPreview" in app_js
     assert "readWorkspaceFile(inspirationPreviewPath)" in app_js
+    assert "loadWorkspaceArtifactPreview" in app_js
+    assert "loadChapterArtifactPreview" in app_js
     assert "loadOutlinePreview" in app_js
     assert "loadCurrentSession" in app_js
+    assert "restoreRecentSessionIfEmpty" in app_js
+    assert "rememberSessionId" in app_js
+    assert "recentSessionStorageKey" in app_js
+    assert "writeryang.lastSession." in app_js
     assert "outlinePreviewEndpoints.has(endpoint)" in app_js
     assert "chapterComparePreviewEndpoints.has(endpoint)" in app_js
     assert "outline_proposal.md" in app_js
@@ -2254,15 +2274,31 @@ def test_frontend_basic_render() -> None:
     assert "showTab(\"chapterCompare\")" in app_js
     assert "await loadCompare();" in app_js
     assert 'const chapterCompareFileTypes = ["plan", "draft", "polished", "audit"];' in app_js
+    assert "syncCompareChapterSelect" in app_js
+    assert "compareChapterNumber" in app_js
+    assert "$(\"compareChapterSelect\").addEventListener(\"change\"" in app_js
     assert "chapter_memoryViewer" not in html
     assert 'id="canonSuggest"' in html
     assert 'id="canonApply"' in html
     assert 'id="canonAppliedProposalPanel"' in html
+    assert 'id="canonProposalPreviewPanel"' in html
+    assert 'id="canonProposalPreviewMeta"' in html
+    assert 'id="canonProposalPreview"' in html
     assert 'id="viewLatestCanonProposal"' in html
     assert "请先点击“Canon 建议”，生成 Canon proposal 文件后再应用。" in app_js
     assert "/api/canon/applied-proposals" in app_js
     assert "renderCanonAppliedProposals" in app_js
     assert "latestCanonProposalSnapshotPath" in app_js
+    assert "loadCanonProposalPreview" in app_js
+    assert "loadCanonProposalPreview(data.relative_path" in app_js
+    assert "loadCanonProposalPreview(data.proposal_snapshot_relative_path || proposalFile" in app_js
+    assert "loadCanonProposalPreview(latestCanonProposalSnapshotPath)" in app_js
+    assert "debugActionPreviewFiles" in app_js
+    assert "loadDebugArtifactPreview(endpoint" in app_js
+    assert "\"/api/plan-chapter\": \"plan\"" in app_js
+    assert "\"/api/write-chapter\": \"draft\"" in app_js
+    assert "\"/api/polish-chapter\": \"polished\"" in app_js
+    assert "\"/api/audit-chapter\": \"audit\"" in app_js
     assert 'id="memoryRepairSuggest"' in html
     assert 'id="memoryRepairApply"' in html
     assert 'id="memoryRepairReset"' in html

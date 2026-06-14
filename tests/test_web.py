@@ -2257,6 +2257,7 @@ def test_frontend_basic_render() -> None:
     assert "white-space: nowrap" in app_css
     assert "重新生成会覆盖 memory/inspiration.md。确认继续吗？" in app_js
     assert "loadInspirationPreview" in app_js
+    assert "function renderInspirationPreview" not in app_js
     assert "readWorkspaceFile(inspirationPreviewPath)" in app_js
     assert "loadWorkspaceArtifactPreview" in app_js
     assert "loadChapterArtifactPreview" in app_js
@@ -2266,6 +2267,7 @@ def test_frontend_basic_render() -> None:
     assert "rememberSessionId" in app_js
     assert "recentSessionStorageKey" in app_js
     assert "writeryang.lastSession." in app_js
+    assert 'renderOutlinePreviewPlaceholder();\n        if (!options.silent) setMessage("最近 Session 已失效' in app_js
     assert "outlinePreviewEndpoints.has(endpoint)" in app_js
     assert "chapterComparePreviewEndpoints.has(endpoint)" in app_js
     assert "outline_proposal.md" in app_js

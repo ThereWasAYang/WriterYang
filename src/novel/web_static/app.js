@@ -987,15 +987,12 @@
       if (!data) {
         localStorage.removeItem(recentSessionStorageKey());
         $("sessionId").value = "";
+        renderOutlinePreviewPlaceholder();
         if (!options.silent) setMessage("最近 Session 已失效，请重新创建或填写 Session ID。", true);
       } else if (!options.silent) {
         setMessage(`已恢复最近 Session：${sessionId}`);
       }
       return data;
-    }
-
-    function renderInspirationPreview(data) {
-      renderArtifactPreview("inspirationPreviewMeta", "inspirationPreview", data, inspirationPreviewPath);
     }
 
     async function loadInspirationPreview(options = {}) {

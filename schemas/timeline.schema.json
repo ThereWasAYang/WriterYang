@@ -18,7 +18,15 @@
           "type": "boolean"
         },
         "narrative_position": {
-          "$ref": "#/$defs/TimelineNarrativePosition"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimelineNarrativePosition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "story_position": {
           "$ref": "#/$defs/TimelineStoryPosition"
@@ -95,7 +103,6 @@
         "id",
         "summary",
         "reader_visible",
-        "narrative_position",
         "story_position"
       ],
       "title": "TimelineEvent",

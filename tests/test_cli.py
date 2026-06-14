@@ -139,6 +139,39 @@ def test_show_timeline_cli_formats_events(tmp_path: Path) -> None:
     assert "Participants: char_lin_che" in stdout
 
 
+def test_show_timeline_cli_formats_unrevealed_background_events(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    timeline_path = root / "memory" / "state" / "timeline.json"
+    timeline_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "events": [
+                    {
+                        "id": "event_background",
+                        "summary": "徐家旧案尚未正文揭示。",
+                        "reader_visible": False,
+                        "story_position": {"time_label": "开篇前约十年"},
+                        "event_role": "backstory",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    code, stdout, stderr = _run_cli(["show", "timeline", "--path", str(root)])
+
+    assert code == 0
+    assert stderr == ""
+    assert "背景（未揭示）" in stdout
+    assert "徐家旧案尚未正文揭示。" in stdout
+
+
 def test_show_state_cli_formats_current_state(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

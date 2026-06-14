@@ -117,9 +117,12 @@ def format_timeline(root: Path) -> str:
     for event in timeline.events:
         narrative = event.narrative_position
         story = event.story_position
-        scene = f", scene {narrative.scene}" if narrative.scene is not None else ""
+        scene = f", scene {narrative.scene}" if narrative is not None and narrative.scene is not None else ""
         visible = "reader-visible" if event.reader_visible else "hidden"
-        lines.append(f"- Chapter {narrative.chapter}{scene}: {event.summary}")
+        if narrative is None:
+            lines.append(f"- 背景（未揭示）: {event.summary}")
+        else:
+            lines.append(f"- Chapter {narrative.chapter}{scene}: {event.summary}")
         lines.append(f"  ID: {event.id}")
         lines.append(f"  Story time: {story.time_label}")
         if story.order is not None:

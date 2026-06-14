@@ -549,6 +549,8 @@ def validate_state_update_proposal(
         _validate_state_change_field(change, character_ids, location_ids, item_ids)
 
     for event in proposal.timeline_events:
+        if event.narrative_position is None:
+            raise StateUpdateError(f"timeline event {event.id} narrative_position is required")
         if event.narrative_position.chapter != proposal.chapter_number:
             raise StateUpdateError(
                 f"timeline event {event.id} narrative_position.chapter must match proposal chapter_number"
@@ -592,6 +594,8 @@ def _validate_proposed_timeline_scene_bounds(root: Path, proposal: StateUpdatePr
     plan = load_json_model(plan_path, ChapterPlan)
     scene_count = len(plan.scenes)
     for event in proposal.timeline_events:
+        if event.narrative_position is None:
+            raise StateUpdateError(f"timeline event {event.id} narrative_position is required")
         scene = event.narrative_position.scene
         if scene and scene > scene_count:
             raise StateUpdateError(
@@ -603,15 +607,19 @@ def _validate_proposed_timeline_monotonic(root: Path, proposal: StateUpdatePropo
     if not proposal.timeline_events:
         return
     timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
-    existing_max = max((_timeline_event_key(event) for event in timeline.events), default=None)
+    existing_max = max(
+        (_timeline_event_key(event) for event in timeline.events if event.narrative_position is not None),
+        default=None,
+    )
     previous = existing_max
     for event in proposal.timeline_events:
         key = _timeline_event_key(event)
+        narrative = event.narrative_position
         if previous is not None and key < previous:
             raise StateUpdateError(
                 "timeline event order conflict: "
-                f"{event.id} chapter={event.narrative_position.chapter}, "
-                f"scene={event.narrative_position.scene}, sequence={event.narrative_position.sequence} "
+                f"{event.id} chapter={narrative.chapter}, "
+                f"scene={narrative.scene}, sequence={narrative.sequence} "
                 "would be ordered before "
                 f"existing or previous event key chapter={previous[0]}, scene={previous[1]}, sequence={previous[2]}. "
                 "Regenerate the state update proposal with monotonically increasing narrative_position values."
@@ -621,6 +629,8 @@ def _validate_proposed_timeline_monotonic(root: Path, proposal: StateUpdatePropo
 
 def _timeline_event_key(event) -> tuple[int, int, int]:
     narrative = event.narrative_position
+    if narrative is None:
+        raise StateUpdateError(f"timeline event {event.id} narrative_position is required")
     return (int(narrative.chapter), int(narrative.scene or 0), int(narrative.sequence or 0))
 
 

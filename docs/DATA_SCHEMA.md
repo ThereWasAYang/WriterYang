@@ -869,9 +869,9 @@ memory/state/timeline.json
 
 用途：
 
-保存故事中已经发生或已经揭示的事件。Timeline 使用两条轨道：
+保存故事世界中已经确定存在的事件，包括尚未在正文揭示的背景/前史事件。Timeline 使用两条轨道：
 
-- `narrative_position`：事件在已写章节中出现的位置。
+- `narrative_position`：事件在已写章节中出现的位置；尚未正文揭示时省略或设为 `null`。
 - `story_position`：事件在故事世界中发生的时间。
 
 这种分离允许倒叙、逆时序、回忆和非线性多线叙事，而不会把它们误判为 timeline conflict。
@@ -914,7 +914,6 @@ memory/state/timeline.json
 必填字段：
 
 - `id`
-- `narrative_position`
 - `story_position`
 - `summary`
 - `reader_visible`
@@ -932,14 +931,15 @@ memory/state/timeline.json
 Validation 规则：
 
 - Event ID 必须唯一。
-- Event 应按 `narrative_position.chapter`、`narrative_position.scene` 和 `narrative_position.sequence` 排序。
-- 顶层 legacy 字段 `chapter`、`scene`、`in_story_time` 不再属于 `TimelineEvent`，应分别写入 `narrative_position.chapter`、`narrative_position.scene` 和 `story_position.time_label`。
+- 有 `narrative_position` 的 event 应按 `narrative_position.chapter`、`narrative_position.scene` 和 `narrative_position.sequence` 排序；无 `narrative_position` 的背景事件不参与正文呈现顺序校验。
+- 顶层 legacy 字段 `chapter`、`scene`、`in_story_time` 不再属于 `TimelineEvent`。正文揭示位置应写入 `narrative_position.chapter` / `narrative_position.scene`；故事世界时间应写入 `story_position.time_label`。
+- 不要使用 `narrative_position.chapter = 0` 表示开篇前事件；尚未正文揭示的事件应省略 `narrative_position`。
 - `causes` / `effects` 的顺序只有在两个 event 位于同一 `story_position.thread_id` 且拥有可比较的 `story_position.order` 时，才构成硬性冲突。
 - 当真实故事世界顺序未知时，可以省略 `story_position.order`；不要从叙事顺序反推它。
 - Participants 应引用已有角色。
 - 如果提供 location，应引用已有地点。
 
-对于非线性叙事，`narrative_position` 保持在文本揭示该事件的 chapter/scene；较早或平行的故事内时间写入 `story_position.time_label`。
+对于非线性叙事，`narrative_position` 保持在文本揭示该事件的 chapter/scene；较早或平行的故事内时间写入 `story_position.time_label`。对于还没有揭示的前史事件，只写 `story_position`，等正文揭示后再补 `narrative_position`。
 
 ---
 

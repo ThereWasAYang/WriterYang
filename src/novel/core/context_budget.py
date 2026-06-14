@@ -107,10 +107,15 @@ def select_timeline_view(
         if is_focus or is_required:
             mandatory.append(event)
             continue
-        if event.narrative_position.chapter >= recent_min or event.event_role in _KEY_EVENT_ROLES:
+        narrative = event.narrative_position
+        if (narrative is not None and narrative.chapter >= recent_min) or event.event_role in _KEY_EVENT_ROLES:
             optional.append(event)
     remaining_slots = max(config.max_full_timeline_events - len(mandatory), 0)
-    optional_keep = sorted(optional, key=_timeline_optional_priority, reverse=True)[:remaining_slots]
+    optional_keep = sorted(
+        optional,
+        key=lambda event: _timeline_optional_priority(event, chapter_number=chapter_number),
+        reverse=True,
+    )[:remaining_slots]
     keep_ids = {event.id for event in mandatory}
     keep_ids.update(event.id for event in optional_keep)
     kept = [event for event in timeline.events if event.id in keep_ids]
@@ -186,10 +191,12 @@ def render_state_for_prompt(view: StateView) -> str:
     )
 
 
-def _timeline_optional_priority(event: TimelineEvent) -> tuple[int, int, int]:
+def _timeline_optional_priority(event: TimelineEvent, *, chapter_number: int) -> tuple[int, int, int]:
     role_score = 1 if event.event_role in _KEY_EVENT_ROLES else 0
     visible_score = 1 if event.reader_visible else 0
-    return (event.narrative_position.chapter, role_score, visible_score)
+    narrative = event.narrative_position
+    chapter_key = narrative.chapter if narrative is not None else chapter_number
+    return (chapter_key, role_score, visible_score)
 
 
 def _timeline_digest(events: list[TimelineEvent], *, task: ContextTask, digest_dropped: bool) -> str:
@@ -197,8 +204,24 @@ def _timeline_digest(events: list[TimelineEvent], *, task: ContextTask, digest_d
     if not visible_events:
         return "No reader-visible folded timeline events for this task."
     lines: list[str] = []
-    sorted_events = sorted(visible_events, key=lambda event: event.narrative_position.chapter)
-    for chapter, grouped in groupby(sorted_events, key=lambda event: event.narrative_position.chapter):
+    background_events = [event for event in visible_events if event.narrative_position is None]
+    if background_events:
+        summaries = [
+            f"{event.summary.strip()}（故事时间：{event.story_position.time_label}）"
+            for event in background_events
+            if event.summary.strip()
+        ]
+        shown = summaries[:3]
+        suffix = ""
+        if digest_dropped and len(summaries) > len(shown):
+            suffix = f" (+{len(summaries) - len(shown)} more)"
+        lines.append(f"- 背景（未在正文揭示）: {'; '.join(shown) if shown else 'summary unavailable'}{suffix}")
+    anchored_events = [event for event in visible_events if event.narrative_position is not None]
+    sorted_events = sorted(anchored_events, key=lambda event: event.narrative_position.chapter if event.narrative_position else 0)
+    for chapter, grouped in groupby(
+        sorted_events,
+        key=lambda event: event.narrative_position.chapter if event.narrative_position else 0,
+    ):
         chapter_events = list(grouped)
         summaries = [event.summary.strip() for event in chapter_events if event.summary.strip()]
         shown = summaries[:3]

@@ -10,10 +10,11 @@ import yaml
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import load_json_model
 from novel.core.memory_repair import (
+    _memory_repair_user_prompt,
     answer_setting_change_clarification,
     apply_memory_repair,
-    _memory_repair_user_prompt,
     generate_memory_change_clarification_decision,
+    suggest_memory_repair,
     suggest_setting_change_interactive,
 )
 from novel.core.orchestrator import decide_ask_intent, route_audit_repair, route_revision_request
@@ -258,6 +259,42 @@ def test_real_deepseek_setting_change_complex_proposal_preflights(tmp_path: Path
     assert result.proposal_result is not None
     assert result.proposal_result.proposal.operations
     apply_memory_repair(root, result.proposal_result.proposal_path)
+    assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
+
+
+def test_real_setting_change_pre_creation_timeline_backstory_omits_chapter_zero(tmp_path: Path) -> None:
+    env = _real_env_or_skip()
+    root = _real_project(tmp_path, env)
+
+    result = suggest_memory_repair(
+        root,
+        (
+            "请只向 memory/state/timeline.json 新增一个开篇前背景时间线事件："
+            "徐家旧案发生在开篇前约十年，尚未在任何正文章节揭示，读者暂不可见。"
+            "故事世界时间写入 story_position.time_label，不要写第 0 章。"
+        ),
+        provider_name="config",
+        change_kind="setting_change",
+        stage="pre_creation",
+    )
+
+    timeline_operations = [
+        operation
+        for operation in result.proposal.operations
+        if operation.file == "memory/state/timeline.json"
+        and operation.op in {"add", "replace"}
+        and isinstance(operation.value, dict)
+    ]
+    assert timeline_operations
+    for operation in timeline_operations:
+        value = operation.value
+        narrative = value.get("narrative_position")
+        assert not (isinstance(narrative, dict) and narrative.get("chapter") == 0)
+        assert isinstance(value.get("story_position"), dict)
+        assert value["story_position"].get("time_label")
+    apply_memory_repair(root, result.proposal_path)
     assert env["WRITERYANG_REAL_API_KEY"] not in "\n".join(
         path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
     )

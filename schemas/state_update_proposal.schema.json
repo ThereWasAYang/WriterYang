@@ -1,64 +1,6 @@
 {
   "$defs": {
-    "StateChange": {
-      "additionalProperties": true,
-      "properties": {
-        "id": {
-          "pattern": "^[a-z0-9_]+$",
-          "title": "Id",
-          "type": "string"
-        },
-        "chapter": {
-          "minimum": 1,
-          "title": "Chapter",
-          "type": "integer"
-        },
-        "entity_id": {
-          "title": "Entity Id",
-          "type": "string"
-        },
-        "field": {
-          "minLength": 1,
-          "title": "Field",
-          "type": "string"
-        },
-        "new_value": {
-          "title": "New Value"
-        },
-        "reason": {
-          "minLength": 1,
-          "title": "Reason",
-          "type": "string"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "old_value": {
-          "anyOf": [
-            {},
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Old Value"
-        }
-      },
-      "required": [
-        "id",
-        "chapter",
-        "entity_id",
-        "field",
-        "new_value",
-        "reason",
-        "source"
-      ],
-      "title": "StateChange",
-      "type": "object"
-    },
-    "TimelineEvent": {
+    "AnchoredTimelineEvent": {
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -156,7 +98,65 @@
         "narrative_position",
         "story_position"
       ],
-      "title": "TimelineEvent",
+      "title": "AnchoredTimelineEvent",
+      "type": "object"
+    },
+    "StateChange": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "chapter": {
+          "minimum": 1,
+          "title": "Chapter",
+          "type": "integer"
+        },
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "field": {
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "new_value": {
+          "title": "New Value"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "old_value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Old Value"
+        }
+      },
+      "required": [
+        "id",
+        "chapter",
+        "entity_id",
+        "field",
+        "new_value",
+        "reason",
+        "source"
+      ],
+      "title": "StateChange",
       "type": "object"
     },
     "TimelineNarrativePosition": {
@@ -279,7 +279,7 @@
     },
     "timeline_events": {
       "items": {
-        "$ref": "#/$defs/TimelineEvent"
+        "$ref": "#/$defs/AnchoredTimelineEvent"
       },
       "title": "Timeline Events",
       "type": "array"

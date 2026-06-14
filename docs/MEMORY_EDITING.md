@@ -78,17 +78,17 @@ State 是“故事当前已经发生到哪里”。适合记录：
 
 ## `memory/state/timeline.json`
 
-Timeline 记录已经发生的事件。事件应尽量包含：
+Timeline 记录故事世界中已经确定存在的事件，包括尚未正文揭示的背景/前史。事件应尽量包含：
 
 - `id`：稳定事件 ID。
 - `summary`：事件摘要。
-- `narrative_position`：正文呈现顺序，包含 chapter / scene / sequence。
+- `narrative_position`：正文呈现顺序，包含 chapter / scene / sequence；如果事件尚未在正文揭示，应省略或设为 `null`，不要使用 `chapter: 0`。
 - `story_position`：故事世界顺序，包含 time_label / order / thread_id / certainty；非线性叙事无法确认真实顺序时可以不填 order。
 - `participant_ids`：参与人物 ID。
 - `location_id`：地点 ID。
 - `state_change_ids`：相关状态变化 ID。
 
-如果新增 timeline event，确认 ID 不重复、人物/地点引用存在，并区分正文呈现顺序与故事世界顺序。倒序、插叙、回忆应把 `narrative_position` 写成正文出现位置，不要为了故事内时间倒退章节或场景。
+如果新增 timeline event，确认 ID 不重复、人物/地点引用存在，并区分正文呈现顺序与故事世界顺序。倒序、插叙、回忆应把 `narrative_position` 写成正文出现位置，不要为了故事内时间倒退章节或场景；开篇前/背景事件的时间写入 `story_position.time_label`。
 
 ## `memory/chapters/{chapter}/`
 

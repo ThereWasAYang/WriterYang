@@ -90,6 +90,27 @@ def test_timeline_dual_order_allows_flashback_story_order(tmp_path: Path) -> Non
     assert not any(finding.type == "timeline_conflict" for finding in result.findings)
 
 
+def test_timeline_order_checks_skip_unrevealed_background_events(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_timeline(
+        root,
+        [
+            {
+                "id": "event_background",
+                "summary": "尚未正文揭示的背景事件。",
+                "reader_visible": False,
+                "story_position": {"time_label": "开篇前约十年", "order": 1, "thread_id": "main"},
+                "event_role": "backstory",
+            },
+            _timeline_event("event_now", chapter=1, scene=1, story_order=100, role="current_action"),
+        ],
+    )
+
+    result = check_project_consistency(root)
+
+    assert not any(finding.type == "timeline_conflict" for finding in result.findings)
+
+
 def test_accepted_chapter_without_passed_audit_or_state_apply_log_is_blocked(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     chapter_dir = root / "memory" / "chapters" / "001"

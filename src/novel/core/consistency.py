@@ -385,12 +385,13 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
     events = snapshot.timeline.events
     event_by_id = {event.id: event for event in events}
     previous_key: tuple[int, int, int] | None = None
-    for event in events:
+    for event in (item for item in events if item.narrative_position is not None):
         key = _event_narrative_key(event)
+        narrative = event.narrative_position
         if previous_key and key < previous_key:
             severity: Severity = (
                 "medium"
-                if snapshot.chapter_number is None or event.narrative_position.chapter == snapshot.chapter_number
+                if snapshot.chapter_number is None or narrative.chapter == snapshot.chapter_number
                 else "low"
             )
             findings.append(
@@ -401,8 +402,8 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
                     description="Timeline events are not ordered by narrative_position chapter, scene, and sequence.",
                     source=source,
                     quote=(
-                        f"{event.id}: chapter={event.narrative_position.chapter}, "
-                        f"scene={event.narrative_position.scene}, sequence={event.narrative_position.sequence}"
+                        f"{event.id}: chapter={narrative.chapter}, "
+                        f"scene={narrative.scene}, sequence={narrative.sequence}"
                     ),
                     suggested_fix="Sort timeline events by narrative_position or correct the event narrative position.",
                 )
@@ -426,9 +427,10 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
                 findings.append(_timeline_missing_reference(source, event, effect_id, "effect"))
             elif _story_order_reversed(event, effect):
                 findings.append(_timeline_reversed_reference(source, event, effect, "effect"))
-        if snapshot.chapter_number and event.narrative_position.chapter == snapshot.chapter_number and snapshot.plan:
+        narrative = event.narrative_position
+        if snapshot.chapter_number and narrative is not None and narrative.chapter == snapshot.chapter_number and snapshot.plan:
             scene_count = len(snapshot.plan.scenes)
-            scene = event.narrative_position.scene
+            scene = narrative.scene
             if scene and scene > scene_count:
                 findings.append(
                     ConsistencyFinding(
@@ -758,6 +760,8 @@ def _timeline_reversed_reference(
 
 def _event_narrative_key(event: TimelineEvent) -> tuple[int, int, int]:
     narrative = event.narrative_position
+    if narrative is None:
+        raise ValueError(f"timeline event {event.id} has no narrative_position")
     return (narrative.chapter, narrative.scene or 0, narrative.sequence or 0)
 
 

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from novel.core.io import load_json_model, load_yaml_model
-from novel.core.schemas import Character, ProjectConfig, TimelineEvent
+from novel.core.schemas import Character, ProjectConfig, StateUpdateProposal, TimelineEvent
 from novel.core.validation import validate_canon, validate_project
 from novel.core.workspace import InitOptions, init_workspace
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
@@ -82,9 +82,97 @@ def test_timeline_event_rejects_legacy_top_level_fields() -> None:
         raise AssertionError("expected legacy timeline field rejection")
 
 
+def test_timeline_event_allows_unrevealed_background_without_narrative_position() -> None:
+    payload = {
+        "id": "event_background",
+        "story_position": {"time_label": "开篇前约十年"},
+        "summary": "尚未在正文揭示的背景事件。",
+        "reader_visible": False,
+        "event_role": "backstory",
+    }
+
+    event = TimelineEvent.model_validate(payload)
+    null_event = TimelineEvent.model_validate({**payload, "id": "event_background_null", "narrative_position": None})
+
+    assert event.narrative_position is None
+    assert null_event.narrative_position is None
+
+
+def test_timeline_event_still_rejects_chapter_zero_when_narrative_position_exists() -> None:
+    payload = {
+        "id": "event_bad_chapter",
+        "narrative_position": {"chapter": 0},
+        "story_position": {"time_label": "开篇前约十年"},
+        "summary": "错误使用第 0 章的背景事件。",
+        "reader_visible": False,
+        "event_role": "backstory",
+    }
+
+    try:
+        TimelineEvent.model_validate(payload)
+    except Exception as exc:
+        assert "greater than or equal to 1" in str(exc)
+    else:
+        raise AssertionError("expected chapter zero rejection")
+
+
+def test_state_update_proposal_still_requires_anchored_timeline_events() -> None:
+    payload = {
+        "chapter_number": 1,
+        "state_changes": [],
+        "timeline_events": [
+            {
+                "id": "event_unanchored",
+                "story_position": {"time_label": "第1章"},
+                "summary": "章节抽取不能省略正文位置。",
+                "reader_visible": True,
+            }
+        ],
+        "warnings": [],
+        "created_at": "2026-06-14T00:00:00Z",
+    }
+
+    try:
+        StateUpdateProposal.model_validate(payload)
+    except Exception as exc:
+        assert "narrative_position" in str(exc)
+    else:
+        raise AssertionError("expected StateUpdateProposal narrative_position requirement")
+
+
 def test_validate_fresh_workspace_passes(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
+
+    report = validate_project(root)
+
+    assert report.ok
+    assert report.errors == []
+
+
+def test_validate_project_allows_unrevealed_background_timeline_events(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "memory" / "state" / "timeline.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "events": [
+                    {
+                        "id": "event_background",
+                        "summary": "尚未正文揭示的背景事件。",
+                        "reader_visible": False,
+                        "story_position": {"time_label": "开篇前约十年"},
+                        "event_role": "backstory",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     report = validate_project(root)
 

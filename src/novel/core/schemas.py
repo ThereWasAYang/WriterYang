@@ -501,7 +501,7 @@ class TimelineEvent(FlexibleModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     summary: str = Field(min_length=1)
     reader_visible: bool
-    narrative_position: TimelineNarrativePosition
+    narrative_position: TimelineNarrativePosition | None = None
     story_position: TimelineStoryPosition
     event_role: TimelineEventRole | None = None
     location_id: EntityId | None = None
@@ -510,6 +510,10 @@ class TimelineEvent(FlexibleModel):
     effects: list[str] = Field(default_factory=list)
     state_change_ids: list[EntityId] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+
+
+class AnchoredTimelineEvent(TimelineEvent):
+    narrative_position: TimelineNarrativePosition
 
 
 class TimelineFile(SchemaVersionedModel):
@@ -530,7 +534,7 @@ class StateChange(FlexibleModel):
 class StateUpdateProposal(SchemaVersionedModel):
     chapter_number: int = Field(ge=1)
     state_changes: list[StateChange] = Field(default_factory=list)
-    timeline_events: list[TimelineEvent] = Field(default_factory=list)
+    timeline_events: list[AnchoredTimelineEvent] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     created_at: datetime
 
@@ -542,6 +546,8 @@ class StateUpdateProposal(SchemaVersionedModel):
             if change.chapter != self.chapter_number:
                 raise ValueError(f"state change {change.id} chapter must match proposal chapter_number")
         for event in self.timeline_events:
+            if event.narrative_position is None:
+                raise ValueError(f"timeline event {event.id} narrative_position is required for StateUpdateProposal")
             if event.narrative_position.chapter != self.chapter_number:
                 raise ValueError(f"timeline event {event.id} chapter must match proposal chapter_number")
         return self

@@ -277,6 +277,76 @@ def test_setting_change_suggest_preflights_operation_value_schema(tmp_path: Path
     assert not list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
 
 
+def test_setting_change_auto_repairs_timeline_background_chapter_zero(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="开篇前时间线测试", root=root))
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=["memory/state/timeline.json"],
+        operations=[
+            {
+                "op": "add",
+                "file": "memory/state/timeline.json",
+                "path": "/events/-",
+                "value": {
+                    "id": "event_background",
+                    "summary": "开篇前的背景事件。",
+                    "reader_visible": False,
+                    "narrative_position": {"chapter": 0},
+                    "story_position": {"time_label": "开篇前约十年"},
+                    "event_role": "backstory",
+                },
+                "reason": "测试开篇前背景事件。",
+            }
+        ],
+        confidence=0.8,
+    )
+
+    result = suggest_memory_repair(root, "新增开篇前背景事件", decision=decision, change_kind="setting_change")
+
+    value = result.proposal.operations[0].value
+    assert isinstance(value, dict)
+    assert "narrative_position" not in value
+    assert any("省略 narrative_position" in note for note in result.proposal.notes)
+    apply_memory_repair(root, result.proposal_path)
+    timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    assert timeline.events[0].narrative_position is None
+
+
+def test_setting_change_preflight_humanizes_timeline_schema_errors(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="错误摘要测试", root=root))
+    decision = MemoryRepairDecision(
+        change_kind="setting_change",
+        target_files=["memory/state/timeline.json"],
+        operations=[
+            {
+                "op": "add",
+                "file": "memory/state/timeline.json",
+                "path": "/events/-",
+                "value": {
+                    "id": "event_bad",
+                    "summary": "缺少故事世界时间且错误使用第 0 章。",
+                    "reader_visible": False,
+                    "narrative_position": {"chapter": 0},
+                    "event_role": "backstory",
+                },
+                "reason": "测试错误摘要。",
+            }
+        ],
+        confidence=0.8,
+    )
+
+    with pytest.raises(MemoryRepairError) as excinfo:
+        suggest_memory_repair(root, "新增非法背景事件", decision=decision, change_kind="setting_change")
+
+    message = str(excinfo.value)
+    assert "narrative_position.chapter 必须大于等于 1" in message
+    assert "story_position" in message
+    assert "pydantic.dev" not in message
+    assert "validation errors for" not in message
+
+
 def test_setting_change_preflight_reports_all_invalid_target_files(tmp_path: Path) -> None:
     root = _workspace_with_timeline_event(tmp_path)
     decision = MemoryRepairDecision(

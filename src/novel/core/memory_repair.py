@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
-from typing import Iterable, Literal
+from typing import Iterable, Literal, Mapping
 
 from pydantic import ValidationError
 
@@ -1374,7 +1374,13 @@ def _timeline_pointer_index(data: dict[str, object]) -> list[str]:
     lines = [
         "  collection: /events",
         "  add event path: /events/-",
-        "  common event fields: id, summary, narrative_position, story_position, event_role, certainty, causes, effects, state_change_ids",
+        "  common event fields: id, summary, reader_visible, narrative_position, story_position, event_role, causes, effects, state_change_ids",
+        "  strict add value schema: id, summary, reader_visible, story_position are required; narrative_position is optional.",
+        "  narrative_position, when present, must be an object: {chapter:int>=1, scene?:int>=1|null, sequence?:int>=1|null}.",
+        "  未在正文揭示的开篇前/前史/背景事件必须省略 narrative_position，不要使用 chapter=0 或假章节。",
+        "  story_position is required: {time_label: non-empty string, order?:number|null, thread_id?:string|null, certainty?:certain|inferred|uncertain|null}.",
+        "  story-world labels such as 开篇前、前史、1540年代 must go into story_position.time_label.",
+        "  top-level certainty is not allowed; certainty belongs inside story_position.",
     ]
     if not isinstance(events, list) or not events:
         lines.append("  existing events: none; use /events/- for add")
@@ -1482,6 +1488,8 @@ def _target_schema_repair_prompt(
         "- abilities、secrets、rules、special_properties 必须是对象数组，不要使用字符串数组。\n"
         "- planned_reveal 和 planned_payoff 必须是对象或 null，不要使用字符串。\n"
         "- introduced_in_chapter 必须是整数；如果用户说“开篇”，默认使用 1。\n"
+        "- timeline 事件如果还没有在正文中揭示，必须省略 narrative_position；narrative_position.chapter 若给出必须 >= 1，开篇前/背景事件不是第 0 章，也不要使用假章节。\n"
+        "- timeline 的故事世界时间必须写入 story_position.time_label；story_position.certainty 只能是 certain、inferred 或 uncertain；顶层不要输出 certainty。\n"
         "- Location 顶层没有 description 字段；地点公开描述写 reader_visible_summary，隐藏/作者私有说明写 private_author_notes，地点规则写 rules[]；不要使用 /locations/{i}/description。\n"
         "- Character.role 只能表示叙事角色；默认使用主角、主要人物、配角、次要人物。家族身份、门派身份、排行、职业/江湖身份必须移入 tags，并可保留在 summary/notes。\n"
         "- 不要把谢家长女、谢家次子、张家幼女、唐门二房之女、江湖散人、武当俗家弟子这类身份短语写入 Character.role。\n"
@@ -2083,6 +2091,15 @@ def _coerce_positive_int(value: object) -> int | None:
     return number if number > 0 else None
 
 
+def _coerce_int(value: object) -> int | None:
+    if not isinstance(value, (int, float, str, bytes, bytearray)):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _looks_like_entity_id(value: str) -> bool:
     return bool(re.fullmatch(r"[a-z][a-z0-9_]*", value))
 
@@ -2386,7 +2403,11 @@ def _auto_repair_setting_change_semantics(
 ) -> tuple[list[MemoryRepairOperation], list[str], list[str]]:
     if change_kind != "setting_change" or not preflight_errors:
         return operations, [], preflight_errors
-    operations, notes = _auto_repair_character_identity_tags(operations, preflight_errors)
+    notes: list[str] = []
+    operations, local_notes = _auto_repair_character_identity_tags(operations, preflight_errors)
+    notes.extend(local_notes)
+    operations, local_notes = _auto_repair_timeline_unanchored_backstory(operations, preflight_errors)
+    notes.extend(local_notes)
     if not notes:
         return operations, [], preflight_errors
     updated_errors = _preflight_memory_repair_operations(root, operations, change_kind=change_kind)
@@ -2429,6 +2450,49 @@ def _auto_repair_character_identity_tags(
     if not note_details:
         return operations, []
     return repaired, ["已本地补齐 Character.tags 中缺失的身份短语：" + "；".join(note_details)]
+
+
+def _auto_repair_timeline_unanchored_backstory(
+    operations: list[MemoryRepairOperation],
+    preflight_errors: list[str],
+) -> tuple[list[MemoryRepairOperation], list[str]]:
+    if not any("narrative_position.chapter" in error for error in preflight_errors):
+        return operations, []
+    repaired: list[MemoryRepairOperation] = []
+    note_details: list[str] = []
+    for operation in operations:
+        parts = _pointer_parts(operation.path)
+        if (
+            operation.file != "memory/state/timeline.json"
+            or operation.op not in {"add", "replace"}
+            or len(parts) != 2
+            or parts[0] != "events"
+            or not isinstance(operation.value, dict)
+        ):
+            repaired.append(operation)
+            continue
+        value = json.loads(json.dumps(operation.value, ensure_ascii=False))
+        narrative = value.get("narrative_position")
+        story_position = value.get("story_position")
+        if not isinstance(narrative, dict) or not isinstance(story_position, dict):
+            repaired.append(operation)
+            continue
+        chapter = _coerce_int(narrative.get("chapter"))
+        time_label = story_position.get("time_label")
+        if chapter is None or chapter > 0 or not isinstance(time_label, str) or not time_label.strip():
+            repaired.append(operation)
+            continue
+        value.pop("narrative_position", None)
+        repaired.append(operation.model_copy(update={"value": value}))
+        event_id = value.get("id")
+        label = event_id if isinstance(event_id, str) and event_id else _operation_semantic_location(operation)
+        note_details.append(str(label))
+    if not note_details:
+        return operations, []
+    return repaired, [
+        "已将未在正文揭示的 timeline 背景事件改为省略 narrative_position，而不是使用 chapter=0："
+        + "；".join(note_details)
+    ]
 
 
 def _preflight_hidden_truth_reader_visible_leaks(
@@ -2648,7 +2712,68 @@ def _validate_file_model(rel_path: str, data: object) -> None:
     try:
         model.model_validate(data)
     except ValidationError as exc:
-        raise MemoryRepairError(f"schema validation failed for {rel_path}: {exc}") from exc
+        summary = _validation_error_summary(rel_path, data, exc)
+        raise MemoryRepairError(f"schema validation failed for {rel_path}: {summary}") from exc
+
+
+def _validation_error_summary(rel_path: str, data: object, exc: ValidationError) -> str:
+    messages = [
+        _human_validation_error(rel_path, data, error)
+        for error in exc.errors()
+    ]
+    return "；".join(messages) if messages else "目标文件不符合 schema"
+
+
+def _human_validation_error(rel_path: str, data: object, error: Mapping[str, object]) -> str:
+    loc = error.get("loc")
+    location = _format_validation_location(loc if isinstance(loc, tuple) else ())
+    error_type = str(error.get("type") or "")
+    if (
+        rel_path == "memory/state/timeline.json"
+        and location.endswith("narrative_position.chapter")
+        and error_type in {"greater_than_equal", "greater_than", "int_parsing", "int_type"}
+    ):
+        event_id = _timeline_event_id_for_validation_error(data, loc if isinstance(loc, tuple) else ())
+        event_label = f"‘{event_id}’" if event_id else location
+        return (
+            f"{location}: 时间线事件{event_label}的 narrative_position.chapter 必须大于等于 1；"
+            "开篇前/背景事件请省略 narrative_position，并把故事世界时间写入 story_position.time_label"
+        )
+    if error_type == "missing":
+        return f"{location}: 缺少必填字段"
+    if error_type == "extra_forbidden":
+        return f"{location}: 字段不在目标 schema 中"
+    message = str(error.get("msg") or "不符合目标 schema")
+    input_hint = _validation_input_hint(error.get("input"))
+    return f"{location}: {message}{input_hint}"
+
+
+def _validation_input_hint(value: object) -> str:
+    if value is None or isinstance(value, (dict, list)):
+        return ""
+    text = repr(value)
+    if len(text) > 120:
+        text = text[:117] + "..."
+    return f"（输入值：{text}）"
+
+
+def _format_validation_location(loc: tuple[object, ...]) -> str:
+    if not loc:
+        return "<root>"
+    return ".".join(str(part) for part in loc)
+
+
+def _timeline_event_id_for_validation_error(data: object, loc: tuple[object, ...]) -> str | None:
+    if len(loc) < 2 or loc[0] != "events" or not isinstance(loc[1], int) or not isinstance(data, dict):
+        return None
+    events = data.get("events")
+    if not isinstance(events, list) or loc[1] >= len(events):
+        return None
+    event = events[loc[1]]
+    if not isinstance(event, dict):
+        return None
+    event_id = event.get("id")
+    return event_id if isinstance(event_id, str) and event_id else None
 
 
 def _resolve_proposal_path(root: Path, proposal_path: Path) -> Path:

@@ -491,7 +491,7 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
     if loaded.timeline:
         path = root / "memory" / "state" / "timeline.json"
         previous: tuple[int, int, int] | None = None
-        for event in loaded.timeline.events:
+        for event in (item for item in loaded.timeline.events if item.narrative_position is not None):
             current = _event_narrative_key(event)
             if previous and current < previous:
                 report.warning(path, "timeline events should be ordered by narrative_position chapter, scene, sequence")
@@ -694,9 +694,12 @@ def _validate_state_references(
             timeline = None
         if timeline:
             for event in timeline.events:
+                narrative = event.narrative_position
+                if narrative is None:
+                    continue
                 for participant_id in event.participant_ids:
                     death_chapter = death_chapters.get(participant_id)
-                    if death_chapter is not None and event.narrative_position.chapter > death_chapter:
+                    if death_chapter is not None and narrative.chapter > death_chapter:
                         report.warning(
                             timeline_path,
                             f"character {participant_id} appears in event {event.id} after death state "
@@ -1046,6 +1049,8 @@ def _validate_chapter_plan_references(
 
 def _event_narrative_key(event) -> tuple[int, int, int]:
     narrative = event.narrative_position
+    if narrative is None:
+        raise ValueError(f"timeline event {event.id} has no narrative_position")
     return (narrative.chapter, narrative.scene or 0, narrative.sequence or 0)
 
 

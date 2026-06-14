@@ -124,6 +124,35 @@ def test_context_budget_is_disabled_by_default() -> None:
     )
 
 
+def test_timeline_budget_digests_unrevealed_background_events() -> None:
+    timeline = TimelineFile(
+        events=[
+            TimelineEvent(
+                id="event_background",
+                summary="徐家旧案尚未揭示",
+                reader_visible=True,
+                story_position={"time_label": "开篇前约十年"},
+                event_role="backstory",
+            ),
+            _event("event_current", chapter=10, summary="当前章节事件", reader_visible=True, participant_ids=["char_focus"]),
+        ]
+    )
+
+    view = select_timeline_view(
+        timeline,
+        chapter_number=10,
+        focus_ids=set(),
+        required_event_ids={"event_current"},
+        task="plan",
+        config=ContextBudgetConfig(enabled=True, max_full_timeline_events=1),
+    )
+
+    assert "event_current" in view.full_events_json
+    assert "event_background" not in view.full_events_json
+    assert "背景（未在正文揭示）" in view.digest_text
+    assert "开篇前约十年" in view.digest_text
+
+
 def test_key_timeline_event_roles_are_schema_roles() -> None:
     assert KEY_TIMELINE_EVENT_ROLES <= set(get_args(TimelineEventRole))
 

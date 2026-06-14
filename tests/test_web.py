@@ -427,6 +427,49 @@ def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
     assert "timeline_events" in state_payload["data"]["visual"]  # type: ignore[index]
 
 
+def test_api_state_timeline_labels_unrevealed_background_events(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    timeline_path = root / "memory" / "state" / "timeline.json"
+    timeline_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "events": [
+                    {
+                        "id": "event_background",
+                        "summary": "尚未正文揭示的背景事件。",
+                        "reader_visible": False,
+                        "story_position": {"time_label": "开篇前约十年"},
+                        "event_role": "backstory",
+                    },
+                    {
+                        "id": "event_chapter_1",
+                        "summary": "第一章正文事件。",
+                        "reader_visible": True,
+                        "narrative_position": {"chapter": 1, "scene": 1},
+                        "story_position": {"time_label": "第1章"},
+                    },
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status, payload = handle_api_request("GET", "/api/state-timeline", f"path={root}", None)
+
+    assert status == 200
+    visual = payload["data"]["visual"]  # type: ignore[index]
+    events = {event["id"]: event for event in visual["timeline_events"]}
+    assert events["event_background"]["chapter_label"] == "背景（未揭示）"
+    assert events["event_background"]["chapter_group"] == "background"
+    assert events["event_chapter_1"]["chapter_label"] == "第 1 章"
+    assert "background" in visual["timeline_by_chapter"]
+    assert "?" not in visual["timeline_by_chapter"]
+
+
 def test_locked_web_write_attaches_api_call_usage_from_new_provider_logs(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     secret_prompt = "系统提示不要返回"

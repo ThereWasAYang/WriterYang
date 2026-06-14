@@ -80,6 +80,16 @@ def test_audit_agent_question_repairs_once(tmp_path: Path) -> None:
     assert "不要向用户或上游 Agent 提问" in provider.requests[1].user_prompt
 
 
+def test_audit_prompt_allows_unrevealed_timeline_background_without_narrative_position(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    provider = MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md"))
+
+    audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
+
+    assert "未在正文揭示的背景/前史事件可以没有 narrative_position" in provider.requests[0].user_prompt
+    assert "这本身不是 timeline_conflict" in provider.requests[0].user_prompt
+
+
 def test_audit_recall_reruns_with_requested_chapter_context(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     first = json.loads(default_mock_audit_report_json(1, "polished.md"))

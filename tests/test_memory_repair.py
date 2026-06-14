@@ -343,6 +343,7 @@ def test_setting_change_preflight_humanizes_timeline_schema_errors(tmp_path: Pat
     message = str(excinfo.value)
     assert "narrative_position.chapter 必须大于等于 1" in message
     assert "story_position" in message
+    assert "memory/state/timeline.json: schema validation failed for memory/state/timeline.json" not in message
     assert "pydantic.dev" not in message
     assert "validation errors for" not in message
 

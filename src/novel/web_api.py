@@ -2348,9 +2348,14 @@ def _state_timeline_visual_summary(state: object, timeline: object, canon: dict[
             event_id = str(event.get("id") or "")
             narrative = event.get("narrative_position") if isinstance(event.get("narrative_position"), dict) else {}
             story = event.get("story_position") if isinstance(event.get("story_position"), dict) else {}
+            chapter = narrative.get("chapter")
+            chapter_label = f"第 {chapter} 章" if chapter else "背景（未揭示）"
+            chapter_group = str(chapter) if chapter else "background"
             entry = {
                 "id": event_id,
-                "chapter": narrative.get("chapter"),
+                "chapter": chapter,
+                "chapter_label": chapter_label,
+                "chapter_group": chapter_group,
                 "scene": narrative.get("scene"),
                 "sequence": narrative.get("sequence"),
                 "story_time": story.get("time_label"),
@@ -2368,7 +2373,7 @@ def _state_timeline_visual_summary(state: object, timeline: object, canon: dict[
                 ],
             }
             events.append(entry)
-            by_chapter.setdefault(str(entry.get("chapter") or "?"), []).append(entry)
+            by_chapter.setdefault(chapter_group, []).append(entry)
             for cause in event.get("causes", []) if isinstance(event.get("causes"), list) else []:
                 edges.append({"from": cause, "to": event_id, "type": "cause"})
             for effect in event.get("effects", []) if isinstance(event.get("effects"), list) else []:

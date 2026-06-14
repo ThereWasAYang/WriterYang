@@ -2184,12 +2184,19 @@ def _preflight_memory_repair_operations(
             _validate_file_model(rel_path, updated)
             errors.extend(_preflight_unique_collection_id_errors(rel_path, updated))
         except Exception as exc:
-            errors.append(f"{rel_path}: {exc}")
+            errors.append(_preflight_error_message(rel_path, exc))
     if change_kind == "setting_change":
         errors.extend(_preflight_setting_change_add_id_conflicts(root, operations))
         errors.extend(_preflight_setting_change_semantics(operations))
         errors.extend(_preflight_hidden_truth_reader_visible_leaks(root, operations))
     return errors
+
+
+def _preflight_error_message(rel_path: str, exc: Exception) -> str:
+    message = str(exc)
+    if message.startswith(f"{rel_path}:") or f"for {rel_path}:" in message:
+        return message
+    return f"{rel_path}: {message}"
 
 
 def _preflight_operation_contract_errors(operations: list[MemoryRepairOperation]) -> list[str]:

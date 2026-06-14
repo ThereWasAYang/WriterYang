@@ -1992,7 +1992,7 @@
         const visual = data.visual || {};
         const events = visual.timeline_events || [];
         const eventRows = events.map((event) => `
-          <tr><td>${escapeHtml(event.id || "")}</td><td>${escapeHtml(event.chapter || "")}</td><td>${escapeHtml(event.summary || "")}</td><td>${escapeHtml(event.location_name || event.location_id || "")}</td><td>${escapeHtml((event.participant_names || []).join(", "))}</td></tr>
+          <tr><td>${escapeHtml(event.id || "")}</td><td>${escapeHtml(event.chapter_label || event.chapter || "")}</td><td>${escapeHtml(event.summary || "")}</td><td>${escapeHtml(event.location_name || event.location_id || "")}</td><td>${escapeHtml((event.participant_names || []).join(", "))}</td></tr>
         `).join("");
         const itemRows = (visual.items || []).map((item) => `
           <tr><td>${escapeHtml(item.name || item.id || "")}</td><td>${escapeHtml(item.holder_name || item.holder_id || "")}</td><td>${escapeHtml(item.location_name || item.location_id || "")}</td><td>${escapeHtml(item.condition || "")}</td></tr>
@@ -2000,9 +2000,12 @@
         const characterRows = (visual.characters || []).map((character) => `
           <tr><td>${escapeHtml(character.name || character.id || "")}</td><td>${escapeHtml(character.location_name || character.location_id || "")}</td><td>${escapeHtml(character.health || "")}</td><td>${escapeHtml((character.possessions || []).join(", "))}</td></tr>
         `).join("");
-        const chapterCards = Object.entries(visual.timeline_by_chapter || {}).map(([chapter, chapterEvents]) => `
-          <div class="timeline-card"><b>第 ${escapeHtml(chapter)} 章</b>${chapterEvents.map((event) => `<div>${escapeHtml(event.id || "")}: ${escapeHtml(event.summary || "")}</div>`).join("")}</div>
-        `).join("");
+        const chapterCards = Object.entries(visual.timeline_by_chapter || {}).map(([chapter, chapterEvents]) => {
+          const label = chapterEvents[0]?.chapter_label || (chapter === "background" ? "背景（未揭示）" : `第 ${chapter} 章`);
+          return `
+          <div class="timeline-card"><b>${escapeHtml(label)}</b>${chapterEvents.map((event) => `<div>${escapeHtml(event.id || "")}: ${escapeHtml(event.summary || "")}</div>`).join("")}</div>
+        `;
+        }).join("");
         const conflicts = (visual.conflicts || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
         $("stateTimelinePanel").innerHTML = `
           <pre>${escapeHtml(JSON.stringify(data.summary || {}, null, 2))}</pre>

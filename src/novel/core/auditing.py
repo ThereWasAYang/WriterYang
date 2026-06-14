@@ -469,6 +469,7 @@ def build_audit_user_prompt(
         "请在此基础上补充语义层审核，例如人物是否知道不该知道的信息、动机因果是否合理、"
         "hidden truth 是否被暗示过度。\n"
         "Timeline 审核必须区分 narrative_position（正文呈现顺序）和 story_position（故事世界顺序）。"
+        "未在正文揭示的背景/前史事件可以没有 narrative_position，这本身不是 timeline_conflict；"
         "倒序、插叙、回忆、旧事揭示本身不是 timeline_conflict；只有 narrative_position 倒退、"
         "或同一 story_position.thread_id 内已明确 story_position.order 的 causes/effects 反转，"
         "才应作为时间线硬冲突。\n"

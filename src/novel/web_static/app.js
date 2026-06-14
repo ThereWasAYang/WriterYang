@@ -1,6 +1,17 @@
     const $ = (id) => document.getElementById(id);
-    const chapterFileTypes = ["plan", "draft", "polished", "audit", "chapter_memory"];
+    const chapterCompareFileTypes = ["plan", "draft", "polished", "audit"];
     const inspirationPreviewPath = "memory/inspiration.md";
+    const outlinePreviewEndpoints = new Set([
+      "/api/session/start",
+      "/api/session/revise-outline",
+      "/api/session/approve-outline",
+    ]);
+    const chapterComparePreviewEndpoints = new Set([
+      "/api/session/run",
+      "/api/session/revise-content",
+      "/api/session/revise-audit",
+      "/api/session/retry-rewrite",
+    ]);
     let defaultProjectParentPath = "~/WriterYang";
     const providerAgentNames = [
       "orchestrator", "inspiration", "canon", "plot", "writer",
@@ -556,6 +567,7 @@
           await refreshAll({ silent: true });
           renderSessionSummary(data);
           renderNextStep(data);
+          await refreshSessionGeneratedPreview(endpoint, session);
           setMessage(actionMessage(label, data));
         } finally {
           if (rewritePoller) window.clearInterval(rewritePoller);
@@ -565,6 +577,16 @@
           }
         }
       });
+    }
+
+    async function refreshSessionGeneratedPreview(endpoint, session) {
+      if (outlinePreviewEndpoints.has(endpoint)) {
+        await loadOutlinePreview(session, { silent: true });
+      }
+      if (chapterComparePreviewEndpoints.has(endpoint)) {
+        showTab("chapterCompare");
+        await loadCompare();
+      }
     }
 
     function sessionPayload(options = {}) {
@@ -799,6 +821,68 @@
         vector_context: $("vectorContextMode").value,
         use_vector_context: $("useVectorContext").checked,
       };
+    }
+
+    function outlinePreviewFileFor(session = {}) {
+      const sessionId = session.session_id || $("sessionId").value.trim();
+      if (!sessionId) return "";
+      const isApproved = session.outline_status === "approved"
+        || session.status === "outline_approved"
+        || Boolean(session.approved_outline_path);
+      const fileName = isApproved ? "approved_outline.md" : "outline_proposal.md";
+      return `memory/sessions/${sessionId}/${fileName}`;
+    }
+
+    function renderOutlinePreviewPlaceholder(text = "创建或加载 Session 后，大纲正文会显示在这里。") {
+      $("outlinePreviewMeta").textContent = "当前文件：暂无";
+      $("outlinePreview").textContent = text;
+    }
+
+    function renderOutlinePreview(data, relPath) {
+      $("outlinePreviewMeta").textContent = `当前文件：${data.path || relPath}`;
+      $("outlinePreview").textContent = data.content || `${relPath} 为空。`;
+    }
+
+    async function loadOutlinePreview(session = {}, options = {}) {
+      const relPath = outlinePreviewFileFor(session);
+      if (!relPath) {
+        renderOutlinePreviewPlaceholder();
+        if (!options.silent) setMessage("请先创建或填写 Session ID。", true);
+        return null;
+      }
+      try {
+        const data = await apiGet("/api/read-file", { path: projectPath(), file: relPath });
+        renderOutlinePreview(data, relPath);
+        if (!options.silent) setMessage(`已读取大纲：${data.path || relPath}`);
+        return data;
+      } catch (error) {
+        $("outlinePreviewMeta").textContent = `当前文件：${relPath}`;
+        $("outlinePreview").textContent = `无法读取大纲文件：${error.message}`;
+        if (!options.silent) setMessage(error.message, true);
+        return null;
+      }
+    }
+
+    async function loadCurrentSession() {
+      const sessionId = $("sessionId").value.trim();
+      if (!sessionId) {
+        renderOutlinePreviewPlaceholder();
+        setMessage("请先创建或填写 Session ID。", true);
+        return null;
+      }
+      try {
+        const data = await apiGet("/api/session", { path: projectPath(), session_id: sessionId });
+        renderSessionSummary(data);
+        renderNextStep(data);
+        await loadOutlinePreview(data.session || {}, { silent: true });
+        setMessage(`已加载 Session：${sessionId}`);
+        return data;
+      } catch (error) {
+        $("outlinePreviewMeta").textContent = `Session：${sessionId}`;
+        $("outlinePreview").textContent = `无法加载 Session：${error.message}`;
+        setMessage(error.message, true);
+        return null;
+      }
     }
 
     function renderInspirationPreview(data) {
@@ -1192,7 +1276,7 @@
     }
 
     async function loadCompare() {
-      await Promise.all(chapterFileTypes.map(async (type) => {
+      await Promise.all(chapterCompareFileTypes.map(async (type) => {
         const target = $(`${type}Viewer`);
         try {
           const data = await apiGet("/api/chapter-file", {
@@ -2566,6 +2650,7 @@
     $("inspireProject").addEventListener("click", inspireProject);
     $("regenerateInspiration").addEventListener("click", regenerateInspiration);
     $("openInspirationFile").addEventListener("click", () => readWorkspaceFile(inspirationPreviewPath));
+    $("reloadOutlinePreview").addEventListener("click", loadCurrentSession);
     $("canonSuggest").addEventListener("click", canonSuggest);
     $("canonApply").addEventListener("click", canonApply);
     $("viewLatestCanonProposal").addEventListener("click", () => {
@@ -2595,6 +2680,7 @@
     $("exportDocx").addEventListener("click", () => runExport("/api/export/docx", "导出 DOCX"));
     $("sessionStart").addEventListener("click", () => {
       $("sessionId").value = "";
+      renderOutlinePreviewPlaceholder("正在创建新的 Session 大纲，完成后会显示在这里。");
       runSessionAction("/api/session/start", sessionPayload({ includeSessionId: false }), "创建 Session 大纲");
     });
     $("sessionReviseOutline").addEventListener("click", () => runSessionAction("/api/session/revise-outline", sessionPayload(), "修改 Session 大纲"));

@@ -876,6 +876,34 @@ def test_api_session_start_endpoint_creates_outline(tmp_path: Path) -> None:
     assert session["status"] == "outline_proposed"
     assert (root / "memory" / "sessions" / session["session_id"] / "outline_proposal.md").is_file()
 
+    outline_rel = f"memory/sessions/{session['session_id']}/outline_proposal.md"
+    read_status, read_payload = handle_api_request("GET", "/api/read-file", f"path={root}&file={outline_rel}", None)
+
+    assert read_status == 200
+    assert read_payload["data"]["path"] == outline_rel  # type: ignore[index]
+    assert "# Creation Session" in read_payload["data"]["content"]  # type: ignore[index]
+    assert "Chapter 001" in read_payload["data"]["content"]  # type: ignore[index]
+
+    approve_status, approve_payload = handle_api_request(
+        "POST",
+        "/api/session/approve-outline",
+        "",
+        json.dumps({"path": str(root), "session_id": session["session_id"], "provider": "mock"}),
+    )
+    approved_rel = f"memory/sessions/{session['session_id']}/approved_outline.md"
+    approved_read_status, approved_read_payload = handle_api_request(
+        "GET",
+        "/api/read-file",
+        f"path={root}&file={approved_rel}",
+        None,
+    )
+
+    assert approve_status == 200
+    assert approve_payload["data"]["session"]["outline_status"] == "approved"  # type: ignore[index]
+    assert approved_read_status == 200
+    assert approved_read_payload["data"]["path"] == approved_rel  # type: ignore[index]
+    assert "# Creation Session" in approved_read_payload["data"]["content"]  # type: ignore[index]
+
 
 def test_api_validate_endpoint_returns_project_report(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
@@ -2153,6 +2181,10 @@ def test_frontend_basic_render() -> None:
     assert 'id="cancelSessionTask"' in html
     assert 'id="recentOperationsPanel"' in html
     assert 'id="workbenchNextStepPanel"' in html
+    assert 'id="outlinePreviewPanel"' in html
+    assert 'id="outlinePreviewMeta"' in html
+    assert 'id="outlinePreview"' in html
+    assert 'id="reloadOutlinePreview"' in html
     assert 'id="rewriteEventsPanel"' in html
     assert "本次修改路由" in app_js
     assert "/api/session/progress" in app_js
@@ -2203,11 +2235,26 @@ def test_frontend_basic_render() -> None:
     assert 'id="inspirationPreview"' in html
     assert 'id="regenerateInspiration"' in html
     assert 'id="openInspirationFile"' in html
-    assert ".inspiration-preview button" in app_css
+    assert ".artifact-preview button" in app_css
+    assert ".artifact-pre" in app_css
+    assert ".stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }" in app_css
+    assert ".tabPanel { min-width: 0; }" in app_css
+    assert "main { padding: 14px; }" in app_css
     assert "white-space: nowrap" in app_css
     assert "重新生成会覆盖 memory/inspiration.md。确认继续吗？" in app_js
     assert "loadInspirationPreview" in app_js
     assert "readWorkspaceFile(inspirationPreviewPath)" in app_js
+    assert "loadOutlinePreview" in app_js
+    assert "loadCurrentSession" in app_js
+    assert "outlinePreviewEndpoints.has(endpoint)" in app_js
+    assert "chapterComparePreviewEndpoints.has(endpoint)" in app_js
+    assert "outline_proposal.md" in app_js
+    assert "approved_outline.md" in app_js
+    assert "$(\"reloadOutlinePreview\").addEventListener(\"click\", loadCurrentSession)" in app_js
+    assert "showTab(\"chapterCompare\")" in app_js
+    assert "await loadCompare();" in app_js
+    assert 'const chapterCompareFileTypes = ["plan", "draft", "polished", "audit"];' in app_js
+    assert "chapter_memoryViewer" not in html
     assert 'id="canonSuggest"' in html
     assert 'id="canonApply"' in html
     assert 'id="canonAppliedProposalPanel"' in html

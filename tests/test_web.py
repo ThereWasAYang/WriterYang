@@ -905,6 +905,111 @@ def test_api_session_start_endpoint_creates_outline(tmp_path: Path) -> None:
     assert "# Creation Session" in approved_read_payload["data"]["content"]  # type: ignore[index]
 
 
+def test_api_session_endpoints_reject_empty_session_id_without_path_leak(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    cases = [
+        (
+            "POST",
+            "/api/session/revise-outline",
+            "",
+            json.dumps({"path": str(root), "session_id": "", "instruction": "调整大纲"}),
+        ),
+        ("GET", "/api/session", f"path={root}", None),
+        ("GET", "/api/session/rewrite-events", f"path={root}", None),
+    ]
+
+    for method, path, query, body in cases:
+        status, payload = handle_api_request(method, path, query, body)
+        serialized = json.dumps(payload, ensure_ascii=False)
+
+        assert status == 400
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "invalid_request"  # type: ignore[index]
+        assert payload["error"]["message"] == "session_id is required"  # type: ignore[index]
+        assert "memory/sessions/session.json" not in serialized
+
+
+def test_api_session_start_uses_session_scoped_plan_when_chapter_plan_exists(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    original_plan = json.loads(default_mock_chapter_plan_json(1))
+    original_plan["title"] = "已有正式计划"
+    original_plan_json = json.dumps(original_plan, ensure_ascii=False, indent=2) + "\n"
+    original_plan_md = "# 已有正式计划\n"
+    (chapter_dir / "plan.json").write_text(original_plan_json, encoding="utf-8")
+    (chapter_dir / "plan.md").write_text(original_plan_md, encoding="utf-8")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "重新讨论第1章", "chapters": "1", "provider": "mock"}),
+    )
+
+    assert status == 200
+    session = payload["data"]["session"]  # type: ignore[index]
+    session_id = session["session_id"]
+    proposal = json.loads(
+        (root / "memory" / "sessions" / session_id / "outline_proposal.json").read_text(encoding="utf-8")
+    )
+    assert proposal["chapters"][0]["plan_path"] == f"memory/sessions/{session_id}/plans/001/plan.json"
+    assert (root / proposal["chapters"][0]["plan_path"]).is_file()
+    assert (chapter_dir / "plan.json").read_text(encoding="utf-8") == original_plan_json
+    assert (chapter_dir / "plan.md").read_text(encoding="utf-8") == original_plan_md
+
+
+def test_api_session_approve_promotes_plan_and_respects_force(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    original_plan = json.loads(default_mock_chapter_plan_json(1))
+    original_plan["title"] = "旧正式计划"
+    original_plan_json = json.dumps(original_plan, ensure_ascii=False, indent=2) + "\n"
+    original_plan_md = "# 旧正式计划\n"
+    (chapter_dir / "plan.json").write_text(original_plan_json, encoding="utf-8")
+    (chapter_dir / "plan.md").write_text(original_plan_md, encoding="utf-8")
+    start_status, start_payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "重做第1章大纲", "chapters": "1", "provider": "mock"}),
+    )
+    session_id = start_payload["data"]["session"]["session_id"]  # type: ignore[index]
+
+    reject_status, reject_payload = handle_api_request(
+        "POST",
+        "/api/session/approve-outline",
+        "",
+        json.dumps({"path": str(root), "session_id": session_id, "provider": "mock"}),
+    )
+
+    assert start_status == 200
+    assert reject_status == 400
+    assert "允许覆盖已有产物" in reject_payload["error"]["message"]  # type: ignore[index]
+    assert (chapter_dir / "plan.json").read_text(encoding="utf-8") == original_plan_json
+    assert (chapter_dir / "plan.md").read_text(encoding="utf-8") == original_plan_md
+    assert not (root / "memory" / "sessions" / session_id / "approved_outline.json").exists()
+
+    approve_status, approve_payload = handle_api_request(
+        "POST",
+        "/api/session/approve-outline",
+        "",
+        json.dumps({"path": str(root), "session_id": session_id, "provider": "mock", "force": True}),
+    )
+    approved_outline = json.loads(
+        (root / "memory" / "sessions" / session_id / "approved_outline.json").read_text(encoding="utf-8")
+    )
+    promoted_plan = json.loads((chapter_dir / "plan.json").read_text(encoding="utf-8"))
+
+    assert approve_status == 200
+    assert approve_payload["data"]["session"]["outline_status"] == "approved"  # type: ignore[index]
+    assert approved_outline["chapters"][0]["plan_path"] == "memory/chapters/001/plan.json"
+    assert promoted_plan["title"] != "旧正式计划"
+    assert list(chapter_dir.glob("plan.json.bak_*"))
+    assert list(chapter_dir.glob("plan.md.bak_*"))
+
+
 def test_api_validate_endpoint_returns_project_report(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 

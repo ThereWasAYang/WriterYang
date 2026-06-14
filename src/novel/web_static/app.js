@@ -12,6 +12,22 @@
       "/api/session/revise-audit",
       "/api/session/retry-rewrite",
     ]);
+    const sessionIdRequiredEndpoints = new Set([
+      "/api/session/revise-outline",
+      "/api/session/approve-outline",
+      "/api/session/run",
+      "/api/session/revise-content",
+      "/api/session/revise-audit",
+      "/api/session/retry-rewrite",
+      "/api/session/undo-rewrite",
+      "/api/session/accept",
+      "/api/session/archive",
+    ]);
+    const rewriteEventRequiredEndpoints = new Set([
+      "/api/session/revise-audit",
+      "/api/session/retry-rewrite",
+      "/api/session/undo-rewrite",
+    ]);
     const debugActionPreviewFiles = {
       "/api/plan-chapter": "plan",
       "/api/write-chapter": "draft",
@@ -590,6 +606,7 @@
     }
 
     async function runSessionAction(endpoint, payload, label) {
+      if (!validateSessionAction(endpoint)) return;
       return withBusy(label, async () => {
         const shouldPollRewriteEvents = endpoint === "/api/session/run";
         let rewritePoller = null;
@@ -628,6 +645,27 @@
           }
         }
       });
+    }
+
+    function validateSessionAction(endpoint) {
+      if (sessionIdRequiredEndpoints.has(endpoint)) {
+        const sessionId = $("sessionId").value.trim();
+        if (!sessionId) {
+          renderOutlinePreviewPlaceholder("请先创建或填写 Session ID。");
+          setMessage("请先创建或填写 Session ID。", true);
+          $("sessionId").focus();
+          return false;
+        }
+      }
+      if (rewriteEventRequiredEndpoints.has(endpoint)) {
+        const eventId = $("rewriteEventId").value.trim();
+        if (!eventId) {
+          setMessage("请先填写 Rewrite Event ID。", true);
+          $("rewriteEventId").focus();
+          return false;
+        }
+      }
+      return true;
     }
 
     async function refreshSessionGeneratedPreview(endpoint, session) {

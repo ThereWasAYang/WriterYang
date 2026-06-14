@@ -1416,10 +1416,12 @@ def _session_start(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_revise_outline(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
     result = revise_outline(
         SessionInstructionOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
+            root=root,
+            session_id=session_id,
             instruction=str(data.get("instruction") or ""),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
@@ -1432,10 +1434,12 @@ def _session_revise_outline(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_approve_outline(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
     result = approve_outline(
         SessionActionOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
+            root=root,
+            session_id=session_id,
             force=bool(data.get("force")),
         )
     )
@@ -1443,10 +1447,12 @@ def _session_approve_outline(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_run(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
     result = run_session(
         SessionRunOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
+            root=root,
+            session_id=session_id,
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             max_auto_revision_rounds=_optional_int(data.get("max_auto_revision_rounds")),
@@ -1470,10 +1476,12 @@ def _session_cancel(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
     result = revise_content(
         SessionInstructionOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
+            root=root,
+            session_id=session_id,
             instruction=str(data.get("instruction") or ""),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
@@ -1487,11 +1495,14 @@ def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_revise_audit(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
+    event_id = _required_string(data.get("event_id"), "event_id")
     result = revise_audit(
         SessionRewriteControlOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
-            event_id=str(data.get("event_id") or ""),
+            root=root,
+            session_id=session_id,
+            event_id=event_id,
             instruction=str(data.get("instruction") or ""),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
@@ -1504,11 +1515,14 @@ def _session_revise_audit(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_retry_rewrite(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
+    event_id = _required_string(data.get("event_id"), "event_id")
     result = retry_rewrite(
         SessionRewriteControlOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
-            event_id=str(data.get("event_id") or ""),
+            root=root,
+            session_id=session_id,
+            event_id=event_id,
             instruction=_optional_string(data.get("instruction")),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
@@ -1521,11 +1535,14 @@ def _session_retry_rewrite(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_undo_rewrite(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
+    event_id = _required_string(data.get("event_id"), "event_id")
     result = undo_rewrite(
         SessionRewriteControlOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
-            event_id=str(data.get("event_id") or ""),
+            root=root,
+            session_id=session_id,
+            event_id=event_id,
             provider_name=str(data.get("provider") or "config"),
             use_search_context=bool(data.get("use_search_context", True)),
             use_vector_context=_vector_context_mode(data),
@@ -1536,10 +1553,12 @@ def _session_undo_rewrite(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_accept(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
     result = accept_session(
         SessionActionOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
+            root=root,
+            session_id=session_id,
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
         )
@@ -1548,10 +1567,12 @@ def _session_accept(data: dict[str, object]) -> dict[str, object]:
 
 
 def _session_archive(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    session_id = _required_string(data.get("session_id"), "session_id")
     result = archive_session(
         SessionActionOptions(
-            root=_root_from_body(data),
-            session_id=str(data.get("session_id") or ""),
+            root=root,
+            session_id=session_id,
             force=bool(data.get("force")),
         )
     )
@@ -1627,7 +1648,8 @@ def _search_api(query: dict[str, str]) -> dict[str, object]:
 
 def _session_api(query: dict[str, str]) -> dict[str, object]:
     root = _root_from_query(query)
-    session = load_session(root, query.get("session_id") or "")
+    session_id = _required_string(query.get("session_id"), "session_id")
+    session = load_session(root, session_id)
     return {
         "session": session.model_dump(mode="json"),
         "progress": _session_progress_payload(load_session_progress(root, session.session_id)),
@@ -1649,7 +1671,8 @@ def _session_progress_api(query: dict[str, str]) -> dict[str, object]:
 
 def _session_rewrite_events_api(query: dict[str, str]) -> dict[str, object]:
     root = _root_from_query(query)
-    session = load_session(root, query.get("session_id") or "")
+    session_id = _required_string(query.get("session_id"), "session_id")
+    session = load_session(root, session_id)
     return {
         "session_id": session.session_id,
         "rewrite_events": _session_rewrite_event_summary(root, session),

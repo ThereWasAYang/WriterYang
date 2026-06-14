@@ -84,6 +84,8 @@ memory/
       metadata.json         # [运行时] accept 后记录章节状态
       context_report*.json  # [运行时] 开启检索上下文后生成
   sessions/                 # [运行时] session start 后生成会话目录
+    {session_id}/plans/{NNN}/plan.json  # [运行时] start/revise-outline 阶段的草稿章节计划
+    {session_id}/plans/{NNN}/plan.md    # [运行时] 草稿章节计划 Markdown
     {session_id}/progress.json        # [运行时] Web UI 长任务阶段进度和协作式取消状态
   archive/                  # [运行时] session archive 后生成不可原地篡改归档
 runs/

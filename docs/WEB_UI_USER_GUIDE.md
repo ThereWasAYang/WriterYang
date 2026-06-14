@@ -196,6 +196,8 @@ Session 是推荐工作流。
 3. 点击“创建大纲”。
 4. 页面会显示 Session ID、状态、下一步提示和 `outline_proposal.md` 大纲正文。
 
+创建或修改大纲时，系统只会更新当前 Session 目录下的草稿章节计划，例如 `memory/sessions/{session_id}/plans/001/plan.json`，不会直接覆盖正式的 `memory/chapters/001/plan.json`。
+
 同一个项目的最近 Session ID 会保存在当前浏览器。刷新页面、重新打开项目或回到“创作工作台”时，如果 Session ID 输入框为空，系统会自动加载最近 Session，并刷新状态摘要和大纲预览。
 
 ## 协商和批准大纲
@@ -213,7 +215,7 @@ Session 是推荐工作流。
 4. 大纲预览会刷新为修改后的 proposal。重复查看和修改，直到你认可。
 5. 点击“批准大纲”。
 
-批准后，大纲预览会切换到 `approved_outline.md`，并显示当前文件路径。
+批准后，大纲预览会切换到 `approved_outline.md`，并显示当前文件路径。批准时系统会把 Session 草稿计划提交到正式章节目录；如果正式 `plan.json` / `plan.md` 已存在，页面会要求先勾选“允许覆盖已有产物”，避免误覆盖旧计划。
 
 批准后，后续 Writer / Polish / Audit 都必须基于这个 approved outline，不能擅自改变核心剧情安排。
 

@@ -559,9 +559,19 @@ def _context_query_parts(
     return parts
 
 
-def write_context_report(root: Path, bundle: ContextBundle, *, force: bool = False) -> Path:
+def write_context_report(
+    root: Path,
+    bundle: ContextBundle,
+    *,
+    force: bool = False,
+    output_dir: Path | None = None,
+) -> Path:
     root = root.resolve()
-    if bundle.chapter_number is None:
+    if output_dir is not None:
+        report_dir = output_dir if output_dir.is_absolute() else root / output_dir
+        report_dir.mkdir(parents=True, exist_ok=True)
+        target = report_dir / "context_report.json"
+    elif bundle.chapter_number is None:
         report_dir = root / "runs"
         report_dir.mkdir(parents=True, exist_ok=True)
         target = report_dir / f"context_report.{bundle.task}.{utc_timestamp('%Y%m%d_%H%M%S')}.json"

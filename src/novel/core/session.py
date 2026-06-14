@@ -130,6 +130,16 @@ class SessionResult:
     message: str
 
 
+@dataclass(frozen=True)
+class _OutlinePlanPromotion:
+    chapter: CreationOutlineChapter
+    source_json: Path
+    source_markdown: Path
+    target_json: Path
+    target_markdown: Path
+    already_promoted: bool
+
+
 def start_session(options: SessionStartOptions) -> SessionResult:
     root = options.root.resolve()
     _validate_chapters(options.chapter_range)
@@ -149,16 +159,22 @@ def start_session(options: SessionStartOptions) -> SessionResult:
     )
     _ensure_session_mutable(root, session)
     session_dir = _session_dir(root, session_id)
+    created_session_dir = not session_dir.exists()
     session_dir.mkdir(parents=True, exist_ok=True)
-    session = _write_outline_proposal(
-        root,
-        session,
-        options.provider_name,
-        options.force,
-        use_search_context=options.use_search_context,
-        use_vector_context=options.use_vector_context,
-    )
-    _write_session(root, session)
+    try:
+        session = _write_outline_proposal(
+            root,
+            session,
+            options.provider_name,
+            options.force,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+        )
+        _write_session(root, session)
+    except Exception:
+        if created_session_dir and not _session_path(root, session_id).exists():
+            shutil.rmtree(session_dir, ignore_errors=True)
+        raise
     return SessionResult(
         session=session,
         session_path=_session_path(root, session_id),
@@ -202,15 +218,17 @@ def approve_outline(options: SessionActionOptions) -> SessionResult:
     proposal_md = _session_dir(root, session.session_id) / "outline_proposal.md"
     if not proposal_json.exists() or not proposal_md.exists():
         raise CreationSessionError("outline proposal is missing; run session start or revise-outline first")
+    proposal = load_json_model(proposal_json, CreationOutline)
     approved_json = _session_dir(root, session.session_id) / "approved_outline.json"
     approved_md = _session_dir(root, session.session_id) / "approved_outline.md"
     _refuse_existing(approved_json, options.force)
     _refuse_existing(approved_md, options.force)
+    approved_outline = _promote_outline_plans(root, proposal, force=options.force)
     if options.force:
         backup_if_exists(approved_json, reason="force")
         backup_if_exists(approved_md, reason="force")
-    shutil.copy2(proposal_json, approved_json)
-    shutil.copy2(proposal_md, approved_md)
+    atomic_write_model_json(approved_json, approved_outline)
+    atomic_write_text(approved_md, _render_outline_markdown(approved_outline))
     session = session.model_copy(
         update={
             "status": "outline_approved",
@@ -1095,7 +1113,12 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
 
 
 def load_session(root: Path, session_id: str) -> CreationSession:
-    return load_json_model(_session_path(root.resolve(), session_id), CreationSession)
+    root = root.resolve()
+    session_id = _validate_session_id(session_id)
+    path = _session_path(root, session_id)
+    if not path.exists():
+        raise CreationSessionError(f"session not found: {session_id}")
+    return load_json_model(path, CreationSession)
 
 
 def load_rewrite_events(root: Path, session_id: str) -> list[SessionRewriteEvent]:
@@ -1180,6 +1203,7 @@ def _write_outline_proposal(
                 force=force,
                 use_search_context=use_search_context,
                 use_vector_context=use_vector_context,
+                output_dir=_session_plan_dir(root, session.session_id, chapter_number),
             ),
             provider,
         )
@@ -1207,6 +1231,77 @@ def _write_outline_proposal(
             "updated_at": utc_now(),
         }
     )
+
+
+def _promote_outline_plans(root: Path, outline: CreationOutline, *, force: bool) -> CreationOutline:
+    promotions = _outline_plan_promotions(root, outline, force=force)
+    for promotion in promotions:
+        if promotion.already_promoted:
+            continue
+        promotion.target_json.parent.mkdir(parents=True, exist_ok=True)
+        if force:
+            backup_if_exists(promotion.target_json, reason="session_outline")
+            backup_if_exists(promotion.target_markdown, reason="session_outline")
+        atomic_write_text(promotion.target_json, promotion.source_json.read_text(encoding="utf-8"))
+        atomic_write_text(promotion.target_markdown, promotion.source_markdown.read_text(encoding="utf-8"))
+    chapters = [
+        promotion.chapter.model_copy(update={"plan_path": _rel(root, promotion.target_json)})
+        for promotion in promotions
+    ]
+    return outline.model_copy(update={"chapters": chapters})
+
+
+def _outline_plan_promotions(
+    root: Path,
+    outline: CreationOutline,
+    *,
+    force: bool,
+) -> list[_OutlinePlanPromotion]:
+    promotions: list[_OutlinePlanPromotion] = []
+    for chapter in outline.chapters:
+        source_json = _workspace_path(root, chapter.plan_path)
+        source_markdown = source_json.with_name("plan.md")
+        target_json, target_markdown = _chapter_plan_paths(root, chapter.chapter_number)
+        if not source_json.exists():
+            raise CreationSessionError(f"outline plan is missing: {chapter.plan_path}")
+        if not source_markdown.exists():
+            raise CreationSessionError(f"outline plan markdown is missing: {_rel(root, source_markdown)}")
+        already_promoted = _same_path(source_json, target_json)
+        if not already_promoted:
+            _refuse_existing_chapter_plan(target_json, chapter.chapter_number, force)
+            _refuse_existing_chapter_plan(target_markdown, chapter.chapter_number, force)
+        promotions.append(
+            _OutlinePlanPromotion(
+                chapter=chapter,
+                source_json=source_json,
+                source_markdown=source_markdown,
+                target_json=target_json,
+                target_markdown=target_markdown,
+                already_promoted=already_promoted,
+            )
+        )
+    return promotions
+
+
+def _refuse_existing_chapter_plan(path: Path, chapter_number: int, force: bool) -> None:
+    if path.exists() and not force:
+        raise CreationSessionError(
+            f"第 {chapter_number} 章计划已存在：{path}；如需用 Session 大纲覆盖，请勾选“允许覆盖已有产物”。"
+        )
+
+
+def _chapter_plan_paths(root: Path, chapter_number: int) -> tuple[Path, Path]:
+    chapter_dir = _chapter_dir(root, chapter_number)
+    return chapter_dir / "plan.json", chapter_dir / "plan.md"
+
+
+def _workspace_path(root: Path, path_text: str) -> Path:
+    path = Path(path_text)
+    return path if path.is_absolute() else root / path
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    return left.resolve() == right.resolve()
 
 
 def _run_segment_session(root: Path, session: CreationSession, options: SessionRunOptions) -> SessionResult:
@@ -1936,6 +2031,13 @@ def _validate_chapters(chapters: tuple[int, ...]) -> None:
         raise CreationSessionError("chapter range must be sorted and unique")
 
 
+def _validate_session_id(session_id: str) -> str:
+    text = str(session_id or "").strip()
+    if not text:
+        raise CreationSessionError("session_id is required")
+    return text
+
+
 def _refuse_existing(path: Path, force: bool) -> None:
     if path.exists() and not force:
         raise CreationSessionError(f"{path} already exists; use --force to overwrite it")
@@ -1959,6 +2061,10 @@ def _session_dir(root: Path, session_id: str) -> Path:
 
 def _session_path(root: Path, session_id: str) -> Path:
     return _session_dir(root, session_id) / "session.json"
+
+
+def _session_plan_dir(root: Path, session_id: str, chapter_number: int) -> Path:
+    return _session_dir(root, session_id) / "plans" / f"{chapter_number:03d}"
 
 
 def _rewrite_events_path(root: Path, session_id: str) -> Path:

@@ -220,6 +220,8 @@ novel export markdown --path ./my-novel --toc --force
 - `inspire` 后可以手动改 `memory/inspiration.md`，让弱总纲更贴近作者意图。
 - `canon suggest` 后先看 proposal，再 `apply`；不要把隐藏真相写进读者可见摘要。
 - `session start` 后先看 `memory/sessions/{session_id}/outline_proposal.md`，不满意就 `session revise-outline`。
+- `session start` 和 `session revise-outline` 只写 `memory/sessions/{session_id}/plans/{NNN}/` 下的草稿章节计划，不覆盖正式 `memory/chapters/{NNN}/plan.*`。
+- `session approve-outline` 会把草稿计划提交为正式章节计划；如果对应章节已存在 `plan.json` / `plan.md`，需要明确传入 `--force` 或在 Web UI 勾选“允许覆盖已有产物”。
 - `session approve-outline` 后，后续写作必须遵守 approved outline。
 - `session run` 会自动写作、润色、审核；audit 发现 medium/high/critical 问题时会自动尝试修复。运行时会把阶段级进度写入 `memory/sessions/{session_id}/progress.json`，Web UI 用它显示当前阶段、章节、轮次、已用时和最近事件。
 - Web UI 可以请求取消正在运行的 Session。取消是协作式的：系统只写入 `cancel_requested`，不会强行中断正在进行的 LLM HTTP 调用；任务会在当前章节或自动修复轮结束后的安全边界停止，最终进度变为 `cancelled`。

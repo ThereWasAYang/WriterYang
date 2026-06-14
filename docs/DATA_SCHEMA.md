@@ -1499,7 +1499,36 @@ memory/chapters/001/audit.json
 
 ---
 
-## 25. 设定变更 / 记忆修复持久化产物
+## 25. Creation Session 持久化产物
+
+协作式创作 Session 使用 proposal / approval 两阶段。创建或修改大纲时，系统先把草稿计划写入 Session 目录；只有批准大纲后，草稿计划才会提交为正式章节计划。
+
+主要路径：
+
+```text
+memory/sessions/{session_id}/session.json
+memory/sessions/{session_id}/outline_proposal.json
+memory/sessions/{session_id}/outline_proposal.md
+memory/sessions/{session_id}/plans/{NNN}/plan.json
+memory/sessions/{session_id}/plans/{NNN}/plan.md
+memory/sessions/{session_id}/approved_outline.json
+memory/sessions/{session_id}/approved_outline.md
+memory/chapters/{NNN}/plan.json
+memory/chapters/{NNN}/plan.md
+```
+
+关键约定：
+
+- `outline_proposal.json` 中的 `chapters[].plan_path` 指向 Session 内草稿计划，例如 `memory/sessions/{session_id}/plans/001/plan.json`。
+- `approved_outline.json` 中的 `chapters[].plan_path` 指向正式章节计划，例如 `memory/chapters/001/plan.json`。
+- `session start` 和 `session revise-outline` 不覆盖正式章节计划；`session approve-outline` 才提交正式 `plan.json` / `plan.md`。
+- 如果正式章节计划已存在，批准时必须显式使用 `force`，并先备份旧文件。
+
+字段级结构请查看生成的 `schemas/creation_session.schema.json` 和 `schemas/creation_outline.schema.json`。
+
+---
+
+## 26. 设定变更 / 记忆修复持久化产物
 
 设定变更和记忆修复共享同一套 proposal/apply 机制。用户输入自然语言后，系统先生成可审查 proposal；只有用户确认 apply 后才会修改正式 memory 文件。
 
@@ -1531,9 +1560,9 @@ memory/management_events.jsonl
 
 ---
 
-## 26. Validation 要求
+## 27. Validation 要求
 
-### 26.1 ID 唯一性
+### 27.1 ID 唯一性
 
 实现层应验证：
 
@@ -1544,7 +1573,7 @@ memory/management_events.jsonl
 - Foreshadowing thread ID 唯一。
 - Hidden truth ID 唯一。
 
-### 26.2 Reference 完整性
+### 27.2 Reference 完整性
 
 以下情况系统应给出 warning：
 
@@ -1555,7 +1584,7 @@ memory/management_events.jsonl
 - Foreshadowing thread 引用缺失 hidden truth。
 - Character possession 与 item state 冲突。
 
-### 26.3 章节一致性
+### 27.3 章节一致性
 
 在把 polished chapter 保存为 accepted 前，系统应检查：
 
@@ -1566,7 +1595,7 @@ memory/management_events.jsonl
 - 重大事件后更新 state change。
 - 不与最新 timeline 矛盾。
 
-### 26.4 Agent output validation
+### 27.4 Agent output validation
 
 任何输出 JSON 的 Agent 都必须生成匹配相关 schema 的有效数据。
 
@@ -1580,7 +1609,7 @@ memory/management_events.jsonl
 
 ---
 
-## 27. 未来扩展
+## 28. 未来扩展
 
 未来可增加的 schema：
 
@@ -1598,7 +1627,7 @@ memory/management_events.jsonl
 
 ---
 
-## 28. 给 Codex 的实现说明
+## 29. 给 Codex 的实现说明
 
 实现 schema 时：
 

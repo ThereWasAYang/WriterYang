@@ -14,6 +14,7 @@
           "type": "string"
         },
         "plan_path": {
+          "description": "outline_proposal 中指向 session 内草稿 plan；approved_outline 中指向正式章节 plan。",
           "minLength": 1,
           "title": "Plan Path",
           "type": "string"

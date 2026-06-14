@@ -17,9 +17,11 @@ from novel.core.schemas import (
     SessionRewriteEvents,
 )
 from novel.core.session import (
+    CreationSessionError,
     SessionInstructionOptions,
     SessionRewriteControlOptions,
     SessionRunOptions,
+    SessionStartOptions,
     _has_hard_issues,
     load_session_progress,
     load_rewrite_events,
@@ -27,6 +29,7 @@ from novel.core.session import (
 )
 from novel.core import session as session_module
 from novel.core.workspace import InitOptions, init_workspace
+import pytest
 
 
 def test_session_start_creates_single_chapter_outline(tmp_path: Path) -> None:
@@ -89,6 +92,33 @@ def test_session_run_requires_approved_outline(tmp_path: Path) -> None:
     assert code == 1
     assert stdout == ""
     assert "approve the outline" in stderr
+
+
+def test_session_start_cleans_incomplete_session_dir_on_outline_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready(tmp_path)
+
+    def fail_outline(root_arg: Path, session: CreationSession, *args: object, **kwargs: object) -> CreationSession:
+        session_dir = root_arg / "memory" / "sessions" / session.session_id
+        assert session_dir.is_dir()
+        (session_dir / "partial.txt").write_text("partial\n", encoding="utf-8")
+        raise CreationSessionError("simulated outline failure")
+
+    monkeypatch.setattr(session_module, "_write_outline_proposal", fail_outline)
+
+    with pytest.raises(CreationSessionError, match="simulated outline failure"):
+        session_module.start_session(
+            SessionStartOptions(
+                root=root,
+                user_intent="写第1章",
+                chapter_range=(1,),
+                provider_name="mock",
+            )
+        )
+
+    assert not list((root / "memory" / "sessions").glob("session_*"))
 
 
 def test_session_auto_repair_treats_medium_issues_as_blocking() -> None:

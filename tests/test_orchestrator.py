@@ -24,8 +24,12 @@ def test_ask_creates_creation_session_and_outline(tmp_path: Path) -> None:
     assert stderr == ""
     assert "Session:" in stdout
     assert "outline proposal generated" in stdout
-    assert list((root / "memory" / "sessions").glob("session_*/session.json"))
-    assert (root / "memory" / "chapters" / "001" / "plan.json").is_file()
+    session_paths = list((root / "memory" / "sessions").glob("session_*/session.json"))
+    assert session_paths
+    session_dir = session_paths[0].parent
+    assert (session_dir / "outline_proposal.json").is_file()
+    assert (session_dir / "plans" / "001" / "plan.json").is_file()
+    assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
 
 
 def test_ask_json_returns_session_id(tmp_path: Path) -> None:

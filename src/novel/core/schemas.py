@@ -709,7 +709,10 @@ class CreationSession(SchemaVersionedModel):
 class CreationOutlineChapter(FlexibleModel):
     chapter_number: int = Field(ge=1)
     title: str = Field(min_length=1)
-    plan_path: str = Field(min_length=1)
+    plan_path: str = Field(
+        min_length=1,
+        description="outline_proposal 中指向 session 内草稿 plan；approved_outline 中指向正式章节 plan。",
+    )
     summary: str = Field(min_length=1)
 
 

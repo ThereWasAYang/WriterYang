@@ -48,6 +48,7 @@ class ChapterPlanningOptions:
     force: bool = False
     use_search_context: bool = False
     use_vector_context: bool | VectorContextMode = "auto"
+    output_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -65,9 +66,9 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         raise PlanningError("chapter_number must be a positive integer")
     _require_inspiration(root)
 
-    chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
-    plan_json_path = chapter_dir / "plan.json"
-    plan_markdown_path = chapter_dir / "plan.md"
+    output_dir = _planning_output_dir(root, options)
+    plan_json_path = output_dir / "plan.json"
+    plan_markdown_path = output_dir / "plan.md"
     _refuse_existing(plan_json_path, options.force)
     _refuse_existing(plan_markdown_path, options.force)
 
@@ -124,13 +125,17 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         timeline=timeline,
     )
 
-    chapter_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     if options.force:
         backup_if_exists(plan_json_path, reason="force")
         backup_if_exists(plan_markdown_path, reason="force")
     atomic_write_model_json(plan_json_path, plan)
     atomic_write_text(plan_markdown_path, render_plan_markdown(plan))
-    context_report_path = write_context_report(root, context_bundle, force=options.force) if context_bundle else None
+    context_report_path = (
+        write_context_report(root, context_bundle, force=options.force, output_dir=output_dir)
+        if context_bundle
+        else None
+    )
     return ChapterPlanningResult(
         plan=plan,
         plan_json_path=plan_json_path,
@@ -138,6 +143,12 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
         validation_report=ValidationReport(root=root),
         context_report_path=context_report_path,
     )
+
+
+def _planning_output_dir(root: Path, options: ChapterPlanningOptions) -> Path:
+    if options.output_dir is None:
+        return root / "memory" / "chapters" / f"{options.chapter_number:03d}"
+    return options.output_dir if options.output_dir.is_absolute() else root / options.output_dir
 
 
 def load_planning_provider(

@@ -46,6 +46,27 @@
     let latestHeaderMessageDetails = "";
     let runtimeSummary = {};
 
+    function syncWorkbenchStickyOffset() {
+      const header = document.querySelector(".app-header");
+      if (!header) return;
+      const offset = Math.ceil(header.getBoundingClientRect().height + 14);
+      document.documentElement.style.setProperty("--app-header-sticky-offset", `${offset}px`);
+    }
+
+    function syncProjectPrepDetails(data = {}) {
+      const details = $("projectPrepDetails");
+      if (!details) return;
+      const session = data.session || {};
+      const status = data.status || {};
+      if (session.session_id) {
+        details.open = false;
+        return;
+      }
+      if (!status.title) return;
+      details.open = !status.inspiration_exists
+        || ((status.character_count || 0) === 0 && (status.location_count || 0) === 0);
+    }
+
     function projectPath() {
       return $("projectPath").value.trim() || ".";
     }
@@ -261,6 +282,7 @@
         ${runtime.launcher_port_fallback ? '<div class="status-bad">本次启动时配置端口被占用，已临时改用当前端口。建议重新保存一个可用端口。</div>' : ""}
         ${runtime.warning ? `<div class="status-bad">${escapeHtml(runtime.warning)}</div>` : "<div>已使用 WriterYang 专用环境。</div>"}
       `;
+      syncWorkbenchStickyOffset();
     }
 
     function apiFailureError(errorPayload, fallbackMessage) {
@@ -2411,6 +2433,7 @@
           text = "下一步：填写章节范围和创作意图，点击“创建大纲”开始一次 Session。";
         }
       }
+      syncProjectPrepDetails(data);
       $("nextStepPanel").textContent = text;
       $("workbenchNextStepPanel").textContent = text;
     }
@@ -2652,7 +2675,9 @@
     });
     $("projectTitle").addEventListener("input", updateProjectInitPathPreview);
     $("projectTitle").addEventListener("change", updateProjectInitPathPreview);
+    window.addEventListener("resize", syncWorkbenchStickyOffset);
     applyEmbeddingProviderDefaults("setup", false);
     applyEmbeddingProviderDefaults("config", false);
     updateProjectInitPathPreview();
+    syncWorkbenchStickyOffset();
     loadRuntime();

@@ -228,53 +228,7 @@
             </details>
           </div>
 
-          <div class="panel">
-            <h2 style="margin-top: 0;">项目准备</h2>
-            <div class="actions">
-              <button id="inspireProject">生成灵感</button>
-              <button id="canonSuggest">Canon 建议</button>
-            </div>
-            <label for="canonProposalPath">Canon proposal</label>
-            <input id="canonProposalPath" placeholder="runs/canon_proposal_....json">
-            <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
-            <div id="canonAppliedProposalPanel" class="metric" style="margin-top: 10px;">已应用 Canon proposal：暂无</div>
-            <button id="viewLatestCanonProposal" class="hidden" style="width: 100%; margin-top: 8px;">查看 proposal 内容</button>
-            <div id="inspirationPreviewPanel" class="inspiration-preview" aria-live="polite">
-              <div class="row">
-                <h3 style="margin: 0;">灵感预览</h3>
-                <button id="regenerateInspiration">重新生成灵感</button>
-                <button id="openInspirationFile">打开文件</button>
-              </div>
-              <div id="inspirationPreviewMeta" class="preview-meta">当前文件：memory/inspiration.md</div>
-              <pre id="inspirationPreview" class="inspiration-pre">生成灵感后，Agent 写入的内容会显示在这里。</pre>
-            </div>
-          </div>
-
-          <div class="panel">
-            <h2 style="margin-top: 0;">创作中设定调整</h2>
-            <p class="page-note">在当前创作上下文中增/删/改人物、背景、世界规则、隐藏真相或伏笔；先生成 proposal，确认后再应用。</p>
-            <label class="row" style="justify-content: flex-start; gap: 8px;">
-              <input id="settingChangeSyncSession" type="checkbox" style="width: auto;" checked>
-              <span>应用后同步当前 Session</span>
-            </label>
-            <div class="actions">
-              <button id="settingChangeWorkbenchSuggest">生成设定变更建议</button>
-              <button id="settingChangeWorkbenchApply">确认应用设定变更</button>
-            </div>
-            <button id="settingChangeWorkbenchReset" style="width: 100%; margin-top: 8px;">重置设定变更</button>
-            <label for="workbenchSettingChangeProposalPath">Setting change proposal</label>
-            <input id="workbenchSettingChangeProposalPath" placeholder="memory/repairs/repair_.../proposal.json">
-            <button id="openWorkbenchSettingChangeProposal" style="width: 100%; margin-top: 8px;">打开文件</button>
-            <div id="settingChangeClarificationPanel" class="metric hidden" style="margin-top: 10px;">设定变更澄清：暂无</div>
-            <div id="settingChangeClarificationControls" class="hidden">
-              <label for="settingChangeClarificationAnswer">补充说明</label>
-              <textarea id="settingChangeClarificationAnswer" placeholder="回答 Agent 的设定变更问题，例如目标人物 ID、变更后的具体设定、影响范围。"></textarea>
-              <button id="settingChangeClarificationSubmit" style="width: 100%; margin-top: 8px;">继续生成设定变更建议</button>
-            </div>
-            <div id="settingChangeImpactPanel" class="metric" style="margin-top: 10px;">设定变更影响分析：暂无</div>
-          </div>
-
-          <div class="panel">
+          <div id="sessionWorkflowPanel" class="panel">
             <h2 style="margin-top: 0;">Session 主流程</h2>
             <label for="sessionChapters">章节范围</label>
             <input id="sessionChapters" placeholder="1 或 1-2" value="1">
@@ -306,15 +260,73 @@
               <button id="sessionArchive">归档</button>
             </div>
           </div>
+
+          <div class="panel">
+            <details id="settingChangeDetails" class="workbench-collapsible">
+              <summary>
+                <span class="summary-title">创作中设定调整</span>
+                <span class="summary-note">增删改人物 / 设定 / 伏笔，偶发使用</span>
+              </summary>
+              <p class="page-note">在当前创作上下文中增/删/改人物、背景、世界规则、隐藏真相或伏笔；先生成 proposal，确认后再应用。</p>
+              <label class="row" style="justify-content: flex-start; gap: 8px;">
+                <input id="settingChangeSyncSession" type="checkbox" style="width: auto;" checked>
+                <span>应用后同步当前 Session</span>
+              </label>
+              <div class="actions">
+                <button id="settingChangeWorkbenchSuggest">生成设定变更建议</button>
+                <button id="settingChangeWorkbenchApply">确认应用设定变更</button>
+              </div>
+              <button id="settingChangeWorkbenchReset" style="width: 100%; margin-top: 8px;">重置设定变更</button>
+              <label for="workbenchSettingChangeProposalPath">Setting change proposal</label>
+              <input id="workbenchSettingChangeProposalPath" placeholder="memory/repairs/repair_.../proposal.json">
+              <button id="openWorkbenchSettingChangeProposal" style="width: 100%; margin-top: 8px;">打开文件</button>
+              <div id="settingChangeClarificationPanel" class="metric hidden" style="margin-top: 10px;">设定变更澄清：暂无</div>
+              <div id="settingChangeClarificationControls" class="hidden">
+                <label for="settingChangeClarificationAnswer">补充说明</label>
+                <textarea id="settingChangeClarificationAnswer" placeholder="回答 Agent 的设定变更问题，例如目标人物 ID、变更后的具体设定、影响范围。"></textarea>
+                <button id="settingChangeClarificationSubmit" style="width: 100%; margin-top: 8px;">继续生成设定变更建议</button>
+              </div>
+              <div id="settingChangeImpactPanel" class="metric" style="margin-top: 10px;">设定变更影响分析：暂无</div>
+            </details>
+          </div>
+
+          <div class="panel">
+            <details id="projectPrepDetails" class="workbench-collapsible">
+              <summary>
+                <span class="summary-title">项目准备</span>
+                <span class="summary-note">生成灵感 / Canon，新项目开张时用</span>
+              </summary>
+              <div class="actions">
+                <button id="inspireProject">生成灵感</button>
+                <button id="canonSuggest">Canon 建议</button>
+              </div>
+              <label for="canonProposalPath">Canon proposal</label>
+              <input id="canonProposalPath" placeholder="runs/canon_proposal_....json">
+              <button id="canonApply" style="width: 100%; margin-top: 8px;">应用 Canon proposal</button>
+              <div id="canonAppliedProposalPanel" class="metric" style="margin-top: 10px;">已应用 Canon proposal：暂无</div>
+              <button id="viewLatestCanonProposal" class="hidden" style="width: 100%; margin-top: 8px;">查看 proposal 内容</button>
+              <div id="inspirationPreviewPanel" class="inspiration-preview" aria-live="polite">
+                <div class="row">
+                  <h3 style="margin: 0;">灵感预览</h3>
+                  <button id="regenerateInspiration">重新生成灵感</button>
+                  <button id="openInspirationFile">打开文件</button>
+                </div>
+                <div id="inspirationPreviewMeta" class="preview-meta">当前文件：memory/inspiration.md</div>
+                <pre id="inspirationPreview" class="inspiration-pre">生成灵感后，Agent 写入的内容会显示在这里。</pre>
+              </div>
+            </details>
+          </div>
         </div>
 
         <div class="stack">
-          <div class="panel">
-            <h2 style="margin-top: 0;">Session 状态</h2>
-            <div id="workbenchNextStepPanel" class="metric">下一步：打开或初始化一个小说项目。</div>
-            <div id="sessionPanel" class="metric">未加载 Session</div>
-            <div id="sessionProgressPanel" class="metric" style="margin-top: 10px;">当前任务进度：暂无</div>
-            <button id="cancelSessionTask" class="hidden" style="width: 100%; margin-top: 8px;">取消当前 Session 任务</button>
+          <div id="workbenchSessionStatusPanel" class="panel">
+            <div class="workbench-session-status">
+              <h2 style="margin-top: 0;">Session 状态</h2>
+              <div id="workbenchNextStepPanel" class="metric">下一步：打开或初始化一个小说项目。</div>
+              <div id="sessionPanel" class="metric">未加载 Session</div>
+              <div id="sessionProgressPanel" class="metric" style="margin-top: 10px;">当前任务进度：暂无</div>
+              <button id="cancelSessionTask" class="hidden" style="width: 100%; margin-top: 8px;">取消当前 Session 任务</button>
+            </div>
             <div id="rewriteEventsPanel" class="metric" style="margin-top: 10px;">自动打回重写记录：暂无</div>
             <div id="recentOperationsPanel" class="metric" style="margin-top: 10px;">最近操作：暂无</div>
             <textarea id="rejectedTextViewer" class="editor" readonly placeholder="点击“查看被打回原文”后显示快照"></textarea>

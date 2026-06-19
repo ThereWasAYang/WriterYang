@@ -76,6 +76,7 @@ def test_model_output_schema_payloads_cover_agent_structured_outputs() -> None:
     payloads = model_output_schema_payloads()
     expected = {
         "InspirationBrief",
+        "GeneratedStyleGuide",
         "CanonProposal",
         "ChapterPlan",
         "AuditReport",
@@ -95,6 +96,7 @@ def test_model_output_schema_payloads_cover_agent_structured_outputs() -> None:
 
     assert set(payloads) == expected
     assert len(MODEL_OUTPUT_SCHEMA_DEFINITIONS) == len(expected)
+    assert payloads["GeneratedStyleGuide"]["properties"]["style_sources"]
     assert payloads["ChapterPlan"]["title"] == "ChapterPlan"
     assert payloads["MemoryRepairDecision"]["properties"]["operations"]
     assert model_output_schema_payload("AuditReport") == payloads["AuditReport"]

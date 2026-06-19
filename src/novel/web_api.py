@@ -68,6 +68,11 @@ from novel.core.setup_guide import (
     configure_default_provider,
     configure_embedding_provider,
 )
+from novel.core.style_guide import (
+    StyleGuideGenerationOptions,
+    generate_style_guide,
+    load_style_guide_provider,
+)
 from novel.core.timeutil import new_request_id, utc_now, utc_timestamp
 import novel.core.web_launcher as web_launcher
 from novel.core.schemas import (
@@ -336,6 +341,7 @@ def _post_routes() -> dict[str, PostRoute]:
         "/api/generate-chapter": ("web generate-chapter", _generate_chapter, True),
         "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, True),
         "/api/style-guide": ("web style guide save", _save_style_guide, True),
+        "/api/style-guide/generate": ("web style guide generate", _generate_style_guide, True),
         "/api/provider-config": ("web provider config", _save_provider_config, True),
         "/api/index/refresh": ("web index refresh", _index_refresh, True),
         "/api/init-project": ("web init project", _init_project, True, _init_project_root_from_body),
@@ -779,6 +785,31 @@ def _save_style_guide(data: dict[str, object]) -> dict[str, object]:
         "path": STYLE_GUIDE_RELATIVE_PATH,
         "backup_path": _relative(root, backup_path) if backup_path else None,
         "content": path.read_text(encoding="utf-8"),
+    }
+
+
+def _generate_style_guide(data: dict[str, object]) -> dict[str, object]:
+    root = _root_from_body(data)
+    _require_workspace(root)
+    instruction = _optional_string(data.get("instruction"))
+    if not instruction:
+        raise WebAPIError("invalid_request", "style guide generation instruction must not be empty", status=400)
+    provider = load_style_guide_provider(root, _provider_name(data.get("provider")))
+    include_project_context = _truthy(data["include_project_context"]) if "include_project_context" in data else True
+    include_existing_style = _truthy(data["include_existing_style"]) if "include_existing_style" in data else True
+    result = generate_style_guide(
+        StyleGuideGenerationOptions(
+            root=root,
+            instruction=instruction,
+            include_project_context=include_project_context,
+            include_existing_style=include_existing_style,
+        ),
+        provider,
+    )
+    return {
+        "path": STYLE_GUIDE_RELATIVE_PATH,
+        "content": result.content,
+        "warnings": list(result.warnings),
     }
 
 

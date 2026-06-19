@@ -267,6 +267,40 @@ class InspirationBrief(SchemaVersionedModel):
     created_at: datetime | None = None
 
 
+class GeneratedStyleGuide(SchemaVersionedModel):
+    model_config = ConfigDict(extra="forbid")
+
+    style_sources: list[str] = Field(min_length=1)
+    overall_style: str = Field(min_length=1)
+    narrative_view: str = Field(min_length=1)
+    language_rules: list[str] = Field(default_factory=list)
+    dialogue_rules: list[str] = Field(default_factory=list)
+    pacing_rules: list[str] = Field(default_factory=list)
+    avoid: list[str] = Field(default_factory=list)
+    sample_paragraph: str = Field(min_length=1)
+    revision_notes: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "style_sources",
+        "language_rules",
+        "dialogue_rules",
+        "pacing_rules",
+        "avoid",
+        "revision_notes",
+        mode="before",
+    )
+    @classmethod
+    def normalize_string_list(cls, value: object) -> object:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return value
+
+    @field_validator("overall_style", "narrative_view", "sample_paragraph", mode="before")
+    @classmethod
+    def normalize_text_field(cls, value: object) -> object:
+        return str(value).strip() if value is not None else value
+
+
 class Relationship(FlexibleModel):
     target_id: EntityId
     type: str

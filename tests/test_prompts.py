@@ -12,10 +12,11 @@ from novel.core.polishing import build_polish_system_prompt
 from novel.core.prompts import PROMPT_VERSION, PROMPT_VERSIONS, load_prompt_template, prompt_template_version
 from novel.core.revision import build_revision_system_prompt
 from novel.core.state_update import build_state_update_system_prompt
+from novel.core.style_guide import build_style_guide_system_prompt
 
 
 def test_prompt_templates_are_versioned_and_loadable() -> None:
-    assert PROMPT_VERSION == "2026-06-07"
+    assert PROMPT_VERSION == "2026-06-19"
     assert "Writer Agent" in load_prompt_template("writer_system")
 
 
@@ -29,6 +30,7 @@ def test_prompt_versions_cover_non_partial_templates() -> None:
     assert set(PROMPT_VERSIONS) == template_names
     assert PROMPT_VERSION == max(PROMPT_VERSIONS.values())
     assert PROMPT_VERSIONS["writer_system"] == "2026-06-05"
+    assert PROMPT_VERSIONS["style_guide_system"] == "2026-06-19"
     assert PROMPT_VERSIONS["orchestrator_ask_intent_system"] == "2026-05-31"
     assert prompt_template_version("writer_system") == PROMPT_VERSIONS["writer_system"]
     assert prompt_template_version("writer_system.txt") == PROMPT_VERSIONS["writer_system"]
@@ -65,6 +67,7 @@ def test_agent_system_prompts_keep_core_constraints() -> None:
     assert "只输出结构化 JSON" in build_state_update_system_prompt()
     assert "只输出 ChapterMemory JSON" in build_chapter_memory_system_prompt()
     assert "不是正式事实源" in build_chapter_memory_system_prompt()
+    assert "只输出 GeneratedStyleGuide JSON" in build_style_guide_system_prompt()
 
 
 def test_all_agent_prompts_explain_context_bundle_memory() -> None:

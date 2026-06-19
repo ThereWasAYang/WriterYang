@@ -37,7 +37,7 @@
     };
     let defaultProjectParentPath = "~/WriterYang";
     const providerAgentNames = [
-      "orchestrator", "inspiration", "canon", "plot", "writer",
+      "orchestrator", "inspiration", "style_guide", "canon", "plot", "writer",
       "polish", "audit", "state_update", "chapter_memory", "revision",
     ];
     const providerFormFieldIds = [
@@ -676,6 +676,43 @@
       updateStyleGuideDirtyState();
       setStyleGuideStatus("已恢复默认模板（未保存）");
       setMessage("已恢复默认文风模板，保存后才会写入文件。");
+    }
+
+    async function generateStyleGuideDraft() {
+      const instruction = $("styleGuideGenerateInstruction").value.trim();
+      if (!instruction) {
+        setStyleGuideStatus("请先输入希望 AI 总结的文风方向。", true);
+        setMessage("请先输入希望 AI 总结的文风方向。", true);
+        return;
+      }
+      const editor = $("styleGuideEditor");
+      const hasUnsavedEditorText = styleGuideLoaded
+        ? editor.value !== styleGuideLoadedContent
+        : Boolean(editor.value.trim());
+      if (hasUnsavedEditorText && !window.confirm("生成文风草稿会替换当前编辑器内容，但不会保存到文件。确认继续吗？")) {
+        return;
+      }
+      return withBusy("生成文风草稿", async () => {
+        const data = await apiPost("/api/style-guide/generate", {
+          path: projectPath(),
+          instruction,
+          provider: $("styleGuideGenerateProvider").value,
+          include_project_context: true,
+          include_existing_style: true,
+        });
+        if (!styleGuideLoaded) {
+          styleGuideLoadedContent = "";
+        }
+        styleGuideLoaded = true;
+        editor.value = data.content || "";
+        $("styleGuideMeta").textContent = `当前文件：${data.path || styleGuidePath}（生成草稿未保存）`;
+        updateStyleGuideDirtyState();
+        const warnings = Array.isArray(data.warnings) && data.warnings.length
+          ? `；警告：${data.warnings.join("；")}`
+          : "";
+        setStyleGuideStatus(`已生成文风草稿，保存后才会写入 ${data.path || styleGuidePath}${warnings}`);
+        setMessage(`已生成文风草稿，保存后才会写入 ${data.path || styleGuidePath}${warnings}`);
+      });
     }
 
     async function runAction(endpoint, label) {
@@ -2911,6 +2948,7 @@
     $("loadStyleGuide").addEventListener("click", () => loadStyleGuide());
     $("saveStyleGuide").addEventListener("click", saveStyleGuide);
     $("resetStyleGuideTemplate").addEventListener("click", restoreStyleGuideTemplate);
+    $("generateStyleGuideDraft").addEventListener("click", generateStyleGuideDraft);
     $("styleGuideEditor").addEventListener("input", updateStyleGuideDirtyState);
     $("planChapter").addEventListener("click", () => runAction("/api/plan-chapter", "生成计划"));
     $("writeChapter").addEventListener("click", () => runAction("/api/write-chapter", "写章节"));

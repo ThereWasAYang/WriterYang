@@ -366,6 +366,7 @@ agents:
 - 每个 Agent 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
 - `mock` 仅用于测试和显式 debug run；不要把它作为真实项目默认值。
 - 实现层应在运行 Agent 前验证所需环境变量是否存在。
+- 标准 Agent 包括 `style_guide`；它默认继承 `default`，用于把自然语言文风要求生成结构化文风草稿。
 
 `default` 或完整 per-agent config 中的必填字段：
 
@@ -432,6 +433,26 @@ memory/style_guide.md
   "preferred_sentence_style": "中短句为主，关键场景允许长句"
 }
 ```
+
+Web UI 的“AI 生成文风草稿”不会直接写入此文件。它先让 `style_guide` Agent 输出 `GeneratedStyleGuide` JSON，再由本地 renderer 生成上述 Markdown 结构并填入编辑器；用户点击保存后才覆盖 `memory/style_guide.md`，保存时仍会备份旧文件。
+
+`GeneratedStyleGuide` 是模型输出 schema，不是新的持久文件。字段包括：
+
+```json
+{
+  "style_sources": ["高层风格来源或综合方向"],
+  "overall_style": "整体风格说明",
+  "narrative_view": "叙事视角和信息限制",
+  "language_rules": ["语言、句式、意象规则"],
+  "dialogue_rules": ["对白规则"],
+  "pacing_rules": ["节奏规则"],
+  "avoid": ["禁用项"],
+  "sample_paragraph": "原创示例段落",
+  "revision_notes": ["保存前需要人工确认的事项"]
+}
+```
+
+模型只应总结高层风格特征，不引用原文，不仿写具体作者段落，不宣称复刻某位作者。
 
 ---
 
@@ -1602,6 +1623,7 @@ memory/management_events.jsonl
 示例：
 
 - Inspiration Agent 输出 `InspirationBrief`。
+- Style Guide Agent 输出 `GeneratedStyleGuide`。
 - Plot Agent 输出 `ChapterPlan`。
 - Audit Agent 输出 `AuditReport`。
 - State Manager 输出 `StateUpdateProposal`。

@@ -470,6 +470,23 @@
             <span id="styleGuideDirty" class="badge">未加载</span>
             <span id="styleGuideMeta" class="badge">当前文件：memory/style_guide.md</span>
           </div>
+          <div class="form-grid">
+            <div class="provider-field-wide">
+              <label for="styleGuideGenerateInstruction">AI 生成文风草稿</label>
+              <textarea id="styleGuideGenerateInstruction" placeholder="例如：结合沧月、小椴、古龙、步非烟的风格。生成结果只会填入编辑器，保存后才会写入文件。"></textarea>
+            </div>
+            <div>
+              <label for="styleGuideGenerateProvider">Provider</label>
+              <select id="styleGuideGenerateProvider">
+                <option value="config">config</option>
+                <option value="mock">mock（仅测试）</option>
+              </select>
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <button id="generateStyleGuideDraft" style="width: 100%;">生成文风草稿</button>
+            </div>
+          </div>
           <textarea id="styleGuideEditor" class="editor" placeholder="加载后编辑长期文风设置。保存会更新 memory/style_guide.md，并自动备份旧文件。"></textarea>
           <div id="styleGuideStatus" class="message">文风设置：未加载</div>
         </div>

@@ -169,6 +169,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_plan_chapter()`、`_write_chapter()`、`_polish_chapter()`、`_audit_chapter()`、`_generate_chapter()`：调用对应 core service。
 - `_export_markdown()` / `_export_docx()`：调用 Markdown / DOCX export。
 - `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
+- `_style_guide()` / `_save_style_guide()` / `_generate_style_guide()`：读取、保存和生成 `memory/style_guide.md` 草稿；生成接口调用 `core/style_guide.py`，只返回 Markdown 草稿，不直接写正式文件。
 - `_save_provider_config()`：保存非密钥 provider 配置，写前校验和备份。
 - `_setup_default_provider()` / `_setup_embedding()` / `_setup_web_port()`：Web 初始引导 API；默认 API 和 embedding 调用 `core/setup_guide.py`，启动器端口调用 `core/web_launcher.py`；真实 key 写项目 `.env`，响应只返回 env 名和测试结果。
 - `_setup_recommend_port()` / `_setup_open_web()`：推荐可用端口并返回 Web UI URL；Web 场景不另起服务端。
@@ -196,9 +197,10 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 无构建 vanilla 前端的页面结构。只保留 DOM、页面分区和表单控件，通过 `/static/app.css` 和 `/static/app.js` 引入样式与交互逻辑。包含：
 
-- 顶部主导航：主页、创作工作台、小说状态管理、模型与检索配置、运行日志 / 项目文件。
+- 顶部主导航：主页、创作工作台、文风设置、小说状态管理、模型与检索配置、运行日志 / 项目文件。
 - 主页：项目路径输入、打开/刷新、项目检查、新建项目、项目初始引导、项目状态、章节列表和下一步提示。
 - 创作工作台：创作输入、Session 主流程、当前任务进度、协作式取消、自动打回记录、章节对照、章节编辑器、audit 定位和 revision diff。
+- 文风设置：编辑 `memory/style_guide.md`，也可输入自然语言文风方向并调用 `style_guide` Agent 生成草稿填入编辑器。
 - 小说状态管理：canon 摘要、状态/时间线、项目管家和后台管理动态。
 - 模型与检索配置：Agent 模型配置、FTS / embedding 状态和索引刷新。
 - 运行日志 / 项目文件：安全文件树、只读文件预览、运行日志和章节文件查看。
@@ -222,6 +224,7 @@ Web UI 交互脚本。负责：
 - 通用长任务状态：`withBusy()` 显示已用时、维护最近操作列表，并保留取消/刷新类按钮可用。
 - 章节编辑器：离开页面前未保存提醒，`Ctrl/Cmd+S` 保存新版本。
 - 章节对照、编辑器、audit evidence 定位、diff、文件树读取。
+- 文风设置页：`loadStyleGuide()` / `saveStyleGuide()` / `restoreStyleGuideTemplate()` / `generateStyleGuideDraft()` 读取、保存、恢复模板和生成 AI 文风草稿；生成草稿只替换编辑器内容，保存仍走 `/api/style-guide`。
 - Provider / embedding 配置、索引刷新、状态/时间线、项目管家和运行日志 API 调用。
 - Agent 模型配置页用表单编辑 `provider`、`model`、`base_url_env`、`api_key_env`、`thinking.type`、`temperature`、`max_tokens` 等非密钥字段。配置页使用专用两栏布局，Agent 配置面板比检索索引面板更宽；非 `default` Agent 通过“继承default”checkbox 控制 `inherit_default`。勾选时只锁定 provider/model/base URL/API env/token/timeout/retry/json response format 等调用字段，仍允许编辑 `temperature`、`thinking.type`、`reasoning`，保存为业务参数 patch；取消勾选时复制当前生效配置并保存独立完整配置。`/api/provider-config` 会返回 provider 参数 capability，前端把当前 provider 不会发送的字段显示为 `NA` 并禁用。右侧显示当前 Agent 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。真实 API Key 仍只通过 `.env` / 初始引导管理。
 - Embedding API 配置页块复用 `/api/setup/embedding`，要求用户每次重填 Base URL、API Key、provider、模型名、`dimensions` 和 `batch_size`；保存前用当前批量和维度做真实 provider 验证，保存成功后清空输入框，并自动调用 `/api/index/refresh` 刷新语义向量索引。
@@ -242,7 +245,7 @@ Core 包标记文件。当前不导出业务 API；调用方应从具体 service
 所有 Pydantic schema 的集中定义。主要类型：
 
 - 配置：`ProjectConfig`、`AgentConfig`、`AgentConfigPatch`、`AgentsConfig`、`EmbeddingProviderConfig`、`EmbeddingsConfig`、`ThinkingConfig`。
-- inspiration/canon：`InspirationBrief`、`CanonProposal`、`Character`、`Location`、`Item`、`WorldRule`、`HiddenTruth`、`ForeshadowingThread` 及对应 file model。
+- inspiration/style/canon：`InspirationBrief`、`GeneratedStyleGuide`、`CanonProposal`、`Character`、`Location`、`Item`、`WorldRule`、`HiddenTruth`、`ForeshadowingThread` 及对应 file model。
 - state/timeline：`EntityState`、`CharacterState`、`ItemState`、`LocationState`、`TimelineEvent`、`TimelineNarrativePosition`、`TimelineStoryPosition`、`TimelineFile`。`narrative_position` 表示正文呈现顺序，`story_position` 表示故事世界顺序。
 - chapter：`ChapterPlan`、`ChapterScene`、`RequiredContext`、`ChapterMetadata`。
 - audit：`AuditReport`、`AuditIssue`、`AuditEvidence`。
@@ -455,6 +458,9 @@ Embedding provider：
 
 - `DEFAULT_STYLE_GUIDANCE`：`memory/style_guide.md` 缺失时注入 prompt 的运行时兜底。
 - `default_style_guide_markdown()`：`novel init` 和 Web UI 缺失文件预览使用的完整默认模板。
+- `generate_style_guide()`：调用 `style_guide` provider，要求模型输出 `GeneratedStyleGuide` JSON，再由本地 renderer 生成 Markdown 草稿。
+- `load_style_guide_provider()`：读取 `style_guide` Agent 配置，旧项目缺少该 Agent 时回退 `inspiration` / `default`。
+- `render_generated_style_guide_markdown()`：把结构化文风建议渲染成 `memory/style_guide.md` 使用的中文 Markdown 分区。
 
 ### `core/context_budget.py`
 
@@ -767,6 +773,7 @@ Provider 用量统计：
 | 文件 | 对应 Agent | 重点约束 |
 | --- | --- | --- |
 | `prompts/inspiration_system.txt` | Inspiration | 弱总纲，不写正文，不反问内部任务。 |
+| `prompts/style_guide_system.txt` | StyleGuide | 只输出 GeneratedStyleGuide JSON，抽象总结高层风格，不引用原文或复刻作者。 |
 | `prompts/canon_system.txt` | Canon | CanonProposal JSON，稳定 ID，hidden truth 不进 reader visible。 |
 | `prompts/planning_system.txt` | Plot | ChapterPlan JSON，不写正文，不改 state/timeline，不发明引用。 |
 | `prompts/writer_system.txt` | Writer | 只写正文 Markdown，不输出解释/JSON，不泄漏 hidden truth。 |

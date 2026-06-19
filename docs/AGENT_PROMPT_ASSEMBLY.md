@@ -72,6 +72,35 @@ Prompt 组装：
 - `_ensure_markdown()` 确保 Markdown 非空；如果模型意外返回 `{"outline": "..."}` / `{"markdown": "..."}` 这类 JSON 包装，会先解包为 Markdown。
 - `_brief_from_response()` 优先解析合法 `InspirationBrief` JSON，否则从 Markdown 小节提取 `InspirationBrief`。
 
+## 2.1 Style Guide Agent
+
+- Service：`core/style_guide.py`
+- System prompt：`prompts/style_guide_system.txt`
+- Provider loader：`load_style_guide_provider()`
+- 入口函数：`generate_style_guide()`
+- 输出：
+  - `GeneratedStyleGuide` JSON 仅作为模型结构化输出。
+  - 本地 renderer 生成 `memory/style_guide.md` 草稿 Markdown；Web UI 只填入编辑器，用户保存前不写正式文件。
+
+输入来源：
+
+- `project.yaml`：标题、语言、类型、叙事信息。
+- 当前 `memory/style_guide.md`：已有长期文风约束。
+- 用户自然语言文风方向。
+
+Prompt 组装：
+
+- `build_style_guide_user_prompt()` 写入项目上下文、现有文风设置和用户输入。
+- system/user prompt 都要求只总结高层风格特征，不引用原文，不仿写具体作者段落，不宣称复刻某位作者。
+- `sample_paragraph` 必须是原创综合风格示例，用于人工审阅，不作为正文事实源。
+
+输出处理：
+
+- `AgentOutputContract(output_kind="json", json_schema_name="GeneratedStyleGuide")`。
+- `generate_json_with_repair()` 负责 JSON contract、解析失败后的 repair retry 和 Pydantic 校验。
+- `render_generated_style_guide_markdown()` 把结构化字段渲染为 `# 文风设置`、风格来源、整体风格、叙事视角、语言要求、对白要求、节奏、禁用项、示例段落和修订备注。
+- `load_style_guide_provider()` 优先使用 `style_guide` Agent；旧项目缺少该配置时回退 `inspiration` / `default`。
+
 ## 3. Canon Agent
 
 - Service：`core/canon.py`

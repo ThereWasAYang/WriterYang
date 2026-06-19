@@ -188,6 +188,35 @@ def test_api_style_guide_save_writes_fixed_file_and_backup(tmp_path: Path) -> No
     assert (root / ".env").read_text(encoding="utf-8") == "SECRET=1\n"
 
 
+def test_api_style_guide_generate_returns_draft_without_writing_file(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    style_path = root / "memory" / "style_guide.md"
+    original = "旧文风。\n"
+    style_path.write_text(original, encoding="utf-8")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/style-guide/generate",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "instruction": "结合古典武侠、克制悬疑和凝练对白。",
+                "provider": "mock",
+            }
+        ),
+    )
+
+    assert status == 200
+    data = payload["data"]  # type: ignore[index]
+    assert data["path"] == "memory/style_guide.md"
+    assert "# 文风设置" in data["content"]
+    assert "## 风格来源" in data["content"]
+    assert "保存前请人工审阅" in data["content"]
+    assert style_path.read_text(encoding="utf-8") == original
+    assert not list((root / "memory").glob("style_guide.md.bak_*.web_style_guide"))
+
+
 def test_api_style_guide_rejects_invalid_project() -> None:
     status, payload = handle_api_request(
         "GET",
@@ -2300,6 +2329,9 @@ def test_frontend_basic_render() -> None:
     assert 'id="loadStyleGuide"' in html
     assert 'id="saveStyleGuide"' in html
     assert 'id="resetStyleGuideTemplate"' in html
+    assert 'id="styleGuideGenerateInstruction"' in html
+    assert 'id="styleGuideGenerateProvider"' in html
+    assert 'id="generateStyleGuideDraft"' in html
     assert 'id="styleGuideStatus"' in html
     assert "style-guide-grid" in frontend
     assert "小说状态管理" in html
@@ -2523,9 +2555,13 @@ def test_frontend_basic_render() -> None:
     assert "/api/inspire" in app_js
     assert "/api/read-file" in app_js
     assert "/api/style-guide" in app_js
+    assert "/api/style-guide/generate" in app_js
     assert "loadStyleGuide" in app_js
     assert "saveStyleGuide" in app_js
     assert "resetStyleGuideTemplate" in app_js
+    assert "generateStyleGuideDraft" in app_js
+    assert "生成文风草稿会替换当前编辑器内容" in app_js
+    assert "保存后才会写入" in app_js
     assert "后续生成会使用新文风设置" in app_js
     assert "/api/canon/suggest" in app_js
     assert "/api/validate" in app_js

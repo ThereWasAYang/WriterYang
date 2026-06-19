@@ -298,7 +298,7 @@ agents:
       type: "disabled"
 ```
 
-支持的 agent 名称包括 `orchestrator`、`inspiration`、`canon`、`plot`、`writer`、`polish`、`audit`、`state_update`、`chapter_memory`、`revision`。
+支持的 agent 名称包括 `orchestrator`、`inspiration`、`style_guide`、`canon`、`plot`、`writer`、`polish`、`audit`、`state_update`、`chapter_memory`、`revision`。
 
 `provider` 字段当前支持以下值：
 
@@ -355,6 +355,7 @@ novel write-chapter 1 --path ./rain-station --model temporary-model --dry-run-pr
 | --- | --- | --- | --- | --- |
 | `orchestrator` | 根据用户请求选择工作流，串联 plan/write/polish/audit/state/export 等步骤；用户反馈修订时判断应回到 Plot、Writer/Polish 还是 Revision。 | 指令理解、任务拆解、修改风险判断、稳定遵守流程。上下文窗口中等即可。 | `reasoning: medium`，`thinking.type: disabled`，`temperature: 0.2-0.5`，`max_context_tokens: 64000-128000`。 | 编排任务需要判断步骤，但不应过度发散；低到中温度能减少错误路由。 |
 | `inspiration` | 根据用户输入生成灵感、主题、氛围和弱总纲。 | 创意发散、中文表达、弱约束生成。 | `reasoning: medium`，`thinking.type: disabled`，`temperature: 0.7-0.9`，`max_context_tokens: 32000-64000`。 | 灵感阶段允许更多发散，但仍要避免生成过强剧情约束。 |
+| `style_guide` | 根据用户自然语言文风要求生成 `memory/style_guide.md` 草稿。 | 结构化总结文风来源、语言规则、对白、节奏和禁用项。 | `reasoning: medium`，`thinking.type: disabled`，`temperature: 0.5-0.7`，`max_context_tokens: 32000-64000`。 | 文风生成需要一定综合表达，但输出是结构化 JSON 后由本地渲染 Markdown，温度不宜过高。 |
 | `canon` | 从 inspiration 生成或补充人物、地点、物品、世界规则、隐藏真相和伏笔 proposal。 | 结构化 JSON、设定一致性、ID 稳定性。 | `reasoning: medium`，`thinking.type: disabled`，`temperature: 0.3-0.6`，`max_context_tokens: 64000`。 | canon 需要创造力，但更需要稳定 schema 输出和不重复 ID。 |
 | `plot` | 生成章节计划 `plan.json` / `plan.md`。 | 长上下文、剧情逻辑、伏笔控制、结构化输出。 | `reasoning: high`，`thinking.type: disabled` 或复杂项目设为 `enabled`，`temperature: 0.4-0.7`，`max_context_tokens: 128000`。 | 章节计划要综合 inspiration、canon、state、timeline，推理和上下文要求较高。 |
 | `writer` | 根据章节计划生成初稿 `draft.md`。 | 中文长文生成、风格保持、角色声音、长上下文。 | `reasoning: high`，`thinking.type: disabled`，`temperature: 0.7-1.0`，`max_context_tokens: 128000`，`timeout_seconds: 120-180`。 | 正文需要更高语言多样性，温度可高一些；但一般不建议开启思考输出模式，避免影响小说正文纯净度。 |
@@ -640,7 +641,7 @@ web:
 
 - 主页：初始化项目、打开项目、项目初始引导、项目检查、项目摘要、章节列表、导出 Markdown / DOCX 和下一步提示。
 - 创作工作台：生成灵感、Canon 建议、Session 大纲协商、正文生成、审核修订、认可归档、章节对照、章节编辑器、Audit 定位和 Revision diff。
-- 文风设置：编辑长期生效的 `memory/style_guide.md`，保存时自动备份旧文件；单章临时文风仍写在创作工作台的聊天 / 指令里。
+- 文风设置：编辑长期生效的 `memory/style_guide.md`，保存时自动备份旧文件；也可输入自然语言文风方向，让 `style_guide` Agent 生成 Markdown 草稿并填入编辑器，确认保存前不会写入文件。单章临时文风仍写在创作工作台的聊天 / 指令里。
 - 小说状态管理：Canon 摘要、状态和时间线、项目管家和后台管理动态。
 - 模型与检索配置：Agent 模型配置、Embedding API 重新配置、embedding 状态、FTS / embedding 索引刷新。
 - 运行日志 / 项目文件：项目搜索、安全文件树、只读文件预览、章节文件查看、运行日志、用量统计和 model I/O 摘要。

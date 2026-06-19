@@ -22,6 +22,7 @@ from novel.core.workspace import InitOptions, init_workspace
 AGENTS = (
     "orchestrator",
     "inspiration",
+    "style_guide",
     "canon",
     "plot",
     "writer",

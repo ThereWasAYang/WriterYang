@@ -30,6 +30,7 @@ from novel.core.schemas import (
     EntityState,
     ExportManifest,
     ForeshadowingFile,
+    GeneratedStyleGuide,
     HiddenTruthsFile,
     InspirationBrief,
     ItemsFile,
@@ -109,6 +110,7 @@ SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
 
 MODEL_OUTPUT_SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
     SchemaDefinition("InspirationBrief", InspirationBrief, "Inspiration Agent structured output"),
+    SchemaDefinition("GeneratedStyleGuide", GeneratedStyleGuide, "Style Guide Agent structured output"),
     SchemaDefinition("CanonProposal", CanonProposal, "Canon Agent structured output"),
     SchemaDefinition("ChapterPlan", ChapterPlan, "Plot Agent structured output"),
     SchemaDefinition("AuditReport", AuditReport, "Audit Agent structured output"),

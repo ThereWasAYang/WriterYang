@@ -44,6 +44,7 @@ def test_agent_prompt_assembly_covers_agents_and_prompt_files() -> None:
     doc = Path("docs/AGENT_PROMPT_ASSEMBLY.md").read_text(encoding="utf-8")
     expected_agents = (
         "Inspiration Agent",
+        "Style Guide Agent",
         "Canon Agent",
         "Plot / Chapter Planning Agent",
         "Writer Agent",
@@ -57,6 +58,7 @@ def test_agent_prompt_assembly_covers_agents_and_prompt_files() -> None:
     )
     expected_prompt_files = (
         "prompts/inspiration_system.txt",
+        "prompts/style_guide_system.txt",
         "prompts/canon_system.txt",
         "prompts/planning_system.txt",
         "prompts/writer_system.txt",

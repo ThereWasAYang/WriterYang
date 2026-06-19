@@ -7,6 +7,7 @@ from typing import Mapping
 STANDARD_AGENT_NAMES = (
     "orchestrator",
     "inspiration",
+    "style_guide",
     "canon",
     "plot",
     "writer",
@@ -42,6 +43,7 @@ DEFAULT_AGENT_CONFIG: dict[str, object] = {
 AGENT_BUSINESS_DEFAULTS: dict[str, dict[str, object]] = {
     "orchestrator": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.3},
     "inspiration": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.8},
+    "style_guide": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.6},
     "canon": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.4},
     "plot": {"reasoning": "high", "thinking": {"type": "disabled"}, "temperature": 0.5},
     "writer": {"reasoning": "high", "thinking": {"type": "disabled"}, "temperature": 0.8},

@@ -140,6 +140,27 @@ class _OutlinePlanPromotion:
     already_promoted: bool
 
 
+@dataclass(frozen=True)
+class _TransactionalTextWrite:
+    path: Path
+    content: str
+    backup_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class _FileSnapshot:
+    path: Path
+    existed: bool
+    content: str | None
+    missing_parent_dirs: tuple[Path, ...]
+
+
+@dataclass
+class _TransactionAttempt:
+    snapshot: _FileSnapshot
+    backup_path: Path | None = None
+
+
 def start_session(options: SessionStartOptions) -> SessionResult:
     root = options.root.resolve()
     _validate_chapters(options.chapter_range)
@@ -223,12 +244,7 @@ def approve_outline(options: SessionActionOptions) -> SessionResult:
     approved_md = _session_dir(root, session.session_id) / "approved_outline.md"
     _refuse_existing(approved_json, options.force)
     _refuse_existing(approved_md, options.force)
-    approved_outline = _promote_outline_plans(root, proposal, force=options.force)
-    if options.force:
-        backup_if_exists(approved_json, reason="force")
-        backup_if_exists(approved_md, reason="force")
-    atomic_write_model_json(approved_json, approved_outline)
-    atomic_write_text(approved_md, _render_outline_markdown(approved_outline))
+    approved_outline, writes = _prepare_promoted_outline_plan_writes(root, proposal, force=options.force)
     session = session.model_copy(
         update={
             "status": "outline_approved",
@@ -237,7 +253,23 @@ def approve_outline(options: SessionActionOptions) -> SessionResult:
             "updated_at": utc_now(),
         }
     )
-    _write_session(root, session)
+    approval_backup_reason = "force" if options.force else None
+    writes.extend(
+        [
+            _TransactionalTextWrite(
+                path=approved_json,
+                content=approved_outline.model_dump_json(indent=2) + "\n",
+                backup_reason=approval_backup_reason,
+            ),
+            _TransactionalTextWrite(
+                path=approved_md,
+                content=_render_outline_markdown(approved_outline),
+                backup_reason=approval_backup_reason,
+            ),
+            _TransactionalTextWrite(path=_session_path(root, session.session_id), content=session.model_dump_json(indent=2) + "\n"),
+        ]
+    )
+    _write_text_transaction(root, writes, action="outline approval")
     return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Outline approved.")
 
 
@@ -1233,22 +1265,119 @@ def _write_outline_proposal(
     )
 
 
-def _promote_outline_plans(root: Path, outline: CreationOutline, *, force: bool) -> CreationOutline:
+def _prepare_promoted_outline_plan_writes(
+    root: Path,
+    outline: CreationOutline,
+    *,
+    force: bool,
+) -> tuple[CreationOutline, list[_TransactionalTextWrite]]:
     promotions = _outline_plan_promotions(root, outline, force=force)
+    writes: list[_TransactionalTextWrite] = []
     for promotion in promotions:
         if promotion.already_promoted:
             continue
-        promotion.target_json.parent.mkdir(parents=True, exist_ok=True)
-        if force:
-            backup_if_exists(promotion.target_json, reason="session_outline")
-            backup_if_exists(promotion.target_markdown, reason="session_outline")
-        atomic_write_text(promotion.target_json, promotion.source_json.read_text(encoding="utf-8"))
-        atomic_write_text(promotion.target_markdown, promotion.source_markdown.read_text(encoding="utf-8"))
+        try:
+            plan_json_text = promotion.source_json.read_text(encoding="utf-8")
+            plan_markdown_text = promotion.source_markdown.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CreationSessionError(f"failed to read outline plan before approval: {exc}") from exc
+        backup_reason = "session_outline" if force else None
+        writes.extend(
+            [
+                _TransactionalTextWrite(
+                    path=promotion.target_json,
+                    content=plan_json_text,
+                    backup_reason=backup_reason,
+                ),
+                _TransactionalTextWrite(
+                    path=promotion.target_markdown,
+                    content=plan_markdown_text,
+                    backup_reason=backup_reason,
+                ),
+            ]
+        )
     chapters = [
         promotion.chapter.model_copy(update={"plan_path": _rel(root, promotion.target_json)})
         for promotion in promotions
     ]
-    return outline.model_copy(update={"chapters": chapters})
+    return outline.model_copy(update={"chapters": chapters}), writes
+
+
+def _write_text_transaction(root: Path, writes: list[_TransactionalTextWrite], *, action: str) -> None:
+    attempts: list[_TransactionAttempt] = []
+    try:
+        for write in writes:
+            attempt = _TransactionAttempt(snapshot=_file_snapshot(root, write.path))
+            attempts.append(attempt)
+            if write.backup_reason:
+                attempt.backup_path = backup_if_exists(write.path, reason=write.backup_reason)
+            atomic_write_text(write.path, write.content)
+    except Exception as exc:
+        rollback_errors = _rollback_text_transaction(attempts)
+        backup_cleanup_errors: list[str] = []
+        if not rollback_errors:
+            backup_cleanup_errors = _cleanup_transaction_backups(attempts)
+        message = f"{action} failed; rolled back file changes: {exc}"
+        if rollback_errors:
+            message += "; rollback also failed and transaction backups were retained: " + "; ".join(rollback_errors)
+        elif backup_cleanup_errors:
+            message += "; backup cleanup failed after rollback, so some backups were retained: " + "; ".join(backup_cleanup_errors)
+        raise CreationSessionError(message) from exc
+
+
+def _file_snapshot(root: Path, path: Path) -> _FileSnapshot:
+    return _FileSnapshot(
+        path=path,
+        existed=path.exists(),
+        content=path.read_text(encoding="utf-8") if path.exists() else None,
+        missing_parent_dirs=_missing_parent_dirs(root, path),
+    )
+
+
+def _missing_parent_dirs(root: Path, path: Path) -> tuple[Path, ...]:
+    missing: list[Path] = []
+    root = root.resolve()
+    current = path.parent
+    while current.resolve() != root and not current.exists():
+        missing.append(current)
+        current = current.parent
+    return tuple(missing)
+
+
+def _rollback_text_transaction(attempts: list[_TransactionAttempt]) -> list[str]:
+    errors: list[str] = []
+    for attempt in reversed(attempts):
+        snapshot = attempt.snapshot
+        try:
+            if snapshot.existed:
+                atomic_write_text(snapshot.path, snapshot.content or "")
+            else:
+                snapshot.path.unlink(missing_ok=True)
+            _remove_empty_parent_dirs(snapshot.missing_parent_dirs)
+        except Exception as exc:
+            errors.append(f"{snapshot.path}: {exc}")
+    return errors
+
+
+def _remove_empty_parent_dirs(directories: tuple[Path, ...]) -> None:
+    for directory in directories:
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
+def _cleanup_transaction_backups(attempts: list[_TransactionAttempt]) -> list[str]:
+    errors: list[str] = []
+    for attempt in attempts:
+        backup_path = attempt.backup_path
+        if backup_path is None:
+            continue
+        try:
+            backup_path.unlink(missing_ok=True)
+        except OSError as exc:
+            errors.append(f"{backup_path}: {exc}")
+    return errors
 
 
 def _outline_plan_promotions(

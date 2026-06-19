@@ -12,6 +12,7 @@ from novel.core.agent_defaults import (
 )
 from novel.core.io import atomic_write_text
 from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.style_guide import default_style_guide_markdown
 from novel.core.timeutil import utc_now_iso
 
 
@@ -313,18 +314,4 @@ def _inspiration_markdown() -> str:
         "## Mood\n\n"
         "## Weak Outline\n\n"
         "## Constraints\n"
-    )
-
-
-def default_style_guide_markdown() -> str:
-    return (
-        "# 文风设置\n\n"
-        "## 整体风格\n\n"
-        "## 叙事视角\n\n"
-        "## 语言要求\n\n"
-        "## 对白要求\n\n"
-        "## 节奏\n\n"
-        "## 禁用项\n\n"
-        "## 示例段落\n\n"
-        "## 修订备注\n"
     )

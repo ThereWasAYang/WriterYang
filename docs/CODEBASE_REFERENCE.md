@@ -82,6 +82,7 @@
 - `src/novel/core/setup_guide.py`
 - `src/novel/core/state_update.py`
 - `src/novel/core/structured_generation.py`
+- `src/novel/core/style_guide.py`
 - `src/novel/core/timeutil.py`
 - `src/novel/core/usage.py`
 - `src/novel/core/validation.py`
@@ -447,6 +448,13 @@ Embedding provider：
 - `_workspace_dirs()`：默认目录列表。
 - `_project_yaml()` / `_agents_yaml()` / `_embeddings_yaml()`：默认配置内容。
 - `_write_new_file()`：避免覆盖已有用户文件。
+
+### `core/style_guide.py`
+
+默认文风设置：
+
+- `DEFAULT_STYLE_GUIDANCE`：`memory/style_guide.md` 缺失时注入 prompt 的运行时兜底。
+- `default_style_guide_markdown()`：`novel init` 和 Web UI 缺失文件预览使用的完整默认模板。
 
 ### `core/context_budget.py`
 

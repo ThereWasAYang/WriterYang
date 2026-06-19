@@ -18,6 +18,7 @@ from novel.core.schemas import (
 )
 from novel.core.session import (
     CreationSessionError,
+    SessionActionOptions,
     SessionInstructionOptions,
     SessionRewriteControlOptions,
     SessionRunOptions,
@@ -119,6 +120,134 @@ def test_session_start_cleans_incomplete_session_dir_on_outline_failure(
         )
 
     assert not list((root / "memory" / "sessions").glob("session_*"))
+
+
+def test_session_approve_outline_rolls_back_multi_chapter_plan_write_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready(tmp_path)
+    result = session_module.start_session(
+        SessionStartOptions(
+            root=root,
+            user_intent="写第1到2章",
+            chapter_range=(1, 2),
+            provider_name="mock",
+        )
+    )
+    session = result.session
+    fail_path = root.resolve() / "memory" / "chapters" / "002" / "plan.json"
+    original_atomic_write_text = session_module.atomic_write_text
+
+    def flaky_atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+        if path.resolve() == fail_path:
+            raise OSError("simulated plan write failure")
+        original_atomic_write_text(path, content, encoding=encoding)
+
+    monkeypatch.setattr(session_module, "atomic_write_text", flaky_atomic_write_text)
+
+    with pytest.raises(CreationSessionError, match="outline approval failed"):
+        session_module.approve_outline(SessionActionOptions(root=root, session_id=session.session_id))
+
+    session_dir = root / "memory" / "sessions" / session.session_id
+    assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
+    assert not (root / "memory" / "chapters" / "001" / "plan.md").exists()
+    assert not (root / "memory" / "chapters" / "002" / "plan.json").exists()
+    assert not (root / "memory" / "chapters" / "002" / "plan.md").exists()
+    assert not (session_dir / "approved_outline.json").exists()
+    assert not (session_dir / "approved_outline.md").exists()
+    stored = load_json_model(session_dir / "session.json", CreationSession)
+    assert stored.status == "outline_proposed"
+    assert stored.outline_status == "proposed"
+
+
+def test_session_approve_outline_force_rolls_back_overwritten_plan_and_cleans_backups(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready(tmp_path)
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True)
+    original_plan_json = '{"original": true}\n'
+    original_plan_md = "# 旧正式计划\n"
+    (chapter_dir / "plan.json").write_text(original_plan_json, encoding="utf-8")
+    (chapter_dir / "plan.md").write_text(original_plan_md, encoding="utf-8")
+    result = session_module.start_session(
+        SessionStartOptions(
+            root=root,
+            user_intent="重做第1章大纲",
+            chapter_range=(1,),
+            provider_name="mock",
+        )
+    )
+    session = result.session
+    fail_path = root.resolve() / "memory" / "sessions" / session.session_id / "approved_outline.json"
+    original_atomic_write_text = session_module.atomic_write_text
+
+    def flaky_atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+        if path.resolve() == fail_path:
+            raise OSError("simulated approved outline write failure")
+        original_atomic_write_text(path, content, encoding=encoding)
+
+    monkeypatch.setattr(session_module, "atomic_write_text", flaky_atomic_write_text)
+
+    with pytest.raises(CreationSessionError, match="outline approval failed"):
+        session_module.approve_outline(
+            SessionActionOptions(root=root, session_id=session.session_id, force=True)
+        )
+
+    session_dir = root / "memory" / "sessions" / session.session_id
+    assert (chapter_dir / "plan.json").read_text(encoding="utf-8") == original_plan_json
+    assert (chapter_dir / "plan.md").read_text(encoding="utf-8") == original_plan_md
+    assert not (session_dir / "approved_outline.json").exists()
+    assert not (session_dir / "approved_outline.md").exists()
+    assert not list(chapter_dir.glob("plan.json.bak_*"))
+    assert not list(chapter_dir.glob("plan.md.bak_*"))
+    stored = load_json_model(session_dir / "session.json", CreationSession)
+    assert stored.status == "outline_proposed"
+    assert stored.outline_status == "proposed"
+
+
+def test_session_approve_outline_rolls_back_if_session_status_write_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready(tmp_path)
+    result = session_module.start_session(
+        SessionStartOptions(
+            root=root,
+            user_intent="写第1章",
+            chapter_range=(1,),
+            provider_name="mock",
+        )
+    )
+    session = result.session
+    session_dir = root / "memory" / "sessions" / session.session_id
+    fail_path = (session_dir / "session.json").resolve()
+    original_session_text = (session_dir / "session.json").read_text(encoding="utf-8")
+    original_atomic_write_text = session_module.atomic_write_text
+    failed_once = False
+
+    def flaky_atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+        nonlocal failed_once
+        if path.resolve() == fail_path and not failed_once:
+            failed_once = True
+            raise OSError("simulated session status write failure")
+        original_atomic_write_text(path, content, encoding=encoding)
+
+    monkeypatch.setattr(session_module, "atomic_write_text", flaky_atomic_write_text)
+
+    with pytest.raises(CreationSessionError, match="outline approval failed"):
+        session_module.approve_outline(SessionActionOptions(root=root, session_id=session.session_id))
+
+    assert (session_dir / "session.json").read_text(encoding="utf-8") == original_session_text
+    assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
+    assert not (root / "memory" / "chapters" / "001" / "plan.md").exists()
+    assert not (session_dir / "approved_outline.json").exists()
+    assert not (session_dir / "approved_outline.md").exists()
+    stored = load_json_model(session_dir / "session.json", CreationSession)
+    assert stored.status == "outline_proposed"
+    assert stored.outline_status == "proposed"
 
 
 def test_session_auto_repair_treats_medium_issues_as_blocking() -> None:

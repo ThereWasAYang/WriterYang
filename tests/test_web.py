@@ -159,7 +159,10 @@ def test_api_style_guide_returns_default_template_when_missing(tmp_path: Path) -
     data = payload["data"]  # type: ignore[index]
     assert data["exists"] is False
     assert data["content"] == data["default_template"]
+    assert "# 文风设置" in data["content"]
+    assert "## 整体风格" in data["content"]
     assert "## 叙事视角" in data["content"]
+    assert "# Style Guide" not in data["content"]
 
 
 def test_api_style_guide_save_writes_fixed_file_and_backup(tmp_path: Path) -> None:

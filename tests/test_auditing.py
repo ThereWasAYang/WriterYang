@@ -45,6 +45,21 @@ def test_mock_provider_can_generate_audit_report(tmp_path: Path) -> None:
     assert "只输出 AuditReport JSON" in provider.requests[0].system_prompt
 
 
+def test_audit_chapter_missing_style_guide_injects_chinese_fallback(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    (root / "memory" / "style_guide.md").unlink()
+    provider = MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md"))
+
+    result = audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
+
+    assert "memory/style_guide.md is missing" in result.warnings[0]
+    prompt = provider.requests[0].user_prompt
+    assert "# 文风设置" in prompt
+    assert "## 整体风格" in prompt
+    assert "# Style Guide" not in prompt
+    assert "## Overall Style" not in prompt
+
+
 def test_audit_chapter_coerces_provider_title_audited_file_to_requested_file(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     provider_payload = json.loads(default_mock_audit_report_json(1, "polished.md"))

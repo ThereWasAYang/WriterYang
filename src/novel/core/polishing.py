@@ -21,6 +21,7 @@ from novel.core.provider_config import ProviderOverrides, create_agent_provider,
 from novel.core.providers import ModelProvider, ModelRequest, ProviderOutputTruncatedError
 from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
+from novel.core.style_guide import DEFAULT_STYLE_GUIDANCE
 from novel.core.timeutil import utc_now_iso
 from novel.core.schemas import (
     ChapterPlan,
@@ -336,7 +337,7 @@ def _read_style_guide(root: Path, warnings: list[str]) -> str:
     if path.exists():
         return path.read_text(encoding="utf-8")
     warnings.append("memory/style_guide.md is missing; using default style guidance")
-    return "# Style Guide\n\n## Overall Style\n\n保持清晰、克制、连贯，避免过度解释。\n"
+    return DEFAULT_STYLE_GUIDANCE
 
 
 def _read_optional_text(path: Path) -> str:

@@ -235,6 +235,21 @@ def test_polish_chapter_missing_style_guide_warns_and_uses_default(tmp_path: Pat
     assert (root / "memory" / "chapters" / "001" / "polished.md").is_file()
 
 
+def test_polish_chapter_missing_style_guide_injects_chinese_fallback(tmp_path: Path) -> None:
+    root = _workspace_with_draft(tmp_path)
+    (root / "memory" / "style_guide.md").unlink()
+    provider = MockProvider(fake_response="雨声更深，旧车站像在夜里醒来。")
+
+    result = polish_chapter(ChapterPolishingOptions(root=root, chapter_number=1), provider)
+
+    assert "memory/style_guide.md is missing" in result.warnings[0]
+    prompt = provider.requests[0].user_prompt
+    assert "# 文风设置" in prompt
+    assert "## 整体风格" in prompt
+    assert "# Style Guide" not in prompt
+    assert "## Overall Style" not in prompt
+
+
 def _workspace_with_draft(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))

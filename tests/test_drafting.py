@@ -189,6 +189,21 @@ def test_write_chapter_missing_style_guide_warns_and_uses_default(tmp_path: Path
     assert (root / "memory" / "chapters" / "001" / "draft.md").is_file()
 
 
+def test_write_chapter_missing_style_guide_injects_chinese_fallback(tmp_path: Path) -> None:
+    root = _workspace_with_plan(tmp_path)
+    (root / "memory" / "style_guide.md").unlink()
+    provider = MockProvider(fake_response="雨声压低了旧车站的轮廓。")
+
+    result = write_chapter_draft(ChapterDraftingOptions(root=root, chapter_number=1), provider)
+
+    assert "memory/style_guide.md is missing" in result.warnings[0]
+    prompt = provider.requests[0].user_prompt
+    assert "# 文风设置" in prompt
+    assert "## 整体风格" in prompt
+    assert "# Style Guide" not in prompt
+    assert "## Overall Style" not in prompt
+
+
 def test_write_chapter_target_words_and_style_note_cli(tmp_path: Path) -> None:
     root = _workspace_with_plan(tmp_path)
 

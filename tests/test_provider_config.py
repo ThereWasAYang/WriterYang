@@ -78,6 +78,7 @@ def test_default_profile_and_task_patch_merge(tmp_path: Path) -> None:
     config_path = _default_profiles_config(tmp_path)
 
     writer = resolve_agent_config(config_path, "writer")
+    scribe = resolve_profile_config(config_path, "scribe")
     audit = resolve_agent_config(config_path, "audit")
     router = resolve_agent_config(config_path, "intent_router")
 
@@ -87,6 +88,9 @@ def test_default_profile_and_task_patch_merge(tmp_path: Path) -> None:
     assert writer.temperature == 0.9
     assert writer.max_tokens == 24000
     assert writer.json_response_format == "json_object"
+    assert scribe.temperature is None
+    assert scribe.reasoning is None
+    assert scribe.max_tokens == 24000
     assert audit.temperature == 0.2
     assert audit.reasoning == "medium"
     assert router.model == "router-model"
@@ -115,8 +119,6 @@ def test_inherit_default_ignores_stale_profile_snapshot(tmp_path: Path) -> None:
                         "base_url_env": "DEFAULT_BASE_URL",
                         "api_key_env": "DEFAULT_API_KEY",
                         "model": "stale-profile-model",
-                        "thinking": {"type": "disabled"},
-                        "temperature": 0.9,
                         "max_tokens": 24000,
                     }
                 },
@@ -155,8 +157,7 @@ def test_explicit_non_inherited_profile_uses_independent_config(tmp_path: Path) 
                         "provider": "openai",
                         "api_key_env": "SCRIBE_API_KEY",
                         "model": "scribe-model",
-                        "thinking": {"type": "enabled"},
-                        "temperature": 0.7,
+                        "max_tokens": 24000,
                     }
                 },
             },
@@ -179,7 +180,7 @@ def test_explicit_non_inherited_profile_uses_independent_config(tmp_path: Path) 
 def test_partial_profile_without_default_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "agents.yaml"
     path.write_text(
-        yaml.safe_dump({"profiles": {"scribe": {"temperature": 0.9}}}, allow_unicode=True),
+        yaml.safe_dump({"profiles": {"scribe": {"max_tokens": 24000}}}, allow_unicode=True),
         encoding="utf-8",
     )
 
@@ -192,6 +193,30 @@ def test_partial_profile_without_default_is_rejected(tmp_path: Path) -> None:
 
     assert "no default API config" in message
     assert "provider" in message
+
+
+def test_profile_task_only_fields_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "agents.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "mock-model"},
+                "profiles": {"scribe": {"inherit_default": True, "temperature": 0.9}},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        load_agents_config(path)
+    except Exception as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected schema rejection")
+
+    assert "task-only" in message
+    assert "tasks.<task>" in message
 
 
 def test_missing_profile_uses_default_with_profile_and_task_defaults(tmp_path: Path) -> None:
@@ -422,11 +447,8 @@ def _profiles_config(tmp_path: Path) -> Path:
                         "base_url_env": f"{profile_name.upper()}_BASE_URL",
                         "api_key_env": f"{profile_name.upper()}_API_KEY",
                         "model": f"{profile_name}-model",
-                        "reasoning": "medium",
-                        "thinking": {"type": "disabled"},
                         "max_context_tokens": 12345,
                         "max_tokens": 6789,
-                        "temperature": 0.4,
                         "timeout_seconds": 42,
                         "max_retries": 2,
                         "json_response_format": "json_schema",

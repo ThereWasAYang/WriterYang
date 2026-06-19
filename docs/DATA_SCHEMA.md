@@ -335,25 +335,24 @@ default:
 profiles:
   scribe:
     inherit_default: true
-    reasoning: high
-    temperature: 0.8
-    thinking:
-      type: disabled
+    max_context_tokens: 128000
+    max_tokens: 24000
+    timeout_seconds: 180
 
   architect:
     inherit_default: true
-    reasoning: high
-    temperature: 0.3
+    max_context_tokens: 128000
+    max_tokens: 8192
 
   loremaster:
     inherit_default: true
-    reasoning: medium
-    temperature: 0.6
+    max_context_tokens: 64000
+    max_tokens: 8192
 
   clerk:
     inherit_default: true
-    reasoning: low
-    temperature: 0.2
+    max_context_tokens: 64000
+    max_tokens: 8192
 
 tasks:
   intent_router:
@@ -378,9 +377,10 @@ tasks:
 - `default` config 是真实项目中每个 profile 的调用参数 fallback。
 - `profiles` 只允许 `scribe`、`architect`、`loremaster`、`clerk`；`tasks` 只允许已登记 task。
 - `inherit_default: true` 用于 profile 或 task patch，表示继承上游调用参数并覆盖当前字段。
-- `inherit_default: false` 表示该 profile 或 task 是独立完整配置，可覆盖 provider、model、base URL、reasoning mode、thinking、token limit 和 temperature。
+- `inherit_default: false` 表示该 profile 或 task 是独立完整配置。Profile 可覆盖 provider、model、base URL、token limit、context、timeout、retry 和 `json_response_format`；task 还可以覆盖 `reasoning`、`thinking` 和 `temperature`。
 - 没有 `inherit_default: true` 的 partial override 不再兼容；要么声明继承并写 patch，要么写完整独立配置。
 - Profile 和 task 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
+- `temperature`、`reasoning`、`thinking` 是 task-only 字段，写入 `profiles.*` 会被 schema 拒绝。
 - `mock` 仅用于测试和显式 debug run；不要把它作为真实项目默认值。
 - 实现层应在运行 task 前验证所需环境变量是否存在。
 - `intent_router` 是 task key，默认归入 `clerk` profile；如果路由需要更强模型，应通过 `tasks.intent_router` 覆盖，不新增第 5 个 profile。
@@ -395,11 +395,15 @@ tasks:
 
 - `base_url_env`
 - `json_response_format`
-- `reasoning`
 - `max_context_tokens`
-- `temperature`
 - `timeout_seconds`
 - `max_retries`
+
+task 推荐字段：
+
+- `reasoning`
+- `thinking`
+- `temperature`
 
 ---
 

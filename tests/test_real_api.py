@@ -668,13 +668,11 @@ def _write_real_agents_config(path: Path, env: dict[str, str]) -> None:
                 "inherit_default": True,
                 "max_context_tokens": 64000,
                 "max_tokens": 8192,
-                "temperature": 0.2,
             },
             "clerk": {
                 "inherit_default": True,
                 "max_context_tokens": 64000,
                 "max_tokens": 8192,
-                "temperature": 0.1,
             },
         },
         "tasks": {

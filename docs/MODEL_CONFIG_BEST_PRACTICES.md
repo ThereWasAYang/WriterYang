@@ -22,26 +22,20 @@ default:
 profiles:
   scribe:
     inherit_default: true
-    reasoning: "high"
-    thinking:
-      type: "disabled"
-    temperature: 0.8
     max_tokens: 32000
     timeout_seconds: 180
   architect:
     inherit_default: true
-    reasoning: "high"
-    thinking:
-      type: "disabled"
-    temperature: 0.3
+    max_context_tokens: 128000
+    max_tokens: 8192
   loremaster:
     inherit_default: true
-    reasoning: "medium"
-    temperature: 0.6
+    max_context_tokens: 64000
+    max_tokens: 8192
   clerk:
     inherit_default: true
-    reasoning: "low"
-    temperature: 0.2
+    max_context_tokens: 64000
+    max_tokens: 8192
 tasks:
   intent_router:
     inherit_default: false
@@ -58,7 +52,7 @@ tasks:
     timeout_seconds: 60
 ```
 
-解析顺序：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。`profiles` 只允许 `scribe`、`architect`、`loremaster`、`clerk`；`tasks` 只允许已登记 task。旧的 `agents:` 任务键配置已经移除，不再有 fallback agent 借用逻辑。缺少 `default`、profile 或 task 配置不完整时，`validate`、`doctor` 和 Web UI 会告警，运行到未配置 task 时会失败。
+解析顺序：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。`profiles` 只允许 `scribe`、`architect`、`loremaster`、`clerk`；`tasks` 只允许已登记 task。`temperature`、`thinking`、`reasoning` 是 task-only 字段，只能通过内置 task 默认或 `tasks.<task>` 覆盖。旧的 `agents:` 任务键配置已经移除，不再有 fallback agent 借用逻辑。缺少 `default`、profile 或 task 配置不完整时，`validate`、`doctor` 和 Web UI 会告警，运行到未配置 task 时会失败。
 
 `config/agents.yaml` 的 `provider` 当前支持：
 
@@ -101,18 +95,18 @@ thinking:
 - `writer`、`polish` 的输出会直接写入 Markdown，关闭 thinking 可降低把分析性内容混入正文的风险。
 - `canon`、`state_update`、`chapter_memory` 需要严格 JSON，关闭 thinking 更容易保持输出干净。
 - `plot`、`audit` 在复杂长篇中可以单独改成 `enabled`，用于增强推理和一致性检查。
-- Web UI 会把当前 provider 不发送的参数显示为 `NA` 并禁用。`reasoning` 只在 DeepSeek 且 `thinking.type: enabled` 时作为 `reasoning_effort` 发送；DeepSeek 开启 thinking 后不会发送 `temperature`。
+- 这些字段只在 task 覆盖中调整。运行时 `reasoning` 只在 DeepSeek 且 `thinking.type: enabled` 时作为 `reasoning_effort` 发送；DeepSeek 开启 thinking 后不会发送 `temperature`。
 
 ## 按 Profile 配置建议
 
 | Profile | 合并的 task | 能力重点 | 推荐配置 |
 | --- | --- | --- | --- |
-| `scribe` | `writer`、`polish`、`revision` | 中文长文生成、文风保持、角色声音、事实保持、长输出。 | `reasoning: medium-high`，`thinking.type: disabled`，`temperature: 0.5-0.8`，`max_tokens: 16000-32000`，`max_context_tokens: 128000`。 |
-| `architect` | `plot`、`audit` | 长上下文剧情推理、一致性核对、伏笔控制、结构化 JSON。 | `reasoning: high`，复杂项目可 `thinking.type: enabled`，`temperature: 0-0.5`，`max_context_tokens: 128000+`，`max_tokens: 8192`。 |
-| `loremaster` | `inspiration`、`style_guide`、`canon` | 创意构思、中文表达、稳定 JSON/ID、低频设定生成。 | `reasoning: medium`，`thinking.type: disabled`，`temperature: 0.4-0.8`，`max_context_tokens: 64000`，`max_tokens: 8192`。 |
-| `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair`、`setup` | 低创意抽取、分类路由、JSON patch、快速稳定、成本可控。 | `reasoning: low-medium`，`thinking.type: disabled`，`temperature: 0-0.3`，`max_context_tokens: 64000`，`max_tokens: 4096-8192`。 |
+| `scribe` | `writer`、`polish`、`revision` | 中文长文生成、文风保持、角色声音、事实保持、长输出。 | `max_tokens: 16000-32000`，`max_context_tokens: 128000`，较长 `timeout_seconds`。 |
+| `architect` | `plot`、`audit` | 长上下文剧情推理、一致性核对、伏笔控制、结构化 JSON。 | `max_context_tokens: 128000+`，`max_tokens: 8192`，结构化输出稳定优先。 |
+| `loremaster` | `inspiration`、`style_guide`、`canon` | 创意构思、中文表达、稳定 JSON/ID、低频设定生成。 | `max_context_tokens: 64000`，`max_tokens: 8192`，中文表达和成本平衡。 |
+| `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair`、`setup` | 低创意抽取、分类路由、JSON patch、快速稳定、成本可控。 | `max_context_tokens: 64000`，`max_tokens: 4096-8192`，低延迟和低成本优先。 |
 
-表中的 `max_tokens`、`max_context_tokens`、`timeout_seconds` 属于调用参数。Profile 勾选 `inherit_default: true` 时可以在继承态下覆盖这些调用参数；task override 默认只建议覆盖 `temperature`、`thinking`、`reasoning`，只有 `intent_router`、`memory_repair` 等确实需要独立模型时再写完整 task 配置。
+表中的 `max_tokens`、`max_context_tokens`、`timeout_seconds` 属于 profile 能力参数。Profile 勾选 `inherit_default: true` 时可以在继承态下覆盖这些参数；task override 默认只建议覆盖 `temperature`、`thinking`、`reasoning`，只有 `intent_router`、`memory_repair` 等确实需要独立模型时再写完整 task 配置。
 
 ## 参数解释
 
@@ -132,7 +126,7 @@ thinking:
 1. 先配置顶层 `default` 真实 API，并用 `novel doctor --project <project>` 检查环境变量是否存在。
 2. 4 个 profile 默认继承 `default`；优先调 profile 的上下文、输出长度和超时。
 3. JSON 输出类 task 先低温测试，确认 schema 稳定。
-4. 正文类 task 先通过 `scribe` 调温度；如果某个 task 仍有明显差异，再在 `tasks` 高级区写 patch 或完整覆盖。
+4. 正文类 task 先用内置温度默认；如果某个 task 仍有明显差异，再在 `tasks` 高级区写 `temperature`、`thinking`、`reasoning` patch 或完整覆盖。
 5. 如需离线熟悉流程，显式传 `--provider mock`，不要把 mock 写成真实项目 default。
 6. 真实 API 上线前运行：
 

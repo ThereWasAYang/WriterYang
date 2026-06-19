@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE, profile_for_task, task_business_defaults
+from novel.core.agent_defaults import PROFILE_NAMES, profile_for_task, task_business_defaults
 from novel.core.env import load_project_env
 from novel.core.io import load_yaml_model
 from novel.core.providers import (

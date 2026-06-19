@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE
+from novel.core.agent_defaults import PROFILE_NAMES, TASK_ONLY_CONFIG_FIELDS, TASK_TO_PROFILE
 
 
 EntityId = str
@@ -229,6 +229,14 @@ class AgentsConfig(SchemaVersionedModel):
         unknown_profiles = sorted(set(self.profiles) - set(PROFILE_NAMES))
         if unknown_profiles:
             raise ValueError(f"unknown profile config: {', '.join(unknown_profiles)}")
+        for profile_name, profile_config in sorted(self.profiles.items()):
+            task_only_fields = sorted(TASK_ONLY_CONFIG_FIELDS & set(profile_config.model_fields_set))
+            if task_only_fields:
+                fields = ", ".join(task_only_fields)
+                raise ValueError(
+                    f"profile {profile_name} contains task-only config field(s): {fields}; "
+                    "move temperature/reasoning/thinking overrides to tasks.<task>"
+                )
         unknown_tasks = sorted(set(self.tasks) - set(TASK_TO_PROFILE))
         if unknown_tasks:
             raise ValueError(f"unknown task config: {', '.join(unknown_tasks)}")

@@ -76,8 +76,9 @@ def test_initialized_template_configs_include_provider_defaults(tmp_path: Path) 
     assert scribe["inherit_default"] is True
     assert "provider" not in scribe
     assert "model" not in scribe
-    assert scribe["temperature"] == 0.7
-    assert scribe["reasoning"] == "high"
+    assert "temperature" not in scribe
+    assert "reasoning" not in scribe
+    assert "thinking" not in scribe
     assert clerk["inherit_default"] is True
     assert "provider" not in clerk
     assert "model" not in clerk

@@ -13,6 +13,7 @@ from urllib import error, request
 from novel.core.agent_defaults import (
     PROFILE_INHERITED_PATCH_FIELDS,
     PROFILE_NAMES,
+    TASK_ONLY_CONFIG_FIELDS,
     TASK_TO_PROFILE,
     config_patch_fields,
     profile_config_defaults,
@@ -859,7 +860,7 @@ def _merge_profile_config(
         if base is None:
             raise ProviderError(f"profile {profile_name} inherits default but default API config is missing")
         raw_patch = patch_source.model_dump(mode="python", exclude_unset=True, exclude_none=True)
-        merged = base.model_dump(mode="python")
+        merged = base.model_dump(mode="python", exclude=_exclude_fields(TASK_ONLY_CONFIG_FIELDS))
         merged.update({key: value for key, value in raw_patch.items() if key in PROFILE_INHERITED_PATCH_FIELDS})
         merged["inherit_default"] = False
         return AgentConfig.model_validate(merged)
@@ -868,6 +869,7 @@ def _merge_profile_config(
         patch_source,
         missing_message=f"config/agents.yaml is missing profile config and default API config: {profile_name}",
         incomplete_message="config/agents.yaml profile config is incomplete",
+        exclude_base_fields=TASK_ONLY_CONFIG_FIELDS,
     )
 
 
@@ -892,15 +894,18 @@ def _merge_config_patch(
     *,
     missing_message: str,
     incomplete_message: str,
+    exclude_base_fields: set[str] | frozenset[str] | None = None,
 ) -> AgentConfig:
     if patch_config is None:
         if default_config is None:
             raise ProviderError(missing_message)
-        return default_config.model_copy(update={"inherit_default": False})
+        raw_default = default_config.model_dump(mode="python", exclude=_exclude_fields(exclude_base_fields))
+        raw_default["inherit_default"] = False
+        return AgentConfig.model_validate(raw_default)
     raw_patch = patch_config.model_dump(mode="python", exclude_unset=True, exclude_none=True)
     updates = config_patch_fields(raw_patch)
     if default_config is not None:
-        merged = default_config.model_dump(mode="python")
+        merged = default_config.model_dump(mode="python", exclude=_exclude_fields(exclude_base_fields))
         merged.update(updates)
         merged["inherit_default"] = False
         return AgentConfig.model_validate(merged)
@@ -914,6 +919,10 @@ def _merge_config_patch(
 def _missing_required_fields(config: Mapping[str, object]) -> set[str]:
     provided = set(config)
     return {"provider", "model", "api_key_env"} - provided
+
+
+def _exclude_fields(fields: Iterable[str] | None) -> dict[str, bool]:
+    return {field: True for field in fields or ()}
 
 
 def _profile_name_for_task(task_name: str) -> str:

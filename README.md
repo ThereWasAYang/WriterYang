@@ -109,7 +109,7 @@ novel --help
 - [Web UI 小白图文使用指南](docs/WEB_UI_USER_GUIDE.md)：面向不懂代码和命令行的作者，用截图说明浏览器工作台的创作全流程。
 - [新手快速开始](docs/QUICKSTART.md)：用 `mock` provider 跑通 10 分钟测试流程，不需要 API Key；真实创作请先配置 `config/agents.yaml` 的 `default` API。
 - [作者如何手动编辑 memory 文件](docs/MEMORY_EDITING.md)：说明 inspiration、style、canon、state、timeline、章节文件的人工编辑边界。
-- [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 agent 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。
+- [模型配置最佳实践](docs/MODEL_CONFIG_BEST_PRACTICES.md)：按 profile/task 说明模型能力、temperature、max tokens、context 和 thinking 开关建议。
 
 ## 开发者入口
 
@@ -169,7 +169,7 @@ novel init "雨夜旧车站" --path ./rain-station
 - 选择 CLI Web UI 默认端口；如果端口被占用会自动推荐下一个可用端口，并写入 `project.yaml`。这个端口只影响 `novel web --path ...`，不影响 `WriterYang_WebUI.command` 的启动器配置。
 - 最后默认打开 Web UI。
 
-`.env` 是本地私密运行文件，会被 `.gitignore`、Web 文件树、导出和日志排除。`config/agents.yaml` 不保存真实密钥；之后可以在这个文件中为 4 个 profile 或少数 task 覆盖模型、`thinking.type`、`temperature`、`max_tokens`、超时和重试等参数。
+`.env` 是本地私密运行文件，会被 `.gitignore`、Web 文件树、导出和日志排除。`config/agents.yaml` 不保存真实密钥；之后可以在这个文件中为 4 个 profile 覆盖模型、`max_tokens`、上下文、超时和重试等能力参数，也可以在少数 task 覆盖 `thinking.type`、`reasoning`、`temperature` 等业务参数。
 
 如果你只是跑 mock 教程或自动化脚本，不想进入引导：
 
@@ -232,7 +232,7 @@ novel export markdown --path ./my-novel --toc --force
 - 用户看到最终内容后用 `session revise-content` 提意见；系统生成新版本，提升为当前 `polished.md`，重跑 audit，并重新生成 state proposal，不覆盖归档内容。
 - `session accept` 后才应用状态更新并标记章节 accepted；`session archive` 会复制本次创作文件并记录 sha256。
 - `state/timeline` 默认通过 proposal 更新；不建议直接改正式 state/timeline，除非你清楚引用关系。
-- 发现 timeline/state/canon 等项目记忆写错时，推荐把问题交给 orchestrator 项目管家：`novel ask "第2章 event_x 其实是回忆，不是当前行动"`。它会生成 `memory/repairs/{repair_id}/proposal.json` 和 `proposal.md`，用户确认后用显式命令 `novel memory-repair apply <repair_id>` 应用；普通自然语言 fallback 不会执行 apply，以避免误操作。所有后台状态/时间线/记忆刷新会写入 `memory/management_events.jsonl` 并在 CLI/Web UI 中展示。
+- 发现 timeline/state/canon 等项目记忆写错时，推荐把问题交给 Python 编排层的项目管家：`novel ask "第2章 event_x 其实是回忆，不是当前行动"`。它会生成 `memory/repairs/{repair_id}/proposal.json` 和 `proposal.md`，用户确认后用显式命令 `novel memory-repair apply <repair_id>` 应用；普通自然语言 fallback 不会执行 apply，以避免误操作。所有后台状态/时间线/记忆刷新会写入 `memory/management_events.jsonl` 并在 CLI/Web UI 中展示。
 - 自然语言设定变更推荐使用 `novel setting-change suggest "..." --path ./rain-station --provider config`。如果创作意图、替换/删除目标或剧情含义不清楚，Agent 会先生成 `clarify_...` 澄清问题；用 `novel setting-change answer clarify_... --answer "..."` 继续，直到生成可审查的 `memory/repairs/{repair_id}/proposal.json`。提示词会包含当前 memory 文件结构和 JSON Pointer 路径索引，目标文件、字段、visibility 和 JSON Pointer 由系统负责选择，用户不需要手动提供。新增人物的 `role` 只表示叙事角色；“谢家长女”“江湖散人”这类身份信息应进入 `tags`，生成和应用前都会做对应 preflight。
 - 归档后的内容默认不可变；如需修改，应创建新的 revision session。
 - 底层 `plan-chapter/write-chapter/polish-chapter/audit-chapter` 仍保留给调试和高级用户，但日常创作推荐用 `novel ask` / `novel session`。
@@ -277,20 +277,13 @@ default:
 profiles:
   scribe:
     inherit_default: true
-    reasoning: "high"
     max_context_tokens: 128000
     max_tokens: 24000
-    temperature: 0.7
-    thinking:
-      type: "disabled"
+    timeout_seconds: 180
   architect:
     inherit_default: true
-    reasoning: "high"
     max_context_tokens: 128000
     max_tokens: 8192
-    temperature: 0.3
-    thinking:
-      type: "disabled"
 tasks:
   intent_router:
     temperature: 0
@@ -308,13 +301,13 @@ tasks:
 | `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。结构化输出默认使用 `json_object`。 |
 | `mock` | 测试 / 调试 | 不调用真实 API，仅用于自动化测试、离线 smoke 和文档演示。真实创作不要把它作为 default。 |
 
-解析顺序是：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。profile 勾选 `inherit_default: true` 时继承 `default` 的 provider/model/base URL/API env，并可覆盖 `reasoning`、`thinking`、`temperature`、`max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries`、`json_response_format` 等调用参数；取消继承后保存完整独立 profile。旧的 `agents:` 任务键配置已经移除，`novel validate`、`novel doctor` 和 Web UI 的“Profile 模型配置”页会提示新 schema 问题。
+解析顺序是：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。profile 勾选 `inherit_default: true` 时继承 `default` 的 provider/model/base URL/API env，并可覆盖 `max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries`、`json_response_format` 等模型能力和容量参数；`reasoning`、`thinking`、`temperature` 只允许写在 `tasks.<task>`，用于覆盖单个任务的业务默认。旧的 `agents:` 任务键配置已经移除，`novel validate`、`novel doctor` 和 Web UI 的“Profile 模型配置”页会提示新 schema 问题。
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
 
 `json_response_format` 用于控制结构化 Agent 的 provider payload，取值为 `auto`、`json_object`、`json_schema`、`json_schema_strict`。默认 `auto` 保持兼容：`openai` 使用 `json_schema`，`deepseek` / `zai` / `openai_compatible` 使用 `json_object`。[DeepSeek 官方 JSON Output](https://api-docs.deepseek.com/zh-cn/guides/json_mode) 要求请求体设置 `response_format: {"type":"json_object"}`，并且 prompt 中包含 `json` 和期望结构示例；WriterYang 会自动追加标准 JSON mode guard 和紧凑 schema skeleton。`json_schema_strict` 只允许显式 opt-in；DeepSeek / ZAI 下配置 strict 会在本地报清晰错误，不会发出请求。
 
-Web UI 会根据当前 `provider` 标记参数是否会进入 provider payload：不会生效的字段显示为 `NA` 并禁用。`thinking.type` 只在 `deepseek` / `zai` 下可编辑；`reasoning` 只在 `deepseek` 且 `thinking.type: enabled` 时发送为 `reasoning_effort`；`temperature` 在 `deepseek + thinking enabled` 和 `mock` 下显示 `NA`。`timeout_seconds`、`max_retries` 是本地 HTTP 调用参数，仍会生效并保持可编辑。
+Web UI 的 Profile 模型配置页只编辑 profile 的模型能力和容量字段。`thinking.type`、`reasoning`、`temperature` 放在 Task 覆盖高级区；保存 task 覆盖时会按 provider 校验 `json_response_format`，运行时再由 provider adapter 决定哪些厂商私有参数会进入 payload。`timeout_seconds`、`max_retries` 是本地 HTTP 调用参数，仍可在 profile 或 task 中生效。
 
 Provider 发送请求前会对最终 messages 做 CJK-aware prompt token 粗估；估算值超过当前 `max_context_tokens` 时会抛出 `ProviderContextLimitError` 并中断任务，不会继续调用真实 API。`project.yaml.context_budget.enabled` 默认仍为 `false`：当前预算策略过小，远小于主流模型上下文窗口，容易限制模型能力。后续计划改成动态上下文预算系统后再重新开启预算裁剪。
 
@@ -351,16 +344,16 @@ novel write-chapter 1 --path ./rain-station --model temporary-model --dry-run-pr
 
 | Profile | 合并的 task | 能力重点 | 推荐配置 |
 | --- | --- | --- | --- |
-| `scribe` | `writer`、`polish`、`revision` | 中文长文生成、文风保持、角色声音、事实保持、长输出。 | `reasoning: medium-high`，`thinking.type: disabled`，`temperature: 0.5-0.8`，`max_tokens: 16000-32000`，`max_context_tokens: 128000`。 |
-| `architect` | `plot`、`audit` | 长上下文剧情推理、一致性核对、伏笔控制、结构化 JSON。 | `reasoning: high`，复杂项目可 `thinking.type: enabled`，`temperature: 0-0.5`，`max_context_tokens: 128000+`，`max_tokens: 8192`。 |
-| `loremaster` | `inspiration`、`style_guide`、`canon` | 创意构思、中文表达、稳定 JSON/ID、低频设定生成。 | `reasoning: medium`，`thinking.type: disabled`，`temperature: 0.4-0.8`，`max_context_tokens: 64000`，`max_tokens: 8192`。 |
-| `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair`、`setup` | 低创意抽取、分类路由、JSON patch、快速稳定、成本可控。 | `reasoning: low-medium`，`thinking.type: disabled`，`temperature: 0-0.3`，`max_context_tokens: 64000`，`max_tokens: 4096-8192`。 |
+| `scribe` | `writer`、`polish`、`revision` | 中文长文生成、文风保持、角色声音、事实保持、长输出。 | `max_tokens: 16000-32000`，`max_context_tokens: 128000`，较长 `timeout_seconds`。 |
+| `architect` | `plot`、`audit` | 长上下文剧情推理、一致性核对、伏笔控制、结构化 JSON。 | `max_context_tokens: 128000+`，`max_tokens: 8192`，需要稳定 JSON 输出。 |
+| `loremaster` | `inspiration`、`style_guide`、`canon` | 创意构思、中文表达、稳定 JSON/ID、低频设定生成。 | `max_context_tokens: 64000`，`max_tokens: 8192`，可使用成本较低但中文表达稳定的模型。 |
+| `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair`、`setup` | 低创意抽取、分类路由、JSON patch、快速稳定、成本可控。 | `max_context_tokens: 64000`，`max_tokens: 4096-8192`，低延迟和低成本优先。 |
 
 通用建议：
 
-- `thinking.type` 默认用 `disabled`。只有在 `plot`、`audit` 这类复杂推理/一致性检查任务明显不稳定时，再为对应 agent 单独改成 `enabled`。
+- `thinking.type` 默认用 `disabled`。只有在 `plot`、`audit` 这类复杂推理/一致性检查任务明显不稳定时，再为对应 task 单独改成 `enabled`。
 - `writer`、`polish` 和 `revision` 通常不建议开启思考模式。它们的输出要直接写入 Markdown 文件，模型额外的分析性内容会增加清洗风险。
-- `temperature` 越高，语言和创意越发散；越低，结构化输出和一致性越稳定。JSON 输出类 agent 建议低温，正文类 agent 可以中高温。
+- `temperature` 越高，语言和创意越发散；越低，结构化输出和一致性越稳定。JSON 输出类 task 建议低温，正文类 task 可以中高温。
 - `max_context_tokens` 对 `plot`、`writer`、`polish`、`revision`、`audit` 更重要，因为这些步骤会读取 plan、canon、state、timeline 和正文。
 - `max_tokens` 控制单次输出长度。`writer` / `polish` / `revision` 建议更高，结构化 JSON 类 agent 建议较低。
 - `timeout_seconds` 对 `writer`、`polish`、`revision` 建议更高。长章节生成或修订本身耗时更长，过短会导致真实 API 测试和实际写作中断。
@@ -572,7 +565,7 @@ novel session run <session_id> --path ./rain-station --provider config
 novel ask "请为第1章生成章节计划" --path ./rain-station --provider config --dry-run
 ```
 
-`novel ask` 是规则化 orchestrator，不做自由多 agent 辩论。非 dry-run 时，它会创建 Creation Session 和大纲 proposal；dry-run 仍只显示分类和 handoff 计划，不写文件。
+`novel ask` 是规则化 Python 编排层，不做自由多 agent 辩论；LLM 路由 task 名称是 `intent_router`。非 dry-run 时，它会创建 Creation Session 和大纲 proposal；dry-run 仍只显示分类和 handoff 计划，不写文件。
 
 ## 导出
 
@@ -645,7 +638,7 @@ web:
 - 项目搜索：在 Web UI 中搜索角色、地点、物品、时间线事件和章节文本。默认使用 FTS；语义检索模式为 `auto` 时只在 embedding 配置完整时启用，兼容勾选“强制使用 embedding 语义检索”时会按 `on` 处理。
 - 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Agent / Provider / Model 的统计；stream 调用会尽量记录 provider 返回的 usage 和 `finish_reason`。
 - 导出：主页可导出 Markdown 或 DOCX，可指定章节列表、章节范围、标题、输出路径、是否包含未 accepted 章节，以及是否覆盖已有导出文件。
-- Profile 模型配置：用表单展示并允许编辑 `scribe`、`architect`、`loremaster`、`clerk` 的非密钥字段，例如 provider、model、base_url_env、api_key_env、temperature、thinking、timeout；勾选“继承 default”时继承 default 并保留 profile patch，取消后保存为独立完整配置。任务级覆盖在高级区，默认隐藏，用于 `intent_router` 等少数 task 单独换模型。当前 provider 不会使用的字段显示 `NA` 并禁用。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
+- Profile 模型配置：用表单展示并允许编辑 `scribe`、`architect`、`loremaster`、`clerk` 的非密钥字段，例如 provider、model、base_url_env、api_key_env、max tokens、context、timeout；勾选“继承 default”时继承 default 并保留 profile patch，取消后保存为独立完整配置。任务级覆盖在高级区，默认隐藏，用于 `intent_router` 等少数 task 单独换模型或覆盖 `temperature`、`reasoning`、`thinking`。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，显示“Embedding API 已配置”、当前 provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。API Key 只写入项目 `.env`，保存前会用当前批量和维度验证真实 API，保存成功后清空输入框并自动刷新语义向量索引。
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。
 - 状态和时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。

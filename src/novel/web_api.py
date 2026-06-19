@@ -22,8 +22,8 @@ from novel.core.agent_defaults import (
     DEFAULT_AGENT_TEMPERATURE,
     DEFAULT_AGENT_TIMEOUT_SECONDS,
     PROFILE_NAMES,
+    TASK_ONLY_CONFIG_FIELDS,
     TASK_TO_PROFILE,
-    config_patch_fields,
     inherited_profile_config_patch,
     profile_for_task,
     profile_inherited_patch_fields,
@@ -931,7 +931,7 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
             raise WebAPIError("invalid_request", "profile updates must be mappings", status=400)
         if profile_name not in EDITABLE_PROFILE_NAMES and profile_name not in profiles:
             raise WebAPIError("invalid_request", f"unknown profile: {profile_name}", status=400)
-        cleaned = _clean_agent_config_patch(patch)
+        cleaned = _clean_agent_config_patch(patch, allow_task_only_fields=False)
         inherit_default = cleaned.get("inherit_default")
         if inherit_default is True:
             current_profile = profiles.get(profile_name)
@@ -997,7 +997,11 @@ def _validated_default_agent_snapshot(config: dict[str, object]) -> dict[str, ob
     if default_config.get("inherit_default") is True:
         raise WebAPIError("invalid_config", "default config cannot inherit default", status=400)
     validated = AgentConfig.model_validate(default_config)
-    return validated.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})
+    return validated.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude={"inherit_default"} | set(TASK_ONLY_CONFIG_FIELDS),
+    )
 
 
 def _refresh_inherited_profile_snapshots(config: dict[str, object]) -> None:
@@ -1046,6 +1050,20 @@ def _parameter_capabilities_payload(config: AgentConfig) -> dict[str, object]:
         thinking_type=config.thinking.type if config.thinking else None,
     )
     return {field: capability.as_dict() for field, capability in capabilities.items()}
+
+
+def _profile_config_payload(config: AgentConfig) -> dict[str, object]:
+    return cast(
+        dict[str, object],
+        _sanitize_config(config.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"} | TASK_ONLY_CONFIG_FIELDS)),
+    )
+
+
+def _profile_parameter_capabilities_payload(config: AgentConfig) -> dict[str, object]:
+    capabilities = _parameter_capabilities_payload(config)
+    for field in TASK_ONLY_CONFIG_FIELDS:
+        capabilities.pop(field, None)
+    return capabilities
 
 
 def _index_refresh(data: dict[str, object]) -> dict[str, object]:
@@ -1133,7 +1151,7 @@ def _setup_default_provider(data: dict[str, object]) -> dict[str, object]:
         "base_url_env": result.base_url_env,
         "ping_ok": result.ping_ok,
         "ping_message": result.ping_message,
-        "message": "这组 API 配置已作为所有未单独配置 Agent 的默认配置。可在 config/agents.yaml 中单独覆盖每个 Agent 的模型、思考模式、温度等参数。",
+        "message": "这组 API 配置已作为所有 profile 的默认配置。可在 config/agents.yaml 中覆盖 profile 的模型能力参数，或在 tasks 中覆盖单个 task 的思考模式、温度等业务参数。",
     }
 
 
@@ -2184,8 +2202,8 @@ def _effective_profile_config_summary(path: Path) -> dict[str, object]:
             "inherits_default": explicit_inherit or (not has_config_entry and config.default is not None),
             "override_fields": sorted(override),
             "override": override,
-            "config": _sanitize_config(resolved.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})),
-            "parameter_capabilities": _parameter_capabilities_payload(resolved),
+            "config": _profile_config_payload(resolved),
+            "parameter_capabilities": _profile_parameter_capabilities_payload(resolved),
         }
     return summaries
 
@@ -2770,7 +2788,11 @@ def _is_archived_chapter(root: Path, chapter_number: int) -> bool:
     return False
 
 
-def _clean_agent_config_patch(patch: dict[object, object]) -> dict[str, object]:
+def _clean_agent_config_patch(
+    patch: dict[object, object],
+    *,
+    allow_task_only_fields: bool = True,
+) -> dict[str, object]:
     allowed = {
         "inherit_default",
         "provider",
@@ -2791,6 +2813,12 @@ def _clean_agent_config_patch(patch: dict[object, object]) -> dict[str, object]:
         key_text = str(key)
         if key_text not in allowed:
             raise WebAPIError("invalid_provider_config_field", f"field is not editable: {key_text}", status=400)
+        if not allow_task_only_fields and key_text in TASK_ONLY_CONFIG_FIELDS:
+            raise WebAPIError(
+                "invalid_provider_config_field",
+                f"profile config field is task-only: {key_text}; use tasks.<task> overrides",
+                status=400,
+            )
         if key_text in {"api_key", "token", "secret"}:
             raise WebAPIError("unsafe_config_secret", "raw secret fields are not allowed", status=400)
         if key_text == "inherit_default" and not isinstance(value, bool):

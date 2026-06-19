@@ -43,8 +43,7 @@
     ];
     const providerFormFieldIds = [
       "providerProviderField", "providerModelField", "providerBaseUrlEnvField",
-      "providerApiKeyEnvField", "providerThinkingTypeField", "providerReasoningField",
-      "providerTemperatureField", "providerMaxTokensField", "providerMaxContextTokensField",
+      "providerApiKeyEnvField", "providerMaxTokensField", "providerMaxContextTokensField",
       "providerTimeoutSecondsField", "providerMaxRetriesField",
     ];
     const jsonResponseFormatValues = ["auto", "json_object", "json_schema", "json_schema_strict"];
@@ -1945,9 +1944,8 @@
       setEmbeddingConfigStatus("请填写 Embedding Base URL、API Key、provider、模型名和参数。");
     }
 
-    function providerParameterCapabilities(providerName, thinkingType) {
+    function providerParameterCapabilities(providerName) {
       const provider = String(providerName || "").toLowerCase();
-      const thinking = thinkingType || "disabled";
       const caps = {};
       [
         "provider", "model", "base_url_env", "api_key_env", "max_context_tokens",
@@ -1955,19 +1953,6 @@
       ].forEach((field) => {
         caps[field] = { effective: true, editable: true };
       });
-      caps.thinking = provider === "deepseek" || provider === "zai"
-        ? { effective: true, editable: true }
-        : { effective: false, editable: false, reason: "当前 provider 不发送 thinking 参数" };
-      caps.reasoning = provider === "deepseek" && thinking === "enabled"
-        ? { effective: true, editable: true }
-        : { effective: false, editable: false, reason: "仅 DeepSeek 且 thinking enabled 时发送 reasoning_effort" };
-      if (provider === "mock") {
-        caps.temperature = { effective: false, editable: false, reason: "mock provider 不发送 temperature" };
-      } else if (provider === "deepseek" && thinking === "enabled") {
-        caps.temperature = { effective: false, editable: false, reason: "DeepSeek thinking enabled 时不会发送 temperature" };
-      } else {
-        caps.temperature = { effective: true, editable: true };
-      }
       caps.json_response_format = {
         effective: true,
         editable: true,
@@ -1980,51 +1965,16 @@
 
     function currentProviderCapabilities() {
       const provider = $("providerProviderField").value.trim();
-      const rawThinking = $("providerThinkingTypeField").value;
-      const thinking = rawThinking === "__na__" ? "disabled" : rawThinking || "disabled";
-      return providerParameterCapabilities(provider, thinking);
+      return providerParameterCapabilities(provider);
     }
 
     function currentProviderJsonValues() {
       return currentProviderCapabilities().json_response_format?.allowed_values || jsonResponseFormatValues;
     }
 
-    function setCapabilityNote(id, capability) {
-      const note = $(id);
-      if (!note) return;
-      note.classList.toggle("na", capability?.effective === false);
-      note.textContent = capability?.effective === false ? `NA：${capability.reason || "当前 provider 不发送此参数"}` : "";
-    }
-
     function applyProviderCapabilityState(disableAll = false) {
       const inheritLocksCallFields = Boolean(disableAll);
-      if ($("providerThinkingTypeField").value === "__na__") {
-        $("providerThinkingTypeField").value = "disabled";
-      }
-      let caps = currentProviderCapabilities();
-      if (!caps.thinking.effective) {
-        $("providerThinkingTypeField").value = "__na__";
-      }
-      caps = currentProviderCapabilities();
-      const fieldStates = [
-        ["thinking", "providerThinkingTypeField", "providerThinkingTypeStatus", "__na__"],
-        ["reasoning", "providerReasoningField", "providerReasoningStatus", "NA"],
-        ["temperature", "providerTemperatureField", "providerTemperatureStatus", "NA"],
-      ];
-      fieldStates.forEach(([field, inputId, noteId, naValue]) => {
-        const capability = caps[field] || { effective: true, editable: true };
-        const input = $(inputId);
-        if (capability.effective === false) {
-          input.value = naValue;
-          input.disabled = true;
-        } else {
-          if (input.value === "NA" || input.value === "__na__") {
-            input.value = field === "thinking" ? "disabled" : "";
-          }
-          input.disabled = false;
-        }
-        setCapabilityNote(noteId, capability);
-      });
+      const caps = currentProviderCapabilities();
       [
         "providerProviderField", "providerModelField", "providerBaseUrlEnvField",
         "providerApiKeyEnvField", "providerMaxTokensField", "providerMaxContextTokensField",
@@ -2053,15 +2003,6 @@
       ].forEach((key) => {
         if (Object.prototype.hasOwnProperty.call(agent, key)) editable[key] = agent[key];
       });
-      if (capabilities.reasoning?.effective !== false && Object.prototype.hasOwnProperty.call(agent, "reasoning")) {
-        editable.reasoning = agent.reasoning;
-      }
-      if (capabilities.temperature?.effective !== false && Object.prototype.hasOwnProperty.call(agent, "temperature")) {
-        editable.temperature = agent.temperature;
-      }
-      if (capabilities.thinking?.effective !== false && agent.thinking?.type) {
-        editable.thinking = { type: agent.thinking.type };
-      }
       if (Object.prototype.hasOwnProperty.call(agent, "json_response_format")) {
         editable.json_response_format = agent.json_response_format;
       }
@@ -2075,15 +2016,6 @@
       ].forEach((key) => {
         if (Object.prototype.hasOwnProperty.call(agent, key)) editable[key] = agent[key];
       });
-      if (capabilities.reasoning?.effective !== false && Object.prototype.hasOwnProperty.call(agent, "reasoning")) {
-        editable.reasoning = agent.reasoning;
-      }
-      if (capabilities.temperature?.effective !== false && Object.prototype.hasOwnProperty.call(agent, "temperature")) {
-        editable.temperature = agent.temperature;
-      }
-      if (capabilities.thinking?.effective !== false && agent.thinking?.type) {
-        editable.thinking = { type: agent.thinking.type };
-      }
       if (Object.prototype.hasOwnProperty.call(agent, "json_response_format")) {
         editable.json_response_format = agent.json_response_format;
       }
@@ -2124,9 +2056,6 @@
       $("providerModelField").value = profile.model || "";
       $("providerBaseUrlEnvField").value = profile.base_url_env || "";
       $("providerApiKeyEnvField").value = profile.api_key_env || "";
-      $("providerThinkingTypeField").value = profile.thinking?.type || "disabled";
-      $("providerReasoningField").value = profile.reasoning || "";
-      $("providerTemperatureField").value = profile.temperature ?? "";
       $("providerMaxTokensField").value = profile.max_tokens ?? "";
       $("providerMaxContextTokensField").value = profile.max_context_tokens ?? "";
       $("providerTimeoutSecondsField").value = profile.timeout_seconds ?? "";
@@ -2176,9 +2105,6 @@
       $("providerModelField").value = agent.model || "";
       $("providerBaseUrlEnvField").value = agent.base_url_env || "";
       $("providerApiKeyEnvField").value = agent.api_key_env || "";
-      $("providerThinkingTypeField").value = agent.thinking?.type || "disabled";
-      $("providerReasoningField").value = agent.reasoning || "";
-      $("providerTemperatureField").value = agent.temperature ?? "";
       $("providerMaxTokensField").value = agent.max_tokens ?? "";
       $("providerMaxContextTokensField").value = agent.max_context_tokens ?? "";
       $("providerTimeoutSecondsField").value = agent.timeout_seconds ?? "";
@@ -2202,7 +2128,6 @@
 
     function buildProviderPatchFromForm() {
       const patch = {};
-      const caps = currentProviderCapabilities();
       [
         ["provider", "providerProviderField"],
         ["model", "providerModelField"],
@@ -2218,38 +2143,6 @@
         const value = $(id).value.trim();
         if (value) patch[key] = value;
       });
-      if (caps.reasoning?.effective !== false) {
-        const reasoning = $("providerReasoningField").value.trim();
-        if (reasoning) patch.reasoning = reasoning;
-      }
-      const thinkingType = $("providerThinkingTypeField").value.trim();
-      if (caps.thinking?.effective !== false) patch.thinking = { type: thinkingType || "disabled" };
-      [
-        ["max_tokens", "providerMaxTokensField"],
-        ["max_context_tokens", "providerMaxContextTokensField"],
-        ["timeout_seconds", "providerTimeoutSecondsField"],
-        ["max_retries", "providerMaxRetriesField"],
-      ].forEach(([key, id]) => {
-        const raw = $(id).value.trim();
-        if (!raw) return;
-        const value = Number(raw);
-        if (Number.isNaN(value)) throw new Error(`${key} 必须是数字`);
-        patch[key] = key === "temperature" || key === "timeout_seconds" ? value : Math.trunc(value);
-      });
-      if (caps.temperature?.effective !== false) {
-        const raw = $("providerTemperatureField").value.trim();
-        if (raw) {
-          const value = Number(raw);
-          if (Number.isNaN(value)) throw new Error("temperature 必须是数字");
-          patch.temperature = value;
-        }
-      }
-      return patch;
-    }
-
-    function buildProviderBusinessPatchFromForm() {
-      const patch = {};
-      const caps = currentProviderCapabilities();
       [
         ["max_tokens", "providerMaxTokensField"],
         ["max_context_tokens", "providerMaxContextTokensField"],
@@ -2262,20 +2155,23 @@
         if (Number.isNaN(value)) throw new Error(`${key} 必须是数字`);
         patch[key] = key === "timeout_seconds" ? value : Math.trunc(value);
       });
-      if (caps.reasoning?.effective !== false) {
-        const reasoning = $("providerReasoningField").value.trim();
-        if (reasoning) patch.reasoning = reasoning;
-      }
-      const thinkingType = $("providerThinkingTypeField").value.trim();
-      if (caps.thinking?.effective !== false) patch.thinking = { type: thinkingType || "disabled" };
-      if (caps.temperature?.effective !== false) {
-        const raw = $("providerTemperatureField").value.trim();
-        if (raw) {
-          const value = Number(raw);
-          if (Number.isNaN(value)) throw new Error("temperature 必须是数字");
-          patch.temperature = value;
-        }
-      }
+      return patch;
+    }
+
+    function buildProviderBusinessPatchFromForm() {
+      const patch = {};
+      [
+        ["max_tokens", "providerMaxTokensField"],
+        ["max_context_tokens", "providerMaxContextTokensField"],
+        ["timeout_seconds", "providerTimeoutSecondsField"],
+        ["max_retries", "providerMaxRetriesField"],
+      ].forEach(([key, id]) => {
+        const raw = $(id).value.trim();
+        if (!raw) return;
+        const value = Number(raw);
+        if (Number.isNaN(value)) throw new Error(`${key} 必须是数字`);
+        patch[key] = key === "timeout_seconds" ? value : Math.trunc(value);
+      });
       const rawAdvanced = $("providerFieldEditor").value.trim();
       if (rawAdvanced) {
         try {
@@ -2397,9 +2293,6 @@
         ["model", config.model],
         ["base_url_env", config.base_url_env],
         ["api_key_env", config.api_key_env],
-        ["thinking", config.thinking?.type],
-        ["reasoning", config.reasoning],
-        ["temperature", config.temperature],
         ["max_tokens", config.max_tokens],
         ["max_context_tokens", config.max_context_tokens],
         ["timeout_seconds", config.timeout_seconds],
@@ -3161,9 +3054,7 @@
     $("providerProfileSelect").addEventListener("change", renderProviderProfileFields);
     $("providerInheritDefaultField").addEventListener("change", toggleProviderDefaultInheritance);
     providerFormFieldIds.forEach((id) => {
-      const handler = id === "providerProviderField" || id === "providerThinkingTypeField"
-        ? refreshProviderCapabilityState
-        : syncProviderFormToAdvancedJson;
+      const handler = id === "providerProviderField" ? refreshProviderCapabilityState : syncProviderFormToAdvancedJson;
       $(id).addEventListener("input", handler);
       $(id).addEventListener("change", handler);
     });

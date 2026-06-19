@@ -24,12 +24,11 @@ TASK_TO_PROFILE: dict[str, str] = {
 
 TASK_NAMES = tuple(TASK_TO_PROFILE)
 
+TASK_ONLY_CONFIG_FIELDS = frozenset({"reasoning", "thinking", "temperature"})
+
 PROFILE_INHERITED_PATCH_FIELDS = {
-    "reasoning",
-    "thinking",
     "max_context_tokens",
     "max_tokens",
-    "temperature",
     "timeout_seconds",
     "max_retries",
     "json_response_format",
@@ -57,35 +56,23 @@ DEFAULT_AGENT_CONFIG: dict[str, object] = {
 
 PROFILE_CONFIG_DEFAULTS: dict[str, dict[str, object]] = {
     "scribe": {
-        "reasoning": "high",
-        "thinking": {"type": "disabled"},
         "max_context_tokens": 128000,
         "max_tokens": 24000,
-        "temperature": 0.7,
         "timeout_seconds": 180.0,
     },
     "architect": {
-        "reasoning": "high",
-        "thinking": {"type": "disabled"},
         "max_context_tokens": 128000,
         "max_tokens": 8192,
-        "temperature": 0.3,
         "timeout_seconds": 120.0,
     },
     "loremaster": {
-        "reasoning": "medium",
-        "thinking": {"type": "disabled"},
         "max_context_tokens": 64000,
         "max_tokens": 8192,
-        "temperature": 0.6,
         "timeout_seconds": 120.0,
     },
     "clerk": {
-        "reasoning": "low",
-        "thinking": {"type": "disabled"},
         "max_context_tokens": 64000,
         "max_tokens": 8192,
-        "temperature": 0.2,
         "timeout_seconds": 90.0,
     },
 }
@@ -125,16 +112,6 @@ def inherited_profile_config_patch(
     patch = {"inherit_default": True, **profile_config_defaults(profile_name)}
     if current:
         patch.update(profile_inherited_patch_fields(current))
-    return patch
-
-
-def task_config_patch(
-    task_name: str,
-    current: Mapping[str, object] | None = None,
-) -> dict[str, object]:
-    patch = task_business_defaults(task_name)
-    if current:
-        patch.update(config_patch_fields(current))
     return patch
 
 

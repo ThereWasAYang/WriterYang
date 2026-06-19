@@ -267,7 +267,9 @@ def test_api_provider_config_reports_parameter_capabilities(tmp_path: Path) -> N
     assert default_caps["thinking"]["effective"] is False
     assert default_caps["reasoning"]["effective"] is False
     assert default_caps["temperature"]["effective"] is True
-    assert scribe_caps["thinking"]["effective"] is False
+    assert "thinking" not in scribe_caps
+    assert "reasoning" not in scribe_caps
+    assert "temperature" not in scribe_caps
     assert scribe_caps["json_response_format"]["allowed_values"] == [
         "auto",
         "json_object",
@@ -774,8 +776,7 @@ def test_api_provider_config_save_updates_non_secret_fields(tmp_path: Path) -> N
                     "scribe": {
                         "provider": "mock",
                         "model": "web-scribe-model",
-                        "temperature": 0.3,
-                        "thinking": {"type": "disabled"},
+                        "max_tokens": 12345,
                     }
                 },
             }
@@ -787,6 +788,8 @@ def test_api_provider_config_save_updates_non_secret_fields(tmp_path: Path) -> N
     agents = json.loads(json.dumps(payload["data"]["config"]["content"], ensure_ascii=False))  # type: ignore[index]
     assert agents["profiles"]["scribe"]["model"] == "web-scribe-model"
     assert agents["profiles"]["scribe"]["inherit_default"] is False
+    assert agents["profiles"]["scribe"]["max_tokens"] == 12345
+    assert "temperature" not in agents["profiles"]["scribe"]
     assert payload["data"]["effective_profiles"]["scribe"]["has_override"] is True  # type: ignore[index]
     assert list((root / "config").glob("agents.yaml.bak_*"))
 
@@ -832,14 +835,31 @@ def test_api_provider_config_save_can_add_known_task_override(tmp_path: Path) ->
         "POST",
         "/api/provider-config",
         "",
-        json.dumps({"path": str(root), "tasks": {"revision": {"model": "web-revision-model"}}}),
+        json.dumps({"path": str(root), "tasks": {"revision": {"model": "web-revision-model", "temperature": 0.4}}}),
     )
 
     assert status == 200
     assert payload["ok"] is True
     content = payload["data"]["config"]["content"]  # type: ignore[index]
     assert content["tasks"]["revision"]["model"] == "web-revision-model"  # type: ignore[index]
+    assert content["tasks"]["revision"]["temperature"] == 0.4  # type: ignore[index]
     assert payload["data"]["effective_tasks"]["revision"]["config"]["model"] == "web-revision-model"  # type: ignore[index]
+    assert payload["data"]["effective_tasks"]["revision"]["config"]["temperature"] == 0.4  # type: ignore[index]
+
+
+def test_api_provider_config_rejects_task_only_profile_fields(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "profiles": {"scribe": {"inherit_default": True, "temperature": 0.7}}}),
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "invalid_provider_config_field"  # type: ignore[index]
+    assert "task-only" in payload["error"]["message"]  # type: ignore[index]
 
 
 def test_api_provider_config_save_inherited_profile_patch(tmp_path: Path) -> None:
@@ -858,8 +878,7 @@ def test_api_provider_config_save_inherited_profile_patch(tmp_path: Path) -> Non
                         "provider": "deepseek",
                         "model": "stale-scribe-model",
                         "api_key_env": "STALE_API_KEY",
-                        "temperature": 0.7,
-                        "reasoning": "high",
+                        "max_tokens": 16000,
                     }
                 },
             }
@@ -872,9 +891,10 @@ def test_api_provider_config_save_inherited_profile_patch(tmp_path: Path) -> Non
     assert "model" not in content["profiles"]["scribe"]  # type: ignore[index]
     assert "provider" not in content["profiles"]["scribe"]  # type: ignore[index]
     assert "api_key_env" not in content["profiles"]["scribe"]  # type: ignore[index]
-    assert content["profiles"]["scribe"]["temperature"] == 0.7  # type: ignore[index]
+    assert content["profiles"]["scribe"]["max_tokens"] == 16000  # type: ignore[index]
     assert payload["data"]["effective_profiles"]["scribe"]["config"]["model"] == content["default"]["model"]  # type: ignore[index]
-    assert payload["data"]["effective_profiles"]["scribe"]["config"]["temperature"] == 0.7  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["config"]["max_tokens"] == 16000  # type: ignore[index]
+    assert "temperature" not in payload["data"]["effective_profiles"]["scribe"]["config"]  # type: ignore[index]
     assert payload["data"]["effective_profiles"]["scribe"]["inherits_default"] is True  # type: ignore[index]
 
 
@@ -2382,14 +2402,14 @@ def test_frontend_basic_render() -> None:
     assert '<textarea id="providerModelField"' not in html
     assert 'id="providerBaseUrlEnvField"' in html
     assert 'id="providerApiKeyEnvField"' in html
-    assert 'id="providerThinkingTypeField"' in html
-    assert 'value="__na__">NA</option>' in html
+    assert 'id="providerThinkingTypeField"' not in html
+    assert 'id="providerReasoningField"' not in html
+    assert 'id="providerTemperatureField"' not in html
     assert 'id="providerInheritDefaultField"' in html
     assert "继承 default" in html
-    assert 'id="providerThinkingTypeStatus"' in html
-    assert 'id="providerReasoningStatus"' in html
-    assert 'id="providerTemperatureField"' in html
-    assert 'id="providerTemperatureStatus"' in html
+    assert 'id="providerThinkingTypeStatus"' not in html
+    assert 'id="providerReasoningStatus"' not in html
+    assert 'id="providerTemperatureStatus"' not in html
     assert 'id="providerMaxTokensField"' in html
     assert 'id="providerMaxContextTokensField"' in html
     assert 'id="providerTimeoutSecondsField"' in html

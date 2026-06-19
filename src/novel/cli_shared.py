@@ -398,7 +398,7 @@ def _run_init_setup_guide(root: Path) -> tuple[list[str], bool, int]:
         output_lines.append(f"默认 API 连通性测试通过：{result.provider} / {result.model}")
         output_lines.append(
             "这组 API 配置已作为所有 profile 的默认配置；"
-            "后续可编辑 config/agents.yaml 为 profile 或少数 task 覆盖模型、思考模式、温度等参数。"
+            "后续可编辑 config/agents.yaml 为 profile 覆盖模型能力参数，或为少数 task 覆盖思考模式、温度等业务参数。"
         )
     else:
         output_lines.append("已跳过默认 API 配置；运行真实 Agent 前需要先配置 config/agents.yaml 和 .env。")

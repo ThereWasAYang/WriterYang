@@ -183,19 +183,27 @@
         </div>
       </div>
 
-      <div class="workspace-grid">
-        <div class="stack">
-          <div class="panel">
+      <div id="workbenchCommandBar" class="workbench-command-bar" aria-label="创作输入">
+        <div class="workbench-command-layout">
+          <div class="workbench-instruction-field">
             <h2 style="margin-top: 0;">创作输入</h2>
-            <label for="chapterNumber">章节号</label>
-            <input id="chapterNumber" type="number" min="1" value="1">
             <label for="instruction">聊天 / 指令</label>
-            <textarea id="instruction" placeholder="本次创作意图、大纲修改意见、写作要求、Audit 纠正意见或设定变更说明"></textarea>
-            <label for="provider">Provider</label>
-            <select id="provider">
-              <option value="config">config</option>
-              <option value="mock">mock（仅测试）</option>
-            </select>
+            <textarea id="instruction" class="workbench-instruction" placeholder="本次创作意图、大纲修改意见、写作要求、Audit 纠正意见或设定变更说明"></textarea>
+          </div>
+          <div class="workbench-command-controls">
+            <div class="workbench-command-fields">
+              <div>
+                <label for="chapterNumber">章节号</label>
+                <input id="chapterNumber" type="number" min="1" value="1">
+              </div>
+              <div>
+                <label for="provider">Provider</label>
+                <select id="provider">
+                  <option value="config">config</option>
+                  <option value="mock">mock（仅测试）</option>
+                </select>
+              </div>
+            </div>
             <label class="row" style="justify-content: flex-start; gap: 8px;">
               <input id="useSearchContext" type="checkbox" style="width: auto;" checked>
               <span>使用搜索上下文</span>
@@ -214,7 +222,7 @@
               <input id="autoPolish" type="checkbox" style="width: auto;">
               <span>自动润色（writer → polish → audit）</span>
             </label>
-            <details style="margin-top: 10px;">
+            <details id="debugOptionsDetails" class="workbench-debug-options" style="margin-top: 10px;">
               <summary>危险 / 调试选项</summary>
               <label class="row" style="justify-content: flex-start; gap: 8px;">
                 <input id="forceWrites" type="checkbox" style="width: auto;">
@@ -235,7 +243,11 @@
               </div>
             </details>
           </div>
+        </div>
+      </div>
 
+      <div class="workspace-grid">
+        <div class="stack">
           <div id="sessionWorkflowPanel" class="panel">
             <h2 style="margin-top: 0;">Session 主流程</h2>
             <label for="sessionChapters">章节范围</label>

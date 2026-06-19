@@ -2629,22 +2629,35 @@ def test_workbench_prioritizes_session_flow_layout() -> None:
     app_css = css_asset[0].decode("utf-8")
     app_js = js_asset[0].decode("utf-8")
 
+    command_bar_index = html.index('id="workbenchCommandBar"')
+    workspace_grid_index = html.index('<div class="workspace-grid">')
     creative_input_index = html.index('<h2 style="margin-top: 0;">创作输入</h2>')
     session_flow_index = html.index('id="sessionWorkflowPanel"')
     setting_change_index = html.index('id="settingChangeDetails"')
     project_prep_index = html.index('id="projectPrepDetails"')
 
-    assert creative_input_index < session_flow_index < setting_change_index < project_prep_index
+    assert command_bar_index < workspace_grid_index < session_flow_index < setting_change_index < project_prep_index
+    assert command_bar_index < creative_input_index < workspace_grid_index
+    assert 'class="workbench-command-bar"' in html
+    assert 'class="workbench-instruction"' in html
+    assert '<details id="debugOptionsDetails" class="workbench-debug-options"' in html
     assert '<details id="settingChangeDetails" class="workbench-collapsible">' in html
     assert '<details id="projectPrepDetails" class="workbench-collapsible">' in html
     assert 'id="workbenchSessionStatusPanel" class="panel"' in html
     assert 'class="workbench-session-status"' in html
+    assert ".workbench-command-bar {" in app_css
+    assert "position: sticky; top: var(--app-header-sticky-offset, 92px); z-index: 7;" in app_css
+    assert ".workbench-instruction { min-height: 220px; line-height: 1.55; }" in app_css
     assert ".workbench-session-status {" in app_css
-    assert "position: sticky; top: var(--app-header-sticky-offset, 92px);" in app_css
+    assert "position: sticky; top: var(--workbench-secondary-sticky-offset, var(--app-header-sticky-offset, 92px));" in app_css
     assert "border-bottom: 1px solid #e4e8ed; background: #fff;" in app_css
     assert ".workbench-session-status { position: static; margin: -14px -14px 10px; }" in app_css
     assert "--app-header-sticky-offset: 92px;" in app_css
+    assert "--workbench-secondary-sticky-offset: 92px;" in app_css
     assert "syncWorkbenchStickyOffset" in app_js
+    assert 'document.documentElement.style.setProperty("--workbench-secondary-sticky-offset"' in app_js
+    assert '$("debugOptionsDetails").addEventListener("toggle", () => window.requestAnimationFrame(syncWorkbenchStickyOffset));' in app_js
+    assert "new ResizeObserver(() => syncWorkbenchStickyOffset())" in app_js
     assert "syncProjectPrepDetails(data);" in app_js
     assert 'details.open = !status.inspiration_exists' in app_js
 

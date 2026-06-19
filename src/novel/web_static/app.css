@@ -4,8 +4,10 @@
       background: #f5f6f8;
       color: #20242a;
       --app-header-sticky-offset: 92px;
+      --workbench-secondary-sticky-offset: 92px;
     }
     * { box-sizing: border-box; }
+    html, body { scroll-padding-top: var(--workbench-secondary-sticky-offset, var(--app-header-sticky-offset, 92px)); }
     body { margin: 0; min-height: 100vh; }
     .app-header {
       position: sticky; top: 0; z-index: 10; background: #fff;
@@ -28,6 +30,27 @@
     .config-layout { grid-template-columns: minmax(620px, 2.2fr) minmax(260px, .8fr); align-items: start; }
     .style-guide-grid { grid-template-columns: minmax(0, 1.6fr) minmax(280px, .8fr); align-items: start; }
     .workspace-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .workbench-command-bar {
+      position: sticky; top: var(--app-header-sticky-offset, 92px); z-index: 7;
+      max-height: min(360px, calc(100vh - var(--app-header-sticky-offset, 92px) - 18px));
+      overflow: auto; overscroll-behavior: contain;
+      background: #fff; border: 1px solid #dfe3e8; border-radius: 8px;
+      padding: 14px; margin-bottom: 14px; box-shadow: 0 10px 24px rgba(32, 36, 42, .08);
+    }
+    .workbench-command-layout {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      gap: 14px; align-items: start;
+    }
+    .workbench-instruction-field,
+    .workbench-command-controls { min-width: 0; }
+    .workbench-instruction-field h2 { margin-bottom: 10px; }
+    .workbench-command-fields { display: grid; grid-template-columns: minmax(96px, .42fr) minmax(150px, .58fr); gap: 10px; }
+    .workbench-command-fields label { margin-top: 0; }
+    .workbench-instruction { min-height: 220px; line-height: 1.55; }
+    .workbench-debug-options { border-top: 1px solid #e4e8ed; padding-top: 10px; }
+    .workbench-debug-options summary { cursor: pointer; color: #20242a; }
+    .workbench-command-bar .artifact-preview { margin-top: 10px; }
+    .workbench-command-bar .artifact-pre { min-height: 140px; max-height: 24vh; }
     .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
     h1 { font-size: 22px; margin: 0 0 18px; }
     h2 { font-size: 15px; margin: 22px 0 10px; }
@@ -46,6 +69,9 @@
       border: 1px solid #aeb8c3; border-radius: 6px; background: #fff; color: #20242a;
       padding: 8px 10px; font: inherit; cursor: pointer;
     }
+    button, input, textarea, select, details, .panel, .tabPanel {
+      scroll-margin-top: var(--workbench-secondary-sticky-offset, var(--app-header-sticky-offset, 92px));
+    }
     button.primary { background: #1f6feb; color: #fff; border-color: #1f6feb; }
     button.tab.active { background: #20242a; color: #fff; border-color: #20242a; }
     button:disabled { opacity: .55; cursor: not-allowed; }
@@ -54,7 +80,7 @@
     .actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-top: 12px; }
     .panel { background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; padding: 14px; margin-bottom: 14px; min-width: 0; }
     .workbench-session-status {
-      position: sticky; top: var(--app-header-sticky-offset, 92px); z-index: 2;
+      position: sticky; top: var(--workbench-secondary-sticky-offset, var(--app-header-sticky-offset, 92px)); z-index: 2;
       margin: -14px -14px 10px; padding: 14px 14px 10px;
       border-bottom: 1px solid #e4e8ed; background: #fff;
     }
@@ -144,10 +170,17 @@
     @media (max-width: 980px) {
       .app-header { grid-template-columns: 1fr; }
       .dashboard-grid, .workspace-grid, .grid, .four, .config-layout, .provider-config-grid, .style-guide-grid { grid-template-columns: 1fr; }
+      .workbench-command-layout { grid-template-columns: 1fr; }
+      .workbench-command-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+      .workbench-command-controls > .row,
+      .workbench-command-controls > details { grid-column: 1 / -1; }
       .workbench-session-status { position: static; margin: -14px -14px 10px; }
     }
     @media (max-width: 640px) {
       main { padding: 14px; }
+      .workbench-command-bar { padding: 12px; }
+      .workbench-command-controls, .workbench-command-fields { grid-template-columns: 1fr; }
+      .workbench-instruction { min-height: 180px; }
       .provider-effective-row { grid-template-columns: 1fr; gap: 2px; }
       .artifact-preview .row { flex-wrap: wrap; }
       .artifact-preview h3 { flex-basis: 100%; }

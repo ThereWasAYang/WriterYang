@@ -103,6 +103,49 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
         server.server_close()
 
 
+def test_workbench_instruction_bar_stays_visible_while_scrolling(tmp_path: Path) -> None:
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    try:
+        port = _free_port()
+    except PermissionError:
+        pytest.skip("local port binding is not permitted in this sandbox")
+    server = ThreadingHTTPServer(("127.0.0.1", port), _handler_class())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/")
+            page.click("button[data-page='workbenchPage']")
+            long_instruction = (
+                "请写第1章，开场要有雨夜、旧车站、停播广播和主角的迟疑。"
+                "语言要克制，节奏要慢，隐藏真相不要提前揭示，只留下可回收的伏笔。"
+                "如果需要修改大纲，请优先保持人物动机清晰，并避免解释性独白。"
+                "主角进入候车厅时要先观察环境，再被一个细节触发记忆，但不要直接说明记忆是真是假。"
+                "对白要短，环境描写要承担压迫感，结尾留下下一章追查广播来源的动力。"
+            )
+            assert len(long_instruction) > 150
+            page.fill("#instruction", long_instruction)
+            assert page.locator("#instruction").input_value() == long_instruction
+            assert page.locator("#instruction").evaluate("node => node.clientHeight") >= 200
+
+            page.eval_on_selector("#sessionWorkflowPanel", "node => node.scrollIntoView({block: 'start'})")
+            _wait_for_instruction_and_target_visible(page, "#sessionWorkflowPanel")
+
+            page.click("#settingChangeDetails > summary")
+            page.eval_on_selector("#settingChangeDetails", "node => node.scrollIntoView({block: 'center'})")
+            _wait_for_instruction_and_target_visible(page, "#settingChangeDetails")
+            browser.close()
+    except Exception as exc:
+        if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
+            pytest.skip("Playwright browser binaries are not installed")
+        raise
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_web_ui_initializes_project_under_custom_parent_directory(tmp_path: Path) -> None:
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     parent = tmp_path / "custom-parent"
@@ -194,3 +237,18 @@ def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def _wait_for_instruction_and_target_visible(page, target_selector: str) -> None:
+    page.wait_for_function(
+        """(selector) => {
+            const bar = document.querySelector("#workbenchCommandBar")?.getBoundingClientRect();
+            const input = document.querySelector("#instruction")?.getBoundingClientRect();
+            const target = document.querySelector(selector)?.getBoundingClientRect();
+            if (!bar || !input || !target) return false;
+            const inputVisible = input.top >= 0 && input.bottom <= window.innerHeight && input.height >= 200;
+            const targetVisible = target.top < window.innerHeight && target.bottom > bar.bottom + 8;
+            return inputVisible && targetVisible;
+        }""",
+        arg=target_selector,
+    )

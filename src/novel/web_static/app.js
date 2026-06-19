@@ -86,8 +86,13 @@
     function syncWorkbenchStickyOffset() {
       const header = document.querySelector(".app-header");
       if (!header) return;
-      const offset = Math.ceil(header.getBoundingClientRect().height + 14);
-      document.documentElement.style.setProperty("--app-header-sticky-offset", `${offset}px`);
+      const gap = 14;
+      const headerOffset = Math.ceil(header.getBoundingClientRect().height + gap);
+      const commandBar = $("workbenchCommandBar");
+      const commandBarVisible = Boolean(commandBar && commandBar.offsetParent !== null);
+      const commandBarOffset = commandBarVisible ? Math.ceil(commandBar.getBoundingClientRect().height + gap) : 0;
+      document.documentElement.style.setProperty("--app-header-sticky-offset", `${headerOffset}px`);
+      document.documentElement.style.setProperty("--workbench-secondary-sticky-offset", `${headerOffset + commandBarOffset}px`);
     }
 
     function syncProjectPrepDetails(data = {}) {
@@ -283,6 +288,8 @@
       if (!page || !button) return;
       page.classList.add("active");
       button.classList.add("active");
+      syncWorkbenchStickyOffset();
+      window.requestAnimationFrame(syncWorkbenchStickyOffset);
       if (pageId === "workbenchPage" && ["chapterCompare", "chapterEditor", "auditLocate"].every((id) => $(id).classList.contains("hidden"))) {
         showTab("chapterCompare");
       }
@@ -3031,7 +3038,14 @@
     });
     $("projectTitle").addEventListener("input", updateProjectInitPathPreview);
     $("projectTitle").addEventListener("change", updateProjectInitPathPreview);
+    $("debugOptionsDetails").addEventListener("toggle", () => window.requestAnimationFrame(syncWorkbenchStickyOffset));
     window.addEventListener("resize", syncWorkbenchStickyOffset);
+    if (window.ResizeObserver) {
+      const stickyResizeObserver = new ResizeObserver(() => syncWorkbenchStickyOffset());
+      const header = document.querySelector(".app-header");
+      if (header) stickyResizeObserver.observe(header);
+      stickyResizeObserver.observe($("workbenchCommandBar"));
+    }
     applyEmbeddingProviderDefaults("setup", false);
     applyEmbeddingProviderDefaults("config", false);
     updateProjectInitPathPreview();

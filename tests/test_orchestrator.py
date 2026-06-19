@@ -7,7 +7,13 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.orchestrator import decide_ask_intent, route_audit_repair, route_revision_request
+from novel.core.orchestrator import (
+    decide_ask_intent,
+    parse_ask_intent_decision,
+    parse_revision_route_decision,
+    route_audit_repair,
+    route_revision_request,
+)
 from novel.core.providers import MockProvider
 from novel.core.schemas import AuditIssue, AuditReport
 from novel.core.workspace import InitOptions, init_workspace
@@ -223,6 +229,28 @@ def test_ask_intent_decision_repair_retry(tmp_path: Path) -> None:
 
     assert decision.task == "memory_repair_suggest"
     assert len(provider.requests) == 2
+
+
+def test_intent_router_default_reasons_use_task_name() -> None:
+    ask_decision = parse_ask_intent_decision(
+        json.dumps({"task": "status", "confidence": 0.8, "source": "model"}),
+        fallback_request="看看项目状态",
+    )
+    revision_decision = parse_revision_route_decision(
+        json.dumps(
+            {
+                "route": "revision_patch",
+                "chapter_numbers": [1],
+                "instruction_for_revision": "替换第一段的一句话。",
+                "risk_level": "low",
+            }
+        ),
+        fallback_instruction="替换第一段的一句话。",
+        chapter_numbers=[1],
+    )
+
+    assert ask_decision.reason == "intent router ask intent decision"
+    assert revision_decision.reason == "intent router route decision"
 
 
 def test_ask_intent_downgrades_apply_without_explicit_repair_id(tmp_path: Path) -> None:

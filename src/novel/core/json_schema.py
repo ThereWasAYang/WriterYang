@@ -131,9 +131,9 @@ MODEL_OUTPUT_SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
     SchemaDefinition("MemoryChangeBatchPlan", MemoryChangeBatchPlan, "setting-change batched generation plan"),
     SchemaDefinition("MemoryRepairDecision", MemoryRepairDecision, "memory repair decision output"),
     SchemaDefinition("MemoryRepairProposal", MemoryRepairProposal, "memory repair proposal"),
-    SchemaDefinition("AskIntentDecision", AskIntentDecision, "orchestrator ask intent route output"),
-    SchemaDefinition("RevisionRouteDecision", RevisionRouteDecision, "orchestrator revision route output"),
-    SchemaDefinition("AuditRepairRouteDecision", AuditRepairRouteDecision, "orchestrator audit repair route output"),
+    SchemaDefinition("AskIntentDecision", AskIntentDecision, "intent router ask intent route output"),
+    SchemaDefinition("RevisionRouteDecision", RevisionRouteDecision, "intent router revision route output"),
+    SchemaDefinition("AuditRepairRouteDecision", AuditRepairRouteDecision, "intent router audit repair route output"),
 )
 
 

@@ -632,7 +632,7 @@ web:
 - Revision diff：只读展示两个工作区文件的 unified diff，适合对比版本稿。
 - 运行日志：查看 `runs/*.json` 和 provider 调用安全摘要。
 - 项目搜索：在 Web UI 中搜索角色、地点、物品、时间线事件和章节文本。默认使用 FTS；语义检索模式为 `auto` 时只在 embedding 配置完整时启用，兼容勾选“强制使用 embedding 语义检索”时会按 `on` 处理。
-- 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Agent / Provider / Model 的统计；stream 调用会尽量记录 provider 返回的 usage 和 `finish_reason`。
+- 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Task / Provider / Model 的统计；stream 调用会尽量记录 provider 返回的 usage 和 `finish_reason`。
 - 导出：主页可导出 Markdown 或 DOCX，可指定章节列表、章节范围、标题、输出路径、是否包含未 accepted 章节，以及是否覆盖已有导出文件。
 - Profile 模型配置：用表单展示并允许编辑 `scribe`、`architect`、`loremaster`、`clerk` 的非密钥字段，例如 provider、model、base_url_env、api_key_env、max tokens、context、timeout；勾选“继承 default”时继承 default 并保留 profile patch，取消后保存为独立完整配置。任务级覆盖在高级区，默认隐藏，用于 `intent_router` 等少数 task 单独换模型或覆盖 `temperature`、`reasoning`、`thinking`。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，显示“Embedding API 已配置”、当前 provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。API Key 只写入项目 `.env`，保存前会用当前批量和维度验证真实 API，保存成功后清空输入框并自动刷新语义向量索引。
@@ -645,7 +645,7 @@ web:
 - Audit 复审控制：选择 rewrite event 后，可以纠正 Audit 理解并重新审核、根据新审核重新打回，或撤回本次打回并恢复原文快照。
 - 下一步提示：根据项目状态、session 状态和项目检查结果提示下一步操作，降低误点旧 session 或跳过审核的风险。
 - Session 大纲修订：大纲不满意时，在聊天 / 指令框输入修改意见并点击“修改大纲”；满意后再批准大纲。
-- Session 修订：当内容停在 `needs_revision` 时，可点击“按 Audit 修订内容”直接根据当前 `audit.json` 修订；也可以在聊天/指令框输入意见后点击“按用户意见修订内容”。用户意见会先由 Orchestrator 结构化路由：剧情结构变化回到 Plot 重写大纲，人物刻画/节奏/风格问题由 Writer/Polish 重写正文，只有指定局部语句表达才交给 Revision。修订后系统会重审并刷新 state proposal。
+- Session 修订：当内容停在 `needs_revision` 时，可点击“按 Audit 修订内容”直接根据当前 `audit.json` 修订；也可以在聊天/指令框输入意见后点击“按用户意见修订内容”。用户意见会先由 orchestrator 编排层调用 `intent_router` task 结构化路由：剧情结构变化回到 Plot 重写大纲，人物刻画/节奏/风格问题由 Writer/Polish 重写正文，只有指定局部语句表达才交给 Revision。修订后系统会重审并刷新 state proposal。
 
 Web API 统一返回：
 

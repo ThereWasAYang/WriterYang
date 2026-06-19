@@ -16,7 +16,7 @@ from novel.core.style_guide import build_style_guide_system_prompt
 
 
 def test_prompt_templates_are_versioned_and_loadable() -> None:
-    assert PROMPT_VERSION == "2026-06-19"
+    assert PROMPT_VERSION == "2026-06-20"
     assert "Writer Agent" in load_prompt_template("writer_system")
 
 
@@ -31,9 +31,21 @@ def test_prompt_versions_cover_non_partial_templates() -> None:
     assert PROMPT_VERSION == max(PROMPT_VERSIONS.values())
     assert PROMPT_VERSIONS["writer_system"] == "2026-06-05"
     assert PROMPT_VERSIONS["style_guide_system"] == "2026-06-19"
+    assert PROMPT_VERSIONS["audit_repair_route_system"] == "2026-06-20"
     assert PROMPT_VERSIONS["intent_router_ask_intent_system"] == "2026-06-19"
     assert prompt_template_version("writer_system") == PROMPT_VERSIONS["writer_system"]
     assert prompt_template_version("writer_system.txt") == PROMPT_VERSIONS["writer_system"]
+
+
+def test_route_prompts_use_intent_router_name() -> None:
+    for template_name in (
+        "intent_router_ask_intent_system",
+        "intent_router_revision_route_system",
+        "audit_repair_route_system",
+    ):
+        prompt = load_prompt_template(template_name)
+        assert "Intent Router" in prompt
+    assert "WriterYang 的 Orchestrator" not in load_prompt_template("audit_repair_route_system")
 
 
 def test_prompt_partials_render_and_raw_prompts_do_not_duplicate_shared_context_text() -> None:

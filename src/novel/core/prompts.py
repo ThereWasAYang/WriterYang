@@ -5,10 +5,10 @@ from importlib.resources import files
 import re
 
 
-PROMPT_VERSION = "2026-06-19"
+PROMPT_VERSION = "2026-06-20"
 
 PROMPT_VERSIONS: dict[str, str] = {
-    "audit_repair_route_system": "2026-05-31",
+    "audit_repair_route_system": "2026-06-20",
     "audit_system": "2026-06-05",
     "canon_system": "2026-06-05",
     "chapter_memory_system": "2026-06-05",

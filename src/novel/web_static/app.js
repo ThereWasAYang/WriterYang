@@ -882,12 +882,12 @@
         setSetupStatus(data.message || "默认 API 已保存。");
         await loadProviderConfig();
         await refreshAll({ silent: true });
-        setMessage("默认 API 连通性测试通过，已作为所有 Agent 的缺省配置。");
+        setMessage("默认 API 连通性测试通过，已保存为 default API；4 个 profile 默认继承该配置。");
       });
     }
 
     function setupSkipProvider() {
-      setSetupStatus("已暂时跳过默认 API 配置。真实创作前需要配置默认 API，否则 Agent 调用会失败。", true);
+      setSetupStatus("已暂时跳过默认 API 配置。真实创作前需要配置默认 API，否则真实模型调用会失败。", true);
     }
 
     function embeddingProviderDefaults(provider, model) {

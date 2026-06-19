@@ -386,7 +386,7 @@ Prompt 组装：
 行为：
 
 - `decide_ask_intent()` 调用 `intent_router` task provider 输出 `AskIntentDecision`。`classify_request()` 只保留为 dry-run/mock/provider 不可用时的 fallback。
-- 关键词分类只能作为低风险 fallback。用户自然语言可能随意且包含错别字，高风险决策必须走结构化 Orchestrator/model decision、schema 校验和保守 fallback，不能只靠硬编码关键词。fallback 不得执行 memory repair apply、accept/archive、state/timeline/canon 写入等高风险动作。
+- 关键词分类只能作为低风险 fallback。用户自然语言可能随意且包含错别字，高风险决策必须由 orchestrator 编排层调用 `intent_router` task 输出结构化 model decision，并经过 schema 校验和保守 fallback，不能只靠硬编码关键词。fallback 不得执行 memory repair apply、accept/archive、state/timeline/canon 写入等高风险动作。
 - `HANDOFF_RULES` 限制允许的 agent handoff。
 - dry-run 只输出计划，不写文件。
 - 非 dry-run 调用对应底层 service。
@@ -403,7 +403,7 @@ Prompt 组装：
 注意：
 
 - 当前推荐作者入口是 session；`ask` 主要用于创建或引导协作流程。
-- Orchestrator 只有在修订路由等受控决策点调用模型；仍必须显式区分 user-facing 对话和 internal task 调度。
+- Orchestrator 编排层只有在修订路由等受控决策点调用 `intent_router` task；仍必须显式区分 user-facing 对话和 internal task 调度。
 
 ## 12. Creation Session
 
@@ -425,7 +425,7 @@ Prompt 组装：
 4. `run_session()` 默认调用 Writer，把 `draft.md` 提升为 `polished.md` 后 Audit；配置 `polish.mode=auto` 或前端开启“自动润色”时才运行 Polish Agent。medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
 5. `revise_audit()` 用用户纠正意见重新审核被打回原文，写入 `audit_revision_history`。
 6. `retry_rewrite()` 基于最新 audit 再次执行正文修订或重写计划；`undo_rewrite()` 恢复被打回快照并重审。
-7. `revise_content()` 处理作者反馈或 audit issue。用户反馈先由 Orchestrator 判定：剧情级修改重写 plan 并重新 writer/polish/audit；写作实现级修改保留 plan、重写 draft/polished/audit；局部表达修改才调用 Revision Agent 生成版本稿并提升当前稿。audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
+7. `revise_content()` 处理作者反馈或 audit issue。用户反馈先由 orchestrator 编排层调用 `intent_router` task 判定：剧情级修改重写 plan 并重新 writer/polish/audit；写作实现级修改保留 plan、重写 draft/polished/audit；局部表达修改才调用 Revision Agent 生成版本稿并提升当前稿。audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
 8. `accept_session()` 应用 state update 并标记 accepted。
 9. `archive_session()` 复制本次创作文件并写 sha256 manifest。
 

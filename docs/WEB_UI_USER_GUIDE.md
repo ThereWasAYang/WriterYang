@@ -159,7 +159,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 项目搜索 | 搜索角色、地点、物品、时间线事件和章节正文。 | 输入关键词后点击“搜索”。默认使用 FTS；语义检索模式为 auto 时只在 embedding 配置完整时启用，强制使用 embedding 会调用外部 embedding API。 |
 | 项目文件 | 浏览工作区安全文件。 | 点击文件名后，内容会显示在“文件预览”里。“读取”只是加载到 Web UI，不会修改文件。 |
 | 运行日志 | 查看 run log、provider calls、model I/O 摘要。 | 排查真实 API 或 Agent 输出问题时使用。 |
-| 用量统计 | 查看模型调用次数和 token 汇总。 | 点击“刷新用量”，可以按 Agent / Provider / Model 查看统计。 |
+| 用量统计 | 查看模型调用次数和 token 汇总。 | 点击“刷新用量”，可以按 Task / Provider / Model 查看统计。 |
 | 章节文件查看 | 读取单个章节文件或操作返回详情。 | 可查看 plan/draft/polished/audit/chapter_memory；项目检查、生成、修订等结构化结果也会写到这里。 |
 
 章节列表会标出 `memory` 或 `memory(stale)`。缺失或 stale 时可点单章“生成/刷新记忆”；也可用“补全 / 刷新章节记忆”批量处理缺失或过期的 ChapterMemory。

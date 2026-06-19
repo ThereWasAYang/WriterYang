@@ -431,7 +431,7 @@ def _normalize_ask_intent_payload(data: dict[str, object], *, fallback_request: 
     if task not in allowed:
         task = "unknown"
     normalized["task"] = task
-    normalized["reason"] = str(normalized.get("reason") or "orchestrator ask intent decision")
+    normalized["reason"] = str(normalized.get("reason") or "intent router ask intent decision")
     normalized["chapter_range"] = _normalize_chapter_numbers(normalized.get("chapter_range"), list(_chapters_from_request(fallback_request)))
     repair_id = str(normalized.get("repair_id") or "").strip()
     normalized["repair_id"] = repair_id or None
@@ -891,7 +891,7 @@ def _normalize_revision_route_payload(
         raise OrchestratorError(f"unknown revision route: {route or '<empty>'}")
     normalized = dict(data)
     normalized["route"] = route
-    normalized["reason"] = str(normalized.get("reason") or "orchestrator route decision")
+    normalized["reason"] = str(normalized.get("reason") or "intent router route decision")
     normalized["chapter_numbers"] = _normalize_chapter_numbers(normalized.get("chapter_numbers"), chapter_numbers)
     risk = str(normalized.get("risk_level") or "").strip().lower()
     normalized["risk_level"] = risk if risk in {"low", "medium", "high"} else ("low" if route == "revision_patch" else "medium")

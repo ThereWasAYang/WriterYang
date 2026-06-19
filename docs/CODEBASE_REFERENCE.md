@@ -186,7 +186,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_runs_summary()` / `_provider_call_summary()` / `_model_io_summary()`：运行和模型日志摘要。
 - `_provider_config_summary()` / `_sanitize_config()` / `_collect_env_names()`：脱敏展示 profile/task/embedding 配置。
 - `/api/search-status` 对应 `search_index_status()`；只返回 env 名称和是否缺失，不返回真实 env 值。
-- `/api/usage` 对应 `summarize_provider_usage()`；Web 用量统计页展示总调用、成功/失败、token，以及按 Agent / Provider / Model 的摘要。
+- `/api/usage` 对应 `summarize_provider_usage()`；Web 用量统计页展示总调用、成功/失败、token，以及按 Task / Provider / Model 的摘要。
 - `/api/projects`、`/api/session`、`/api/generate-chapter`、`/api/setup/open-web` 保留为兼容 HTTP 契约，详见 `docs/INTEGRATION.md`；普通 Web 创作路径优先使用主页、创作工作台和 Session API。
 - `_state_timeline_summary()` / `_state_timeline_visual_summary()`：状态和时间线可视化摘要。
 - `_audit_annotations()` / `_locate_quote()`：audit evidence 定位正文。
@@ -617,7 +617,7 @@ ChapterPlan 引用提取：
 - `revise_outline()`：按用户意见重新生成 outline proposal。
 - `approve_outline()`：冻结 approved outline。
 - `run_session()`：生成正文、润色、审核、自动修复、state proposal，并在章节级安全边界写入进度事件、检查协作式取消请求。
-- `revise_content()`：按用户意见或 audit issue 修订内容。用户意见先调用 Orchestrator 路由；剧情级修改回到 Plot 重写 plan，写作实现级修改走 Writer/Polish 重写正文，局部表达修改才走 Revision 版本补丁。之后统一提升/重审/重建 state proposal。
+- `revise_content()`：按用户意见或 audit issue 修订内容。用户意见先由 orchestrator 编排层调用 `intent_router` task 路由；剧情级修改回到 Plot 重写 plan，写作实现级修改走 Writer/Polish 重写正文，局部表达修改才走 Revision 版本补丁。之后统一提升/重审/重建 state proposal。
 - `_resolve_content_revision_route()` / `_audit_driven_revision_route()`：把用户反馈或 audit issue 转为 `RevisionRouteDecision`；audit 驱动路径依赖结构化 audit repair route，不再扫描自然语言关键词决定是否重写大纲。
 - `_replan_and_rewrite_chapter()`：剧情级反馈路径，重写本章 `plan.json` 并重新生成正文。
 - `_rewrite_chapter_with_writer()`：写作实现级反馈路径，保留 plan，重写 `draft.md` / `polished.md`。
@@ -652,8 +652,8 @@ orchestrator 项目管家修复 proposal：
 - `MemoryRepairSuggestResult` / `MemoryRepairApplyResult` / `SettingChangeSuggestionResult`：service 返回结构。
 - `suggest_memory_repair()`：根据结构化 `MemoryRepairDecision` 和当前项目文件生成 `MemoryRepairProposal`、Markdown 摘要和 diff 预览；默认不修改正式 memory。写 proposal 前会执行目标 schema preflight；setting_change 还会执行 Character.role 语义 preflight，阻止身份/排行/职业短语写入叙事角色字段。
 - `suggest_setting_change_interactive()` / `answer_setting_change_clarification()`：设定变更多轮澄清入口；只有创作意图不足、替换/删除目标不唯一或剧情含义存在真实歧义时保存 `memory/repairs/clarifications/{clarification_id}/session.json`，补充后再生成 proposal。
-- `generate_memory_change_clarification_decision()` / `parse_memory_change_clarification_decision()`：调用 Orchestrator/Memory Manager provider 输出结构化 clarification gate；提问只通过 schema 返回，不在最终 patch 阶段自然语言提问。澄清问题不得要求用户提供目标文件、字段、visibility、JSON Pointer 或完整文件结构。
-- `generate_memory_repair_decision()` / `parse_memory_repair_decision()`：调用 Orchestrator/Memory Manager provider 输出 target files、JSON Pointer operations、confidence 和 assumptions。信息不足时返回空 operations，不用关键词硬猜正式 patch；对模型常见的安全 add 路径错误会在 Pydantic 校验前归一，例如 `/characters/char_x` 转为 `/characters/-` 并补齐可推断的 `file/reason`。
+- `generate_memory_change_clarification_decision()` / `parse_memory_change_clarification_decision()`：调用 `memory_repair` task provider 输出结构化 clarification gate；提问只通过 schema 返回，不在最终 patch 阶段自然语言提问。澄清问题不得要求用户提供目标文件、字段、visibility、JSON Pointer 或完整文件结构。
+- `generate_memory_repair_decision()` / `parse_memory_repair_decision()`：调用 `memory_repair` task provider 输出 target files、JSON Pointer operations、confidence 和 assumptions。信息不足时返回空 operations，不用关键词硬猜正式 patch；对模型常见的安全 add 路径错误会在 Pydantic 校验前归一，例如 `/characters/char_x` 转为 `/characters/-` 并补齐可推断的 `file/reason`。
 - `apply_memory_repair()`：校验 proposal，限制白名单文件，先执行 schema/semantic preflight，再按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
 - `_memory_repair_user_prompt()` / `_memory_pointer_index()`：组装 MemoryRepairDecision prompt，注入目标文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径示例；集合字段提示来自当前 schema，避免 hidden_truths/foreshadowing 字段漂移，并说明 `Character.role` 只表示叙事角色、身份短语应进入 `tags`。
 - `render_memory_repair_markdown()`：把 proposal 渲染为用户可读说明。

@@ -2703,6 +2703,10 @@ def test_frontend_basic_render() -> None:
     assert "Web UI 后台版本不匹配" in app_js
     assert "renderProviderEffectivePanel" in app_js
     assert "继承 default 调用参数" in app_js
+    assert "默认 API 连通性测试通过，已保存为 default API；4 个 profile 默认继承该配置。" in app_js
+    assert "所有 Agent 的缺省配置" not in app_js
+    assert "否则真实模型调用会失败" in app_js
+    assert "否则 Agent 调用会失败" not in app_js
     assert "resizeTextareaToContent" not in app_js
     assert "saveEmbeddingConfig" in app_js
     assert 'hasResponseField(setup, "embedding_api")' in app_js

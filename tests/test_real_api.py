@@ -654,10 +654,7 @@ def _write_real_agents_config(path: Path, env: dict[str, str]) -> None:
         "base_url_env": "WRITERYANG_REAL_BASE_URL",
         "api_key_env": "WRITERYANG_REAL_API_KEY",
         "model": env["WRITERYANG_REAL_MODEL"],
-        "reasoning": "low",
-        "thinking": {"type": "disabled"},
         "max_context_tokens": 64000,
-        "temperature": 0,
         "timeout_seconds": 120,
         "max_retries": 1,
     }

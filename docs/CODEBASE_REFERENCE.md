@@ -226,7 +226,7 @@ Web UI 交互脚本。负责：
 - 章节对照、编辑器、audit evidence 定位、diff、文件树读取。
 - 文风设置页：`loadStyleGuide()` / `saveStyleGuide()` / `restoreStyleGuideTemplate()` / `generateStyleGuideDraft()` 读取、保存、恢复模板和生成 AI 文风草稿；生成草稿只替换编辑器内容，保存仍走 `/api/style-guide`。
 - Provider / embedding 配置、索引刷新、状态/时间线、项目管家和运行日志 API 调用。
-- Profile 模型配置页用表单编辑 `provider`、`model`、`base_url_env`、`api_key_env`、`max_tokens`、`max_context_tokens`、`timeout_seconds` 等非密钥能力字段。配置页使用专用两栏布局，Profile 配置面板比检索索引面板更宽；4 个 profile 通过“继承 default”checkbox 控制 `inherit_default`。勾选时继承 default，并允许覆盖模型能力和容量参数；取消勾选时复制当前生效配置并保存独立完整配置。任务级覆盖放在高级折叠区，默认隐藏，用于 `temperature`、`thinking`、`reasoning` 或单 task 模型覆盖。`/api/provider-config` 会返回 `effective_profiles`、`effective_tasks` 和 provider 参数 capability；右侧显示当前 profile/task 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。真实 API Key 仍只通过 `.env` / 初始引导管理。
+- Profile 模型配置页用表单编辑 `provider`、`model`、`base_url_env`、`api_key_env`、`max_tokens`、`max_context_tokens`、`timeout_seconds` 等非密钥能力字段。配置页使用专用两栏布局，Profile 配置面板比检索索引面板更宽；4 个 profile 通过“继承 default”checkbox 控制 `inherit_default`。勾选时继承 default，并允许覆盖模型能力和容量参数；取消勾选时复制当前生效配置并保存独立完整配置。任务级覆盖放在高级折叠区，默认隐藏，用于 `temperature`、`thinking`、`reasoning` 或单 task 模型覆盖。`/api/provider-config` 会返回 `effective_profiles`、`effective_tasks` 和 provider 参数 capability；default/profile 生效配置不会暴露 task-only 字段，右侧显示当前 profile/task 的生效配置来源和最终非密钥配置，完整脱敏 JSON 收进调试折叠区。真实 API Key 仍只通过 `.env` / 初始引导管理。
 - Embedding API 配置页块复用 `/api/setup/embedding`，要求用户每次重填 Base URL、API Key、provider、模型名、`dimensions` 和 `batch_size`；保存前用当前批量和维度做真实 provider 验证，保存成功后清空输入框，并自动调用 `/api/index/refresh` 刷新语义向量索引。
 - 项目检查按钮调用 `/api/validate`，把 errors/warnings 摘要写入主页状态、顶部检查摘要、调试页文件查看和下一步提示。
 - 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
@@ -405,7 +405,7 @@ Embedding provider：
 
 ### `core/agent_defaults.py`
 
-- `DEFAULT_AGENT_CONFIG`：顶层 `default` API 推荐默认值。
+- `DEFAULT_AGENT_CONFIG`：顶层 `default` API 推荐默认值，只包含 provider/model/env 和容量类字段。
 - `PROFILE_NAMES`：允许配置的 4 个能力 profile。
 - `TASK_TO_PROFILE`：task 到 profile 的固定映射。
 - `PROFILE_CONFIG_DEFAULTS`：各 profile 的模型能力和容量默认值。
@@ -867,7 +867,7 @@ Provider 用量统计：
 - `timeout_seconds`
 - `max_retries`
 
-`reasoning`、`thinking.type`、`temperature` 是 task-only 字段；写入 `profiles.*` 会被 schema 拒绝。
+`reasoning`、`thinking.type`、`temperature` 是 task-only 字段；写入 `default` 或 `profiles.*` 会被 schema 拒绝。
 
 解析和默认值在 `schemas.AgentConfig`、`schemas.AgentConfigPatch`、`provider_config.py`、`providers.py`。`mock` provider 仅用于显式测试/调试入口，不应作为真实项目 `default`。
 

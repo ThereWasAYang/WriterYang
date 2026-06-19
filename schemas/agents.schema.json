@@ -349,7 +349,27 @@
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "reasoning"
+            ]
+          },
+          {
+            "required": [
+              "temperature"
+            ]
+          },
+          {
+            "required": [
+              "thinking"
+            ]
+          }
+        ],
+        "type": "object"
+      }
     },
     "profiles": {
       "additionalProperties": {
@@ -360,7 +380,27 @@
           {
             "$ref": "#/$defs/AgentConfigPatch"
           }
-        ]
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "reasoning"
+              ]
+            },
+            {
+              "required": [
+                "temperature"
+              ]
+            },
+            {
+              "required": [
+                "thinking"
+              ]
+            }
+          ],
+          "type": "object"
+        }
       },
       "title": "Profiles",
       "type": "object"

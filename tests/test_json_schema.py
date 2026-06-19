@@ -72,6 +72,25 @@ def test_schema_payloads_cover_project_json_files() -> None:
     assert timeline_defs["TimelineEvent"].get("additionalProperties") is False
 
 
+def test_agents_schema_forbids_task_only_fields_outside_tasks() -> None:
+    agents_schema = schema_payloads()["agents"]
+    properties = agents_schema["properties"]
+    forbidden_fields = {"reasoning", "thinking", "temperature"}
+
+    default_forbidden = {
+        item["required"][0]
+        for item in properties["default"]["not"]["anyOf"]
+    }
+    profile_forbidden = {
+        item["required"][0]
+        for item in properties["profiles"]["additionalProperties"]["not"]["anyOf"]
+    }
+
+    assert default_forbidden == forbidden_fields
+    assert profile_forbidden == forbidden_fields
+    assert "not" not in properties["tasks"]["additionalProperties"]
+
+
 def test_model_output_schema_payloads_cover_agent_structured_outputs() -> None:
     payloads = model_output_schema_payloads()
     expected = {

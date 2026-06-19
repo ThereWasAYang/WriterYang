@@ -323,12 +323,8 @@ default:
   api_key_env: WRITERYANG_REAL_API_KEY
   model: deepseek-chat
   json_response_format: auto
-  reasoning: medium
-  thinking:
-    type: disabled
   max_context_tokens: 128000
   max_tokens: 24000
-  temperature: 0.5
   timeout_seconds: 120
   max_retries: 1
 
@@ -374,13 +370,13 @@ tasks:
 
 - 永远不要在此文件中保存原始 API key。
 - 这里只保存环境变量名。
-- `default` config 是真实项目中每个 profile 的调用参数 fallback。
+- `default` config 是真实项目中每个 profile 的 provider/model/env 和容量参数 fallback。
 - `profiles` 只允许 `scribe`、`architect`、`loremaster`、`clerk`；`tasks` 只允许已登记 task。
 - `inherit_default: true` 用于 profile 或 task patch，表示继承上游调用参数并覆盖当前字段。
 - `inherit_default: false` 表示该 profile 或 task 是独立完整配置。Profile 可覆盖 provider、model、base URL、token limit、context、timeout、retry 和 `json_response_format`；task 还可以覆盖 `reasoning`、`thinking` 和 `temperature`。
 - 没有 `inherit_default: true` 的 partial override 不再兼容；要么声明继承并写 patch，要么写完整独立配置。
 - Profile 和 task 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
-- `temperature`、`reasoning`、`thinking` 是 task-only 字段，写入 `profiles.*` 会被 schema 拒绝。
+- `temperature`、`reasoning`、`thinking` 是 task-only 字段，写入 `default` 或 `profiles.*` 会被 schema 拒绝。
 - `mock` 仅用于测试和显式 debug run；不要把它作为真实项目默认值。
 - 实现层应在运行 task 前验证所需环境变量是否存在。
 - `intent_router` 是 task key，默认归入 `clerk` profile；如果路由需要更强模型，应通过 `tasks.intent_router` 覆盖，不新增第 5 个 profile。

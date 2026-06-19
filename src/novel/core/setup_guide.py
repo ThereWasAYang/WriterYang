@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import socket
-from typing import Literal, Mapping
+from typing import Mapping
 
 from novel.core.agent_defaults import (
     DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
     DEFAULT_AGENT_MAX_TOKENS,
-    DEFAULT_AGENT_TEMPERATURE,
     DEFAULT_AGENT_TIMEOUT_SECONDS,
     PROFILE_NAMES,
+    TASK_ONLY_CONFIG_FIELDS,
     inherited_profile_config_patch,
 )
 from novel.core.embeddings import (
@@ -35,7 +35,6 @@ from novel.core.schemas import (
     EmbeddingProviderConfig,
     EmbeddingsConfig,
     ProjectConfig,
-    ThinkingConfig,
 )
 from novel.core.security import validate_secret_config_file
 
@@ -97,8 +96,6 @@ def configure_default_provider(
     api_key: str,
     model: str,
     provider: str = "openai_compatible",
-    thinking_type: str = "disabled",
-    temperature: float = DEFAULT_AGENT_TEMPERATURE,
     max_tokens: int = DEFAULT_AGENT_MAX_TOKENS,
     max_context_tokens: int = DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
     timeout_seconds: float = DEFAULT_AGENT_TIMEOUT_SECONDS,
@@ -115,11 +112,8 @@ def configure_default_provider(
         base_url_env=DEFAULT_BASE_URL_ENV,
         api_key_env=DEFAULT_API_KEY_ENV,
         model=model,
-        reasoning="medium",
-        thinking=ThinkingConfig(type=_normalize_thinking_type(thinking_type)),
         max_context_tokens=max_context_tokens,
         max_tokens=max_tokens,
-        temperature=temperature,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
     )
@@ -147,7 +141,11 @@ def configure_default_provider(
 def update_default_agent_config(root: Path, config: AgentConfig) -> Path:
     config_path = root.expanduser().resolve() / "config" / "agents.yaml"
     data = _load_yaml_mapping(config_path)
-    default_snapshot = config.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})
+    default_snapshot = config.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude={"inherit_default"} | set(TASK_ONLY_CONFIG_FIELDS),
+    )
     data["default"] = default_snapshot
     profiles = data.get("profiles")
     if not isinstance(profiles, dict):
@@ -361,12 +359,3 @@ def _require_non_empty(value: str, field_name: str) -> str:
     if not stripped:
         raise SetupGuideError(f"{field_name} must not be empty")
     return stripped
-
-
-def _normalize_thinking_type(value: str) -> Literal["enabled", "disabled"]:
-    normalized = value.strip().lower()
-    if normalized == "enabled":
-        return "enabled"
-    if normalized == "disabled":
-        return "disabled"
-    raise SetupGuideError("thinking.type must be enabled or disabled")

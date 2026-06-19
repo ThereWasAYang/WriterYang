@@ -264,9 +264,9 @@ def test_api_provider_config_reports_parameter_capabilities(tmp_path: Path) -> N
     assert status == 200
     default_caps = payload["data"]["effective_profiles"]["default"]["parameter_capabilities"]  # type: ignore[index]
     scribe_caps = payload["data"]["effective_profiles"]["scribe"]["parameter_capabilities"]  # type: ignore[index]
-    assert default_caps["thinking"]["effective"] is False
-    assert default_caps["reasoning"]["effective"] is False
-    assert default_caps["temperature"]["effective"] is True
+    assert "thinking" not in default_caps
+    assert "reasoning" not in default_caps
+    assert "temperature" not in default_caps
     assert "thinking" not in scribe_caps
     assert "reasoning" not in scribe_caps
     assert "temperature" not in scribe_caps
@@ -304,6 +304,35 @@ def test_api_setup_default_provider_writes_env_and_does_not_leak_secret(tmp_path
     agents_yaml = (root / "config" / "agents.yaml").read_text(encoding="utf-8")
     assert "WRITERYANG_DEFAULT_API_KEY" in agents_yaml
     assert secret not in agents_yaml
+    agents = load_yaml(root / "config" / "agents.yaml")
+    assert "temperature" not in agents["default"]  # type: ignore[operator]
+    assert "reasoning" not in agents["default"]  # type: ignore[operator]
+    assert "thinking" not in agents["default"]  # type: ignore[operator]
+
+
+def test_api_setup_default_provider_rejects_task_only_payload(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/setup/default-provider",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "base_url": "https://api.example.test/v1",
+                "api_key": "secret-key",
+                "model": "example-model",
+                "temperature": 0.4,
+                "thinking_type": "enabled",
+                "ping": False,
+            }
+        ),
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "invalid_provider_config_field"  # type: ignore[index]
+    assert "task-only" in payload["error"]["message"]  # type: ignore[index]
 
 
 def test_api_setup_embedding_can_be_skipped_or_saved(tmp_path: Path) -> None:
@@ -808,6 +837,9 @@ def test_api_provider_config_save_updates_default_config(tmp_path: Path) -> None
     assert payload["ok"] is True
     content = payload["data"]["config"]["content"]  # type: ignore[index]
     assert content["default"]["model"] == "web-default-model"  # type: ignore[index]
+    assert "temperature" not in content["default"]  # type: ignore[operator]
+    assert "reasoning" not in content["default"]  # type: ignore[operator]
+    assert "thinking" not in content["default"]  # type: ignore[operator]
     assert content["profiles"]["scribe"]["inherit_default"] is True  # type: ignore[index]
     assert "model" not in content["profiles"]["scribe"]  # type: ignore[index]
     assert payload["data"]["effective_profiles"]["scribe"]["config"]["model"] == "web-default-model"  # type: ignore[index]
@@ -855,6 +887,21 @@ def test_api_provider_config_rejects_task_only_profile_fields(tmp_path: Path) ->
         "/api/provider-config",
         "",
         json.dumps({"path": str(root), "profiles": {"scribe": {"inherit_default": True, "temperature": 0.7}}}),
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "invalid_provider_config_field"  # type: ignore[index]
+    assert "task-only" in payload["error"]["message"]  # type: ignore[index]
+
+
+def test_api_provider_config_rejects_task_only_default_fields(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "default": {"temperature": 0.7}}),
     )
 
     assert status == 400

@@ -19,7 +19,6 @@ from novel import __version__
 from novel.core.agent_defaults import (
     DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
     DEFAULT_AGENT_MAX_TOKENS,
-    DEFAULT_AGENT_TEMPERATURE,
     DEFAULT_AGENT_TIMEOUT_SECONDS,
     PROFILE_NAMES,
     TASK_ONLY_CONFIG_FIELDS,
@@ -904,7 +903,7 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         current_default = updated.get("default")
         if current_default is not None and not isinstance(current_default, dict):
             raise WebAPIError("invalid_config", "default config must be a mapping", status=400)
-        cleaned_default = _clean_agent_config_patch(default_update)
+        cleaned_default = _clean_agent_config_patch(default_update, allow_task_only_fields=False)
         if "inherit_default" in cleaned_default:
             raise WebAPIError("invalid_request", "default config cannot inherit default", status=400)
         updated["default"] = {**(current_default or {}), **cleaned_default}
@@ -1128,14 +1127,20 @@ def _setup_recommend_port(query: dict[str, str]) -> dict[str, object]:
 
 def _setup_default_provider(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
+    blocked_fields = (set(TASK_ONLY_CONFIG_FIELDS) | {"thinking_type"}) & set(data)
+    if blocked_fields:
+        fields = ", ".join(sorted(blocked_fields))
+        raise WebAPIError(
+            "invalid_provider_config_field",
+            f"default provider setup field is task-only: {fields}; use tasks.<task> overrides",
+            status=400,
+        )
     result = configure_default_provider(
         root,
         provider=_optional_string(data.get("provider")) or "openai_compatible",
         base_url=_required_string(data.get("base_url"), "base_url"),
         api_key=_required_string(data.get("api_key"), "api_key"),
         model=_required_string(data.get("model"), "model"),
-        thinking_type=_optional_string(data.get("thinking_type")) or "disabled",
-        temperature=_optional_float(data.get("temperature"), DEFAULT_AGENT_TEMPERATURE),
         max_context_tokens=_optional_int(data.get("max_context_tokens")) or DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
         max_tokens=_optional_int(data.get("max_tokens")) or DEFAULT_AGENT_MAX_TOKENS,
         timeout_seconds=_optional_float(data.get("timeout_seconds"), DEFAULT_AGENT_TIMEOUT_SECONDS),
@@ -2165,8 +2170,8 @@ def _effective_profile_config_summary(path: Path) -> dict[str, object]:
                 "inherit_default": False,
                 "inherits_default": False,
                 "override_fields": [],
-                "config": _sanitize_config(config.default.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})),
-                "parameter_capabilities": _parameter_capabilities_payload(config.default),
+                "config": _profile_config_payload(config.default),
+                "parameter_capabilities": _profile_parameter_capabilities_payload(config.default),
             }
             continue
         has_config_entry = name in config.profiles
@@ -2816,7 +2821,7 @@ def _clean_agent_config_patch(
         if not allow_task_only_fields and key_text in TASK_ONLY_CONFIG_FIELDS:
             raise WebAPIError(
                 "invalid_provider_config_field",
-                f"profile config field is task-only: {key_text}; use tasks.<task> overrides",
+                f"default/profile config field is task-only: {key_text}; use tasks.<task> overrides",
                 status=400,
             )
         if key_text in {"api_key", "token", "secret"}:

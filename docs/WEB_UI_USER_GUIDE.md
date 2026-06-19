@@ -46,7 +46,7 @@ http://127.0.0.1:8765
 5. 如需语义检索，勾选“配置 embedding API”，填写 embedding base URL、API Key 和模型名，再点击“测试并保存 embedding API / 跳过”。如果暂时不配置，关键词检索仍可用。
 6. 点击“推荐可用端口”或手动输入端口，再点击“保存端口”。保存前会验证端口是否可用；保存成功后，下次双击 `WriterYang_WebUI.command` 会使用这个端口启动。
 
-真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和调用参数。初始引导完成后，这组 API 会作为 default；`scribe`、`architect`、`loremaster`、`clerk` 四个 profile 默认继承 default，并可分别覆盖模型、token、上下文、超时和重试等能力参数。`temperature`、`thinking.type`、`reasoning` 属于 task 业务参数，只在高级 Task 覆盖区调整。
+真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和模型能力参数。初始引导完成后，这组 API 会作为 default；`scribe`、`architect`、`loremaster`、`clerk` 四个 profile 默认继承 default，并可分别覆盖模型、token、上下文、超时和重试等能力参数。`temperature`、`thinking.type`、`reasoning` 属于 task 业务参数，只在高级 Task 覆盖区调整。
 
 以后如果你想单独调整模型能力，可以打开“模型与检索配置”页里的“Profile 模型配置”。页面展示 4 张 profile 模型卡：`scribe` 负责正文、润色和修订，`architect` 负责计划和审核，`loremaster` 负责灵感/设定/文风，`clerk` 负责状态提取、章节记忆、`intent_router` 和记忆修复。勾选“继承 default”时，profile 继承 default 的 provider/model/base URL/API env，并允许覆盖 token、上下文、超时、重试和 `json_response_format`；取消勾选后，页面会把当前生效配置填入表单并保存为独立完整 profile。右侧“当前 Profile 生效配置”会显示最终来源；完整脱敏 JSON 只放在调试折叠区。任务级覆盖在“高级”折叠区，默认隐藏，主要用于 `intent_router` 等少数 task 单独换模型，或覆盖某个 task 的 `temperature`、`thinking.type`、`reasoning`。不要把真实 API Key 写进配置页。
 

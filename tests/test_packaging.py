@@ -66,13 +66,15 @@ def test_initialized_template_configs_include_provider_defaults(tmp_path: Path) 
     scribe = agents_config["profiles"]["scribe"]
     clerk = agents_config["profiles"]["clerk"]
     assert default["provider"] == "openai_compatible"
-    assert default["thinking"]["type"] == "disabled"
     assert default["base_url_env"] == "OPENAI_BASE_URL"
     assert default["api_key_env"] == "OPENAI_API_KEY"
     assert default["json_response_format"] == "auto"
     assert default["max_tokens"] == 24000
     assert default["max_context_tokens"] == 128000
     assert default["timeout_seconds"] == 120
+    assert "temperature" not in default
+    assert "reasoning" not in default
+    assert "thinking" not in default
     assert scribe["inherit_default"] is True
     assert "provider" not in scribe
     assert "model" not in scribe

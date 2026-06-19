@@ -108,8 +108,6 @@ def test_inherit_default_ignores_stale_profile_snapshot(tmp_path: Path) -> None:
                     "base_url_env": "DEFAULT_BASE_URL",
                     "api_key_env": "DEFAULT_API_KEY",
                     "model": "fresh-default-model",
-                    "thinking": {"type": "disabled"},
-                    "temperature": 0.4,
                     "max_tokens": 8192,
                 },
                 "profiles": {
@@ -148,8 +146,6 @@ def test_explicit_non_inherited_profile_uses_independent_config(tmp_path: Path) 
                     "provider": "deepseek",
                     "api_key_env": "DEFAULT_API_KEY",
                     "model": "default-model",
-                    "thinking": {"type": "disabled"},
-                    "temperature": 0.4,
                 },
                 "profiles": {
                     "scribe": {
@@ -216,6 +212,35 @@ def test_profile_task_only_fields_are_rejected(tmp_path: Path) -> None:
         raise AssertionError("expected schema rejection")
 
     assert "task-only" in message
+    assert "tasks.<task>" in message
+
+
+def test_default_task_only_fields_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "agents.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {
+                    "provider": "mock",
+                    "api_key_env": "MOCK_API_KEY",
+                    "model": "mock-model",
+                    "temperature": 0.9,
+                },
+                "profiles": {"scribe": {"inherit_default": True}},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        load_agents_config(path)
+    except Exception as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected schema rejection")
+
+    assert "default config contains task-only" in message
     assert "tasks.<task>" in message
 
 
@@ -472,8 +497,6 @@ def _default_profiles_config(tmp_path: Path, *, include_profiles: bool = True) -
             "base_url_env": "DEFAULT_BASE_URL",
             "api_key_env": "DEFAULT_API_KEY",
             "model": "default-model",
-            "thinking": {"type": "disabled"},
-            "temperature": 0.5,
             "max_tokens": 8192,
             "json_response_format": "json_object",
         },

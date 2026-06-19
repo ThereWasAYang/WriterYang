@@ -213,7 +213,32 @@ class AgentConfigPatch(FlexibleModel):
         return value
 
 
+def _forbid_task_only_config_fields_schema() -> dict[str, object]:
+    return {
+        "not": {
+            "type": "object",
+            "anyOf": [{"required": [field]} for field in sorted(TASK_ONLY_CONFIG_FIELDS)],
+        }
+    }
+
+
+def _agents_config_json_schema_extra(schema: dict[str, Any]) -> None:
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return
+    default_schema = properties.get("default")
+    if isinstance(default_schema, dict):
+        default_schema.update(_forbid_task_only_config_fields_schema())
+    profiles_schema = properties.get("profiles")
+    if isinstance(profiles_schema, dict):
+        additional_properties = profiles_schema.get("additionalProperties")
+        if isinstance(additional_properties, dict):
+            additional_properties.update(_forbid_task_only_config_fields_schema())
+
+
 class AgentsConfig(SchemaVersionedModel):
+    model_config = ConfigDict(json_schema_extra=_agents_config_json_schema_extra)
+
     default: AgentConfig | None = None
     profiles: dict[str, AgentConfig | AgentConfigPatch] = Field(default_factory=dict)
     tasks: dict[str, AgentConfig | AgentConfigPatch] = Field(default_factory=dict)
@@ -226,6 +251,14 @@ class AgentsConfig(SchemaVersionedModel):
             raise ValueError("agents config requires a default config or at least one profile config")
         if self.default is not None and self.default.inherit_default:
             raise ValueError("default config cannot inherit default")
+        if self.default is not None:
+            task_only_fields = sorted(TASK_ONLY_CONFIG_FIELDS & set(self.default.model_fields_set))
+            if task_only_fields:
+                fields = ", ".join(task_only_fields)
+                raise ValueError(
+                    f"default config contains task-only config field(s): {fields}; "
+                    "move temperature/reasoning/thinking overrides to tasks.<task>"
+                )
         unknown_profiles = sorted(set(self.profiles) - set(PROFILE_NAMES))
         if unknown_profiles:
             raise ValueError(f"unknown profile config: {', '.join(unknown_profiles)}")

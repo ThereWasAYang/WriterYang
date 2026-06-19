@@ -50,6 +50,9 @@ def test_configure_default_provider_writes_env_and_yaml_without_secret(
     assert agents["default"]["api_key_env"] == DEFAULT_API_KEY_ENV  # type: ignore[index]
     assert agents["default"]["base_url_env"] == DEFAULT_BASE_URL_ENV  # type: ignore[index]
     assert agents["default"]["model"] == "example-model"  # type: ignore[index]
+    assert "temperature" not in agents["default"]  # type: ignore[operator]
+    assert "reasoning" not in agents["default"]  # type: ignore[operator]
+    assert "thinking" not in agents["default"]  # type: ignore[operator]
     assert agents["profiles"]["scribe"]["inherit_default"] is True  # type: ignore[index]
     assert "api_key_env" not in agents["profiles"]["scribe"]  # type: ignore[index]
     assert "base_url_env" not in agents["profiles"]["scribe"]  # type: ignore[index]
@@ -61,6 +64,8 @@ def test_configure_default_provider_writes_env_and_yaml_without_secret(
     assert "secret-key" not in (root / "config" / "agents.yaml").read_text(encoding="utf-8")
     assert captured["url"] == "https://api.example.test/v1/chat/completions"
     assert captured["authorization"] == "Bearer secret-key"
+    assert "temperature" not in captured["payload"]  # type: ignore[operator]
+    assert "thinking" not in captured["payload"]  # type: ignore[operator]
 
 
 def test_project_env_is_used_by_provider_creation(tmp_path: Path, monkeypatch) -> None:

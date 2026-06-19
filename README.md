@@ -266,14 +266,10 @@ default:
   api_key_env: "WRITERYANG_REAL_API_KEY"
   model: "deepseek-chat"
   json_response_format: "auto"
-  reasoning: "medium"
   max_context_tokens: 128000
   max_tokens: 24000
-  temperature: 0.5
   timeout_seconds: 120
   max_retries: 1
-  thinking:
-    type: "disabled"
 profiles:
   scribe:
     inherit_default: true
@@ -301,7 +297,7 @@ tasks:
 | `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。结构化输出默认使用 `json_object`。 |
 | `mock` | 测试 / 调试 | 不调用真实 API，仅用于自动化测试、离线 smoke 和文档演示。真实创作不要把它作为 default。 |
 
-解析顺序是：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。profile 勾选 `inherit_default: true` 时继承 `default` 的 provider/model/base URL/API env，并可覆盖 `max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries`、`json_response_format` 等模型能力和容量参数；`reasoning`、`thinking`、`temperature` 只允许写在 `tasks.<task>`，用于覆盖单个任务的业务默认。旧的 `agents:` 任务键配置已经移除，`novel validate`、`novel doctor` 和 Web UI 的“Profile 模型配置”页会提示新 schema 问题。
+解析顺序是：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。`default` 只作为 provider/model/base URL/API env 等模型能力种子；profile 勾选 `inherit_default: true` 时继承 `default`，并可覆盖 `max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries`、`json_response_format` 等模型能力和容量参数。`reasoning`、`thinking`、`temperature` 只允许写在 `tasks.<task>`，用于覆盖单个任务的业务默认；写入 `default` 或 `profiles.*` 会被拒绝。旧的 `agents:` 任务键配置已经移除，`novel validate`、`novel doctor` 和 Web UI 的“Profile 模型配置”页会提示新 schema 问题。
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
 

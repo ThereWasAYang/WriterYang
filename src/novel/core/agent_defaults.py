@@ -34,7 +34,6 @@ PROFILE_INHERITED_PATCH_FIELDS = {
     "json_response_format",
 }
 
-DEFAULT_AGENT_TEMPERATURE = 0.5
 DEFAULT_AGENT_MAX_CONTEXT_TOKENS = 128000
 DEFAULT_AGENT_MAX_TOKENS = 24000
 DEFAULT_AGENT_TIMEOUT_SECONDS = 120.0
@@ -44,11 +43,8 @@ DEFAULT_AGENT_CONFIG: dict[str, object] = {
     "base_url_env": "OPENAI_BASE_URL",
     "api_key_env": "OPENAI_API_KEY",
     "model": "model-name",
-    "reasoning": "medium",
-    "thinking": {"type": "disabled"},
     "max_context_tokens": DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
     "max_tokens": DEFAULT_AGENT_MAX_TOKENS,
-    "temperature": DEFAULT_AGENT_TEMPERATURE,
     "timeout_seconds": DEFAULT_AGENT_TIMEOUT_SECONDS,
     "max_retries": 1,
     "json_response_format": "auto",

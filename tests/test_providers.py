@@ -787,7 +787,7 @@ def test_logging_provider_records_stream_usage_finish_reason_and_agent(
     assert model_io["response"]["raw_response"]["stream_chunks"] == 3
     assert model_io["response"]["raw_response"]["usage_chunk"]["usage"]["total_tokens"] == 10
     usage = json.loads((tmp_path / "runs" / "provider_usage.json").read_text(encoding="utf-8"))
-    assert usage["by_agent"]["writer"]["total_tokens"] == 10
+    assert usage["by_task"]["writer"]["total_tokens"] == 10
 
 
 def test_openai_compatible_provider_uses_json_object_for_structured_outputs(

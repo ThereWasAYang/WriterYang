@@ -746,7 +746,7 @@ orchestrator 项目管家修复 proposal：
 Provider 用量统计：
 
 - `UsageBucket` / `UsageSummary`。
-- `summarize_provider_call_log()`：读取 `provider_calls.jsonl`，汇总 total、by_agent、by_provider、by_model 和 by_status。
+- `summarize_provider_call_log()`：读取 `provider_calls.jsonl`，汇总 total、by_task、by_provider、by_model 和 by_status。
 - `refresh_provider_usage_summary()` / `refresh_provider_usage_summary_for_log()`：刷新 `provider_usage.json`。
 - `provider_usage_path()` / `provider_call_log_path()`：默认路径。
 

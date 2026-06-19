@@ -242,7 +242,7 @@ def test_validate_ignores_provider_usage_summary(tmp_path: Path) -> None:
             "schema_version": 1,
             "total_calls": 2,
             "total_tokens": 1234,
-            "by_agent": {"writer": {"calls": 1, "total_tokens": 1000}},
+            "by_task": {"writer": {"calls": 1, "total_tokens": 1000}},
         },
     )
 

@@ -1786,7 +1786,7 @@
 
     function renderUsage(usage) {
       const total = usage.total || {};
-      const byAgent = usage.by_agent || {};
+      const byTask = usage.by_task || {};
       const byProvider = usage.by_provider || {};
       const byModel = usage.by_model || {};
       const tableFromObject = (items, firstHeader) => {
@@ -1810,7 +1810,7 @@
           <div>success: ${escapeHtml(total.success_count ?? total.successes ?? usage.success_count ?? 0)} / failed: ${escapeHtml(total.failed_count ?? total.failures ?? usage.failure_count ?? 0)}</div>
           <div>tokens: prompt=${escapeHtml(total.prompt_tokens ?? "")} completion=${escapeHtml(total.completion_tokens ?? "")} total=${escapeHtml(total.total_tokens ?? usage.total_tokens ?? "")}</div>
         </div>
-        <h3>按 Task</h3>${tableFromObject(byAgent, "task")}
+        <h3>按 Task</h3>${tableFromObject(byTask, "task")}
         <h3 style="margin-top: 16px;">按 Provider</h3>${tableFromObject(byProvider, "provider")}
         <h3 style="margin-top: 16px;">按 Model</h3>${tableFromObject(byModel, "model")}
         <details style="margin-top: 12px;"><summary>完整用量 JSON</summary><pre>${escapeHtml(JSON.stringify(usage, null, 2))}</pre></details>

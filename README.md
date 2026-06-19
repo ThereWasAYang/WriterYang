@@ -345,6 +345,24 @@ novel write-chapter 1 --path ./rain-station --model temporary-model --dry-run-pr
 | `loremaster` | `inspiration`、`style_guide`、`canon` | 创意构思、中文表达、稳定 JSON/ID、低频设定生成。 | `max_context_tokens: 64000`，`max_tokens: 8192`，可使用成本较低但中文表达稳定的模型。 |
 | `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair`、`setup` | 低创意抽取、分类路由、JSON patch、快速稳定、成本可控。 | `max_context_tokens: 64000`，`max_tokens: 4096-8192`，低延迟和低成本优先。 |
 
+上表的"能力重点"是 profile 级别的概括；下表给出每个 task 各自做什么，完整的输入、产物和校验见 [docs/AGENT_PROMPT_ASSEMBLY.md](docs/AGENT_PROMPT_ASSEMBLY.md)。
+
+| task | profile | 职责（一句话） |
+| --- | --- | --- |
+| `writer` | `scribe` | 按章节 plan 生成正文初稿 `draft.md`。 |
+| `polish` | `scribe` | 把 draft 提升为 `polished.md`；默认直接晋升，配置 `polish.mode=auto` 或前端开启"自动润色"时才单独运行 Polish。 |
+| `revision` | `scribe` | 按局部表达意见对当前稿打版本补丁，生成 `polished.vN.md`。 |
+| `plot` | `architect` | 生成或重写本章计划 `plan.json`（结构、节奏、引用）。 |
+| `audit` | `architect` | 一致性、事实和伏笔核对，产出 `audit.json` 并触发自动修复。 |
+| `inspiration` | `loremaster` | 早期立意与灵感构思，产出 `inspiration.json`。 |
+| `style_guide` | `loremaster` | 生成全局文风指南草案。 |
+| `canon` | `loremaster` | 生成人物、地点、物品、世界设定 proposal，apply 后写入 canon。 |
+| `state_update` | `clerk` | 章节完成后抽取状态变化，产出 `state_update_proposal`。 |
+| `chapter_memory` | `clerk` | 为每章抽取压缩记忆 `chapter_memory.json`，供后续检索。 |
+| `intent_router` | `clerk` | 把用户自然语言输入路由为结构化决策（ask intent、修订路由、audit 修复路由）。 |
+| `memory_repair` | `clerk` | 把"改设定 / 修记忆"自然语言请求转为结构化 `MemoryRepairDecision` 和 proposal。 |
+| `setup` | `clerk` | 初始引导与默认 API 配置（含连通性试连）。 |
+
 通用建议：
 
 - `thinking.type` 默认用 `disabled`。只有在 `plot`、`audit` 这类复杂推理/一致性检查任务明显不稳定时，再为对应 task 单独改成 `enabled`。

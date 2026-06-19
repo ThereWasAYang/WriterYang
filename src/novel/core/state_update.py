@@ -511,7 +511,6 @@ def load_state_update_provider(
     return create_agent_provider(
         agent_config_path or default_agent_config_path(root),
         "state_update",
-        fallback_agents=("audit",),
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
         mock_response=default_mock_state_update_proposal_json(chapter_number),
     )

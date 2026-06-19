@@ -186,11 +186,11 @@ def test_validate_warns_when_default_agent_config_missing(tmp_path: Path) -> Non
     (root / "config" / "agents.yaml").write_text(
         "\n".join(
             [
-                "agents:",
-                "  writer:",
+                "profiles:",
+                "  scribe:",
                 '    provider: "openai_compatible"',
-                '    api_key_env: "WRITER_API_KEY"',
-                '    model: "writer-model"',
+                '    api_key_env: "SCRIBE_API_KEY"',
+                '    model: "scribe-model"',
             ]
         )
         + "\n",
@@ -213,8 +213,8 @@ def test_validate_warns_when_agent_config_uses_mock(tmp_path: Path) -> None:
                 '  provider: "mock"',
                 '  api_key_env: "MOCK_API_KEY"',
                 '  model: "mock-model"',
-                "agents:",
-                "  writer:",
+                "profiles:",
+                "  scribe:",
                 '    provider: "mock"',
                 '    api_key_env: "MOCK_API_KEY"',
                 '    model: "mock-model"',
@@ -228,7 +228,7 @@ def test_validate_warns_when_agent_config_uses_mock(tmp_path: Path) -> None:
 
     assert report.ok
     assert any("default API config uses mock" in message.message for message in report.warnings)
-    assert any("agent writer uses mock provider" in message.message for message in report.warnings)
+    assert any("profile scribe uses mock provider" in message.message for message in report.warnings)
 
 
 def test_validate_ignores_provider_usage_summary(tmp_path: Path) -> None:

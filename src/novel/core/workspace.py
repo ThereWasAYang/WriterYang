@@ -6,9 +6,9 @@ from pathlib import Path
 import re
 
 from novel.core.agent_defaults import (
-    STANDARD_AGENT_NAMES,
+    PROFILE_NAMES,
     default_agent_config,
-    inherited_agent_config_patch,
+    inherited_profile_config_patch,
 )
 from novel.core.io import atomic_write_text
 from novel.core.migration import CURRENT_SCHEMA_VERSION
@@ -225,15 +225,16 @@ def _agents_yaml() -> str:
         f"schema_version: {CURRENT_SCHEMA_VERSION}\n",
         "default:\n",
         *_yaml_config_lines(default_agent_config(), indent=2),
-        "agents:\n",
+        "profiles:\n",
     ]
-    for name in STANDARD_AGENT_NAMES:
+    for name in PROFILE_NAMES:
         lines.extend(
             [
                 f"  {name}:\n",
-                *_yaml_config_lines(inherited_agent_config_patch(name), indent=4),
+                *_yaml_config_lines(inherited_profile_config_patch(name), indent=4),
             ]
         )
+    lines.append("tasks: {}\n")
     return "".join(lines)
 
 

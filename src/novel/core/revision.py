@@ -283,11 +283,9 @@ def load_revision_provider(
     agent_config_path: Path | None = None,
     model_name: str | None = None,
 ) -> ModelProvider:
-    fallback_agents = ("writer",) if target == "draft" else ("polish",)
     return create_agent_provider(
         agent_config_path or default_agent_config_path(root),
         "revision",
-        fallback_agents=fallback_agents,
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
         mock_response=default_mock_revised_body(target),
     )

@@ -10,7 +10,14 @@ import time
 from typing import Iterable, Mapping
 from urllib import error, request
 
-from novel.core.agent_defaults import agent_business_fields
+from novel.core.agent_defaults import (
+    PROFILE_INHERITED_PATCH_FIELDS,
+    PROFILE_NAMES,
+    TASK_TO_PROFILE,
+    config_patch_fields,
+    profile_config_defaults,
+    task_business_defaults,
+)
 from novel.core.io import append_jsonl, atomic_write_json
 from novel.core.json_schema import (
     model_output_schema_payload,
@@ -782,9 +789,8 @@ class ProviderFactory:
     def resolve_agent_config(
         self,
         agents_config: object,
-        agent_name: str,
+        task_name: str,
         *,
-        fallback_agents: tuple[str, ...] = (),
         provider_override: str | None = None,
         model_override: str | None = None,
     ) -> AgentConfig:
@@ -794,18 +800,42 @@ class ProviderFactory:
                 model=model_override or "mock-model",
                 api_key_env="MOCK_API_KEY",
             )
-        agents = getattr(agents_config, "agents", None)
-        if not isinstance(agents, dict):
-            raise ProviderError("agents config is missing agents mapping")
+        profiles = getattr(agents_config, "profiles", None)
+        tasks = getattr(agents_config, "tasks", None)
+        if not isinstance(profiles, dict):
+            raise ProviderError("agents config is missing profiles mapping")
+        if not isinstance(tasks, dict):
+            raise ProviderError("agents config is missing tasks mapping")
         default_config = getattr(agents_config, "default", None)
-        selected_name = next((name for name in (agent_name, *fallback_agents) if name in agents), None)
-        selected_config = agents[selected_name] if selected_name else None
-        if selected_config is None and default_config is None:
-            names = ", ".join((agent_name, *fallback_agents))
-            raise ProviderError(
-                f"config/agents.yaml is missing agent config and default API config: {names}"
+        profile_name = _profile_name_for_task(task_name)
+        profile_config = _merge_profile_config(default_config, profiles.get(profile_name), profile_name)
+        config = _merge_task_config(profile_config, tasks.get(task_name), task_name)
+        updates: dict[str, object] = {}
+        if provider_override and provider_override != "config":
+            updates["provider"] = provider_override
+        if model_override:
+            updates["model"] = model_override
+        return config.model_copy(update=updates) if updates else config
+
+    def resolve_profile_config(
+        self,
+        agents_config: object,
+        profile_name: str,
+        *,
+        provider_override: str | None = None,
+        model_override: str | None = None,
+    ) -> AgentConfig:
+        if provider_override and provider_override.lower() == "mock":
+            return AgentConfig(
+                provider="mock",
+                model=model_override or "mock-model",
+                api_key_env="MOCK_API_KEY",
             )
-        config = _merge_agent_config(default_config, selected_config)
+        profiles = getattr(agents_config, "profiles", None)
+        if not isinstance(profiles, dict):
+            raise ProviderError("agents config is missing profiles mapping")
+        default_config = getattr(agents_config, "default", None)
+        config = _merge_profile_config(default_config, profiles.get(profile_name), profile_name)
         updates: dict[str, object] = {}
         if provider_override and provider_override != "config":
             updates["provider"] = provider_override
@@ -814,42 +844,85 @@ class ProviderFactory:
         return config.model_copy(update=updates) if updates else config
 
 
-def _merge_agent_config(
+def _merge_profile_config(
     default_config: AgentConfig | None,
-    agent_config: AgentConfig | AgentConfigPatch | None,
+    profile_config: AgentConfig | AgentConfigPatch | None,
+    profile_name: str,
 ) -> AgentConfig:
-    if agent_config is None:
-        if default_config is None:
-            raise ProviderError("config/agents.yaml is missing default API config")
-        return default_config.model_copy(update={"inherit_default": False})
-    if getattr(agent_config, "inherit_default", False) is True:
-        if default_config is None:
-            raise ProviderError("config/agents.yaml agent inherits default but default API config is missing")
-        merged = default_config.model_dump(mode="python")
-        merged.update(agent_business_fields(agent_config.model_dump(mode="python", exclude_unset=True, exclude_none=True)))
+    if profile_name not in PROFILE_NAMES:
+        raise ProviderError(f"unknown profile: {profile_name}")
+    base = default_config
+    patch_source = profile_config
+    if patch_source is None:
+        patch_source = AgentConfigPatch.model_validate({"inherit_default": True, **profile_config_defaults(profile_name)})
+    if getattr(patch_source, "inherit_default", False) is True:
+        if base is None:
+            raise ProviderError(f"profile {profile_name} inherits default but default API config is missing")
+        raw_patch = patch_source.model_dump(mode="python", exclude_unset=True, exclude_none=True)
+        merged = base.model_dump(mode="python")
+        merged.update({key: value for key, value in raw_patch.items() if key in PROFILE_INHERITED_PATCH_FIELDS})
         merged["inherit_default"] = False
         return AgentConfig.model_validate(merged)
-    if default_config is None:
-        if isinstance(agent_config, AgentConfig):
-            return agent_config.model_copy(update={"inherit_default": False})
-        missing = ", ".join(sorted(_missing_required_agent_fields(agent_config)))
-        raise ProviderError(
-            "config/agents.yaml agent override is incomplete and no default API config is defined"
-            + (f": missing {missing}" if missing else "")
-        )
-    if isinstance(agent_config, AgentConfigPatch):
-        missing = ", ".join(sorted(_missing_required_agent_fields(agent_config)))
-        raise ProviderError(
-            "config/agents.yaml agent config is incomplete; set inherit_default: true for a default-inheriting "
-            "business patch or provide a full independent agent config"
-            + (f": missing {missing}" if missing else "")
-        )
-    return agent_config.model_copy(update={"inherit_default": False})
+    return _merge_config_patch(
+        base,
+        patch_source,
+        missing_message=f"config/agents.yaml is missing profile config and default API config: {profile_name}",
+        incomplete_message="config/agents.yaml profile config is incomplete",
+    )
 
 
-def _missing_required_agent_fields(config: AgentConfigPatch) -> set[str]:
-    provided = set(config.model_dump(mode="python", exclude_unset=True, exclude_none=True)) - {"inherit_default"}
+def _merge_task_config(
+    profile_config: AgentConfig,
+    task_config: AgentConfig | AgentConfigPatch | None,
+    task_name: str,
+) -> AgentConfig:
+    task_defaults = task_business_defaults(task_name)
+    merged = profile_config.model_dump(mode="python", exclude_none=True, exclude={"inherit_default"})
+    merged.update(task_defaults)
+    if task_config is not None:
+        raw_patch = task_config.model_dump(mode="python", exclude_unset=True, exclude_none=True)
+        merged.update(config_patch_fields(raw_patch))
+    merged["inherit_default"] = False
+    return AgentConfig.model_validate(merged)
+
+
+def _merge_config_patch(
+    default_config: AgentConfig | None,
+    patch_config: AgentConfig | AgentConfigPatch | None,
+    *,
+    missing_message: str,
+    incomplete_message: str,
+) -> AgentConfig:
+    if patch_config is None:
+        if default_config is None:
+            raise ProviderError(missing_message)
+        return default_config.model_copy(update={"inherit_default": False})
+    raw_patch = patch_config.model_dump(mode="python", exclude_unset=True, exclude_none=True)
+    updates = config_patch_fields(raw_patch)
+    if default_config is not None:
+        merged = default_config.model_dump(mode="python")
+        merged.update(updates)
+        merged["inherit_default"] = False
+        return AgentConfig.model_validate(merged)
+    missing = ", ".join(sorted(_missing_required_fields(updates)))
+    if missing:
+        raise ProviderError(f"{incomplete_message} and no default API config is defined: missing {missing}")
+    updates["inherit_default"] = False
+    return AgentConfig.model_validate(updates)
+
+
+def _missing_required_fields(config: Mapping[str, object]) -> set[str]:
+    provided = set(config)
     return {"provider", "model", "api_key_env"} - provided
+
+
+def _profile_name_for_task(task_name: str) -> str:
+    if task_name in PROFILE_NAMES:
+        return task_name
+    profile_name = TASK_TO_PROFILE.get(task_name)
+    if profile_name is None:
+        raise ProviderError(f"unknown task: {task_name}")
+    return profile_name
 
 
 def _required_env(env: Mapping[str, str], name: str, config_field: str) -> str:

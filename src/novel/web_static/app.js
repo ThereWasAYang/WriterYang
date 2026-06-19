@@ -36,9 +36,10 @@
       "/api/audit-chapter": "audit",
     };
     let defaultProjectParentPath = "~/WriterYang";
-    const providerAgentNames = [
-      "orchestrator", "inspiration", "style_guide", "canon", "plot", "writer",
-      "polish", "audit", "state_update", "chapter_memory", "revision",
+    const providerProfileNames = ["scribe", "architect", "loremaster", "clerk"];
+    const providerTaskNames = [
+      "writer", "polish", "revision", "plot", "audit", "inspiration", "style_guide",
+      "canon", "state_update", "chapter_memory", "intent_router", "memory_repair", "setup",
     ];
     const providerFormFieldIds = [
       "providerProviderField", "providerModelField", "providerBaseUrlEnvField",
@@ -64,7 +65,8 @@
     let editorLoadedContent = "";
     let editorSourceFile = "";
     let providerConfigCache = null;
-    let providerEffectiveCache = {};
+    let providerEffectiveProfilesCache = {};
+    let providerEffectiveTasksCache = {};
     let providerConfigBackendMismatch = "";
     let backendMismatchAlertShown = false;
     let embeddingConfigEditing = false;
@@ -1809,7 +1811,7 @@
           <div>success: ${escapeHtml(total.success_count ?? total.successes ?? usage.success_count ?? 0)} / failed: ${escapeHtml(total.failed_count ?? total.failures ?? usage.failure_count ?? 0)}</div>
           <div>tokens: prompt=${escapeHtml(total.prompt_tokens ?? "")} completion=${escapeHtml(total.completion_tokens ?? "")} total=${escapeHtml(total.total_tokens ?? usage.total_tokens ?? "")}</div>
         </div>
-        <h3>按 Agent</h3>${tableFromObject(byAgent, "agent")}
+        <h3>按 Task</h3>${tableFromObject(byAgent, "task")}
         <h3 style="margin-top: 16px;">按 Provider</h3>${tableFromObject(byProvider, "provider")}
         <h3 style="margin-top: 16px;">按 Model</h3>${tableFromObject(byModel, "model")}
         <details style="margin-top: 12px;"><summary>完整用量 JSON</summary><pre>${escapeHtml(JSON.stringify(usage, null, 2))}</pre></details>
@@ -1820,7 +1822,8 @@
       try {
         const data = await apiGet("/api/provider-config", { path: projectPath() });
         const missingFields = [];
-        if (!hasResponseField(data, "effective_agents")) missingFields.push("effective_agents");
+        if (!hasResponseField(data, "effective_profiles")) missingFields.push("effective_profiles");
+        if (!hasResponseField(data, "effective_tasks")) missingFields.push("effective_tasks");
         if (!hasResponseField(data, "embedding_api")) missingFields.push("embedding_api");
         providerConfigBackendMismatch = missingFields.length
           ? backendVersionMismatchMessage("/api/provider-config", missingFields)
@@ -1833,14 +1836,15 @@
           renderEmbeddingConfigPanel(data.embedding_api || {});
         }
         providerConfigCache = data.agents?.content || null;
-        providerEffectiveCache = data.effective_agents || {};
+        providerEffectiveProfilesCache = data.effective_profiles || {};
+        providerEffectiveTasksCache = data.effective_tasks || {};
         const warnings = [
           ...(providerConfigBackendMismatch ? [providerConfigBackendMismatch] : []),
           ...(data.agents?.warnings || []),
         ];
         $("providerConfigWarnings").innerHTML = warnings.length
           ? `<span style="color:#b91c1c;">${warnings.map(escapeHtml).join("<br>")}</span>`
-          : "Agent API 配置正常。";
+          : "Profile API 配置正常。";
         $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
         renderProviderEditor(providerConfigCache);
       } catch (error) {
@@ -2066,6 +2070,11 @@
 
     function providerBusinessPatchAllowedByCapabilities(agent, capabilities) {
       const editable = {};
+      [
+        "max_context_tokens", "max_tokens", "timeout_seconds", "max_retries",
+      ].forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(agent, key)) editable[key] = agent[key];
+      });
       if (capabilities.reasoning?.effective !== false && Object.prototype.hasOwnProperty.call(agent, "reasoning")) {
         editable.reasoning = agent.reasoning;
       }
@@ -2074,6 +2083,9 @@
       }
       if (capabilities.thinking?.effective !== false && agent.thinking?.type) {
         editable.thinking = { type: agent.thinking.type };
+      }
+      if (Object.prototype.hasOwnProperty.call(agent, "json_response_format")) {
+        editable.json_response_format = agent.json_response_format;
       }
       return editable;
     }
@@ -2088,74 +2100,75 @@
     }
 
     function renderProviderEditor(config) {
-      const agents = config?.agents || {};
-      const names = ["default", ...Array.from(new Set([...providerAgentNames, ...Object.keys(agents)]))];
-      const previousName = $("providerAgentSelect").value;
-      $("providerAgentSelect").innerHTML = names.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join("");
+      const profiles = config?.profiles || {};
+      const names = ["default", ...Array.from(new Set([...providerProfileNames, ...Object.keys(profiles)]))];
+      const previousName = $("providerProfileSelect").value;
+      $("providerProfileSelect").innerHTML = names.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join("");
       if (names.length) {
-        $("providerAgentSelect").value = names.includes(previousName) ? previousName : names[0];
-        renderProviderAgentFields();
+        $("providerProfileSelect").value = names.includes(previousName) ? previousName : names[0];
+        renderProviderProfileFields();
       } else {
         $("providerFieldEditor").value = "";
       }
+      renderProviderTaskEditor();
     }
 
-    function renderProviderAgentFields() {
-      const name = $("providerAgentSelect").value;
-      const inheritsDefault = providerAgentInheritsDefault(name);
-      const agent = providerAgentDisplayConfig(name, inheritsDefault);
+    function renderProviderProfileFields() {
+      const name = $("providerProfileSelect").value;
+      const inheritsDefault = providerProfileInheritsDefault(name);
+      const profile = providerProfileDisplayConfig(name, inheritsDefault);
       $("providerInheritDefaultRow").classList.toggle("hidden", name === "default");
       $("providerInheritDefaultField").checked = name !== "default" && inheritsDefault;
       $("providerInheritDefaultField").disabled = name === "default";
-      $("providerProviderField").value = agent.provider || "";
-      $("providerModelField").value = agent.model || "";
-      $("providerBaseUrlEnvField").value = agent.base_url_env || "";
-      $("providerApiKeyEnvField").value = agent.api_key_env || "";
-      $("providerThinkingTypeField").value = agent.thinking?.type || "disabled";
-      $("providerReasoningField").value = agent.reasoning || "";
-      $("providerTemperatureField").value = agent.temperature ?? "";
-      $("providerMaxTokensField").value = agent.max_tokens ?? "";
-      $("providerMaxContextTokensField").value = agent.max_context_tokens ?? "";
-      $("providerTimeoutSecondsField").value = agent.timeout_seconds ?? "";
-      $("providerMaxRetriesField").value = agent.max_retries ?? "";
+      $("providerProviderField").value = profile.provider || "";
+      $("providerModelField").value = profile.model || "";
+      $("providerBaseUrlEnvField").value = profile.base_url_env || "";
+      $("providerApiKeyEnvField").value = profile.api_key_env || "";
+      $("providerThinkingTypeField").value = profile.thinking?.type || "disabled";
+      $("providerReasoningField").value = profile.reasoning || "";
+      $("providerTemperatureField").value = profile.temperature ?? "";
+      $("providerMaxTokensField").value = profile.max_tokens ?? "";
+      $("providerMaxContextTokensField").value = profile.max_context_tokens ?? "";
+      $("providerTimeoutSecondsField").value = profile.timeout_seconds ?? "";
+      $("providerMaxRetriesField").value = profile.max_retries ?? "";
       const caps = applyProviderCapabilityState(name !== "default" && inheritsDefault);
       $("providerFieldEditor").value = JSON.stringify(
         name !== "default" && inheritsDefault
-          ? providerBusinessPatchAllowedByCapabilities(agent, caps)
-          : providerEditablePatch(agent, caps),
+          ? providerBusinessPatchAllowedByCapabilities(profile, caps)
+          : providerEditablePatch(profile, caps),
         null,
         2,
       );
       renderProviderEffectivePanel();
     }
 
-    function providerAgentInheritsDefault(name) {
+    function providerProfileInheritsDefault(name) {
       if (name === "default") return false;
-      const effective = providerEffectiveCache?.[name] || {};
+      const effective = providerEffectiveProfilesCache?.[name] || {};
       if (effective.inherit_default === true || effective.inherits_default === true) return true;
-      const raw = providerConfigCache?.agents?.[name] || {};
+      const raw = providerConfigCache?.profiles?.[name] || {};
       return raw.inherit_default === true;
     }
 
     function providerDefaultDisplayConfig() {
-      return providerEffectiveCache?.default?.config || providerConfigCache?.default || {};
+      return providerEffectiveProfilesCache?.default?.config || providerConfigCache?.default || {};
     }
 
-    function providerAgentDisplayConfig(name, inheritsDefault = providerAgentInheritsDefault(name)) {
+    function providerProfileDisplayConfig(name, inheritsDefault = providerProfileInheritsDefault(name)) {
       if (name === "default") return providerDefaultDisplayConfig();
       if (inheritsDefault) {
-        const current = providerEffectiveCache?.[name]?.config || providerConfigCache?.agents?.[name] || {};
-        return { ...providerDefaultDisplayConfig(), ...providerBusinessFields(current) };
+        const current = providerEffectiveProfilesCache?.[name]?.config || providerConfigCache?.profiles?.[name] || {};
+        return { ...providerDefaultDisplayConfig(), ...providerConfigFields(current) };
       }
-      return providerEffectiveCache?.[name]?.config || providerConfigCache?.agents?.[name] || providerDefaultDisplayConfig();
+      return providerEffectiveProfilesCache?.[name]?.config || providerConfigCache?.profiles?.[name] || providerDefaultDisplayConfig();
     }
 
-    function providerBusinessFields(config) {
-      const business = {};
-      if (Object.prototype.hasOwnProperty.call(config, "reasoning")) business.reasoning = config.reasoning;
-      if (Object.prototype.hasOwnProperty.call(config, "temperature")) business.temperature = config.temperature;
-      if (config.thinking?.type) business.thinking = { type: config.thinking.type };
-      return business;
+    function providerConfigFields(config) {
+      const patch = {};
+      Object.entries(config || {}).forEach(([key, value]) => {
+        if (key !== "inherit_default" && value !== undefined && value !== null) patch[key] = value;
+      });
+      return patch;
     }
 
     function fillProviderForm(agent) {
@@ -2175,10 +2188,10 @@
     }
 
     function toggleProviderDefaultInheritance() {
-      const name = $("providerAgentSelect").value;
+      const name = $("providerProfileSelect").value;
       if (name === "default") return;
       const inheritsDefault = $("providerInheritDefaultField").checked;
-      fillProviderForm(providerAgentDisplayConfig(name, inheritsDefault));
+      fillProviderForm(providerProfileDisplayConfig(name, inheritsDefault));
       applyProviderCapabilityState(inheritsDefault);
       renderProviderEffectivePanel();
     }
@@ -2237,6 +2250,18 @@
     function buildProviderBusinessPatchFromForm() {
       const patch = {};
       const caps = currentProviderCapabilities();
+      [
+        ["max_tokens", "providerMaxTokensField"],
+        ["max_context_tokens", "providerMaxContextTokensField"],
+        ["timeout_seconds", "providerTimeoutSecondsField"],
+        ["max_retries", "providerMaxRetriesField"],
+      ].forEach(([key, id]) => {
+        const raw = $(id).value.trim();
+        if (!raw) return;
+        const value = Number(raw);
+        if (Number.isNaN(value)) throw new Error(`${key} 必须是数字`);
+        patch[key] = key === "timeout_seconds" ? value : Math.trunc(value);
+      });
       if (caps.reasoning?.effective !== false) {
         const reasoning = $("providerReasoningField").value.trim();
         if (reasoning) patch.reasoning = reasoning;
@@ -2249,6 +2274,17 @@
           const value = Number(raw);
           if (Number.isNaN(value)) throw new Error("temperature 必须是数字");
           patch.temperature = value;
+        }
+      }
+      const rawAdvanced = $("providerFieldEditor").value.trim();
+      if (rawAdvanced) {
+        try {
+          const advanced = JSON.parse(rawAdvanced);
+          if (advanced && typeof advanced === "object" && !Array.isArray(advanced) && advanced.json_response_format) {
+            patch.json_response_format = advanced.json_response_format;
+          }
+        } catch {
+          // Save path will surface the parse error.
         }
       }
       return patch;
@@ -2286,7 +2322,7 @@
         const raw = $("providerFieldEditor").value.trim();
         const advanced = raw ? JSON.parse(raw) : {};
         if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) return;
-        const inheritsDefault = $("providerAgentSelect").value !== "default" && $("providerInheritDefaultField").checked;
+        const inheritsDefault = $("providerProfileSelect").value !== "default" && $("providerInheritDefaultField").checked;
         const patch = inheritsDefault
           ? { ...advanced, ...buildProviderBusinessPatchFromForm() }
           : { ...advanced, ...buildProviderPatchFromForm() };
@@ -2300,7 +2336,7 @@
     }
 
     function refreshProviderCapabilityState() {
-      const inheritsDefault = $("providerAgentSelect").value !== "default" && $("providerInheritDefaultField").checked;
+      const inheritsDefault = $("providerProfileSelect").value !== "default" && $("providerInheritDefaultField").checked;
       applyProviderCapabilityState(inheritsDefault);
       syncProviderFormToAdvancedJson();
       renderProviderEffectivePanel();
@@ -2308,39 +2344,39 @@
 
     async function saveProviderConfig() {
       try {
-        const agentName = $("providerAgentSelect").value;
+        const profileName = $("providerProfileSelect").value;
         const payload = {
           path: projectPath(),
-          agents: {},
+          profiles: {},
         };
-        if (agentName === "default") {
+        if (profileName === "default") {
           payload.default = providerPatchFromEditorAndForm();
         } else if ($("providerInheritDefaultField").checked) {
           const patch = providerBusinessPatchFromEditorAndForm();
           patch.inherit_default = true;
-          payload.agents = { [agentName]: patch };
+          payload.profiles = { [profileName]: patch };
         } else {
           const patch = providerPatchFromEditorAndForm();
           patch.inherit_default = false;
-          payload.agents = { [agentName]: patch };
+          payload.profiles = { [profileName]: patch };
         }
         const data = await apiPost("/api/provider-config", payload);
         $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
         await loadProviderConfig();
-        setMessage("Agent 模型配置已保存并备份");
+        setMessage("Profile 模型配置已保存并备份");
       } catch (error) {
         setMessage(error.message, true);
       }
     }
 
     function renderProviderEffectivePanel() {
-      const name = $("providerAgentSelect").value;
-      const effective = providerEffectiveCache?.[name] || {};
+      const name = $("providerProfileSelect").value;
+      const effective = providerEffectiveProfilesCache?.[name] || {};
       const uiInheritsDefault = name !== "default" && $("providerInheritDefaultField").checked;
       const config = uiInheritsDefault
-        ? providerAgentDisplayConfig(name, true)
-        : effective.config || providerAgentDisplayConfig(name, false) || {};
-      const source = effective.source_label || effective.source || (uiInheritsDefault ? "default + agent behavior" : "unresolved");
+        ? providerProfileDisplayConfig(name, true)
+        : effective.config || providerProfileDisplayConfig(name, false) || {};
+      const source = effective.source_label || effective.source || (uiInheritsDefault ? "default + profile" : "unresolved");
       const overrideFields = effective.override_fields || [];
       const caps = currentProviderCapabilities();
       let inheritance = "未解析";
@@ -2349,7 +2385,7 @@
       } else if (uiInheritsDefault || effective.inherit_default || effective.inherits_default) {
         inheritance = "继承 default 调用参数";
       } else if (effective.has_override) {
-        inheritance = source === "default + agent override" ? "default + agent override" : "Agent 覆盖配置";
+        inheritance = source === "default+profile" ? "default+profile" : "Profile 覆盖配置";
       } else if (source === "default") {
         inheritance = "继承 default 调用参数";
       }
@@ -2389,6 +2425,94 @@
       ];
       const error = errors.map((item) => `<div class="message error">${escapeHtml(item)}</div>`).join("");
       $("providerEffectivePanel").innerHTML = `${error}<div class="provider-effective-list">${body}</div>`;
+    }
+
+    function renderProviderTaskEditor() {
+      if (!$("providerTaskSelect")) return;
+      const tasks = providerConfigCache?.tasks || {};
+      const names = Array.from(new Set([...providerTaskNames, ...Object.keys(tasks)]));
+      const previousName = $("providerTaskSelect").value;
+      $("providerTaskSelect").innerHTML = names.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join("");
+      if (!names.length) return;
+      $("providerTaskSelect").value = names.includes(previousName) ? previousName : names[0];
+      renderProviderTaskFields();
+    }
+
+    function renderProviderTaskFields() {
+      if (!$("providerTaskSelect")) return;
+      const taskName = $("providerTaskSelect").value;
+      const raw = providerConfigCache?.tasks?.[taskName] || {};
+      $("providerTaskEditor").value = JSON.stringify(raw, null, 2);
+      renderProviderTaskEffectivePanel();
+    }
+
+    function renderProviderTaskEffectivePanel() {
+      if (!$("providerTaskEffectivePanel")) return;
+      const taskName = $("providerTaskSelect").value;
+      const effective = providerEffectiveTasksCache?.[taskName] || {};
+      const config = effective.config || {};
+      const rows = [
+        ["profile", effective.profile],
+        ["source", effective.source_label || effective.source],
+        ["override_fields", (effective.override_fields || []).join(", ") || "无"],
+        ["provider", config.provider],
+        ["model", config.model],
+        ["thinking", config.thinking?.type],
+        ["reasoning", config.reasoning],
+        ["temperature", config.temperature],
+        ["max_tokens", config.max_tokens],
+        ["max_context_tokens", config.max_context_tokens],
+        ["timeout_seconds", config.timeout_seconds],
+      ];
+      const body = rows.map(([label, value]) => `
+        <div class="provider-effective-row">
+          <b>${escapeHtml(label)}</b>
+          <span>${escapeHtml(value ?? "未设置")}</span>
+        </div>
+      `).join("");
+      const error = effective.error ? `<div class="message error">${escapeHtml(effective.error)}</div>` : "";
+      $("providerTaskEffectivePanel").innerHTML = `${error}<div class="provider-effective-list">${body}</div>`;
+    }
+
+    async function saveProviderTaskConfig() {
+      try {
+        const taskName = $("providerTaskSelect").value;
+        const raw = $("providerTaskEditor").value.trim();
+        const patch = raw ? JSON.parse(raw) : {};
+        if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+          throw new Error("Task JSON 必须是对象");
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, "json_response_format")) {
+          const allowed = providerEffectiveTasksCache?.[taskName]?.parameter_capabilities?.json_response_format?.allowed_values || jsonResponseFormatValues;
+          if (!allowed.includes(patch.json_response_format)) {
+            throw new Error(`当前 task 不支持 json_response_format=${patch.json_response_format}；可用值：${allowed.join(", ")}`);
+          }
+        }
+        const data = await apiPost("/api/provider-config", {
+          path: projectPath(),
+          tasks: { [taskName]: patch },
+        });
+        $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
+        await loadProviderConfig();
+        setMessage("Task 覆盖配置已保存并备份");
+      } catch (error) {
+        setMessage(error.message, true);
+      }
+    }
+
+    async function clearProviderTaskConfig() {
+      try {
+        const taskName = $("providerTaskSelect").value;
+        const data = await apiPost("/api/provider-config", {
+          path: projectPath(),
+          clear_tasks: [taskName],
+        });
+        $("providerConfigPanel").textContent = JSON.stringify(data, null, 2);
+        await loadProviderConfig();
+        setMessage("Task 覆盖配置已清除");
+      } catch (error) {
+        setMessage(error.message, true);
+      }
     }
 
     async function loadStateTimeline() {
@@ -3034,7 +3158,7 @@
     });
     $("loadUsage").addEventListener("click", loadUsage);
     $("loadProviderConfig").addEventListener("click", loadProviderConfig);
-    $("providerAgentSelect").addEventListener("change", renderProviderAgentFields);
+    $("providerProfileSelect").addEventListener("change", renderProviderProfileFields);
     $("providerInheritDefaultField").addEventListener("change", toggleProviderDefaultInheritance);
     providerFormFieldIds.forEach((id) => {
       const handler = id === "providerProviderField" || id === "providerThinkingTypeField"
@@ -3044,6 +3168,9 @@
       $(id).addEventListener("change", handler);
     });
     $("saveProviderConfig").addEventListener("click", saveProviderConfig);
+    $("providerTaskSelect").addEventListener("change", renderProviderTaskFields);
+    $("saveProviderTaskConfig").addEventListener("click", saveProviderTaskConfig);
+    $("clearProviderTaskConfig").addEventListener("click", clearProviderTaskConfig);
     $("loadStateTimeline").addEventListener("click", loadStateTimeline);
     $("loadDiff").addEventListener("click", loadDiff);
     document.querySelectorAll(".nav-button").forEach((button) => {

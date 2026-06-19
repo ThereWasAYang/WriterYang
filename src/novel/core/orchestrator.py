@@ -301,7 +301,7 @@ def classify_request(request: str) -> OrchestratorTask:
     return "plan"
 
 
-def load_orchestrator_provider(
+def load_intent_router_provider(
     root: Path,
     provider_name: str,
     *,
@@ -310,7 +310,7 @@ def load_orchestrator_provider(
 ) -> ModelProvider:
     return create_agent_provider(
         agent_config_path or default_agent_config_path(root),
-        "orchestrator",
+        "intent_router",
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
         mock_response=default_mock_revision_route_decision_json(),
     )
@@ -328,13 +328,13 @@ def decide_ask_intent(
         raise OrchestratorError("ask intent requires a non-empty request")
     if provider is None and provider_name.lower() == "mock":
         return _fallback_ask_intent_decision(instruction)
-    route_provider = provider or load_orchestrator_provider(root, provider_name)
+    route_provider = provider or load_intent_router_provider(root, provider_name)
     user_prompt = build_ask_intent_user_prompt(instruction)
     model_request = ModelRequest(
-        system_prompt=load_prompt_template("orchestrator_ask_intent_system"),
+        system_prompt=load_prompt_template("intent_router_ask_intent_system"),
         user_prompt=user_prompt,
         json_schema_name="AskIntentDecision",
-        prompt_version=prompt_template_version("orchestrator_ask_intent_system"),
+        prompt_version=prompt_template_version("intent_router_ask_intent_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -348,13 +348,13 @@ def decide_ask_intent(
             model_request,
             root=root,
             invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="intent_router",
                 caller="orchestrator",
                 interaction_mode="internal_task",
                 task="ask_intent",
             ),
             repair_invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="intent_router",
                 caller="orchestrator",
                 interaction_mode="internal_task",
                 task="ask_intent_repair",
@@ -538,18 +538,18 @@ def route_revision_request(
         chapters = [1]
     if provider is None and provider_name.lower() == "mock":
         return _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
-    route_provider = provider or load_orchestrator_provider(root, provider_name)
+    route_provider = provider or load_intent_router_provider(root, provider_name)
     user_prompt = build_revision_route_user_prompt(
         instruction,
         chapter_numbers=chapters,
         session_summary=session_summary,
     )
     request = ModelRequest(
-        system_prompt=load_prompt_template("orchestrator_revision_route_system"),
+        system_prompt=load_prompt_template("intent_router_revision_route_system"),
         user_prompt=user_prompt,
         context=session_summary,
         json_schema_name="RevisionRouteDecision",
-        prompt_version=prompt_template_version("orchestrator_revision_route_system"),
+        prompt_version=prompt_template_version("intent_router_revision_route_system"),
     )
     contract = AgentOutputContract(
         output_kind="json",
@@ -563,13 +563,13 @@ def route_revision_request(
             request,
             root=root,
             invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="intent_router",
                 caller="orchestrator",
                 interaction_mode="internal_task",
                 task="revision_route",
             ),
             repair_invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="intent_router",
                 caller="orchestrator",
                 interaction_mode="internal_task",
                 task="revision_route_repair",
@@ -615,7 +615,7 @@ def route_audit_repair(
     deterministic = _deterministic_audit_repair_route(audit_report)
     if provider is None and provider_name.lower() == "mock":
         return deterministic
-    route_provider = provider or load_orchestrator_provider(root, provider_name)
+    route_provider = provider or load_intent_router_provider(root, provider_name)
     user_prompt = build_audit_repair_route_user_prompt(
         audit_report,
         plan_summary=plan_summary,
@@ -639,14 +639,14 @@ def route_audit_repair(
             request,
             root=root,
             invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="intent_router",
                 caller="session",
                 interaction_mode="internal_task",
                 task="audit_repair_route",
                 chapter_number=audit_report.chapter_number,
             ),
             repair_invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="intent_router",
                 caller="session",
                 interaction_mode="internal_task",
                 task="audit_repair_route_repair",

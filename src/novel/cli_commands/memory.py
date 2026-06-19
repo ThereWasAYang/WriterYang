@@ -214,7 +214,7 @@ def _cmd_chapter_memory(args: argparse.Namespace) -> int:
                     args.agent_config,
                     args.provider,
                     args.model,
-                    (("chapter_memory", ("state_update", "audit")),),
+                    ("chapter_memory",),
                 )
                 return 0
             with _command_lock(args, root, "chapter-memory generate"):
@@ -256,7 +256,7 @@ def _cmd_chapter_memory(args: argparse.Namespace) -> int:
                     args.agent_config,
                     args.provider,
                     args.model,
-                    (("chapter_memory", ("state_update", "audit")),),
+                    ("chapter_memory",),
                 )
                 return 0
             written: list[str] = []

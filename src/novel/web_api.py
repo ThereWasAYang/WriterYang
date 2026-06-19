@@ -21,9 +21,12 @@ from novel.core.agent_defaults import (
     DEFAULT_AGENT_MAX_TOKENS,
     DEFAULT_AGENT_TEMPERATURE,
     DEFAULT_AGENT_TIMEOUT_SECONDS,
-    STANDARD_AGENT_NAMES,
-    agent_business_fields,
-    inherited_agent_config_patch,
+    PROFILE_NAMES,
+    TASK_TO_PROFILE,
+    config_patch_fields,
+    inherited_profile_config_patch,
+    profile_for_task,
+    profile_inherited_patch_fields,
 )
 from novel.core.app_logging import log_app_warning
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
@@ -61,6 +64,7 @@ from novel.core.memory_repair import (
 )
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
+from novel.core.provider_config import resolve_agent_config_source, resolve_profile_config_source
 from novel.core.search import SearchError, refresh_search_index, search_index_status, search_project
 from novel.core.embeddings import EmbeddingError, resolve_embedding_parameters
 from novel.core.setup_guide import (
@@ -143,7 +147,8 @@ EXCLUDED_FILENAMES = {
     "search_index.sqlite",
     ".DS_Store",
 }
-EDITABLE_AGENT_NAMES = set(STANDARD_AGENT_NAMES)
+EDITABLE_PROFILE_NAMES = set(PROFILE_NAMES)
+EDITABLE_TASK_NAMES = set(TASK_TO_PROFILE)
 STYLE_GUIDE_RELATIVE_PATH = "memory/style_guide.md"
 
 
@@ -869,19 +874,29 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
     raw_config = load_yaml(config_path)
     if not isinstance(raw_config, dict):
         raise WebAPIError("invalid_config", "config/agents.yaml must be a YAML mapping", status=400)
-    agents_update = data.get("agents")
+    profiles_update = data.get("profiles")
+    tasks_update = data.get("tasks")
     default_update = data.get("default")
-    clear_agents = data.get("clear_agents")
-    if agents_update is None and default_update is None and clear_agents is None:
-        raise WebAPIError("invalid_request", "default, agents, or clear_agents must be provided", status=400)
-    if agents_update is None:
-        agents_update = {}
-    if not isinstance(agents_update, dict):
-        raise WebAPIError("invalid_request", "agents must be a mapping", status=400)
-    if clear_agents is None:
-        clear_agents = []
-    if not isinstance(clear_agents, list) or any(not isinstance(name, str) for name in clear_agents):
-        raise WebAPIError("invalid_request", "clear_agents must be a list of agent names", status=400)
+    clear_profiles = data.get("clear_profiles")
+    clear_tasks = data.get("clear_tasks")
+    if profiles_update is None and tasks_update is None and default_update is None and clear_profiles is None and clear_tasks is None:
+        raise WebAPIError("invalid_request", "default, profiles, tasks, clear_profiles, or clear_tasks must be provided", status=400)
+    if profiles_update is None:
+        profiles_update = {}
+    if tasks_update is None:
+        tasks_update = {}
+    if not isinstance(profiles_update, dict):
+        raise WebAPIError("invalid_request", "profiles must be a mapping", status=400)
+    if not isinstance(tasks_update, dict):
+        raise WebAPIError("invalid_request", "tasks must be a mapping", status=400)
+    if clear_profiles is None:
+        clear_profiles = []
+    if clear_tasks is None:
+        clear_tasks = []
+    if not isinstance(clear_profiles, list) or any(not isinstance(name, str) for name in clear_profiles):
+        raise WebAPIError("invalid_request", "clear_profiles must be a list of profile names", status=400)
+    if not isinstance(clear_tasks, list) or any(not isinstance(name, str) for name in clear_tasks):
+        raise WebAPIError("invalid_request", "clear_tasks must be a list of task names", status=400)
     updated = dict(raw_config)
     if default_update is not None:
         if not isinstance(default_update, dict):
@@ -893,51 +908,67 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         if "inherit_default" in cleaned_default:
             raise WebAPIError("invalid_request", "default config cannot inherit default", status=400)
         updated["default"] = {**(current_default or {}), **cleaned_default}
-    agents = dict(updated.get("agents") or {})
-    cleared: list[str] = []
-    for agent_name in clear_agents:
-        if agent_name == "default":
+    profiles = dict(updated.get("profiles") or {})
+    tasks = dict(updated.get("tasks") or {})
+    cleared_profiles: list[str] = []
+    cleared_tasks: list[str] = []
+    for profile_name in clear_profiles:
+        if profile_name == "default":
             raise WebAPIError("invalid_request", "default config cannot be cleared", status=400)
-        if agent_name not in EDITABLE_AGENT_NAMES and agent_name not in agents:
-            raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
-        if agent_name in agents:
-            agents.pop(agent_name, None)
-            cleared.append(agent_name)
-    for agent_name, patch in agents_update.items():
-        if not isinstance(agent_name, str) or not isinstance(patch, dict):
-            raise WebAPIError("invalid_request", "agent updates must be mappings", status=400)
+        if profile_name not in EDITABLE_PROFILE_NAMES and profile_name not in profiles:
+            raise WebAPIError("invalid_request", f"unknown profile: {profile_name}", status=400)
+        if profile_name in profiles:
+            profiles.pop(profile_name, None)
+            cleared_profiles.append(profile_name)
+    for task_name in clear_tasks:
+        if task_name not in EDITABLE_TASK_NAMES and task_name not in tasks:
+            raise WebAPIError("invalid_request", f"unknown task: {task_name}", status=400)
+        if task_name in tasks:
+            tasks.pop(task_name, None)
+            cleared_tasks.append(task_name)
+    for profile_name, patch in profiles_update.items():
+        if not isinstance(profile_name, str) or not isinstance(patch, dict):
+            raise WebAPIError("invalid_request", "profile updates must be mappings", status=400)
+        if profile_name not in EDITABLE_PROFILE_NAMES and profile_name not in profiles:
+            raise WebAPIError("invalid_request", f"unknown profile: {profile_name}", status=400)
         cleaned = _clean_agent_config_patch(patch)
         inherit_default = cleaned.get("inherit_default")
         if inherit_default is True:
-            if agent_name == "default":
-                raise WebAPIError("invalid_request", "default config cannot inherit default", status=400)
-            if agent_name not in EDITABLE_AGENT_NAMES and agent_name not in agents:
-                raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
-            current_agent = agents.get(agent_name)
-            current_mapping = current_agent if isinstance(current_agent, dict) else None
-            agents[agent_name] = {
-                **inherited_agent_config_patch(agent_name, current_mapping),
-                **agent_business_fields(cleaned),
+            current_profile = profiles.get(profile_name)
+            current_mapping = current_profile if isinstance(current_profile, dict) else None
+            profiles[profile_name] = {
+                **inherited_profile_config_patch(profile_name, current_mapping),
+                **profile_inherited_patch_fields(cleaned),
                 "inherit_default": True,
             }
             continue
-        if agent_name not in agents or not isinstance(agents[agent_name], dict):
-            if agent_name not in EDITABLE_AGENT_NAMES:
-                raise WebAPIError("invalid_request", f"unknown agent: {agent_name}", status=400)
-            agents[agent_name] = {}
-        current_agent = agents.get(agent_name)
-        currently_inherits = isinstance(current_agent, dict) and current_agent.get("inherit_default") is True
+        if profile_name not in profiles or not isinstance(profiles[profile_name], dict):
+            profiles[profile_name] = {}
+        current_profile = profiles.get(profile_name)
+        currently_inherits = isinstance(current_profile, dict) and current_profile.get("inherit_default") is True
         if (
             (inherit_default is False or (inherit_default is None and currently_inherits and cleaned))
             and "default" in updated
         ):
             base = _validated_default_agent_snapshot(updated)
-            agents[agent_name] = {**base, **cleaned, "inherit_default": False}
+            profiles[profile_name] = {**base, **cleaned, "inherit_default": False}
         else:
-            agents[agent_name] = {**agents[agent_name], **cleaned}
-    updated["agents"] = agents
+            profiles[profile_name] = {**profiles[profile_name], **cleaned}
+    for task_name, patch in tasks_update.items():
+        if not isinstance(task_name, str) or not isinstance(patch, dict):
+            raise WebAPIError("invalid_request", "task updates must be mappings", status=400)
+        if task_name not in EDITABLE_TASK_NAMES and task_name not in tasks:
+            raise WebAPIError("invalid_request", f"unknown task: {task_name}", status=400)
+        cleaned = _clean_agent_config_patch(patch)
+        cleaned.pop("inherit_default", None)
+        current_task = tasks.get(task_name)
+        current_mapping = current_task if isinstance(current_task, dict) else {}
+        tasks[task_name] = {**current_mapping, **cleaned}
+    updated["profiles"] = profiles
+    updated["tasks"] = tasks
+    updated.pop("agents", None)
     if default_update is not None:
-        _refresh_inherited_agent_snapshots(updated)
+        _refresh_inherited_profile_snapshots(updated)
     validated = AgentsConfig.model_validate(updated)
     _validate_provider_payload_config(validated)
     backup_path = backup_if_exists(config_path, reason="web_provider_config")
@@ -951,9 +982,11 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
     return {
         "path": str(config_path),
         "backup_path": str(backup_path) if backup_path else None,
-        "cleared_agents": cleared,
+        "cleared_profiles": cleared_profiles,
+        "cleared_tasks": cleared_tasks,
         "config": summary["agents"],
-        "effective_agents": summary["effective_agents"],
+        "effective_profiles": summary["effective_profiles"],
+        "effective_tasks": summary["effective_tasks"],
     }
 
 
@@ -967,36 +1000,42 @@ def _validated_default_agent_snapshot(config: dict[str, object]) -> dict[str, ob
     return validated.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})
 
 
-def _refresh_inherited_agent_snapshots(config: dict[str, object]) -> None:
-    raw_agents = config.get("agents")
-    agents = raw_agents if isinstance(raw_agents, dict) else {}
-    for agent_name in sorted(EDITABLE_AGENT_NAMES):
-        current = agents.get(agent_name)
+def _refresh_inherited_profile_snapshots(config: dict[str, object]) -> None:
+    raw_profiles = config.get("profiles")
+    profiles = raw_profiles if isinstance(raw_profiles, dict) else {}
+    for profile_name in sorted(EDITABLE_PROFILE_NAMES):
+        current = profiles.get(profile_name)
         current_mapping = current if isinstance(current, dict) else None
         if current is None or (isinstance(current, dict) and current.get("inherit_default") is True):
-            agents[agent_name] = inherited_agent_config_patch(agent_name, current_mapping)
-    config["agents"] = agents
+            profiles[profile_name] = inherited_profile_config_patch(profile_name, current_mapping)
+    config["profiles"] = profiles
 
 
 def _validate_provider_payload_config(config: AgentsConfig) -> None:
     resolver = ProviderFactory(env={})
     if config.default is not None:
         _validate_json_response_format_for_provider("default", config.default)
-    for agent_name, agent_config in config.agents.items():
+    for profile_name in config.profiles:
         try:
-            resolved = resolver.resolve_agent_config(config, agent_name)
+            resolved = resolver.resolve_profile_config(config, profile_name)
         except Exception as exc:
             raise WebAPIError("invalid_provider_config", _safe_error(str(exc)), status=400) from exc
-        _validate_json_response_format_for_provider(agent_name, resolved)
+        _validate_json_response_format_for_provider(f"profile {profile_name}", resolved)
+    for task_name in config.tasks:
+        try:
+            resolved = resolver.resolve_agent_config(config, task_name)
+        except Exception as exc:
+            raise WebAPIError("invalid_provider_config", _safe_error(str(exc)), status=400) from exc
+        _validate_json_response_format_for_provider(f"task {task_name}", resolved)
 
 
-def _validate_json_response_format_for_provider(agent_name: str, config: AgentConfig) -> None:
+def _validate_json_response_format_for_provider(config_name: str, config: AgentConfig) -> None:
     try:
         resolve_json_response_format(config.provider.lower(), config.json_response_format)
     except ProviderError as exc:
         raise WebAPIError(
             "invalid_provider_config_field",
-            f"agent {agent_name} json_response_format is not supported by provider {config.provider}: {_safe_error(str(exc))}",
+            f"provider config {config_name} json_response_format is not supported by provider {config.provider}: {_safe_error(str(exc))}",
             status=400,
         ) from exc
 
@@ -1981,7 +2020,8 @@ def _provider_config_summary(root: Path) -> dict[str, object]:
     return {
         "agents": agents,
         "embeddings": _safe_config_file(root / "config" / "embeddings.yaml"),
-        "effective_agents": _effective_agent_config_summary(agents_path),
+        "effective_profiles": _effective_profile_config_summary(agents_path),
+        "effective_tasks": _effective_task_config_summary(agents_path),
         "embedding_api": _embedding_api_config_summary(root),
     }
 
@@ -2078,7 +2118,7 @@ def _embedding_api_config_summary(root: Path) -> dict[str, object]:
     }
 
 
-def _effective_agent_config_summary(path: Path) -> dict[str, object]:
+def _effective_profile_config_summary(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
     try:
@@ -2087,12 +2127,12 @@ def _effective_agent_config_summary(path: Path) -> dict[str, object]:
     except Exception as exc:
         return {
             name: {"source": "unresolved", "source_label": "unresolved", "error": _safe_error(str(exc))}
-            for name in sorted(EDITABLE_AGENT_NAMES)
+            for name in sorted(EDITABLE_PROFILE_NAMES)
         }
-    raw_agents = raw.get("agents") if isinstance(raw, dict) else {}
-    if not isinstance(raw_agents, dict):
-        raw_agents = {}
-    names = ["default", *sorted(set(EDITABLE_AGENT_NAMES) | set(raw_agents))]
+    raw_profiles = raw.get("profiles") if isinstance(raw, dict) else {}
+    if not isinstance(raw_profiles, dict):
+        raw_profiles = {}
+    names = ["default", *sorted(set(EDITABLE_PROFILE_NAMES) | set(raw_profiles))]
     resolver = ProviderFactory(env={})
     summaries: dict[str, object] = {}
     for name in names:
@@ -2111,20 +2151,17 @@ def _effective_agent_config_summary(path: Path) -> dict[str, object]:
                 "parameter_capabilities": _parameter_capabilities_payload(config.default),
             }
             continue
-        has_config_entry = name in config.agents
-        selected = config.agents.get(name)
+        has_config_entry = name in config.profiles
+        selected = config.profiles.get(name)
         explicit_inherit = bool(getattr(selected, "inherit_default", False)) if selected is not None else False
         raw_override: dict[str, object] = (
             selected.model_dump(mode="json", exclude_unset=True, exclude_none=True, exclude={"inherit_default"})
             if selected is not None
             else {}
         )
-        if explicit_inherit:
-            override = cast(dict[str, object], _sanitize_config(agent_business_fields(raw_override)))
-        else:
-            override = cast(dict[str, object], _sanitize_config(raw_override))
+        override = cast(dict[str, object], _sanitize_config(raw_override))
         try:
-            resolved = resolver.resolve_agent_config(config, name)
+            resolved = resolver.resolve_profile_config(config, name)
         except Exception as exc:
             summaries[name] = {
                 "source": "unresolved",
@@ -2138,21 +2175,66 @@ def _effective_agent_config_summary(path: Path) -> dict[str, object]:
             }
             continue
         has_override = has_config_entry and (bool(override) or not explicit_inherit)
-        source = (
-            "default + agent behavior"
-            if explicit_inherit
-            else "default"
-            if not has_config_entry
-            else "default + agent override"
-            if config.default is not None
-            else "agent override"
-        )
+        source = resolve_profile_config_source(path, name)
         summaries[name] = {
             "source": source,
             "source_label": source,
             "has_override": has_override,
             "inherit_default": explicit_inherit or (not has_config_entry and config.default is not None),
             "inherits_default": explicit_inherit or (not has_config_entry and config.default is not None),
+            "override_fields": sorted(override),
+            "override": override,
+            "config": _sanitize_config(resolved.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})),
+            "parameter_capabilities": _parameter_capabilities_payload(resolved),
+        }
+    return summaries
+
+
+def _effective_task_config_summary(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        raw = load_yaml(path)
+        config = AgentsConfig.model_validate(raw)
+    except Exception as exc:
+        return {
+            name: {"source": "unresolved", "source_label": "unresolved", "error": _safe_error(str(exc))}
+            for name in sorted(EDITABLE_TASK_NAMES)
+        }
+    raw_tasks = raw.get("tasks") if isinstance(raw, dict) else {}
+    if not isinstance(raw_tasks, dict):
+        raw_tasks = {}
+    names = sorted(set(EDITABLE_TASK_NAMES) | set(raw_tasks))
+    resolver = ProviderFactory(env={})
+    summaries: dict[str, object] = {}
+    for name in names:
+        has_config_entry = name in config.tasks
+        selected = config.tasks.get(name)
+        raw_override: dict[str, object] = (
+            selected.model_dump(mode="json", exclude_unset=True, exclude_none=True, exclude={"inherit_default"})
+            if selected is not None
+            else {}
+        )
+        override = cast(dict[str, object], _sanitize_config(raw_override))
+        try:
+            resolved = resolver.resolve_agent_config(config, name)
+        except Exception as exc:
+            summaries[name] = {
+                "source": "unresolved",
+                "source_label": "unresolved",
+                "profile": TASK_TO_PROFILE.get(name),
+                "has_override": has_config_entry,
+                "override_fields": sorted(override),
+                "override": override,
+                "error": _safe_error(str(exc)),
+            }
+            continue
+        source = resolve_agent_config_source(path, name)
+        summaries[name] = {
+            "source": source,
+            "source_label": source,
+            "profile": profile_for_task(name),
+            "has_override": has_config_entry and bool(override),
             "override_fields": sorted(override),
             "override": override,
             "config": _sanitize_config(resolved.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})),
@@ -2546,12 +2628,15 @@ def _agent_config_warnings(path: Path) -> list[str]:
         return [f"config/agents.yaml is invalid: {_safe_error(str(exc))}"]
     warnings: list[str] = []
     if config.default is None:
-        warnings.append("default API config is missing; unconfigured agents cannot use provider config")
+        warnings.append("default API config is missing; unconfigured profiles cannot use provider config")
     elif config.default.provider.lower() == "mock":
         warnings.append("default provider uses mock; mock is intended for tests only")
-    for name, item in sorted(config.agents.items()):
+    for name, item in sorted(config.profiles.items()):
         if item.provider and item.provider.lower() == "mock":
-            warnings.append(f"agent {name} uses mock provider; mock is intended for tests only")
+            warnings.append(f"profile {name} uses mock provider; mock is intended for tests only")
+    for name, item in sorted(config.tasks.items()):
+        if item.provider and item.provider.lower() == "mock":
+            warnings.append(f"task {name} uses mock provider; mock is intended for tests only")
     return warnings
 
 

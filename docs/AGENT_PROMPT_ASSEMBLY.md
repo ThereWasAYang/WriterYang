@@ -9,7 +9,7 @@
 ```text
 CLI/Web/Session
   -> load_*_provider()
-  -> create_agent_provider(config/agents.yaml, agent_name)
+  -> create_agent_provider(config/agents.yaml, task_name)
   -> LoggingModelProvider
   -> service 构造 ModelRequest
   -> generate_with_output_guard()
@@ -18,11 +18,11 @@ CLI/Web/Session
   -> atomic write artifact
 ```
 
-Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API；如果当前 Agent 标记为 `inherit_default: true`，运行时继承当前 `default` 的 provider/model/base URL/API env/json_response_format/max_tokens/max_context_tokens/timeout/retry，并叠加 Agent 自己的 `temperature`、`thinking`、`reasoning` 业务字段。没有显式 `inherit_default: true` 的 partial override 不再兼容；Agent 要么继承 default 并只写业务 patch，要么保存完整独立配置。显式 `--provider mock` 会绕过真实 API 配置，仅用于测试/调试。
+Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API，再按 `task -> profile -> default` 合并配置。Profile 只允许 `scribe`、`architect`、`loremaster`、`clerk`；task patch 用于细调 `temperature`、`thinking`、`reasoning`，也允许 `intent_router` 等高杠杆 task 单独覆盖 provider/model。旧的 `agents:` 任务键和 fallback agent 借用逻辑已经移除。显式 `--provider mock` 会绕过真实 API 配置，仅用于测试/调试。
 
 `ModelRequest` 字段：
 
-- `system_prompt`：来自 `src/novel/prompts/{agent}_system.txt`。
+- `system_prompt`：来自 `src/novel/prompts/{task}_system.txt` 或对应功能专用模板。
 - `user_prompt`：由对应 `build_*_user_prompt()` 函数组装。
 - `context`：通常放 canon summary 或项目摘要，会进入 provider messages。
 - `json_schema_name`：结构化输出 Agent 会设置，例如 `ChapterPlan`。provider 会按 `AgentConfig.json_response_format` 选择 `json_schema`、`json_object` 或显式 strict；`json_object` 路径会自动追加标准 JSON mode guard 和紧凑 schema skeleton，满足 DeepSeek JSON Output 对 `json` 字样和结构示例的要求。
@@ -99,7 +99,7 @@ Prompt 组装：
 - `AgentOutputContract(output_kind="json", json_schema_name="GeneratedStyleGuide")`。
 - `generate_json_with_repair()` 负责 JSON contract、解析失败后的 repair retry 和 Pydantic 校验。
 - `render_generated_style_guide_markdown()` 把结构化字段渲染为 `# 文风设置`、风格来源、整体风格、叙事视角、语言要求、对白要求、节奏、禁用项、示例段落和修订备注。
-- `load_style_guide_provider()` 优先使用 `style_guide` Agent；旧项目缺少该配置时回退 `inspiration` / `default`。
+- `load_style_guide_provider()` 使用 `style_guide` task，经 `loremaster` profile 解析 provider。
 
 ## 3. Canon Agent
 
@@ -372,8 +372,8 @@ Prompt 组装：
 
 - Service：`core/orchestrator.py`
 - System prompt：
-  - `prompts/orchestrator_ask_intent_system.txt`：`novel ask` 的用户意图结构化分类。
-  - `prompts/orchestrator_revision_route_system.txt`：用户修订意见路由。
+- `prompts/intent_router_ask_intent_system.txt`：`novel ask` 的用户意图结构化分类。
+- `prompts/intent_router_revision_route_system.txt`：用户修订意见路由。
   - `prompts/audit_repair_route_system.txt`：Audit 阻断问题的自动修复分流。
 - 入口函数：`orchestrate()`、`plan_orchestration()`、`decide_ask_intent()`、`route_revision_request()`、`route_audit_repair()`。
 - CLI：`novel ask`
@@ -385,12 +385,12 @@ Prompt 组装：
 
 行为：
 
-- `decide_ask_intent()` 调用 Orchestrator provider 输出 `AskIntentDecision`。`classify_request()` 只保留为 dry-run/mock/provider 不可用时的 fallback。
+- `decide_ask_intent()` 调用 `intent_router` task provider 输出 `AskIntentDecision`。`classify_request()` 只保留为 dry-run/mock/provider 不可用时的 fallback。
 - 关键词分类只能作为低风险 fallback。用户自然语言可能随意且包含错别字，高风险决策必须走结构化 Orchestrator/model decision、schema 校验和保守 fallback，不能只靠硬编码关键词。fallback 不得执行 memory repair apply、accept/archive、state/timeline/canon 写入等高风险动作。
 - `HANDOFF_RULES` 限制允许的 agent handoff。
 - dry-run 只输出计划，不写文件。
 - 非 dry-run 调用对应底层 service。
-- 用户对已生成内容提出修改意见时，`route_revision_request()` 调用 Orchestrator provider 输出 `RevisionRouteDecision` JSON；路由只能是 `plot_replan`、`writer_rewrite`、`revision_patch`。
+- 用户对已生成内容提出修改意见时，`route_revision_request()` 调用 `intent_router` task provider 输出 `RevisionRouteDecision` JSON；路由只能是 `plot_replan`、`writer_rewrite`、`revision_patch`。
 - 路由输出解析或 Pydantic 校验失败时会 repair retry 一次；仍失败则保守 fallback 为 `writer_rewrite`，只有明确局部语句替换才 fallback 为 `revision_patch`。
 - route decision 会写入 session 的 `revision_route_history`，并通过 Web UI/CLI 展示。
 - 当请求被识别为 memory repair 时，orchestrator 作为项目管家调用 `core/memory_repair.py`：先生成 `MemoryRepairDecision`，再写 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后通过显式 `memory-repair apply` 或结构化 `memory_repair_apply` 决策再 apply。

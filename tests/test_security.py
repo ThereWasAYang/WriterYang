@@ -47,7 +47,7 @@ def test_env_example_requires_empty_values(tmp_path: Path) -> None:
 def test_config_rejects_literal_api_key(tmp_path: Path) -> None:
     path = tmp_path / "agents.yaml"
     path.write_text(
-        "agents:\n  writer:\n    provider: openai\n    api_key_env: sk-test-real-looking-secret-value\n",
+        "profiles:\n  scribe:\n    provider: openai\n    api_key_env: sk-test-real-looking-secret-value\n",
         encoding="utf-8",
     )
 

@@ -550,20 +550,20 @@
       <div class="page-heading">
         <div>
           <h2>模型与检索配置</h2>
-          <p class="page-note">管理默认模型、各 Agent 覆盖配置、embedding 状态和搜索索引。</p>
+          <p class="page-note">管理默认模型、4 个能力 Profile、任务级覆盖、embedding 状态和搜索索引。</p>
         </div>
       </div>
       <div class="dashboard-grid config-layout">
         <div id="providerConfig" class="panel">
-          <div class="row"><h2 style="margin: 0;">Agent 模型配置</h2><button id="loadProviderConfig">刷新配置</button></div>
+          <div class="row"><h2 style="margin: 0;">Profile 模型配置</h2><button id="loadProviderConfig">刷新配置</button></div>
           <div id="providerConfigWarnings" class="muted" style="margin-top: 8px;"></div>
           <div class="grid provider-config-grid" style="margin-top: 10px;">
             <div>
-              <label for="providerAgentSelect">Agent</label>
-              <select id="providerAgentSelect"></select>
+              <label for="providerProfileSelect">Profile</label>
+              <select id="providerProfileSelect"></select>
               <label id="providerInheritDefaultRow" class="checkbox-row" for="providerInheritDefaultField">
                 <input id="providerInheritDefaultField" type="checkbox">
-                继承default
+                继承 default
               </label>
               <div class="form-grid provider-form-grid" style="margin-top: 10px;">
                 <div>
@@ -625,17 +625,29 @@
                 </div>
               </div>
               <details style="margin-top: 12px;">
-                <summary>高级 JSON 编辑</summary>
+                <summary>Profile 高级 JSON 编辑</summary>
                 <label for="providerFieldEditor">非密钥配置 JSON</label>
                 <textarea id="providerFieldEditor" class="editor" style="min-height: 180px;"></textarea>
                 <div id="providerAdvancedStatus" class="field-note"></div>
               </details>
+              <details style="margin-top: 12px;">
+                <summary>任务级覆盖</summary>
+                <label for="providerTaskSelect">Task</label>
+                <select id="providerTaskSelect"></select>
+                <label for="providerTaskEditor">Task 非密钥配置 JSON</label>
+                <textarea id="providerTaskEditor" class="editor" style="min-height: 150px;"></textarea>
+                <div class="actions">
+                  <button id="saveProviderTaskConfig" type="button">保存任务覆盖</button>
+                  <button id="clearProviderTaskConfig" type="button">清除任务覆盖</button>
+                </div>
+                <div id="providerTaskEffectivePanel" class="metric" style="margin-top: 10px;">未加载</div>
+              </details>
               <div class="actions">
-                <button id="saveProviderConfig" class="primary">保存 Agent 模型配置</button>
+                <button id="saveProviderConfig" class="primary">保存 Profile 模型配置</button>
               </div>
             </div>
             <div>
-              <h3>当前 Agent 生效配置</h3>
+              <h3>当前 Profile 生效配置</h3>
               <div id="providerEffectivePanel" class="metric">未加载</div>
               <details style="margin-top: 12px;">
                 <summary>完整脱敏调试 JSON</summary>

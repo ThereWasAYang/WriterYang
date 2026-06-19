@@ -7,42 +7,29 @@ from pathlib import Path
 import yaml
 
 from novel.cli import main
+from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE
 from novel.core.provider_config import (
     ProviderOverrides,
     create_agent_provider,
     describe_agent_provider,
     load_agents_config,
     resolve_agent_config,
+    resolve_profile_config,
 )
 from novel.core.providers import LoggingModelProvider, MissingProviderEnvError, MockProvider, ProviderFactory
 from novel.core.revision import load_revision_provider
 from novel.core.workspace import InitOptions, init_workspace
 
 
-AGENTS = (
-    "orchestrator",
-    "inspiration",
-    "style_guide",
-    "canon",
-    "plot",
-    "writer",
-    "polish",
-    "audit",
-    "state_update",
-    "chapter_memory",
-    "revision",
-)
+def test_each_task_reads_its_profile_config(tmp_path: Path) -> None:
+    config_path = _profiles_config(tmp_path)
 
-
-def test_each_agent_reads_independent_config(tmp_path: Path) -> None:
-    config_path = _agents_config(tmp_path)
-
-    for agent_name in AGENTS:
-        config = resolve_agent_config(config_path, agent_name)
+    for task_name, profile_name in TASK_TO_PROFILE.items():
+        config = resolve_agent_config(config_path, task_name)
         assert config.provider == "openai_compatible"
-        assert config.model == f"{agent_name}-model"
-        assert config.api_key_env == f"{agent_name.upper()}_API_KEY"
-        assert config.base_url_env == f"{agent_name.upper()}_BASE_URL"
+        assert config.model == f"{profile_name}-model"
+        assert config.api_key_env == f"{profile_name.upper()}_API_KEY"
+        assert config.base_url_env == f"{profile_name.upper()}_BASE_URL"
         assert config.thinking.type == "disabled"
         assert config.max_tokens == 6789
         assert config.timeout_seconds == 42
@@ -50,8 +37,17 @@ def test_each_agent_reads_independent_config(tmp_path: Path) -> None:
         assert config.json_response_format == "json_schema"
 
 
+def test_profile_config_can_be_resolved_directly(tmp_path: Path) -> None:
+    config_path = _profiles_config(tmp_path)
+
+    config = resolve_profile_config(config_path, "scribe")
+
+    assert config.model == "scribe-model"
+    assert config.api_key_env == "SCRIBE_API_KEY"
+
+
 def test_provider_factory_resolve_then_create_supports_mock_override(tmp_path: Path) -> None:
-    agents_config = load_agents_config(_agents_config(tmp_path))
+    agents_config = load_agents_config(_profiles_config(tmp_path))
 
     factory = ProviderFactory(env={})
     config = factory.resolve_agent_config(
@@ -65,7 +61,7 @@ def test_provider_factory_resolve_then_create_supports_mock_override(tmp_path: P
 
 
 def test_model_override_is_temporary(tmp_path: Path) -> None:
-    config_path = _agents_config(tmp_path)
+    config_path = _profiles_config(tmp_path)
 
     config = resolve_agent_config(
         config_path,
@@ -75,27 +71,30 @@ def test_model_override_is_temporary(tmp_path: Path) -> None:
     original = resolve_agent_config(config_path, "writer")
 
     assert config.model == "temporary-model"
-    assert original.model == "writer-model"
+    assert original.model == "scribe-model"
 
 
-def test_default_config_and_agent_partial_override(tmp_path: Path) -> None:
-    config_path = _default_agents_config(tmp_path)
+def test_default_profile_and_task_patch_merge(tmp_path: Path) -> None:
+    config_path = _default_profiles_config(tmp_path)
 
     writer = resolve_agent_config(config_path, "writer")
     audit = resolve_agent_config(config_path, "audit")
+    router = resolve_agent_config(config_path, "intent_router")
 
     assert writer.provider == "deepseek"
     assert writer.model == "default-model"
     assert writer.api_key_env == "DEFAULT_API_KEY"
     assert writer.temperature == 0.9
-    assert writer.max_tokens == 8192
+    assert writer.max_tokens == 24000
     assert writer.json_response_format == "json_object"
-    assert audit.provider == "deepseek"
     assert audit.temperature == 0.2
-    assert audit.json_response_format == "json_object"
+    assert audit.reasoning == "medium"
+    assert router.model == "router-model"
+    assert router.temperature == 0.0
+    assert router.max_tokens == 8192
 
 
-def test_inherit_default_ignores_stale_agent_snapshot(tmp_path: Path) -> None:
+def test_inherit_default_ignores_stale_profile_snapshot(tmp_path: Path) -> None:
     config_path = tmp_path / "agents.inherit.yaml"
     config_path.write_text(
         yaml.safe_dump(
@@ -109,13 +108,13 @@ def test_inherit_default_ignores_stale_agent_snapshot(tmp_path: Path) -> None:
                     "temperature": 0.4,
                     "max_tokens": 8192,
                 },
-                "agents": {
-                    "writer": {
+                "profiles": {
+                    "scribe": {
                         "inherit_default": True,
                         "provider": "deepseek",
                         "base_url_env": "DEFAULT_BASE_URL",
                         "api_key_env": "DEFAULT_API_KEY",
-                        "model": "stale-agent-model",
+                        "model": "stale-profile-model",
                         "thinking": {"type": "disabled"},
                         "temperature": 0.9,
                         "max_tokens": 24000,
@@ -132,13 +131,13 @@ def test_inherit_default_ignores_stale_agent_snapshot(tmp_path: Path) -> None:
     descriptor = describe_agent_provider(config_path, "writer")
 
     assert config.model == "fresh-default-model"
-    assert config.temperature == 0.9
-    assert config.max_tokens == 8192
+    assert config.temperature == 0.8
+    assert config.max_tokens == 24000
     assert config.inherit_default is False
-    assert descriptor.source == "default+agent:writer"
+    assert descriptor.source == "default+profile:scribe+task-defaults:writer"
 
 
-def test_explicit_non_inherited_agent_uses_independent_config(tmp_path: Path) -> None:
+def test_explicit_non_inherited_profile_uses_independent_config(tmp_path: Path) -> None:
     config_path = tmp_path / "agents.independent.yaml"
     config_path.write_text(
         yaml.safe_dump(
@@ -150,14 +149,14 @@ def test_explicit_non_inherited_agent_uses_independent_config(tmp_path: Path) ->
                     "thinking": {"type": "disabled"},
                     "temperature": 0.4,
                 },
-                "agents": {
-                    "writer": {
+                "profiles": {
+                    "scribe": {
                         "inherit_default": False,
                         "provider": "openai",
-                        "api_key_env": "WRITER_API_KEY",
-                        "model": "writer-model",
+                        "api_key_env": "SCRIBE_API_KEY",
+                        "model": "scribe-model",
                         "thinking": {"type": "enabled"},
-                        "temperature": 0.8,
+                        "temperature": 0.7,
                     }
                 },
             },
@@ -170,111 +169,17 @@ def test_explicit_non_inherited_agent_uses_independent_config(tmp_path: Path) ->
     config = resolve_agent_config(config_path, "writer")
 
     assert config.provider == "openai"
-    assert config.model == "writer-model"
-    assert config.api_key_env == "WRITER_API_KEY"
-    assert config.thinking.type == "enabled"
+    assert config.model == "scribe-model"
+    assert config.api_key_env == "SCRIBE_API_KEY"
+    assert config.thinking.type == "disabled"
     assert config.temperature == 0.8
     assert config.inherit_default is False
 
 
-def test_partial_agent_without_inherit_default_is_rejected(tmp_path: Path) -> None:
-    config_path = tmp_path / "agents.partial.yaml"
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "default": {
-                    "provider": "deepseek",
-                    "api_key_env": "DEFAULT_API_KEY",
-                    "model": "default-model",
-                    "thinking": {"type": "disabled"},
-                },
-                "agents": {"writer": {"temperature": 0.8}},
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    try:
-        resolve_agent_config(config_path, "writer")
-    except Exception as exc:
-        assert "set inherit_default: true" in str(exc)
-    else:
-        raise AssertionError("expected partial agent config rejection")
-
-
-def test_missing_agent_uses_default_config(tmp_path: Path) -> None:
-    config_path = _default_agents_config(tmp_path)
-
-    config = resolve_agent_config(config_path, "revision")
-
-    assert config.provider == "deepseek"
-    assert config.model == "default-model"
-    assert config.api_key_env == "DEFAULT_API_KEY"
-
-
-def test_fallback_agent_merges_with_default_config(tmp_path: Path) -> None:
-    config_path = _default_agents_config(tmp_path)
-
-    config = resolve_agent_config(config_path, "revision", fallback_agents=("writer",))
-
-    assert config.provider == "deepseek"
-    assert config.temperature == 0.9
-    assert config.max_tokens == 8192
-
-
-def test_load_revision_provider_prefers_revision_agent_config(tmp_path: Path) -> None:
-    root = tmp_path / "workspace"
-    init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    (root / "config" / "agents.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "agents": {
-                    "revision": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "revision-model"},
-                    "polish": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "polish-model"},
-                }
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    provider = load_revision_provider(root, "config", target="polished")
-
-    assert isinstance(provider, LoggingModelProvider)
-    assert provider.agent_name == "revision"
-    assert provider.model == "revision-model"
-
-
-def test_load_revision_provider_falls_back_to_target_agent_config(tmp_path: Path) -> None:
-    root = tmp_path / "workspace"
-    init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    (root / "config" / "agents.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "agents": {
-                    "polish": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "polish-model"},
-                }
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    provider = load_revision_provider(root, "config", target="polished")
-
-    assert isinstance(provider, LoggingModelProvider)
-    assert provider.agent_name == "revision"
-    assert provider.model == "polish-model"
-
-
-def test_incomplete_agent_without_default_has_clear_error(tmp_path: Path) -> None:
+def test_partial_profile_without_default_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "agents.yaml"
     path.write_text(
-        yaml.safe_dump({"agents": {"writer": {"temperature": 0.9}}}, allow_unicode=True),
+        yaml.safe_dump({"profiles": {"scribe": {"temperature": 0.9}}}, allow_unicode=True),
         encoding="utf-8",
     )
 
@@ -289,11 +194,68 @@ def test_incomplete_agent_without_default_has_clear_error(tmp_path: Path) -> Non
     assert "provider" in message
 
 
-def test_missing_api_key_env_is_clear_and_does_not_leak_secret(tmp_path: Path) -> None:
-    agents_config = load_agents_config(_agents_config(tmp_path))
+def test_missing_profile_uses_default_with_profile_and_task_defaults(tmp_path: Path) -> None:
+    config_path = _default_profiles_config(tmp_path, include_profiles=False)
+
+    config = resolve_agent_config(config_path, "revision")
+
+    assert config.provider == "deepseek"
+    assert config.model == "default-model"
+    assert config.api_key_env == "DEFAULT_API_KEY"
+    assert config.max_tokens == 24000
+    assert config.temperature == 0.5
+
+
+def test_unknown_task_config_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "agents.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "mock-model"},
+                "tasks": {"not_a_task": {"temperature": 0.1}},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
 
     try:
-        factory = ProviderFactory(env={"WRITER_BASE_URL": "https://example.test/v1"})
+        load_agents_config(path)
+    except Exception as exc:
+        assert "unknown task config" in str(exc)
+    else:
+        raise AssertionError("expected schema rejection")
+
+
+def test_load_revision_provider_uses_revision_task_override(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "config" / "agents.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "profiles": {
+                    "scribe": {"provider": "mock", "api_key_env": "MOCK_API_KEY", "model": "scribe-model"},
+                },
+                "tasks": {"revision": {"model": "revision-model"}},
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    provider = load_revision_provider(root, "config", target="polished")
+
+    assert isinstance(provider, LoggingModelProvider)
+    assert provider.agent_name == "revision"
+    assert provider.model == "revision-model"
+
+
+def test_missing_api_key_env_is_clear_and_does_not_leak_secret(tmp_path: Path) -> None:
+    agents_config = load_agents_config(_profiles_config(tmp_path))
+
+    try:
+        factory = ProviderFactory(env={"SCRIBE_BASE_URL": "https://example.test/v1"})
         config = factory.resolve_agent_config(
             agents_config,
             "writer",
@@ -304,7 +266,7 @@ def test_missing_api_key_env_is_clear_and_does_not_leak_secret(tmp_path: Path) -
     else:
         raise AssertionError("expected MissingProviderEnvError")
 
-    assert "WRITER_API_KEY" in message
+    assert "SCRIBE_API_KEY" in message
     assert "required environment variable" in message
     assert "secret" not in message
 
@@ -312,7 +274,7 @@ def test_missing_api_key_env_is_clear_and_does_not_leak_secret(tmp_path: Path) -
 def test_cli_provider_mock_overrides_real_config(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    config_path = _agents_config(tmp_path)
+    config_path = _profiles_config(tmp_path)
 
     code, stdout, stderr = _run_cli(
         [
@@ -336,7 +298,7 @@ def test_cli_provider_mock_overrides_real_config(tmp_path: Path) -> None:
 def test_cli_model_override_dry_run(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    config_path = _agents_config(tmp_path)
+    config_path = _profiles_config(tmp_path)
 
     code, stdout, stderr = _run_cli(
         [
@@ -354,16 +316,17 @@ def test_cli_model_override_dry_run(tmp_path: Path) -> None:
 
     assert code == 0
     assert stderr == ""
-    assert "agent: writer" in stdout
+    assert "task: writer" in stdout
+    assert "profile: scribe" in stdout
     assert "model: override-model" in stdout
-    assert "source: agent:writer" in stdout
+    assert "source: profile:scribe+task-defaults:writer" in stdout
     assert "thinking: disabled" in stdout
 
 
-def test_generate_chapter_dry_run_shows_per_step_agent_models(tmp_path: Path) -> None:
+def test_generate_chapter_dry_run_shows_per_step_profile_models(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    config_path = _agents_config(tmp_path)
+    config_path = _profiles_config(tmp_path)
 
     code, stdout, stderr = _run_cli(
         [
@@ -379,24 +342,22 @@ def test_generate_chapter_dry_run_shows_per_step_agent_models(tmp_path: Path) ->
 
     assert code == 0
     assert stderr == ""
-    assert "agent: plot" in stdout
-    assert "model: plot-model" in stdout
-    assert "agent: writer" in stdout
-    assert "model: writer-model" in stdout
-    assert "agent: polish" in stdout
-    assert "model: polish-model" in stdout
-    assert "agent: audit" in stdout
-    assert "model: audit-model" in stdout
+    assert "task: plot" in stdout
+    assert "model: architect-model" in stdout
+    assert "task: writer" in stdout
+    assert "model: scribe-model" in stdout
+    assert "task: polish" in stdout
+    assert "task: audit" in stdout
 
 
 def test_provider_descriptor_does_not_include_real_api_key(tmp_path: Path) -> None:
-    descriptor = describe_agent_provider(_agents_config(tmp_path), "writer")
+    descriptor = describe_agent_provider(_profiles_config(tmp_path), "writer")
 
     text = descriptor.format()
 
-    assert "WRITER_API_KEY" in text
+    assert "SCRIBE_API_KEY" in text
     assert "json_response_format: json_schema" in text
-    assert "sk-" not in text
+    assert "sk-test" not in text
 
 
 def test_provider_descriptor_shows_resolved_auto_json_response_format(tmp_path: Path) -> None:
@@ -450,17 +411,17 @@ def provider_request():
     return ModelRequest(system_prompt="系统", user_prompt="用户")
 
 
-def _agents_config(tmp_path: Path) -> Path:
+def _profiles_config(tmp_path: Path) -> Path:
     path = tmp_path / "agents.yaml"
     path.write_text(
         yaml.safe_dump(
             {
-                "agents": {
-                    agent_name: {
+                "profiles": {
+                    profile_name: {
                         "provider": "openai_compatible",
-                        "base_url_env": f"{agent_name.upper()}_BASE_URL",
-                        "api_key_env": f"{agent_name.upper()}_API_KEY",
-                        "model": f"{agent_name}-model",
+                        "base_url_env": f"{profile_name.upper()}_BASE_URL",
+                        "api_key_env": f"{profile_name.upper()}_API_KEY",
+                        "model": f"{profile_name}-model",
                         "reasoning": "medium",
                         "thinking": {"type": "disabled"},
                         "max_context_tokens": 12345,
@@ -470,7 +431,7 @@ def _agents_config(tmp_path: Path) -> Path:
                         "max_retries": 2,
                         "json_response_format": "json_schema",
                     }
-                    for agent_name in AGENTS
+                    for profile_name in PROFILE_NAMES
                 }
             },
             allow_unicode=True,
@@ -481,31 +442,31 @@ def _agents_config(tmp_path: Path) -> Path:
     return path
 
 
-def _default_agents_config(tmp_path: Path) -> Path:
+def _default_profiles_config(tmp_path: Path, *, include_profiles: bool = True) -> Path:
     path = tmp_path / "agents.default.yaml"
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "default": {
-                    "provider": "deepseek",
-                    "base_url_env": "DEFAULT_BASE_URL",
-                    "api_key_env": "DEFAULT_API_KEY",
-                    "model": "default-model",
-                    "thinking": {"type": "disabled"},
-                    "temperature": 0.5,
-                    "max_tokens": 8192,
-                    "json_response_format": "json_object",
-                },
-                "agents": {
-                    "writer": {"inherit_default": True, "temperature": 0.9},
-                    "audit": {"inherit_default": True, "temperature": 0.2},
-                },
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
+    data: dict[str, object] = {
+        "default": {
+            "provider": "deepseek",
+            "base_url_env": "DEFAULT_BASE_URL",
+            "api_key_env": "DEFAULT_API_KEY",
+            "model": "default-model",
+            "thinking": {"type": "disabled"},
+            "temperature": 0.5,
+            "max_tokens": 8192,
+            "json_response_format": "json_object",
+        },
+        "tasks": {
+            "writer": {"temperature": 0.9},
+            "intent_router": {"model": "router-model", "temperature": 0.0},
+        },
+    }
+    if include_profiles:
+        data["profiles"] = {
+            "scribe": {"inherit_default": True, "max_tokens": 24000},
+            "architect": {"inherit_default": True, "max_tokens": 8192},
+            "clerk": {"inherit_default": True, "max_tokens": 8192},
+        }
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return path
 
 

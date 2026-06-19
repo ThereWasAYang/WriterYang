@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from novel.core.agent_defaults import agent_business_fields
+from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE, profile_for_task, task_business_defaults
 from novel.core.env import load_project_env
 from novel.core.io import load_yaml_model
 from novel.core.providers import (
@@ -24,7 +24,8 @@ class ProviderOverrides:
 
 @dataclass(frozen=True)
 class ProviderDescriptor:
-    agent_name: str
+    task_name: str
+    profile_name: str
     provider: str
     model: str
     source: str
@@ -41,7 +42,8 @@ class ProviderDescriptor:
 
     def format(self) -> str:
         lines = [
-            f"agent: {self.agent_name}",
+            f"task: {self.task_name}",
+            f"profile: {self.profile_name}",
             f"provider: {self.provider}",
             f"model: {self.model}",
             f"source: {self.source}",
@@ -76,9 +78,8 @@ def load_agents_config(path: Path) -> AgentsConfig:
 
 def resolve_agent_config(
     config_path: Path,
-    agent_name: str,
+    task_name: str,
     *,
-    fallback_agents: tuple[str, ...] = (),
     overrides: ProviderOverrides | None = None,
 ) -> AgentConfig:
     overrides = overrides or ProviderOverrides()
@@ -91,8 +92,29 @@ def resolve_agent_config(
     agents_config = load_agents_config(config_path)
     return ProviderFactory(env=load_project_env(config_path.parent.parent)).resolve_agent_config(
         agents_config,
-        agent_name,
-        fallback_agents=fallback_agents,
+        task_name,
+        provider_override=overrides.provider_name,
+        model_override=overrides.model_name,
+    )
+
+
+def resolve_profile_config(
+    config_path: Path,
+    profile_name: str,
+    *,
+    overrides: ProviderOverrides | None = None,
+) -> AgentConfig:
+    overrides = overrides or ProviderOverrides()
+    if overrides.provider_name.lower() == "mock":
+        return AgentConfig(
+            provider="mock",
+            model=overrides.model_name or "mock-model",
+            api_key_env="MOCK_API_KEY",
+        )
+    agents_config = load_agents_config(config_path)
+    return ProviderFactory(env=load_project_env(config_path.parent.parent)).resolve_profile_config(
+        agents_config,
+        profile_name,
         provider_override=overrides.provider_name,
         model_override=overrides.model_name,
     )
@@ -100,42 +122,52 @@ def resolve_agent_config(
 
 def resolve_agent_config_source(
     config_path: Path,
-    agent_name: str,
+    task_name: str,
     *,
-    fallback_agents: tuple[str, ...] = (),
     overrides: ProviderOverrides | None = None,
 ) -> str:
     overrides = overrides or ProviderOverrides()
     if overrides.provider_name.lower() == "mock":
         return "override:mock"
     agents_config = load_agents_config(config_path)
-    agents = agents_config.agents
-    for candidate in (agent_name, *fallback_agents):
-        if candidate in agents:
-            config = agents[candidate]
-            if getattr(config, "inherit_default", False) is True and agents_config.default is not None:
-                raw_patch = config.model_dump(mode="python", exclude_unset=True, exclude_none=True)
-                return f"default+agent:{candidate}" if agent_business_fields(raw_patch) else "default"
-            if isinstance(config, AgentConfig) and agents_config.default is None:
-                return f"agent:{candidate}"
-            return f"default+agent:{candidate}"
+    profile_name = profile_for_task(task_name)
+    profile_source = resolve_profile_config_source(config_path, profile_name, overrides=overrides)
+    if task_name in agents_config.tasks:
+        return f"{profile_source}+task:{task_name}"
+    if task_business_defaults(task_name):
+        return f"{profile_source}+task-defaults:{task_name}"
+    return profile_source
+
+
+def resolve_profile_config_source(
+    config_path: Path,
+    profile_name: str,
+    *,
+    overrides: ProviderOverrides | None = None,
+) -> str:
+    overrides = overrides or ProviderOverrides()
+    if overrides.provider_name.lower() == "mock":
+        return "override:mock"
+    agents_config = load_agents_config(config_path)
+    if profile_name not in PROFILE_NAMES:
+        return "unresolved"
+    if profile_name in agents_config.profiles:
+        return f"default+profile:{profile_name}" if agents_config.default is not None else f"profile:{profile_name}"
     if agents_config.default is not None:
-        return "default"
+        return f"default+profile-defaults:{profile_name}"
     return "unresolved"
 
 
 def create_agent_provider(
     config_path: Path,
-    agent_name: str,
+    task_name: str,
     *,
-    fallback_agents: tuple[str, ...] = (),
     overrides: ProviderOverrides | None = None,
     mock_response: str | None = None,
 ) -> ModelProvider:
     config = resolve_agent_config(
         config_path,
-        agent_name,
-        fallback_agents=fallback_agents,
+        task_name,
         overrides=overrides,
     )
     if config.provider == "mock":
@@ -145,7 +177,7 @@ def create_agent_provider(
         provider = ProviderFactory(env=load_project_env(config_path.parent.parent), log_path=log_path).create(config)
     return LoggingModelProvider(
         provider=provider,
-        agent_name=agent_name,
+        agent_name=task_name,
         provider_name=config.provider,
         model=config.model,
         root=config_path.parent.parent,
@@ -154,25 +186,24 @@ def create_agent_provider(
 
 def describe_agent_provider(
     config_path: Path,
-    agent_name: str,
+    task_name: str,
     *,
-    fallback_agents: tuple[str, ...] = (),
     overrides: ProviderOverrides | None = None,
 ) -> ProviderDescriptor:
     config = resolve_agent_config(
         config_path,
-        agent_name,
-        fallback_agents=fallback_agents,
+        task_name,
         overrides=overrides,
     )
     source = resolve_agent_config_source(
         config_path,
-        agent_name,
-        fallback_agents=fallback_agents,
+        task_name,
         overrides=overrides,
     )
+    profile_name = profile_for_task(task_name)
     return ProviderDescriptor(
-        agent_name=agent_name,
+        task_name=task_name,
+        profile_name=profile_name,
         provider=config.provider,
         model=config.model,
         source=source,

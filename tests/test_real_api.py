@@ -148,6 +148,9 @@ def test_real_deepseek_ask_intent_decision(tmp_path: Path, user_request: str, ex
 
     assert decision.task == expected_task
     assert decision.source == "model"
+    model_io_text = "\n".join(path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json"))
+    assert '"agent_name": "intent_router"' in model_io_text
+    assert '"agent_name": "orchestrator"' not in model_io_text
 
 
 def test_real_deepseek_audit_repair_route_manual_review_for_unstructured_issue(tmp_path: Path) -> None:
@@ -660,15 +663,24 @@ def _write_real_agents_config(path: Path, env: dict[str, str]) -> None:
     }
     data = {
         "default": default_config,
-        "agents": {
-            "plot": {
+        "profiles": {
+            "architect": {
                 "inherit_default": True,
+                "max_context_tokens": 64000,
+                "max_tokens": 8192,
                 "temperature": 0.2,
             },
-            "orchestrator": {
+            "clerk": {
                 "inherit_default": True,
+                "max_context_tokens": 64000,
+                "max_tokens": 8192,
+                "temperature": 0.1,
+            },
+        },
+        "tasks": {
+            "intent_router": {
                 "temperature": 0,
-            }
-        }
+            },
+        },
     }
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")

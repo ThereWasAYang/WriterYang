@@ -63,8 +63,8 @@ def test_initialized_template_configs_include_provider_defaults(tmp_path: Path) 
     embeddings_config = load_yaml(root / "config" / "embeddings.yaml")
 
     default = agents_config["default"]
-    writer = agents_config["agents"]["writer"]
-    revision = agents_config["agents"]["revision"]
+    scribe = agents_config["profiles"]["scribe"]
+    clerk = agents_config["profiles"]["clerk"]
     assert default["provider"] == "openai_compatible"
     assert default["thinking"]["type"] == "disabled"
     assert default["base_url_env"] == "OPENAI_BASE_URL"
@@ -73,35 +73,29 @@ def test_initialized_template_configs_include_provider_defaults(tmp_path: Path) 
     assert default["max_tokens"] == 24000
     assert default["max_context_tokens"] == 128000
     assert default["timeout_seconds"] == 120
-    assert writer["inherit_default"] is True
-    assert "provider" not in writer
-    assert "model" not in writer
-    assert writer["temperature"] == 0.8
-    assert writer["reasoning"] == "high"
-    assert revision["inherit_default"] is True
-    assert "provider" not in revision
-    assert "model" not in revision
+    assert scribe["inherit_default"] is True
+    assert "provider" not in scribe
+    assert "model" not in scribe
+    assert scribe["temperature"] == 0.7
+    assert scribe["reasoning"] == "high"
+    assert clerk["inherit_default"] is True
+    assert "provider" not in clerk
+    assert "model" not in clerk
     assert embeddings_config["active_provider"] == "dashscope"
     assert embeddings_config["providers"]["test_local_hash"]["provider"] == "local_hash"
     assert embeddings_config["providers"]["dashscope"]["api_key_env"] == "DASHSCOPE_API_KEY"
 
 
-def test_readme_documents_all_agent_model_roles() -> None:
+def test_readme_documents_all_profile_model_roles() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    for agent_name in (
-        "orchestrator",
-        "inspiration",
-        "canon",
-        "plot",
-        "writer",
-        "polish",
-        "audit",
-        "revision",
-        "state_update",
-        "chapter_memory",
+    for profile_name in (
+        "scribe",
+        "architect",
+        "loremaster",
+        "clerk",
     ):
-        assert f"| `{agent_name}` |" in readme
+        assert f"| `{profile_name}` |" in readme
 
 
 def test_readme_core_commands_match_cli() -> None:
@@ -162,7 +156,7 @@ def test_user_docs_exist_and_mention_core_workflow() -> None:
             "使用 embedding 语义检索",
             "刷新关键词索引",
             "刷新语义向量索引",
-            "Agent 模型配置",
+            "Profile 模型配置",
             "状态和时间线",
             "Rewrite Event ID",
             "后台管理动态",

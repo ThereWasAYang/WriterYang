@@ -351,7 +351,7 @@
       ],
       "default": null
     },
-    "agents": {
+    "profiles": {
       "additionalProperties": {
         "anyOf": [
           {
@@ -362,7 +362,21 @@
           }
         ]
       },
-      "title": "Agents",
+      "title": "Profiles",
+      "type": "object"
+    },
+    "tasks": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AgentConfig"
+          },
+          {
+            "$ref": "#/$defs/AgentConfigPatch"
+          }
+        ]
+      },
+      "title": "Tasks",
       "type": "object"
     }
   },

@@ -203,8 +203,8 @@
       "type": "string"
     },
     "created_by": {
-      "const": "orchestrator",
-      "default": "orchestrator",
+      "const": "memory_repair",
+      "default": "memory_repair",
       "title": "Created By",
       "type": "string"
     },

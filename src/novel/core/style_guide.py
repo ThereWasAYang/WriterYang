@@ -117,7 +117,6 @@ def load_style_guide_provider(
     return create_agent_provider(
         agent_config_path or default_agent_config_path(root),
         "style_guide",
-        fallback_agents=("inspiration",),
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
         mock_response=default_mock_generated_style_guide_json(),
     )

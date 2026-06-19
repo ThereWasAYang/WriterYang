@@ -312,7 +312,7 @@ config/agents.yaml
 
 用途：
 
-定义默认 model API 和 per-agent 配置。真实项目应定义顶层 `default`；新项目会为标准 Agent 写入 `inherit_default: true` 和 Agent 业务参数 patch。运行时如果看到 `inherit_default: true`，会继承当前 `default` 的调用参数，并保留 Agent 自己的 `temperature`、`thinking`、`reasoning`。
+定义默认 model API、4 个能力 profile 和可选 task 覆盖。真实项目应定义顶层 `default`；新项目会为 `scribe`、`architect`、`loremaster`、`clerk` 写入 `inherit_default: true` 的 profile patch。运行时按 `task -> profile -> default` 解析配置；旧的 `agents:` 任务键配置已经移除。
 
 示例：
 
@@ -332,15 +332,31 @@ default:
   timeout_seconds: 120
   max_retries: 1
 
-agents:
-  orchestrator:
+profiles:
+  scribe:
     inherit_default: true
-    reasoning: medium
-    temperature: 0.3
+    reasoning: high
+    temperature: 0.8
     thinking:
       type: disabled
 
-  audit:
+  architect:
+    inherit_default: true
+    reasoning: high
+    temperature: 0.3
+
+  loremaster:
+    inherit_default: true
+    reasoning: medium
+    temperature: 0.6
+
+  clerk:
+    inherit_default: true
+    reasoning: low
+    temperature: 0.2
+
+tasks:
+  intent_router:
     inherit_default: false
     provider: deepseek
     base_url_env: WRITERYANG_REAL_BASE_URL
@@ -359,16 +375,17 @@ agents:
 
 - 永远不要在此文件中保存原始 API key。
 - 这里只保存环境变量名。
-- `default` config 是真实项目中每个 Agent 的调用参数 fallback。
-- `inherit_default: true` 只能用于非 `default` Agent，表示该 Agent 继承 `default` 的 provider、model、base URL、API env、`json_response_format`、`max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries`，同时保留自身 `temperature`、`thinking`、`reasoning`。
-- `inherit_default: false` 表示该 Agent 是独立完整配置，可覆盖 provider、model、base URL、reasoning mode、thinking、token limit 和 temperature。
-- 没有 `inherit_default: true` 的 partial override 不再兼容；要么声明继承并只写业务 patch，要么写完整独立配置。
-- 每个 Agent 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
+- `default` config 是真实项目中每个 profile 的调用参数 fallback。
+- `profiles` 只允许 `scribe`、`architect`、`loremaster`、`clerk`；`tasks` 只允许已登记 task。
+- `inherit_default: true` 用于 profile 或 task patch，表示继承上游调用参数并覆盖当前字段。
+- `inherit_default: false` 表示该 profile 或 task 是独立完整配置，可覆盖 provider、model、base URL、reasoning mode、thinking、token limit 和 temperature。
+- 没有 `inherit_default: true` 的 partial override 不再兼容；要么声明继承并写 patch，要么写完整独立配置。
+- Profile 和 task 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
 - `mock` 仅用于测试和显式 debug run；不要把它作为真实项目默认值。
-- 实现层应在运行 Agent 前验证所需环境变量是否存在。
-- 标准 Agent 包括 `style_guide`；它默认继承 `default`，用于把自然语言文风要求生成结构化文风草稿。
+- 实现层应在运行 task 前验证所需环境变量是否存在。
+- `intent_router` 是 task key，默认归入 `clerk` profile；如果路由需要更强模型，应通过 `tasks.intent_router` 覆盖，不新增第 5 个 profile。
 
-`default` 或完整 per-agent config 中的必填字段：
+`default` 或完整 profile/task config 中的必填字段：
 
 - `provider`
 - `model`

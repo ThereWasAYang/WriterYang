@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Sequence
 from novel.core.timeutil import new_request_id, utc_now_iso
 
 
-DEFAULT_AGENTS = ("orchestrator", "inspiration", "canon", "plot", "writer", "polish", "audit", "state_update")
+DEFAULT_TASKS = ("intent_router", "inspiration", "canon", "plot", "writer", "polish", "audit", "state_update")
 
 if TYPE_CHECKING:
     from novel.core.provider_config import ProviderOverrides
@@ -60,12 +60,12 @@ def _agent_names(root: Path, requested: list[str] | None) -> list[str]:
         return requested
     config_path = root / "config" / "agents.yaml"
     if not config_path.exists():
-        return list(DEFAULT_AGENTS)
+        return list(DEFAULT_TASKS)
     from novel.core.provider_config import load_agents_config
 
     config = load_agents_config(config_path)
-    configured = [name for name in DEFAULT_AGENTS if name in config.agents]
-    return configured or sorted(config.agents)
+    configured = [name for name in DEFAULT_TASKS if name in config.tasks]
+    return configured or list(DEFAULT_TASKS)
 
 
 def _check_agent(root: Path, agent: str, *, overrides: ProviderOverrides, allow_network: bool) -> dict[str, object]:

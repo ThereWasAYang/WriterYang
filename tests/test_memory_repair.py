@@ -50,7 +50,7 @@ def test_ask_memory_repair_creates_proposal_without_modifying_timeline(tmp_path:
     proposals = list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
     assert len(proposals) == 1
     proposal = load_json_model(proposals[0], MemoryRepairProposal)
-    assert proposal.created_by == "orchestrator"
+    assert proposal.created_by == "memory_repair"
     assert proposal.needs_user_confirmation is True
     assert proposal.confidence > 0
     assert proposal.operations[0].file == "memory/state/timeline.json"
@@ -187,7 +187,7 @@ def test_memory_repair_rejects_non_whitelisted_target_without_modifying_project(
         json.dumps(
             {
                 "repair_id": "repair_20260530_010101_000001",
-                "created_by": "orchestrator",
+                "created_by": "memory_repair",
                 "user_request": "bad target",
                 "target_files": ["project.yaml"],
                 "operations": [
@@ -770,7 +770,7 @@ def test_setting_change_apply_rejects_existing_bad_character_role_proposal(tmp_p
         json.dumps(
             {
                 "repair_id": repair_id,
-                "created_by": "orchestrator",
+                "created_by": "memory_repair",
                 "change_kind": "setting_change",
                 "user_request": "新增主要人物谢蛰雨，谢家长女。",
                 "target_files": ["memory/canon/characters.json"],
@@ -825,7 +825,7 @@ def test_memory_repair_apply_rolls_back_all_touched_files_after_project_validati
         json.dumps(
             {
                 "repair_id": repair_id,
-                "created_by": "orchestrator",
+                "created_by": "memory_repair",
                 "change_kind": "setting_change",
                 "user_request": "测试多文件回滚。",
                 "target_files": ["memory/canon/characters.json", "memory/canon/world.json"],
@@ -885,7 +885,7 @@ def test_memory_repair_apply_missing_allowed_file_does_not_create_residue(tmp_pa
         json.dumps(
             {
                 "repair_id": repair_id,
-                "created_by": "orchestrator",
+                "created_by": "memory_repair",
                 "change_kind": "setting_change",
                 "user_request": "新增一个物品。",
                 "target_files": ["memory/canon/items.json"],
@@ -1313,7 +1313,7 @@ def test_setting_change_apply_rejects_location_description_path_without_backup(t
         json.dumps(
             {
                 "repair_id": repair_id,
-                "created_by": "orchestrator",
+                "created_by": "memory_repair",
                 "change_kind": "setting_change",
                 "user_request": "修改桃花源村地点描述",
                 "target_files": ["memory/canon/locations.json"],
@@ -1464,7 +1464,7 @@ def test_setting_change_apply_rejects_duplicate_existing_character_add_without_b
         json.dumps(
             {
                 "repair_id": repair_id,
-                "created_by": "orchestrator",
+                "created_by": "memory_repair",
                 "change_kind": "setting_change",
                 "user_request": "修改白霜瀚开篇设定",
                 "target_files": ["memory/canon/characters.json"],

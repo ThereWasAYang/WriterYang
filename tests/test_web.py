@@ -249,9 +249,9 @@ def test_api_provider_config_is_read_only_and_does_not_leak_values(tmp_path: Pat
     assert payload["data"]["embedding_api"]["dimensions"] == 2048  # type: ignore[index]
     assert payload["data"]["embedding_api"]["batch_size"] == 10  # type: ignore[index]
     assert payload["data"]["embedding_api"]["effective_batch_size"] == 10  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default + agent behavior"  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["inherits_default"] is True  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["config"]["api_key_env"] == "OPENAI_API_KEY"  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["source_label"] == "default+profile:scribe"  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["inherits_default"] is True  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["config"]["api_key_env"] == "OPENAI_API_KEY"  # type: ignore[index]
     env_entries = payload["data"]["agents"]["env"]  # type: ignore[index]
     assert any(item["name"] == "OPENAI_API_KEY" and item["exists"] is True for item in env_entries)
 
@@ -262,13 +262,13 @@ def test_api_provider_config_reports_parameter_capabilities(tmp_path: Path) -> N
     status, payload = handle_api_request("GET", "/api/provider-config", f"path={root}", None)
 
     assert status == 200
-    default_caps = payload["data"]["effective_agents"]["default"]["parameter_capabilities"]  # type: ignore[index]
-    writer_caps = payload["data"]["effective_agents"]["writer"]["parameter_capabilities"]  # type: ignore[index]
+    default_caps = payload["data"]["effective_profiles"]["default"]["parameter_capabilities"]  # type: ignore[index]
+    scribe_caps = payload["data"]["effective_profiles"]["scribe"]["parameter_capabilities"]  # type: ignore[index]
     assert default_caps["thinking"]["effective"] is False
     assert default_caps["reasoning"]["effective"] is False
     assert default_caps["temperature"]["effective"] is True
-    assert writer_caps["thinking"]["effective"] is False
-    assert writer_caps["json_response_format"]["allowed_values"] == [
+    assert scribe_caps["thinking"]["effective"] is False
+    assert scribe_caps["json_response_format"]["allowed_values"] == [
         "auto",
         "json_object",
         "json_schema",
@@ -479,11 +479,11 @@ def test_api_provider_config_warns_without_default(tmp_path: Path) -> None:
     (root / "config" / "agents.yaml").write_text(
         "\n".join(
             [
-                "agents:",
-                "  writer:",
+                "profiles:",
+                "  scribe:",
                 '    provider: "openai_compatible"',
-                '    api_key_env: "WRITER_API_KEY"',
-                '    model: "writer-model"',
+                '    api_key_env: "SCRIBE_API_KEY"',
+                '    model: "scribe-model"',
             ]
         )
         + "\n",
@@ -770,10 +770,10 @@ def test_api_provider_config_save_updates_non_secret_fields(tmp_path: Path) -> N
         json.dumps(
             {
                 "path": str(root),
-                "agents": {
-                    "writer": {
+                "profiles": {
+                    "scribe": {
                         "provider": "mock",
-                        "model": "web-writer-model",
+                        "model": "web-scribe-model",
                         "temperature": 0.3,
                         "thinking": {"type": "disabled"},
                     }
@@ -785,9 +785,9 @@ def test_api_provider_config_save_updates_non_secret_fields(tmp_path: Path) -> N
     assert status == 200
     assert payload["ok"] is True
     agents = json.loads(json.dumps(payload["data"]["config"]["content"], ensure_ascii=False))  # type: ignore[index]
-    assert agents["agents"]["writer"]["model"] == "web-writer-model"
-    assert agents["agents"]["writer"]["inherit_default"] is False
-    assert payload["data"]["effective_agents"]["writer"]["has_override"] is True  # type: ignore[index]
+    assert agents["profiles"]["scribe"]["model"] == "web-scribe-model"
+    assert agents["profiles"]["scribe"]["inherit_default"] is False
+    assert payload["data"]["effective_profiles"]["scribe"]["has_override"] is True  # type: ignore[index]
     assert list((root / "config").glob("agents.yaml.bak_*"))
 
 
@@ -805,9 +805,9 @@ def test_api_provider_config_save_updates_default_config(tmp_path: Path) -> None
     assert payload["ok"] is True
     content = payload["data"]["config"]["content"]  # type: ignore[index]
     assert content["default"]["model"] == "web-default-model"  # type: ignore[index]
-    assert content["agents"]["writer"]["inherit_default"] is True  # type: ignore[index]
-    assert "model" not in content["agents"]["writer"]  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["config"]["model"] == "web-default-model"  # type: ignore[index]
+    assert content["profiles"]["scribe"]["inherit_default"] is True  # type: ignore[index]
+    assert "model" not in content["profiles"]["scribe"]  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["config"]["model"] == "web-default-model"  # type: ignore[index]
 
 
 def test_api_provider_config_rejects_provider_unsupported_json_response_format(tmp_path: Path) -> None:
@@ -825,24 +825,24 @@ def test_api_provider_config_rejects_provider_unsupported_json_response_format(t
     assert "json_response_format" in payload["error"]["message"]  # type: ignore[index]
 
 
-def test_api_provider_config_save_can_add_known_agent_override(tmp_path: Path) -> None:
+def test_api_provider_config_save_can_add_known_task_override(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 
     status, payload = handle_api_request(
         "POST",
         "/api/provider-config",
         "",
-        json.dumps({"path": str(root), "agents": {"revision": {"model": "web-revision-model"}}}),
+        json.dumps({"path": str(root), "tasks": {"revision": {"model": "web-revision-model"}}}),
     )
 
     assert status == 200
     assert payload["ok"] is True
     content = payload["data"]["config"]["content"]  # type: ignore[index]
-    assert content["agents"]["revision"]["model"] == "web-revision-model"  # type: ignore[index]
-    assert content["agents"]["revision"]["inherit_default"] is False  # type: ignore[index]
+    assert content["tasks"]["revision"]["model"] == "web-revision-model"  # type: ignore[index]
+    assert payload["data"]["effective_tasks"]["revision"]["config"]["model"] == "web-revision-model"  # type: ignore[index]
 
 
-def test_api_provider_config_save_inherited_agent_business_patch(tmp_path: Path) -> None:
+def test_api_provider_config_save_inherited_profile_patch(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 
     status, payload = handle_api_request(
@@ -852,28 +852,39 @@ def test_api_provider_config_save_inherited_agent_business_patch(tmp_path: Path)
         json.dumps(
             {
                 "path": str(root),
-                "agents": {"writer": {"inherit_default": True, "temperature": 0.7, "reasoning": "high"}},
+                "profiles": {
+                    "scribe": {
+                        "inherit_default": True,
+                        "provider": "deepseek",
+                        "model": "stale-scribe-model",
+                        "api_key_env": "STALE_API_KEY",
+                        "temperature": 0.7,
+                        "reasoning": "high",
+                    }
+                },
             }
         ),
     )
 
     assert status == 200
     content = payload["data"]["config"]["content"]  # type: ignore[index]
-    assert content["agents"]["writer"]["inherit_default"] is True  # type: ignore[index]
-    assert "model" not in content["agents"]["writer"]  # type: ignore[index]
-    assert content["agents"]["writer"]["temperature"] == 0.7  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["config"]["model"] == content["default"]["model"]  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["config"]["temperature"] == 0.7  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["writer"]["inherits_default"] is True  # type: ignore[index]
+    assert content["profiles"]["scribe"]["inherit_default"] is True  # type: ignore[index]
+    assert "model" not in content["profiles"]["scribe"]  # type: ignore[index]
+    assert "provider" not in content["profiles"]["scribe"]  # type: ignore[index]
+    assert "api_key_env" not in content["profiles"]["scribe"]  # type: ignore[index]
+    assert content["profiles"]["scribe"]["temperature"] == 0.7  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["config"]["model"] == content["default"]["model"]  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["config"]["temperature"] == 0.7  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["inherits_default"] is True  # type: ignore[index]
 
 
-def test_api_provider_config_default_save_does_not_overwrite_independent_agent(tmp_path: Path) -> None:
+def test_api_provider_config_default_save_does_not_overwrite_independent_profile(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     setup_status, setup_payload = handle_api_request(
         "POST",
         "/api/provider-config",
         "",
-        json.dumps({"path": str(root), "agents": {"writer": {"inherit_default": False, "model": "custom-writer"}}}),
+        json.dumps({"path": str(root), "profiles": {"scribe": {"inherit_default": False, "model": "custom-scribe"}}}),
     )
     assert setup_status == 200
     assert setup_payload["ok"] is True
@@ -888,14 +899,14 @@ def test_api_provider_config_default_save_does_not_overwrite_independent_agent(t
     assert status == 200
     content = payload["data"]["config"]["content"]  # type: ignore[index]
     assert content["default"]["model"] == "new-default-model"  # type: ignore[index]
-    assert content["agents"]["writer"]["inherit_default"] is False  # type: ignore[index]
-    assert content["agents"]["writer"]["model"] == "custom-writer"  # type: ignore[index]
-    assert content["agents"]["audit"]["inherit_default"] is True  # type: ignore[index]
-    assert "model" not in content["agents"]["audit"]  # type: ignore[index]
-    assert payload["data"]["effective_agents"]["audit"]["config"]["model"] == "new-default-model"  # type: ignore[index]
+    assert content["profiles"]["scribe"]["inherit_default"] is False  # type: ignore[index]
+    assert content["profiles"]["scribe"]["model"] == "custom-scribe"  # type: ignore[index]
+    assert content["profiles"]["architect"]["inherit_default"] is True  # type: ignore[index]
+    assert "model" not in content["profiles"]["architect"]  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["architect"]["config"]["model"] == "new-default-model"  # type: ignore[index]
 
 
-def test_api_provider_config_clear_agent_override_restores_default(tmp_path: Path) -> None:
+def test_api_provider_config_clear_profile_override_restores_default(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     config_path = root / "config" / "agents.yaml"
     before = resolve_agent_config(config_path, "writer")
@@ -905,33 +916,33 @@ def test_api_provider_config_clear_agent_override_restores_default(tmp_path: Pat
         "POST",
         "/api/provider-config",
         "",
-        json.dumps({"path": str(root), "clear_agents": ["writer"]}),
+        json.dumps({"path": str(root), "clear_profiles": ["scribe"]}),
     )
 
     assert status == 200
     assert payload["ok"] is True
-    assert payload["data"]["cleared_agents"] == ["writer"]  # type: ignore[index]
-    assert "writer" not in payload["data"]["config"]["content"]["agents"]  # type: ignore[index]
+    assert payload["data"]["cleared_profiles"] == ["scribe"]  # type: ignore[index]
+    assert "scribe" not in payload["data"]["config"]["content"]["profiles"]  # type: ignore[index]
     after = resolve_agent_config(config_path, "writer")
     assert after.model == "model-name"
     assert after.max_tokens == 24000
-    assert payload["data"]["effective_agents"]["writer"]["source_label"] == "default"  # type: ignore[index]
+    assert payload["data"]["effective_tasks"]["writer"]["source_label"] == "default+profile-defaults:scribe+task-defaults:writer"  # type: ignore[index]
     assert list((root / "config").glob("agents.yaml.bak_*"))
 
 
-def test_api_provider_config_clear_rejects_default_and_unknown_agent(tmp_path: Path) -> None:
+def test_api_provider_config_clear_rejects_default_and_unknown_profile(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     before = load_yaml(root / "config" / "agents.yaml")
 
-    for agent_name, message in [
+    for profile_name, message in [
         ("default", "default config cannot be cleared"),
-        ("not_an_agent", "unknown agent: not_an_agent"),
+        ("not_a_profile", "unknown profile: not_a_profile"),
     ]:
         status, payload = handle_api_request(
             "POST",
             "/api/provider-config",
             "",
-            json.dumps({"path": str(root), "clear_agents": [agent_name]}),
+            json.dumps({"path": str(root), "clear_profiles": [profile_name]}),
         )
         assert status == 400
         assert message in payload["error"]["message"]  # type: ignore[index]
@@ -946,7 +957,7 @@ def test_api_provider_config_rejects_raw_api_key_without_leaking(tmp_path: Path)
         "POST",
         "/api/provider-config",
         "",
-        json.dumps({"path": str(root), "agents": {"writer": {"api_key_env": secret}}}),
+        json.dumps({"path": str(root), "profiles": {"scribe": {"api_key_env": secret}}}),
     )
 
     assert status == 400
@@ -2094,7 +2105,7 @@ def test_api_setting_change_apply_error_includes_apply_log_details(tmp_path: Pat
         json.dumps(
             {
                 "repair_id": repair_id,
-                "created_by": "orchestrator",
+                "created_by": "memory_repair",
                 "change_kind": "setting_change",
                 "user_request": "新增坏字段人物",
                 "target_files": ["memory/canon/characters.json"],
@@ -2153,7 +2164,7 @@ def test_api_setting_change_apply_rejects_bad_character_role_semantics(tmp_path:
         json.dumps(
             {
                 "repair_id": repair_id,
-                "created_by": "orchestrator",
+                "created_by": "memory_repair",
                 "change_kind": "setting_change",
                 "user_request": "新增主要人物谢蛰雨，谢家长女。",
                 "target_files": ["memory/canon/characters.json"],
@@ -2365,7 +2376,7 @@ def test_frontend_basic_render() -> None:
     assert "provider-config-grid" in html
     assert "provider-form-grid" in html
     assert "provider-field-wide" in html
-    assert "Agent 模型配置" in html
+    assert "Profile 模型配置" in html
     assert 'id="providerProviderField"' in html
     assert '<input id="providerModelField"' in html
     assert '<textarea id="providerModelField"' not in html
@@ -2374,7 +2385,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="providerThinkingTypeField"' in html
     assert 'value="__na__">NA</option>' in html
     assert 'id="providerInheritDefaultField"' in html
-    assert "继承default" in html
+    assert "继承 default" in html
     assert 'id="providerThinkingTypeStatus"' in html
     assert 'id="providerReasoningStatus"' in html
     assert 'id="providerTemperatureField"' in html
@@ -2389,7 +2400,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="clearProviderAgentConfig"' not in html
     assert "继承 / 不设置" not in html
     assert 'id="providerEffectivePanel"' in html
-    assert "当前 Agent 生效配置" in html
+    assert "当前 Profile 生效配置" in html
     assert "完整脱敏调试 JSON" in html
     assert '<option value="config">config</option>' in html
     assert '<option value="mock">mock（仅测试）</option>' in html

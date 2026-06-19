@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE
+
 
 EntityId = str
 Visibility = Literal["reader_visible", "hidden", "partially_revealed"]
@@ -213,14 +215,23 @@ class AgentConfigPatch(FlexibleModel):
 
 class AgentsConfig(SchemaVersionedModel):
     default: AgentConfig | None = None
-    agents: dict[str, AgentConfig | AgentConfigPatch] = Field(default_factory=dict)
+    profiles: dict[str, AgentConfig | AgentConfigPatch] = Field(default_factory=dict)
+    tasks: dict[str, AgentConfig | AgentConfigPatch] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def require_default_or_agents(self) -> "AgentsConfig":
-        if self.default is None and not self.agents:
-            raise ValueError("agents config requires a default config or at least one agent config")
+    def require_default_or_profiles(self) -> "AgentsConfig":
+        if self.model_extra and "agents" in self.model_extra:
+            raise ValueError("agents config uses removed agents mapping; use profiles/tasks")
+        if self.default is None and not self.profiles:
+            raise ValueError("agents config requires a default config or at least one profile config")
         if self.default is not None and self.default.inherit_default:
             raise ValueError("default config cannot inherit default")
+        unknown_profiles = sorted(set(self.profiles) - set(PROFILE_NAMES))
+        if unknown_profiles:
+            raise ValueError(f"unknown profile config: {', '.join(unknown_profiles)}")
+        unknown_tasks = sorted(set(self.tasks) - set(TASK_TO_PROFILE))
+        if unknown_tasks:
+            raise ValueError(f"unknown task config: {', '.join(unknown_tasks)}")
         return self
 
 
@@ -1211,7 +1222,7 @@ class MemoryRepairDecision(SchemaVersionedModel):
 
 class MemoryRepairProposal(SchemaVersionedModel):
     repair_id: str = Field(min_length=1, pattern=r"^repair_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
-    created_by: Literal["orchestrator"] = "orchestrator"
+    created_by: Literal["memory_repair"] = "memory_repair"
     change_kind: MemoryChangeKind = "memory_repair"
     user_request: str = Field(min_length=1)
     target_files: list[str] = Field(default_factory=list)

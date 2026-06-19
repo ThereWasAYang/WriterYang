@@ -206,7 +206,6 @@ def load_canon_provider(
     return create_agent_provider(
         agent_config_path or default_agent_config_path(root),
         "canon",
-        fallback_agents=("inspiration",),
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
         mock_response=default_mock_canon_proposal_json(),
     )
@@ -222,7 +221,6 @@ def load_canon_drift_provider(
     return create_agent_provider(
         agent_config_path or default_agent_config_path(root),
         "canon",
-        fallback_agents=("audit",),
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
         mock_response=default_empty_canon_proposal_json(),
     )

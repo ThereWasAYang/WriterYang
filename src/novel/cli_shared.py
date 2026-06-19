@@ -11,6 +11,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import cast
 
+from novel.core.agent_defaults import PROFILE_NAMES
 from novel.core.env import load_project_env
 from novel.core.management import load_management_events
 from novel.core.io import load_yaml, load_yaml_model
@@ -189,18 +190,17 @@ def _print_dry_run_provider(
     agent_config: Path | None,
     provider_name: str,
     model_name: str | None,
-    agents: tuple[tuple[str, tuple[str, ...]], ...],
+    tasks: tuple[str, ...],
 ) -> None:
     path = agent_config or default_agent_config_path(root)
     overrides = ProviderOverrides(provider_name=provider_name, model_name=model_name)
-    for index, (agent_name, fallback_agents) in enumerate(agents):
+    for index, task_name in enumerate(tasks):
         if index:
             print("")
         print(
             describe_agent_provider(
                 path,
-                agent_name,
-                fallback_agents=fallback_agents,
+                task_name,
                 overrides=overrides,
             ).format()
         )
@@ -397,8 +397,8 @@ def _run_init_setup_guide(root: Path) -> tuple[list[str], bool, int]:
             ) from exc
         output_lines.append(f"默认 API 连通性测试通过：{result.provider} / {result.model}")
         output_lines.append(
-            "这组 API 配置已作为所有未单独配置 Agent 的默认配置；"
-            "后续可编辑 config/agents.yaml 为单个 Agent 覆盖模型、思考模式、温度等参数。"
+            "这组 API 配置已作为所有 profile 的默认配置；"
+            "后续可编辑 config/agents.yaml 为 profile 或少数 task 覆盖模型、思考模式、温度等参数。"
         )
     else:
         output_lines.append("已跳过默认 API 配置；运行真实 Agent 前需要先配置 config/agents.yaml 和 .env。")
@@ -623,7 +623,7 @@ def _doctor_agent_config_checks(path: Path) -> list[dict[str, object]]:
             checks,
             "agent-config:default",
             "warning",
-            "default API config is missing; unconfigured agents cannot use provider config",
+            "default API config is missing; unconfigured profiles cannot use provider config",
         )
     else:
         status = "warning" if config.default.provider.lower() == "mock" else "ok"
@@ -633,14 +633,26 @@ def _doctor_agent_config_checks(path: Path) -> list[dict[str, object]]:
             else f"default provider is {config.default.provider}"
         )
         _doctor_check(checks, "agent-config:default", status, message)
-    for name, config_item in sorted(config.agents.items()):
+    for name in PROFILE_NAMES:
+        if name not in config.profiles:
+            _doctor_check(checks, f"agent-profile:{name}", "warning", "profile config is missing; default will be used")
+    for name, config_item in sorted(config.profiles.items()):
         provider = config_item.provider
         if provider and provider.lower() == "mock":
             _doctor_check(
                 checks,
-                f"agent-config:{name}",
+                f"agent-profile:{name}",
                 "warning",
-                "agent uses mock provider; mock is intended for tests only",
+                "profile uses mock provider; mock is intended for tests only",
+            )
+    for name, config_item in sorted(config.tasks.items()):
+        provider = config_item.provider
+        if provider and provider.lower() == "mock":
+            _doctor_check(
+                checks,
+                f"agent-task:{name}",
+                "warning",
+                "task uses mock provider; mock is intended for tests only",
             )
     return checks
 

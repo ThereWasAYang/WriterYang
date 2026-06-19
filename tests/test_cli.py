@@ -68,7 +68,7 @@ def test_validate_cli_reports_success(tmp_path: Path) -> None:
     code, stdout, stderr = _run_cli(["validate", "--path", str(root)])
 
     assert code == 0
-    assert "agent default api_key_env is not set: OPENAI_API_KEY" in stdout
+    assert "provider config default api_key_env is not set: OPENAI_API_KEY" in stdout
     assert "Validation passed: 2 warning(s)" in stdout
     assert stderr == ""
 

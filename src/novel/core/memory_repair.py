@@ -202,7 +202,7 @@ def suggest_memory_repair(
         root,
         "memory_repair_proposed",
         f"项目管家生成记忆修复建议：{repair_id}",
-        source="orchestrator",
+        source="memory_repair",
         target_files=target_files,
         status="info",
         details={
@@ -545,7 +545,7 @@ def generate_memory_change_clarification_decision(
         return mock_memory_change_clarification_decision(request)
     repair_provider = provider or create_agent_provider(
         default_agent_config_path(root),
-        "orchestrator",
+        "memory_repair",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
     user_prompt = _memory_change_clarification_user_prompt(
@@ -572,13 +572,13 @@ def generate_memory_change_clarification_decision(
             model_request,
             root=root,
             invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="memory_repair",
                 caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_change_clarification",
             ),
             repair_invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="memory_repair",
                 caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_change_clarification_repair",
@@ -638,7 +638,7 @@ def generate_memory_change_batch_plan(
         return mock_memory_change_batch_plan(request, stage=stage)
     repair_provider = provider or create_agent_provider(
         default_agent_config_path(root),
-        "orchestrator",
+        "memory_repair",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
     user_prompt = _memory_change_batch_plan_user_prompt(root, request, stage=stage)
@@ -660,13 +660,13 @@ def generate_memory_change_batch_plan(
             model_request,
             root=root,
             invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="memory_repair",
                 caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_change_batch_plan",
             ),
             repair_invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="memory_repair",
                 caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_change_batch_plan_repair",
@@ -767,7 +767,7 @@ def generate_memory_repair_decision(
         )
     repair_provider = provider or create_agent_provider(
         default_agent_config_path(root),
-        "orchestrator",
+        "memory_repair",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
     user_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage, target_files=target_files)
@@ -789,13 +789,13 @@ def generate_memory_repair_decision(
             model_request,
             root=root,
             invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="memory_repair",
                 caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_repair_decision",
             ),
             repair_invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="memory_repair",
                 caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_repair_decision_repair",
@@ -846,7 +846,7 @@ def _repair_memory_repair_decision_target_schema(
     request = user_request.strip()
     repair_provider = provider or create_agent_provider(
         default_agent_config_path(root),
-        "orchestrator",
+        "memory_repair",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
     original_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage, target_files=target_files)
@@ -865,7 +865,7 @@ def _repair_memory_repair_decision_target_schema(
             ),
             root=root,
             invocation=AgentInvocationContext(
-                agent_name="orchestrator",
+                agent_name="memory_repair",
                 caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_repair_target_schema_repair",
@@ -1048,7 +1048,7 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
             root,
             "memory_repair_applied",
             f"项目管家已应用记忆修复：{proposal.repair_id}",
-            source="orchestrator",
+            source="memory_repair",
             target_files=touched_files,
             status="success",
             details={
@@ -1086,7 +1086,7 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
             root,
             "memory_repair_failed",
             f"项目管家记忆修复失败：{proposal.repair_id}",
-            source="orchestrator",
+            source="memory_repair",
             target_files=touched_files or proposal.target_files,
             status="error",
             details={"repair_id": proposal.repair_id, "error": str(exc)},

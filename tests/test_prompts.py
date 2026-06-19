@@ -31,7 +31,7 @@ def test_prompt_versions_cover_non_partial_templates() -> None:
     assert PROMPT_VERSION == max(PROMPT_VERSIONS.values())
     assert PROMPT_VERSIONS["writer_system"] == "2026-06-05"
     assert PROMPT_VERSIONS["style_guide_system"] == "2026-06-19"
-    assert PROMPT_VERSIONS["orchestrator_ask_intent_system"] == "2026-05-31"
+    assert PROMPT_VERSIONS["intent_router_ask_intent_system"] == "2026-06-19"
     assert prompt_template_version("writer_system") == PROMPT_VERSIONS["writer_system"]
     assert prompt_template_version("writer_system.txt") == PROMPT_VERSIONS["writer_system"]
 

@@ -4,21 +4,36 @@ from copy import deepcopy
 from typing import Mapping
 
 
-STANDARD_AGENT_NAMES = (
-    "orchestrator",
-    "inspiration",
-    "style_guide",
-    "canon",
-    "plot",
-    "writer",
-    "polish",
-    "audit",
-    "revision",
-    "state_update",
-    "chapter_memory",
-)
+PROFILE_NAMES = ("scribe", "architect", "loremaster", "clerk")
 
-AGENT_BUSINESS_CONFIG_FIELDS = {"reasoning", "thinking", "temperature"}
+TASK_TO_PROFILE: dict[str, str] = {
+    "writer": "scribe",
+    "polish": "scribe",
+    "revision": "scribe",
+    "plot": "architect",
+    "audit": "architect",
+    "inspiration": "loremaster",
+    "style_guide": "loremaster",
+    "canon": "loremaster",
+    "state_update": "clerk",
+    "chapter_memory": "clerk",
+    "intent_router": "clerk",
+    "memory_repair": "clerk",
+    "setup": "clerk",
+}
+
+TASK_NAMES = tuple(TASK_TO_PROFILE)
+
+PROFILE_INHERITED_PATCH_FIELDS = {
+    "reasoning",
+    "thinking",
+    "max_context_tokens",
+    "max_tokens",
+    "temperature",
+    "timeout_seconds",
+    "max_retries",
+    "json_response_format",
+}
 
 DEFAULT_AGENT_TEMPERATURE = 0.5
 DEFAULT_AGENT_MAX_CONTEXT_TOKENS = 128000
@@ -40,18 +55,54 @@ DEFAULT_AGENT_CONFIG: dict[str, object] = {
     "json_response_format": "auto",
 }
 
-AGENT_BUSINESS_DEFAULTS: dict[str, dict[str, object]] = {
-    "orchestrator": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.3},
+PROFILE_CONFIG_DEFAULTS: dict[str, dict[str, object]] = {
+    "scribe": {
+        "reasoning": "high",
+        "thinking": {"type": "disabled"},
+        "max_context_tokens": 128000,
+        "max_tokens": 24000,
+        "temperature": 0.7,
+        "timeout_seconds": 180.0,
+    },
+    "architect": {
+        "reasoning": "high",
+        "thinking": {"type": "disabled"},
+        "max_context_tokens": 128000,
+        "max_tokens": 8192,
+        "temperature": 0.3,
+        "timeout_seconds": 120.0,
+    },
+    "loremaster": {
+        "reasoning": "medium",
+        "thinking": {"type": "disabled"},
+        "max_context_tokens": 64000,
+        "max_tokens": 8192,
+        "temperature": 0.6,
+        "timeout_seconds": 120.0,
+    },
+    "clerk": {
+        "reasoning": "low",
+        "thinking": {"type": "disabled"},
+        "max_context_tokens": 64000,
+        "max_tokens": 8192,
+        "temperature": 0.2,
+        "timeout_seconds": 90.0,
+    },
+}
+
+TASK_BUSINESS_DEFAULTS: dict[str, dict[str, object]] = {
+    "intent_router": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.3},
     "inspiration": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.8},
     "style_guide": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.6},
     "canon": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.4},
     "plot": {"reasoning": "high", "thinking": {"type": "disabled"}, "temperature": 0.5},
     "writer": {"reasoning": "high", "thinking": {"type": "disabled"}, "temperature": 0.8},
     "polish": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.6},
-    "audit": {"reasoning": "low", "thinking": {"type": "disabled"}, "temperature": 0.2},
+    "audit": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.2},
     "revision": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.5},
     "state_update": {"reasoning": "low", "thinking": {"type": "disabled"}, "temperature": 0.2},
     "chapter_memory": {"reasoning": "low", "thinking": {"type": "disabled"}, "temperature": 0.1},
+    "memory_repair": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.2},
 }
 
 
@@ -59,23 +110,52 @@ def default_agent_config() -> dict[str, object]:
     return deepcopy(DEFAULT_AGENT_CONFIG)
 
 
-def agent_business_defaults(agent_name: str) -> dict[str, object]:
-    return deepcopy(AGENT_BUSINESS_DEFAULTS.get(agent_name, {}))
+def profile_config_defaults(profile_name: str) -> dict[str, object]:
+    return deepcopy(PROFILE_CONFIG_DEFAULTS.get(profile_name, {}))
 
 
-def inherited_agent_config_patch(
-    agent_name: str,
+def task_business_defaults(task_name: str) -> dict[str, object]:
+    return deepcopy(TASK_BUSINESS_DEFAULTS.get(task_name, {}))
+
+
+def inherited_profile_config_patch(
+    profile_name: str,
     current: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    patch = {"inherit_default": True, **agent_business_defaults(agent_name)}
+    patch = {"inherit_default": True, **profile_config_defaults(profile_name)}
     if current:
-        patch.update(agent_business_fields(current))
+        patch.update(profile_inherited_patch_fields(current))
     return patch
 
 
-def agent_business_fields(config: Mapping[str, object]) -> dict[str, object]:
+def task_config_patch(
+    task_name: str,
+    current: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    patch = task_business_defaults(task_name)
+    if current:
+        patch.update(config_patch_fields(current))
+    return patch
+
+
+def config_patch_fields(config: Mapping[str, object]) -> dict[str, object]:
     return {
         key: deepcopy(value)
         for key, value in config.items()
-        if key in AGENT_BUSINESS_CONFIG_FIELDS and value is not None
+        if key != "inherit_default" and value is not None
     }
+
+
+def profile_inherited_patch_fields(config: Mapping[str, object]) -> dict[str, object]:
+    return {
+        key: deepcopy(value)
+        for key, value in config.items()
+        if key in PROFILE_INHERITED_PATCH_FIELDS and value is not None
+    }
+
+
+def profile_for_task(task_name: str) -> str:
+    profile_name = TASK_TO_PROFILE.get(task_name)
+    if profile_name is None:
+        raise KeyError(task_name)
+    return profile_name

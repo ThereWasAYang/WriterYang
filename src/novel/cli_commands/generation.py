@@ -112,7 +112,7 @@ def _cmd_inspire(args: argparse.Namespace) -> int:
                 args.agent_config,
                 args.provider,
                 args.model,
-                (("inspiration", ()),),
+                ("inspiration",),
             )
             return 0
         source_text, source_type = read_inspiration_input(args.text, args.input)
@@ -165,7 +165,7 @@ def _cmd_canon(args: argparse.Namespace) -> int:
                     args.agent_config,
                     args.provider,
                     args.model,
-                    (("canon", ("inspiration",)),),
+                    ("canon",),
                 )
                 return 0
             provider = load_canon_provider(
@@ -260,7 +260,7 @@ def _cmd_plan_chapter(args: argparse.Namespace) -> int:
                 args.agent_config,
                 args.provider,
                 args.model,
-                (("plot", ()),),
+                ("plot",),
             )
             return 0
         instruction = read_planning_instruction(args.instruction, args.input)
@@ -324,7 +324,7 @@ def _cmd_write_chapter(args: argparse.Namespace) -> int:
                 args.agent_config,
                 args.provider,
                 args.model,
-                (("writer", ()),),
+                ("writer",),
             )
             return 0
         instruction = read_drafting_instruction(args.instruction, args.input)
@@ -375,7 +375,7 @@ def _cmd_polish_chapter(args: argparse.Namespace) -> int:
                 args.agent_config,
                 args.provider,
                 args.model,
-                (("polish", ()),),
+                ("polish",),
             )
             return 0
         instruction = read_polishing_instruction(args.instruction, args.input)
@@ -431,7 +431,7 @@ def _cmd_audit_chapter(args: argparse.Namespace) -> int:
                 args.agent_config,
                 args.provider,
                 args.model,
-                (("audit", ()),),
+                ("audit",),
             )
             return 0
         instruction = read_audit_instruction(args.instruction, args.input)
@@ -498,13 +498,12 @@ def _cmd_revise_chapter(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
         if args.dry_run_provider:
-            agent = "writer" if args.target == "draft" else "polish"
             _print_dry_run_provider(
                 root,
                 args.agent_config,
                 args.provider,
                 args.model,
-                ((agent, ()),),
+                ("revision",),
             )
             return 0
         instruction = read_revision_instruction(args.instruction, args.input)
@@ -582,7 +581,7 @@ def _cmd_propose_state_update(args: argparse.Namespace) -> int:
                 args.agent_config,
                 args.provider,
                 args.model,
-                (("state_update", ("audit",)),),
+                ("state_update",),
             )
             return 0
         instruction = read_state_update_instruction(args.instruction, args.input)
@@ -673,7 +672,7 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
                 args.agent_config,
                 args.provider,
                 args.model,
-                (("state_update", ("audit",)), ("chapter_memory", ("state_update", "audit"))),
+                ("state_update", "chapter_memory"),
             )
             return 0
         instruction = read_state_update_instruction(args.instruction, args.input)
@@ -761,10 +760,10 @@ def _cmd_generate_chapter(args: argparse.Namespace) -> int:
                 args.provider,
                 args.model,
                 (
-                    ("plot", ()),
-                    ("writer", ()),
-                    ("polish", ()),
-                    ("audit", ()),
+                    "plot",
+                    "writer",
+                    "polish",
+                    "audit",
                 ),
             )
             return 0

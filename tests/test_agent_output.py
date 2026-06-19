@@ -32,7 +32,7 @@ def test_user_facing_allows_clarification_question() -> None:
     validate_agent_output(
         "这次要写第几章？",
         invocation=AgentInvocationContext(
-            agent_name="orchestrator",
+            agent_name="intent_router",
             interaction_mode="user_facing",
             task="negotiate_session",
         ),

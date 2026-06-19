@@ -42,15 +42,15 @@ http://127.0.0.1:8765
 1. 在“默认 API Base URL”输入你的模型服务地址。它必须兼容 OpenAI Chat Completions 格式，例如以 `/v1` 结尾的兼容接口地址。
 2. 在“默认 API Key”输入密钥。输入框会隐藏内容，密钥只保存到项目根目录 `.env`。
 3. 在“默认模型名”输入模型名，例如你的服务商提供的 chat 模型名称。
-4. 点击“测试并保存默认 API”。工具会先做一次最小连通性测试，成功后才把这组配置设为所有 Agent 的默认 API。
+4. 点击“测试并保存默认 API”。工具会先做一次最小连通性测试，成功后才把这组配置设为所有 profile 的默认 API。
 5. 如需语义检索，勾选“配置 embedding API”，填写 embedding base URL、API Key 和模型名，再点击“测试并保存 embedding API / 跳过”。如果暂时不配置，关键词检索仍可用。
 6. 点击“推荐可用端口”或手动输入端口，再点击“保存端口”。保存前会验证端口是否可用；保存成功后，下次双击 `WriterYang_WebUI.command` 会使用这个端口启动。
 
-真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和调用参数。初始引导完成后，这组 API 会作为 default；所有勾选“继承default”的 Agent 会继承 default 调用参数，并保留各自的 `temperature`、`thinking.type`、`reasoning` 业务设置。
+真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和调用参数。初始引导完成后，这组 API 会作为 default；`scribe`、`architect`、`loremaster`、`clerk` 四个 profile 默认继承 default，并可分别覆盖 `temperature`、`thinking.type`、`reasoning`、token 和超时等调用参数。
 
-以后如果你想单独调整某个 Agent，可以打开“模型与检索配置”页里的“Agent 模型配置”。勾选“继承default”时，`provider`、`model`、`base_url_env`、`api_key_env`、`json_response_format`、`max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries` 等调用字段会跟随 default 并锁定，`temperature`、`thinking.type`、`reasoning` 仍可编辑为 Agent 业务 patch。如果要单独切换 provider/model/token/timeout，取消勾选“继承default”，页面会把当前生效配置填入表单并保存为独立完整配置。如果当前 provider 不会发送某个参数，页面会显示 `NA` 并禁用该字段，例如 OpenAI-compatible 不发送 `thinking.type`，DeepSeek 开启 thinking 后不发送 `temperature`。右侧“当前 Agent 生效配置”会显示最终使用的是 default + 业务 patch 还是独立 Agent 配置；完整脱敏 JSON 只放在调试折叠区。不要把真实 API Key 写进配置页。
+以后如果你想单独调整模型能力，可以打开“模型与检索配置”页里的“Profile 模型配置”。页面展示 4 张 profile 模型卡：`scribe` 负责正文、润色和修订，`architect` 负责计划和审核，`loremaster` 负责灵感/设定/文风，`clerk` 负责状态提取、章节记忆、`intent_router` 和记忆修复。勾选“继承 default”时，profile 继承 default 的 provider/model/base URL/API env，并允许覆盖调用参数和业务参数；取消勾选后，页面会把当前生效配置填入表单并保存为独立完整 profile。如果当前 provider 不会发送某个参数，页面会显示 `NA` 并禁用该字段，例如 OpenAI-compatible 不发送 `thinking.type`，DeepSeek 开启 thinking 后不发送 `temperature`。右侧“当前 Profile 生效配置”会显示最终来源；完整脱敏 JSON 只放在调试折叠区。任务级覆盖在“高级”折叠区，默认隐藏，主要用于 `intent_router` 等少数 task 单独换模型。不要把真实 API Key 写进配置页。
 
-![Agent 模型配置页](assets/web-ui-guide/provider_config.png)
+![Profile 模型配置页](assets/web-ui-guide/provider_config.png)
 
 ## Provider 选项
 
@@ -59,7 +59,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 - `config`：使用项目里的模型配置，适合真实创作。
 - `mock`：离线测试用，不调用真实模型，只适合熟悉流程或排查问题。
 
-真实项目需要在 `config/agents.yaml` 配置顶层 `default` API；没有单独配置 API 的 Agent 会自动继承这个缺省配置。默认情况下，初始引导会帮你完成这一步。如果 Web UI 标红提示“default API config is missing”或环境变量不存在，说明项目还没有配置缺省 API，只能做 mock 测试，不能稳定进行真实创作。
+真实项目需要在 `config/agents.yaml` 配置顶层 `default` API；没有单独配置 API 的 profile/task 会自动继承这个缺省配置。默认情况下，初始引导会帮你完成这一步。如果 Web UI 标红提示“default API config is missing”或环境变量不存在，说明项目还没有配置缺省 API，只能做 mock 测试，不能稳定进行真实创作。
 
 “模型与检索配置”页可以在项目初始化后重新配置 embedding API。填写新的 Embedding Base URL、API Key、provider、模型名、`dimensions` 和 `batch_size` 后点击“测试并保存 embedding API”，工具会先用当前批量和维度做连通性测试，成功后把 API Key 写入项目 `.env`、把模型名和参数等非密钥配置写入 `config/embeddings.yaml`，清空输入框，随后自动刷新语义向量索引。DashScope `text-embedding-v4` 默认使用 `dimensions: 2048` 和 `batch_size: 10`。关键词检索是默认可用能力；如果 embedding API 没有配置好，页面会用红色提示“当前无法使用基于 embedding 的语义检索；普通关键词搜索仍可用”。工具只会在三种情况下调用外部 embedding API：你保存 embedding API 后的自动刷新、你明确点击“刷新语义向量索引”，或你启用“使用 embedding 语义检索”且当前语义向量缺失或过期。未启用 embedding 的普通关键词/FTS 检索不会调用外部 embedding API。
 
@@ -81,7 +81,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 创作工作台 | 日常创作入口。 | 填章节范围和聊天 / 指令，创建大纲、修改大纲、批准大纲、开始写作、按 Audit 修订内容、认可归档。 |
 | 文风设置 | 编辑或生成长期文笔和文风取向。 | 加载 `memory/style_guide.md` 后可手工编辑，也可让 `style_guide` Agent 生成草稿填入编辑器；保存会自动备份旧文件。 |
 | 小说状态管理 | 管理人物、物品、地点、背景、隐藏背景、伏笔、状态和时间线。 | 查看“状态和时间线”，或用项目管家生成记忆修复 proposal。 |
-| 模型与检索配置 | 管理 Agent 模型配置、embedding 配置和搜索索引。 | 检查 default API、编辑各 Agent 参数、刷新关键词索引或刷新语义向量索引。 |
+| 模型与检索配置 | 管理 Profile 模型配置、embedding 配置和搜索索引。 | 检查 default API、编辑各 profile 和高级 task 覆盖参数、刷新关键词索引或刷新语义向量索引。 |
 | 运行日志 / 项目文件 | 调试和排查问题。 | 查看安全文件树、只读预览、运行日志、provider calls 和 model I/O 摘要。 |
 
 ### 主页
@@ -146,7 +146,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 
 | 区域 | 用途 | 使用方法 |
 | --- | --- | --- |
-| Agent 模型配置 | 查看和编辑各 Agent 的非密钥模型配置。 | 非 `default` Agent 默认勾选“继承default”，调用字段跟随 default 并锁定，`temperature`、`thinking.type`、`reasoning` 可作为业务 patch 编辑；取消勾选后复制当前生效配置并开放 provider、model、base_url_env、api_key_env、token、timeout 等字段，不会生效的字段显示 `NA`。高级 JSON 折叠区按当前继承状态限制可编辑字段；不会显示或保存真实 API Key。 |
+| Profile 模型配置 | 查看和编辑 4 个 profile 的非密钥模型配置。 | Profile 默认勾选“继承 default”，可覆盖 `temperature`、`thinking.type`、`reasoning`、token 和超时等参数；取消勾选后复制当前生效配置并开放 provider、model、base_url_env、api_key_env 等字段。任务级覆盖放在高级折叠区，适合 `intent_router` 等少数 task 单独换模型；不会生效的字段显示 `NA`，不会显示或保存真实 API Key。 |
 | Embedding API 配置 | 重新测试并保存语义检索 API。 | 已配置成功时默认收起输入框，并显示“Embedding API 已配置”、provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。保存前会用当前批量和维度验证真实 API，保存成功后会清空输入框并自动刷新语义向量索引。API Key 只写入 `.env`。 |
 | 检索状态 | 显示 FTS 和 embedding 是否可用。 | 红色 embedding 提示表示语义检索不可用，但关键词检索仍可用。 |
 | 刷新关键词索引 | 增量刷新 FTS。 | 本地操作，不调用外部 API。 |

@@ -54,7 +54,7 @@ scripts/                # 本地质量门禁、smoke、排障、provider ping �
 project.yaml
 .env                 # [引导后] 本地私密 API 配置；git/Web 文件树/导出/日志都必须排除
 config/
-  agents.yaml        # Agent 默认 API 和各 Agent 覆盖参数；只保存 env 名
+  agents.yaml        # 默认 API、profiles 和 tasks 覆盖参数；只保存 env 名
   embeddings.yaml    # embedding provider 配置；只保存 env 名
 memory/
   inspiration.md     # init 创建空文件；inspire 后写入弱总纲
@@ -125,7 +125,7 @@ exports/
 - `install_git_hooks.py`：设置 `core.hooksPath=.githooks`，让 tracked pre-push hook 在推送前运行 `python scripts/check_local.py`。可用 `--dry-run` 预览；确需跳过时使用 `WRITERYANG_SKIP_PRE_PUSH=1 git push`。
 - `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke；真实 provider 可传 `--model`，脚本会把模型写入临时项目 default 配置，避免 Session 子命令沿用模板占位模型。
 - `debug_bundle.py`：生成脱敏排障包。它会移除已知密钥值，但 bundle 仍可能包含小说正文、隐藏设定和模型 I/O 摘要，不应外发或提交。
-- `provider_ping.py`：检查 agent/embedding provider 配置和可选真实调用。
+- `provider_ping.py`：检查 task/embedding provider 配置和可选真实调用。
 - `webui_smoke.py`：用 Playwright 跑最小 Web UI 流程。
 - `capture_webui_guide_screenshots.py`：用 mock 临时项目重新生成 Web UI 小白指南截图。
 - `project_health.py`：聚合 validate/status/usage/audit/session/export 状态。
@@ -276,7 +276,7 @@ def run_xxx(options: XxxOptions, provider: ModelProvider | None = None) -> XxxRe
 
 - `src/novel/prompts/{agent}_system.txt`：system prompt。
 - `core/{agent_service}.py`：options/result、prompt builder、provider 调用、schema 校验、文件写入。
-- `core/provider_config.py`、`core/setup_guide.py` 和默认 `config/agents.yaml` 生成逻辑：让标准 Agent 默认以 `inherit_default: true` 继承顶层 `default` 调用参数，并只写 `temperature`、`thinking`、`reasoning` 业务 patch；需要单独切换 provider/model/token/timeout 时再保存独立完整配置；`mock` 只作为显式测试入口。
+- `core/provider_config.py`、`core/setup_guide.py` 和默认 `config/agents.yaml` 生成逻辑：把新 task 映射到 4 个 profile 之一；profile 默认以 `inherit_default: true` 继承顶层 `default` 调用参数，并写入必要的 profile patch；需要单独切换 provider/model/token/timeout 时优先调整 profile，只有少数高杠杆 task 才写 `tasks` 覆盖；`mock` 只作为显式测试入口。
 - `core/schemas.py`：如果 Agent 输出结构化 JSON，新增 Pydantic model。
 - `tests/`：mock provider 成功、输出不合规、文件安全、CLI/API 集成。
 
@@ -298,7 +298,7 @@ def run_xxx(options: XxxOptions, provider: ModelProvider | None = None) -> XxxRe
 - `OpenAICompatibleProvider`：OpenAI Chat Completions 兼容 provider，包含 DeepSeek / ZAI 适配。
 - `LoggingModelProvider`：包裹真实和 mock provider，写 `runs/model_io/`。
 
-Agent provider 创建走 `core/provider_config.py::create_agent_provider()`，它会合并项目 `.env` 和当前进程环境。不要在业务 service 里直接读取 API Key。项目初始引导逻辑集中在 `core/setup_guide.py`，CLI/Web 只负责采集输入和展示结果。
+Agent provider 创建走 `core/provider_config.py::create_agent_provider()`，调用方传 task name，它会解析 `task -> profile -> default` 并合并项目 `.env` 和当前进程环境。不要在业务 service 里直接读取 API Key。项目初始引导逻辑集中在 `core/setup_guide.py`，CLI/Web 只负责采集输入和展示结果。
 
 `AgentConfig.json_response_format` 控制结构化输出请求的 `response_format`。默认 `auto` 保持 provider 兼容：`openai` 使用 `json_schema`，`deepseek`、`zai` 和通用 `openai_compatible` 使用 `json_object`。DeepSeek JSON Output 路径必须同时补 JSON prompt guard 和紧凑 schema skeleton；strict schema 只允许显式 opt-in，且不支持的 provider 要在本地 fail fast。
 

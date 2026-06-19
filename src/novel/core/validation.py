@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 from pydantic import ValidationError
 import yaml
 
+from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE
 from novel.core.chapter_memory import validate_chapter_memory
 from novel.core.consistency import check_project_consistency
 from novel.core.env import load_project_env
@@ -158,7 +159,7 @@ def _validate_loaded_project(
 ) -> None:
     _validate_schema_versions(report, root, loaded)
     _validate_duplicate_ids(report, root, loaded)
-    _validate_agent_names(report, root, loaded.agents)
+    _validate_provider_config_entries(report, root, loaded.agents)
     _validate_embedding_config(report, root, loaded.embeddings)
     _validate_references(report, root, loaded)
     if include_state:
@@ -307,38 +308,28 @@ def _require_unique(
         report.error(path, f"duplicate {label}: {duplicate}")
 
 
-def _validate_agent_names(
+def _validate_provider_config_entries(
     report: ValidationReport, root: Path, agents: AgentsConfig | None
 ) -> None:
     if not agents:
         return
     path = root / "config" / "agents.yaml"
-    required_agents = {
-        "orchestrator",
-        "inspiration",
-        "canon",
-        "plot",
-        "writer",
-        "polish",
-        "audit",
-        "state_update",
-        "chapter_memory",
-    }
+    required_profiles = set(PROFILE_NAMES)
     if agents.default is None:
         report.warning(path, "default API config is missing; real projects should define config/agents.yaml default")
-        missing = sorted(required_agents - set(agents.agents))
+        missing = sorted(required_profiles - set(agents.profiles))
         for name in missing:
-            report.warning(path, f"recommended agent is missing: {name}")
+            report.warning(path, f"recommended profile is missing: {name}")
     else:
-        _validate_single_agent_config(report, path, "default", agents.default)
-        _validate_agent_env_presence(report, root, path, "default", agents.default)
+        _validate_single_provider_config(report, path, "default", agents.default)
+        _validate_provider_env_presence(report, root, path, "default", agents.default)
         if agents.default.provider.lower() == "mock":
             report.warning(path, "default API config uses mock provider; mock is intended for tests only")
-    for name, config in agents.agents.items():
-        _validate_single_agent_config(report, path, name, config)
+    for name, config in agents.profiles.items():
+        _validate_single_provider_config(report, path, f"profile {name}", config)
         if getattr(config, "inherit_default", False) is True:
             if agents.default is None:
-                report.error(path, f"agent {name} inherits default but default API config is missing")
+                report.error(path, f"profile {name} inherits default but default API config is missing")
             continue
         if isinstance(config, AgentConfigPatch):
             provided = set(config.model_dump(exclude_none=True)) - {"inherit_default"}
@@ -346,22 +337,29 @@ def _validate_agent_names(
             detail = f": missing {', '.join(missing_fields)}" if missing_fields else ""
             report.error(
                 path,
-                f"agent {name} is incomplete; set inherit_default: true or provide a full independent config{detail}",
+                f"profile {name} is incomplete; set inherit_default: true or provide a full independent config{detail}",
             )
             continue
-        _validate_agent_env_presence(report, root, path, name, config)
+        _validate_provider_env_presence(report, root, path, f"profile {name}", config)
         if config.provider and config.provider.lower() == "mock":
-            report.warning(path, f"agent {name} uses mock provider; mock is intended for tests only")
+            report.warning(path, f"profile {name} uses mock provider; mock is intended for tests only")
+    unknown_tasks = sorted(set(agents.tasks) - set(TASK_TO_PROFILE))
+    for name in unknown_tasks:
+        report.error(path, f"unknown task config: {name}")
+    for name, config in agents.tasks.items():
+        _validate_single_provider_config(report, path, f"task {name}", config)
+        if getattr(config, "inherit_default", False) is True:
+            report.warning(path, f"task {name} sets inherit_default; task config is already applied on its profile")
 
 
-def _validate_single_agent_config(
+def _validate_single_provider_config(
     report: ValidationReport, path: Path, name: str, config: AgentConfig | AgentConfigPatch
 ) -> None:
     if config.api_key_env and config.api_key_env.startswith(("sk-", "sk_")):
-        report.error(path, f"agent {name} appears to store a raw API key")
+        report.error(path, f"provider config {name} appears to store a raw API key")
 
 
-def _validate_agent_env_presence(
+def _validate_provider_env_presence(
     report: ValidationReport,
     root: Path,
     path: Path,
@@ -370,9 +368,9 @@ def _validate_agent_env_presence(
 ) -> None:
     env = load_project_env(root)
     if config.api_key_env and not env.get(config.api_key_env):
-        report.warning(path, f"agent {name} api_key_env is not set: {config.api_key_env}")
+        report.warning(path, f"provider config {name} api_key_env is not set: {config.api_key_env}")
     if config.base_url_env and config.provider == "openai_compatible" and not env.get(config.base_url_env):
-        report.warning(path, f"agent {name} base_url_env is not set: {config.base_url_env}")
+        report.warning(path, f"provider config {name} base_url_env is not set: {config.base_url_env}")
 
 
 def _validate_embedding_config(

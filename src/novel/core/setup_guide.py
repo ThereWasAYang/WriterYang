@@ -11,8 +11,8 @@ from novel.core.agent_defaults import (
     DEFAULT_AGENT_MAX_TOKENS,
     DEFAULT_AGENT_TEMPERATURE,
     DEFAULT_AGENT_TIMEOUT_SECONDS,
-    STANDARD_AGENT_NAMES,
-    inherited_agent_config_patch,
+    PROFILE_NAMES,
+    inherited_profile_config_patch,
 )
 from novel.core.embeddings import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
@@ -44,7 +44,7 @@ DEFAULT_API_KEY_ENV = "WRITERYANG_DEFAULT_API_KEY"
 DEFAULT_BASE_URL_ENV = "WRITERYANG_DEFAULT_BASE_URL"
 DEFAULT_EMBEDDING_API_KEY_ENV = "WRITERYANG_EMBEDDING_API_KEY"
 DEFAULT_EMBEDDING_BASE_URL_ENV = "WRITERYANG_EMBEDDING_BASE_URL"
-DEFAULT_INHERITING_AGENT_NAMES = STANDARD_AGENT_NAMES
+DEFAULT_INHERITING_PROFILE_NAMES = PROFILE_NAMES
 
 
 class SetupGuideError(RuntimeError):
@@ -149,15 +149,15 @@ def update_default_agent_config(root: Path, config: AgentConfig) -> Path:
     data = _load_yaml_mapping(config_path)
     default_snapshot = config.model_dump(mode="json", exclude_none=True, exclude={"inherit_default"})
     data["default"] = default_snapshot
-    agents = data.get("agents")
-    if not isinstance(agents, dict):
-        agents = {}
-    for agent_name in DEFAULT_INHERITING_AGENT_NAMES:
-        current = agents.get(agent_name)
+    profiles = data.get("profiles")
+    if not isinstance(profiles, dict):
+        profiles = {}
+    for profile_name in DEFAULT_INHERITING_PROFILE_NAMES:
+        current = profiles.get(profile_name)
         if current is None or (isinstance(current, dict) and current.get("inherit_default") is True):
             current_mapping = current if isinstance(current, dict) else None
-            agents[agent_name] = inherited_agent_config_patch(agent_name, current_mapping)
-    data["agents"] = agents
+            profiles[profile_name] = inherited_profile_config_patch(profile_name, current_mapping)
+    data["profiles"] = profiles
     AgentsConfig.model_validate(data)
     backup_if_exists(config_path, reason="setup_guide_agents")
     atomic_write_yaml(config_path, data)

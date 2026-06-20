@@ -7,6 +7,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
+
 from novel.cli_shared import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import atomic_write_model_json, load_json_model, load_yaml
@@ -870,6 +872,40 @@ def test_api_provider_config_default_capacity_updates_inherited_profiles(tmp_pat
     config_path = root / "config" / "agents.yaml"
     assert resolve_agent_config(config_path, "writer").max_tokens == 1234
     assert resolve_agent_config(config_path, "audit").max_context_tokens == 5678
+
+
+def test_api_provider_config_default_save_drops_legacy_profile_patch(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    config_path = root / "config" / "agents.yaml"
+    agents = load_yaml(config_path)
+    agents["profiles"]["scribe"] = {  # type: ignore[index]
+        "inherit_default": True,
+        "max_tokens": 24000,
+        "max_context_tokens": 128000,
+        "timeout_seconds": 180.0,
+    }
+    agents["profiles"]["architect"] = {  # type: ignore[index]
+        "inherit_default": True,
+        "max_tokens": 8192,
+        "max_context_tokens": 128000,
+        "timeout_seconds": 120.0,
+    }
+    config_path.write_text(yaml.safe_dump(agents, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "default": {"max_tokens": 4321, "max_context_tokens": 8765}}),
+    )
+
+    assert status == 200
+    content = payload["data"]["config"]["content"]  # type: ignore[index]
+    for profile_name in ("scribe", "architect"):
+        assert content["profiles"][profile_name] == {"inherit_default": True}  # type: ignore[index]
+        effective = payload["data"]["effective_profiles"][profile_name]["config"]  # type: ignore[index]
+        assert effective["max_tokens"] == 4321
+        assert effective["max_context_tokens"] == 8765
 
 
 def test_api_provider_config_default_capacity_keeps_explicit_inherited_patch(tmp_path: Path) -> None:

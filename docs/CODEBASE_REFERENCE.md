@@ -408,9 +408,9 @@ Embedding provider：
 - `DEFAULT_AGENT_CONFIG`：顶层 `default` API 推荐默认值，只包含 provider/model/env 和容量类字段。
 - `PROFILE_NAMES`：允许配置的 4 个能力 profile。
 - `TASK_TO_PROFILE`：task 到 profile 的固定映射。
-- `PROFILE_CONFIG_DEFAULTS`：各 profile 的模型能力和容量默认值。
+- `PROFILE_CONFIG_DEFAULTS`：旧模板曾注入的 profile 容量默认值，仅用于迁移时识别并剥离 legacy patch，不再作为现行默认来源。
 - `TASK_BUSINESS_DEFAULTS`：各 task 的 `temperature`、`thinking`、`reasoning` 业务默认值。
-- `inherited_profile_config_patch()`：生成 `inherit_default: true` 的 profile patch，用于 workspace 初始化、setup guide 和 Web API 保存。
+- `inherited_profile_config_patch()`：生成 `inherit_default: true` 的 profile patch，用于 workspace 初始化、setup guide 和 Web API 保存；不写字段时完整跟随 `default`。
 
 ### `core/agent_output.py`
 

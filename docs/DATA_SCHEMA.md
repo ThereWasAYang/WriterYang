@@ -366,6 +366,7 @@ tasks:
 - `inherit_default: true` 用于 profile patch；不写其他字段时完整跟随 `default`，写入字段时只覆盖这些显式字段。
 - `inherit_default: false` 表示该 profile 或 task 是独立完整配置。Profile 可覆盖 provider、model、base URL、token limit、context、timeout、retry 和 `json_response_format`；task 还可以覆盖 `reasoning`、`thinking` 和 `temperature`。
 - 没有 `inherit_default: true` 的 partial override 不再兼容；要么声明继承并写 patch，要么写完整独立配置。
+- 旧模板曾给 inherited profile 自动写入容量 patch。保存 `default` 或重新执行初始引导时，系统会剥离等于旧模板默认值的 profile patch；历史配置没有记录这些值是否由用户显式写入，因此同值字段统一按 legacy patch 处理。
 - Profile 和 task 都可以覆盖 `json_response_format`。推荐保持 `auto`；`openai` 默认解析为 `json_schema`，`deepseek` / `zai` / `openai_compatible` 默认解析为 `json_object`。
 - `temperature`、`reasoning`、`thinking` 是 task-only 字段，写入 `default` 或 `profiles.*` 会被 schema 拒绝。
 - `mock` 仅用于测试和显式 debug run；不要把它作为真实项目默认值。

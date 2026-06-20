@@ -12,6 +12,7 @@ from novel.core.agent_defaults import (
     DEFAULT_AGENT_TIMEOUT_SECONDS,
     PROFILE_NAMES,
     TASK_ONLY_CONFIG_FIELDS,
+    drop_legacy_profile_default_patch,
     inherited_profile_config_patch,
 )
 from novel.core.embeddings import (
@@ -154,6 +155,7 @@ def update_default_agent_config(root: Path, config: AgentConfig) -> Path:
         current = profiles.get(profile_name)
         if current is None or (isinstance(current, dict) and current.get("inherit_default") is True):
             current_mapping = current if isinstance(current, dict) else None
+            current_mapping = drop_legacy_profile_default_patch(profile_name, current_mapping)
             profiles[profile_name] = inherited_profile_config_patch(profile_name, current_mapping)
     data["profiles"] = profiles
     AgentsConfig.model_validate(data)

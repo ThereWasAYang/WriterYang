@@ -94,6 +94,7 @@ def default_agent_config() -> dict[str, object]:
 
 
 def profile_config_defaults(profile_name: str) -> dict[str, object]:
+    """Return legacy profile defaults used only to strip old generated patches."""
     return deepcopy(PROFILE_CONFIG_DEFAULTS.get(profile_name, {}))
 
 
@@ -105,10 +106,28 @@ def inherited_profile_config_patch(
     profile_name: str,
     current: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    patch = {"inherit_default": True}
+    patch: dict[str, object] = {"inherit_default": True}
     if current:
         patch.update(profile_inherited_patch_fields(current))
     return patch
+
+
+def drop_legacy_profile_default_patch(
+    profile_name: str,
+    current: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    """Drop old template profile defaults so inherited profiles can follow default."""
+    if not current:
+        return None
+    legacy_defaults = profile_config_defaults(profile_name)
+    cleaned: dict[str, object] = {}
+    for key, value in current.items():
+        if key == "inherit_default":
+            continue
+        if key in legacy_defaults and legacy_defaults[key] == value:
+            continue
+        cleaned[key] = deepcopy(value)
+    return cleaned
 
 
 def config_patch_fields(config: Mapping[str, object]) -> dict[str, object]:

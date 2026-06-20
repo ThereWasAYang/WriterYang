@@ -2168,35 +2168,7 @@
       return patch;
     }
 
-    function buildProviderBusinessPatchFromForm() {
-      const patch = {};
-      [
-        ["max_tokens", "providerMaxTokensField"],
-        ["max_context_tokens", "providerMaxContextTokensField"],
-        ["timeout_seconds", "providerTimeoutSecondsField"],
-        ["max_retries", "providerMaxRetriesField"],
-      ].forEach(([key, id]) => {
-        const raw = $(id).value.trim();
-        if (!raw) return;
-        const value = Number(raw);
-        if (Number.isNaN(value)) throw new Error(`${key} 必须是数字`);
-        patch[key] = key === "timeout_seconds" ? value : Math.trunc(value);
-      });
-      const rawAdvanced = $("providerFieldEditor").value.trim();
-      if (rawAdvanced) {
-        try {
-          const advanced = JSON.parse(rawAdvanced);
-          if (advanced && typeof advanced === "object" && !Array.isArray(advanced) && advanced.json_response_format) {
-            patch.json_response_format = advanced.json_response_format;
-          }
-        } catch {
-          // Save path will surface the parse error.
-        }
-      }
-      return patch;
-    }
-
-    function providerBusinessPatchFromEditorAndForm() {
+    function providerInheritedPatchFromEditor() {
       const raw = $("providerFieldEditor").value.trim();
       let advanced = {};
       if (raw) {
@@ -2258,7 +2230,7 @@
         if (profileName === "default") {
           payload.default = providerPatchFromEditorAndForm();
         } else if ($("providerInheritDefaultField").checked) {
-          const patch = providerBusinessPatchFromEditorAndForm();
+          const patch = providerInheritedPatchFromEditor();
           patch.inherit_default = true;
           payload.profiles = { [profileName]: patch };
         } else {

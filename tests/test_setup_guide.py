@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 from novel.core.provider_config import resolve_agent_config
 from novel.core.env import load_project_env, read_project_env_file
 from novel.core.io import load_yaml
@@ -66,6 +68,46 @@ def test_configure_default_provider_writes_env_and_yaml_without_secret(
     assert captured["authorization"] == "Bearer secret-key"
     assert "temperature" not in captured["payload"]  # type: ignore[operator]
     assert "thinking" not in captured["payload"]  # type: ignore[operator]
+
+
+def test_configure_default_provider_drops_legacy_inherited_profile_patch(tmp_path: Path) -> None:
+    root = tmp_path / "novel"
+    init_workspace(InitOptions(title="测试小说", root=root))
+    agents_path = root / "config" / "agents.yaml"
+    agents = load_yaml(agents_path)
+    agents["profiles"]["scribe"] = {  # type: ignore[index]
+        "inherit_default": True,
+        "max_tokens": 24000,
+        "max_context_tokens": 128000,
+        "timeout_seconds": 180.0,
+    }
+    agents["profiles"]["architect"] = {  # type: ignore[index]
+        "inherit_default": True,
+        "max_tokens": 8192,
+        "max_context_tokens": 128000,
+        "timeout_seconds": 120.0,
+    }
+    agents_path.write_text(yaml.safe_dump(agents, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    configure_default_provider(
+        root,
+        base_url="https://api.example.test/v1",
+        api_key="secret-key",
+        model="new-default-model",
+        max_tokens=3333,
+        max_context_tokens=4444,
+        ping=False,
+    )
+
+    saved = load_yaml(agents_path)
+    assert saved["profiles"]["scribe"] == {"inherit_default": True}  # type: ignore[index]
+    assert saved["profiles"]["architect"] == {"inherit_default": True}  # type: ignore[index]
+    writer = resolve_agent_config(agents_path, "writer")
+    audit = resolve_agent_config(agents_path, "audit")
+    assert writer.max_tokens == 3333
+    assert writer.max_context_tokens == 4444
+    assert audit.max_tokens == 3333
+    assert audit.max_context_tokens == 4444
 
 
 def test_project_env_is_used_by_provider_creation(tmp_path: Path, monkeypatch) -> None:

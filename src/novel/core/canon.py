@@ -314,7 +314,7 @@ def format_canon_summary(canon: CanonFiles) -> str:
         f"- Hidden truths: {len(canon.hidden_truths.hidden_truths)}",
         f"- Foreshadowing threads: {len(canon.foreshadowing.foreshadowing_threads)}",
     ]
-    _extend_named(lines, "Characters", ((item.id, item.name) for item in canon.characters.characters))
+    _extend_named(lines, "Characters", ((item.id, _format_character_summary(item)) for item in canon.characters.characters))
     _extend_named(lines, "Locations", ((item.id, item.name) for item in canon.locations.locations))
     _extend_named(lines, "Items", ((item.id, item.name) for item in canon.items.items))
     _extend_named(lines, "World Rules", ((item.id, item.name) for item in canon.world.world_rules))
@@ -325,6 +325,24 @@ def format_canon_summary(canon: CanonFiles) -> str:
         ((item.id, item.title) for item in canon.foreshadowing.foreshadowing_threads),
     )
     return "\n".join(lines)
+
+
+def _format_character_summary(character: object) -> str:
+    name = getattr(character, "name", "")
+    role = getattr(character, "role", "")
+    gender = getattr(character, "gender", None)
+    summary = getattr(character, "reader_visible_summary", "")
+    tags = getattr(character, "tags", [])
+    parts = [str(name)]
+    if role:
+        parts.append(f"role={role}")
+    if gender:
+        parts.append(f"gender={gender}")
+    if summary:
+        parts.append(f"summary={summary}")
+    if isinstance(tags, list) and tags:
+        parts.append("tags=" + ", ".join(str(item) for item in tags))
+    return "；".join(parts)
 
 
 def format_canon_validation_report(report: ValidationReport) -> str:

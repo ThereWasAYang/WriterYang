@@ -520,6 +520,7 @@ def _cmd_revise_chapter(args: argparse.Namespace) -> int:
             instruction=instruction,
             from_audit=args.from_audit,
             target=args.target,
+            source_file=args.source_file,
             force=args.force,
             save_as_version=args.save_as_version,
             use_search_context=args.use_search_context,

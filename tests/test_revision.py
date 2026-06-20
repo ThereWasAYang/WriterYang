@@ -144,7 +144,70 @@ def test_revise_chapter_revision_log_is_created_and_appended(tmp_path: Path) -> 
     assert len(log.revisions) == 2
     assert log.revisions[0].output_file == "polished.v2.md"
     assert log.revisions[1].output_file == "polished.v3.md"
+    assert log.revisions[1].source_file == "polished.v2.md"
     assert log.revisions[1].instruction == "第二轮修订"
+
+
+def test_revise_chapter_source_file_can_select_base_version(tmp_path: Path) -> None:
+    root = _workspace_with_generated_chapter(tmp_path)
+
+    assert _run_cli(
+        [
+            "revise-chapter",
+            "1",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+            "--instruction",
+            "第一轮修订",
+        ]
+    )[0] == 0
+    assert _run_cli(
+        [
+            "revise-chapter",
+            "1",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+            "--source-file",
+            "polished.md",
+            "--instruction",
+            "基于基础稿修订",
+        ]
+    )[0] == 0
+
+    log = _revision_log(root)
+    assert log.revisions[1].source_file == "polished.md"
+    assert log.revisions[1].output_file == "polished.v3.md"
+
+
+def test_revise_chapter_defaults_to_existing_v1_version(tmp_path: Path) -> None:
+    root = _workspace_with_generated_chapter(tmp_path)
+    chapter_dir = root / "memory" / "chapters" / "001"
+    base_markdown = (chapter_dir / "polished.md").read_text(encoding="utf-8")
+    (chapter_dir / "polished.v1.md").write_text(
+        base_markdown.replace("status: polished", "status: polished_revision"),
+        encoding="utf-8",
+    )
+
+    assert _run_cli(
+        [
+            "revise-chapter",
+            "1",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+            "--instruction",
+            "继续修订",
+        ]
+    )[0] == 0
+
+    log = _revision_log(root)
+    assert log.revisions[0].source_file == "polished.v1.md"
+    assert log.revisions[0].output_file == "polished.v2.md"
 
 
 def test_revise_chapter_loop_requires_explicit_confirmation(tmp_path: Path) -> None:

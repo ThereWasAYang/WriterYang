@@ -529,11 +529,11 @@ memory/canon/characters.json
       "name": "林澈",
       "aliases": ["阿澈"],
       "role": "主角",
+      "gender": "男",
       "reader_visible_summary": "年轻的旧物修复师，性格沉静。",
       "private_author_notes": "他小时候曾在旧车站失踪三天，但本人没有完整记忆。",
       "appearance": {
         "age": 27,
-        "gender": "男",
         "description": "身形偏瘦，常穿深色外套。"
       },
       "personality": {

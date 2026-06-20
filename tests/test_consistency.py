@@ -75,6 +75,79 @@ def test_item_holder_location_and_possession_conflicts_are_reported(tmp_path: Pa
     assert "cons_item_holder_possession_item_bell" in finding_ids
 
 
+def test_state_update_old_value_allows_numeric_strings_and_missing_entity_state(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_characters(root)
+    _write_state(root, character_states=[])
+    _write_state_update_proposal(
+        root,
+        [
+            {
+                "id": "sc_sp_latest",
+                "chapter": 1,
+                "entity_id": "story_position",
+                "field": "latest_chapter",
+                "old_value": "1",
+                "new_value": "2",
+                "reason": "模型把数字旧值写成字符串。",
+                "source": "memory/chapters/001/polished.md",
+            },
+            {
+                "id": "sc_char_luc",
+                "chapter": 1,
+                "entity_id": "char_linyan",
+                "field": "last_updated_chapter",
+                "old_value": "0",
+                "new_value": "1",
+                "reason": "角色尚未创建 current_state 记录。",
+                "source": "memory/chapters/001/polished.md",
+            },
+        ],
+    )
+
+    result = check_chapter_consistency(root, 1, include_existing_audit=False)
+
+    assert not any(finding.id.startswith("cons_state_change_old_value_") for finding in result.findings)
+
+
+def test_state_update_old_value_real_mismatch_is_reported(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_state_update_proposal(
+        root,
+        [
+            {
+                "id": "sc_sp_latest",
+                "chapter": 1,
+                "entity_id": "story_position",
+                "field": "latest_chapter",
+                "old_value": 0,
+                "new_value": 2,
+                "reason": "旧值真的与 current_state 不一致。",
+                "source": "memory/chapters/001/polished.md",
+            }
+        ],
+    )
+
+    result = check_chapter_consistency(root, 1, include_existing_audit=False)
+
+    assert any(finding.id == "cons_state_change_old_value_sc_sp_latest" for finding in result.findings)
+
+
+def test_character_gendered_reference_conflict_is_reported(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_characters(root, gender="男", summary="邵家次子，性格沉稳。")
+
+    result = check_chapter_consistency(
+        root,
+        1,
+        audited_body="邵希夷一直坐在舫心竹几前。她面前的青瓷小盏里，残酒已冷。",
+        audited_file="polished.md",
+        include_existing_audit=False,
+    )
+
+    assert any(finding.id == "cons_gender_reference_001_char_linyan" for finding in result.findings)
+
+
 def test_timeline_dual_order_allows_flashback_story_order(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     _write_timeline(
@@ -170,6 +243,25 @@ def _write_hidden_truth(root: Path, *, reveal_chapter: int) -> None:
     )
 
 
+def _write_characters(root: Path, *, gender: str | None = None, summary: str = "林砚是测试角色。") -> None:
+    character: dict[str, object] = {
+        "id": "char_linyan",
+        "name": "邵希夷",
+        "role": "主要人物",
+        "reader_visible_summary": summary,
+        "tags": [],
+    }
+    if gender is not None:
+        character["gender"] = gender
+    _write_json(
+        root / "memory" / "canon" / "characters.json",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "characters": [character],
+        },
+    )
+
+
 def _write_state(
     root: Path,
     *,
@@ -202,6 +294,20 @@ def _write_state(
                     "last_updated_chapter": 1,
                 }
             ],
+        },
+    )
+
+
+def _write_state_update_proposal(root: Path, state_changes: list[dict[str, object]]) -> None:
+    _write_json(
+        root / "memory" / "chapters" / "001" / "state_update_proposal.json",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "chapter_number": 1,
+            "state_changes": state_changes,
+            "timeline_events": [],
+            "warnings": [],
+            "created_at": "2026-06-20T00:00:00Z",
         },
     )
 

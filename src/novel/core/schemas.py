@@ -15,6 +15,7 @@ Importance = Literal["low", "medium", "high", "critical"]
 GenericStatus = Literal["active", "inactive", "resolved", "unresolved", "deprecated"]
 TimelineEventRole = Literal["current_action", "flashback", "memory", "revelation", "summary", "backstory"]
 TimelineCertainty = Literal["certain", "inferred", "uncertain"]
+CharacterGender = Literal["男", "女", "未知"]
 CreationScopeType = Literal["chapters", "segments"]
 SessionRewriteAction = Literal["revision_rewrite", "plot_replan"]
 SessionRewriteStatus = Literal["started", "completed", "unresolved", "failed"]
@@ -377,6 +378,7 @@ class Character(FlexibleModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     name: str = Field(min_length=1)
     role: str = Field(min_length=1)
+    gender: CharacterGender | None = None
     reader_visible_summary: str = Field(min_length=1)
     aliases: list[str] = Field(default_factory=list)
     private_author_notes: str | None = None

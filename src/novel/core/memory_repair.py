@@ -232,6 +232,13 @@ def _prepare_memory_repair_decision(
     resolved_preflight_kind: MemoryChangeKind = change_kind or repair_decision.change_kind
     target_files, operations, notes = _sanitize_repair_decision(repair_decision)
     operations = _drop_unsafe_remove_operations(root, operations, notes)
+    operations, local_notes = _normalize_setting_change_gender_operations(
+        root,
+        operations,
+        change_kind=resolved_preflight_kind,
+    )
+    if local_notes:
+        notes.extend(local_notes)
     preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
     operations, local_notes, preflight_errors = _auto_repair_setting_change_semantics(
         root,
@@ -286,6 +293,14 @@ def _prepare_memory_repair_decision(
         operations, regression_notes = _restore_regressed_existing_add_operations(root, previous_operations, operations)
         if regression_notes:
             notes.extend(regression_notes)
+            target_files = sorted({*target_files, *(operation.file for operation in operations)})
+        operations, local_notes = _normalize_setting_change_gender_operations(
+            root,
+            operations,
+            change_kind=resolved_preflight_kind,
+        )
+        if local_notes:
+            notes.extend(local_notes)
             target_files = sorted({*target_files, *(operation.file for operation in operations)})
         preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=resolved_preflight_kind)
         operations, local_notes, preflight_errors = _auto_repair_setting_change_semantics(
@@ -1003,7 +1018,12 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
     try:
         if not proposal.operations:
             raise MemoryRepairError("memory repair proposal has no operations to apply")
-        preflight_errors = _preflight_memory_repair_operations(root, proposal.operations, change_kind=proposal.change_kind)
+        operations, _gender_notes = _normalize_setting_change_gender_operations(
+            root,
+            proposal.operations,
+            change_kind=proposal.change_kind,
+        )
+        preflight_errors = _preflight_memory_repair_operations(root, operations, change_kind=proposal.change_kind)
         if preflight_errors:
             log_app_warning(
                 root,
@@ -1019,7 +1039,7 @@ def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyRes
                 "memory repair proposal failed target schema preflight or semantic preflight: "
                 + _format_preflight_errors(preflight_errors)
             )
-        grouped = _group_operations(proposal.operations)
+        grouped = _group_operations(operations)
         for rel_path, operations in grouped.items():
             _ensure_allowed_file(rel_path)
             path = root / rel_path
@@ -1492,6 +1512,7 @@ def _target_schema_repair_prompt(
         "- timeline 的故事世界时间必须写入 story_position.time_label；story_position.certainty 只能是 certain、inferred 或 uncertain；顶层不要输出 certainty。\n"
         "- Location 顶层没有 description 字段；地点公开描述写 reader_visible_summary，隐藏/作者私有说明写 private_author_notes，地点规则写 rules[]；不要使用 /locations/{i}/description。\n"
         "- Character.role 只能表示叙事角色；默认使用主角、主要人物、配角、次要人物。家族身份、门派身份、排行、职业/江湖身份必须移入 tags，并可保留在 summary/notes。\n"
+        "- 明确性别必须写 Character.gender，值用 男 或 女；不要只向 tags 追加 男性/女性。\n"
         "- 不要把谢家长女、谢家次子、张家幼女、唐门二房之女、江湖散人、武当俗家弟子这类身份短语写入 Character.role。\n"
         "- reader_visible_summary 只能写读者可见信息；如果错误提示 hidden truth appears in reader_visible_summary，必须把隐藏内容移到 private_author_notes 或 hidden_truths.json，不要放在 reader_visible_summary。\n"
         "- 如果错误提示 add would duplicate existing ... at /collection/index 或 duplicate ... id，说明该实体已经存在；"
@@ -2399,6 +2420,145 @@ def _collection_id_index(data: object, collection_key: str) -> dict[str, int]:
         if isinstance(item_id, str) and item_id not in indexes:
             indexes[item_id] = index
     return indexes
+
+
+def _normalize_setting_change_gender_operations(
+    root: Path,
+    operations: list[MemoryRepairOperation],
+    *,
+    change_kind: MemoryChangeKind | None,
+) -> tuple[list[MemoryRepairOperation], list[str]]:
+    if change_kind != "setting_change":
+        return operations, []
+    normalized: list[MemoryRepairOperation] = []
+    notes: list[str] = []
+    for operation in operations:
+        converted = _normalize_character_gender_tag_operation(root, operation)
+        if converted is not None:
+            normalized.append(converted)
+            notes.append(f"{converted.path}={converted.value}")
+            continue
+        converted = _normalize_character_gender_in_object(operation)
+        if converted is not None:
+            normalized.append(converted)
+            notes.append(_operation_semantic_location(converted))
+            continue
+        normalized.append(operation)
+    if not notes:
+        return operations, []
+    return normalized, ["已将角色性别设定归一化为 Character.gender：" + "；".join(notes)]
+
+
+def _normalize_character_gender_tag_operation(
+    root: Path,
+    operation: MemoryRepairOperation,
+) -> MemoryRepairOperation | None:
+    parts = _pointer_parts(operation.path)
+    if (
+        operation.file != "memory/canon/characters.json"
+        or operation.op not in {"add", "replace"}
+        or len(parts) != 4
+        or parts[0] != "characters"
+        or not parts[1].isdigit()
+        or parts[2] != "tags"
+    ):
+        return None
+    gender = _canonical_gender_value(operation.value)
+    if gender is None:
+        return None
+    character_index = int(parts[1])
+    op = "replace" if _character_field_exists(root, character_index, "gender") else "add"
+    return operation.model_copy(
+        update={
+            "op": op,
+            "path": f"/characters/{character_index}/gender",
+            "value": gender,
+            "reason": "将性别标签归一化为 Character.gender；" + operation.reason,
+        }
+    )
+
+
+def _normalize_character_gender_in_object(operation: MemoryRepairOperation) -> MemoryRepairOperation | None:
+    parts = _pointer_parts(operation.path)
+    if (
+        operation.file != "memory/canon/characters.json"
+        or operation.op not in {"add", "replace"}
+        or len(parts) != 2
+        or parts[0] != "characters"
+        or not isinstance(operation.value, dict)
+    ):
+        return None
+    value = json.loads(json.dumps(operation.value, ensure_ascii=False))
+    existing_gender = _canonical_gender_value(value.get("gender"))
+    if existing_gender is not None:
+        if value.get("gender") == existing_gender:
+            return None
+        value["gender"] = existing_gender
+        return operation.model_copy(update={"value": value})
+    gender = _gender_from_character_payload(value)
+    if gender is None:
+        return None
+    value["gender"] = gender
+    return operation.model_copy(update={"value": value})
+
+
+def _gender_from_character_payload(value: dict[str, object]) -> str | None:
+    values: list[str] = []
+    for item in _string_values(value.get("tags")):
+        gender = _canonical_gender_value(item)
+        if gender is not None:
+            return gender
+        values.append(item)
+    for field in ("reader_visible_summary", "private_author_notes"):
+        text = value.get(field)
+        if not isinstance(text, str):
+            continue
+        values.append(text)
+    text = " ".join(values)
+    has_male = _has_male_gender_marker(text)
+    has_female = _has_female_gender_marker(text)
+    if has_male and not has_female:
+        return "男"
+    if has_female and not has_male:
+        return "女"
+    return None
+
+
+def _has_male_gender_marker(text: str) -> bool:
+    if any(marker in text for marker in ("男性", "男子", "长子", "次子", "幼子", "少子", "庶子", "嫡子")):
+        return True
+    return bool(re.search(r"[\u4e00-\u9fff]{1,8}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?子", text))
+
+
+def _has_female_gender_marker(text: str) -> bool:
+    if any(marker in text for marker in ("女性", "女子", "长女", "次女", "幼女", "少女", "姑娘", "庶女", "嫡女")):
+        return True
+    return bool(re.search(r"[\u4e00-\u9fff]{1,8}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?女", text))
+
+
+def _canonical_gender_value(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if normalized in {"男", "男性"}:
+        return "男"
+    if normalized in {"女", "女性"}:
+        return "女"
+    return None
+
+
+def _character_field_exists(root: Path, index: int, field: str) -> bool:
+    try:
+        data = load_json(root / "memory/canon/characters.json")
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    characters = data.get("characters")
+    if not isinstance(characters, list) or index >= len(characters):
+        return False
+    character = characters[index]
+    return isinstance(character, dict) and field in character
 
 
 def _auto_repair_setting_change_semantics(

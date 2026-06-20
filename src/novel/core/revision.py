@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-import re
 from typing import Literal
 
 from novel.core.agent_output import (
@@ -11,6 +10,7 @@ from novel.core.agent_output import (
     AgentOutputContract,
     generate_with_output_guard,
 )
+from novel.core.chapter_versions import is_allowed_chapter_version_name, latest_chapter_version_path, next_chapter_version_path
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.drafting import _chapter_number_text
@@ -50,6 +50,7 @@ class ChapterRevisionOptions:
     instruction: str | None = None
     from_audit: bool = False
     target: RevisionTarget = "polished"
+    source_file: str | None = None
     force: bool = False
     save_as_version: bool = True
     use_search_context: bool = False
@@ -229,7 +230,7 @@ def load_revision_context(
     options: ChapterRevisionOptions,
 ) -> tuple[RevisionContext, list[str]]:
     chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
-    source_file = f"{options.target}.md"
+    source_file = _resolve_revision_source_file(chapter_dir, options)
     source_path = chapter_dir / source_file
     plan_path = chapter_dir / "plan.json"
     audit_path = chapter_dir / "audit.json"
@@ -402,13 +403,17 @@ def default_mock_revised_body(target: RevisionTarget = "polished") -> str:
 def _revision_output_path(chapter_dir: Path, target: RevisionTarget, save_as_version: bool) -> Path:
     if not save_as_version:
         return chapter_dir / f"{target}.md"
-    existing_versions = [1]
-    pattern = re.compile(rf"^{re.escape(target)}\.v([0-9]+)\.md$")
-    for path in chapter_dir.glob(f"{target}.v*.md"):
-        match = pattern.match(path.name)
-        if match:
-            existing_versions.append(int(match.group(1)))
-    return chapter_dir / f"{target}.v{max(existing_versions) + 1}.md"
+    return next_chapter_version_path(chapter_dir, target)
+
+
+def _resolve_revision_source_file(chapter_dir: Path, options: ChapterRevisionOptions) -> str:
+    if options.source_file:
+        if not is_allowed_chapter_version_name(options.source_file, options.target):
+            raise RevisionError(
+                f"source_file must be {options.target}.md or {options.target}.vN.md, got {options.source_file}"
+            )
+        return options.source_file
+    return latest_chapter_version_path(chapter_dir, options.target).name
 
 
 def _append_revision_log(path: Path, chapter_number: int, record: RevisionRecord) -> None:

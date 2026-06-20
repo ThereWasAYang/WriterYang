@@ -724,6 +724,31 @@ def test_api_save_chapter_file_creates_version_and_revision_log(tmp_path: Path) 
     assert log["revisions"][0]["provider"] == "web_editor"
 
 
+def test_api_save_chapter_file_defaults_to_latest_version_source(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    _write_chapter_file(root, "polished.md", "原始正文")
+    _write_chapter_file(root, "polished.v2.md", "第二版正文")
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/save-chapter-file",
+        "",
+        json.dumps(
+            {
+                "path": str(root),
+                "chapter_number": 1,
+                "target": "polished",
+                "content": "---\nchapter_number: 1\ntitle: 雨夜旧车站\nstatus: polished_revision\n---\n\n第三版正文\n",
+            }
+        ),
+    )
+
+    assert status == 200
+    assert payload["data"]["relative_path"] == "memory/chapters/001/polished.v3.md"  # type: ignore[index]
+    log = json.loads((root / "memory" / "chapters" / "001" / "revision_log.json").read_text(encoding="utf-8"))
+    assert log["revisions"][0]["source_file"] == "polished.v2.md"
+
+
 def test_api_save_accepted_chapter_does_not_overwrite_base_file(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     polished_path = _write_chapter_file(root, "polished.md", "原始正文")

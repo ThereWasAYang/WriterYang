@@ -899,6 +899,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Source and output version family to revise. Defaults to polished.",
     )
     revise_parser.add_argument(
+        "--source-file",
+        default=None,
+        help="Specific source version to revise, such as polished.md or polished.v2.md. Defaults to the latest version.",
+    )
+    revise_parser.add_argument(
         "--provider",
         default="config",
         choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),

@@ -51,6 +51,11 @@ from novel.core.chapter_memory import (
     generate_chapter_memory,
     load_chapter_memory_provider,
 )
+from novel.core.chapter_versions import (
+    is_allowed_chapter_version_name,
+    latest_chapter_version_path,
+    next_chapter_version_path,
+)
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.env import load_project_env
 from novel.core.exporting import DocxExportOptions, MarkdownExportOptions, export_docx, export_markdown, parse_chapter_selector
@@ -839,7 +844,7 @@ def _save_chapter_file(data: dict[str, object]) -> dict[str, object]:
     if not content.strip():
         raise WebAPIError("invalid_request", "content must not be empty", status=400)
     chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
-    source_name = str(data.get("source_file") or f"{target}.md")
+    source_name = str(data.get("source_file") or latest_chapter_version_path(chapter_dir, target).name)
     if not _is_allowed_chapter_version_name(source_name, target):
         raise WebAPIError("forbidden_file", "source_file is not an editable chapter version", status=403)
     source_path = chapter_dir / source_name
@@ -2779,17 +2784,11 @@ def _compact_text(value: str) -> str:
 
 
 def _is_allowed_chapter_version_name(file_name: str, target: str) -> bool:
-    return bool(re.fullmatch(rf"{re.escape(target)}(?:\.v[0-9]+)?\.md", file_name))
+    return is_allowed_chapter_version_name(file_name, target)
 
 
 def _next_version_path(chapter_dir: Path, target: str) -> Path:
-    existing = [1]
-    pattern = re.compile(rf"^{re.escape(target)}\.v([0-9]+)\.md$")
-    for path in chapter_dir.glob(f"{target}.v*.md"):
-        match = pattern.match(path.name)
-        if match:
-            existing.append(int(match.group(1)))
-    return chapter_dir / f"{target}.v{max(existing) + 1}.md"
+    return next_chapter_version_path(chapter_dir, target)
 
 
 def _new_revision_id() -> str:

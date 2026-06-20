@@ -48,6 +48,7 @@
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
 - `src/novel/core/chapter_memory.py`
+- `src/novel/core/chapter_versions.py`
 - `src/novel/core/consistency.py`
 - `src/novel/core/context_budget.py`
 - `src/novel/core/drafting.py`
@@ -80,6 +81,7 @@
 - `src/novel/core/security.py`
 - `src/novel/core/session.py`
 - `src/novel/core/setup_guide.py`
+- `src/novel/core/state_change_values.py`
 - `src/novel/core/state_update.py`
 - `src/novel/core/structured_generation.py`
 - `src/novel/core/style_guide.py`
@@ -574,7 +576,15 @@ Audit 作者可读文案本地化：
 - `_check_item_flow()`：物品 holder/location 和 possession 双向一致。
 - `_check_timeline_order()`：timeline narrative order、story-world causes/effects 和 scene 边界。
 - `_check_hidden_truth_body_exposure()` / `_check_reader_visible_hidden_truth_leaks()`：hidden truth 暴露边界。
+- `_check_character_gendered_references()`：保守检查正文中明显性别化指代是否与 canon 的 `gender`、`appearance.gender` 或明确排行短语冲突。
 - `_check_chapter_loop()` / `_check_accepted_chapter_loop()`：plan/draft/polished/audit/state/metadata 闭环。
+
+### `core/state_change_values.py`
+
+状态变更旧值比较工具：
+
+- `compare_state_change_old_value()`：统一 state update apply 和 consistency validate 的 `old_value` 语义，支持数字字符串等价，并把缺失 entity state 视为尚未跟踪而非冲突。
+- `current_state_value_for_change()` / `state_values_equivalent()`：提取当前 state 字段值并执行宽松等价比较。
 
 ### `core/state_update.py`
 
@@ -590,6 +600,14 @@ Audit 作者可读文案本地化：
 - `mark_chapter_accepted()` / `write_chapter_metadata()`。
 - `build_state_update_user_prompt()` / `parse_state_update_proposal()`。
 - `_generate_state_update_proposal_with_repair()`：输出守卫 + schema repair。
+
+### `core/chapter_versions.py`
+
+章节正文版本文件工具：
+
+- `latest_chapter_version_path()`：选择 `draft.vN.md` / `polished.vN.md` 中最新版本，找不到时回退基础文件。
+- `next_chapter_version_path()`：生成下一版 `draft.vN.md` / `polished.vN.md` 输出路径。
+- `is_allowed_chapter_version_name()`：校验 Web/CLI 可编辑的章节版本文件名。
 
 ### `core/chapter_memory.py`
 
@@ -610,7 +628,7 @@ Audit 作者可读文案本地化：
 - `ChapterRevisionOptions` / `ChapterRevisionResult` / `RevisionLoopOptions` / `RevisionLoopResult` / `RevisionContext`。
 - `revise_chapter()`：根据 instruction 或 audit 生成版本文件。
 - `revise_chapter_loop()`：受最大轮数和人工确认限制的循环修订。
-- `load_revision_context()`：加载 plan、source markdown、audit、style、canon、state、timeline。
+- `load_revision_context()`：加载 plan、source markdown、audit、style、canon、state、timeline；默认 source markdown 使用最新 `draft.vN.md` / `polished.vN.md`，也支持显式 source file。
 - `build_revision_user_prompt()` / `render_revised_markdown()`。
 - `_revision_output_path()`：选择 `draft.vN.md` 或 `polished.vN.md`。
 - `_append_revision_log()`：更新 revision_log。

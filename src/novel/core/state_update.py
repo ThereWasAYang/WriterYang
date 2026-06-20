@@ -47,6 +47,7 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
+from novel.core.state_change_values import compare_state_change_old_value
 from novel.core.structured_generation import (
     REPAIR_ERROR_LIMIT,
     REPAIR_INVALID_OUTPUT_LIMIT,
@@ -1161,75 +1162,21 @@ def _validate_state_change_old_values(
     character_ids = {item.id for item in canon.characters.characters}
     location_ids = {item.id for item in canon.locations.locations}
     item_ids = {item.id for item in canon.items.items}
-    character_states = {item.entity_id: item for item in state.character_states}
-    item_states = {item.entity_id: item for item in state.item_states}
-    location_states = {item.entity_id: item for item in state.location_states}
     for change in changes:
-        if change.old_value is None:
+        comparison = compare_state_change_old_value(
+            state,
+            change,
+            character_ids=character_ids,
+            item_ids=item_ids,
+            location_ids=location_ids,
+        )
+        if not comparison.should_check:
             continue
-        target: Any | None
-        if change.entity_id == "story_position":
-            target = state.story_position
-        elif change.entity_id in character_ids:
-            target = character_states.get(change.entity_id)
-        elif change.entity_id in item_ids:
-            target = item_states.get(change.entity_id)
-        elif change.entity_id in location_ids:
-            target = location_states.get(change.entity_id)
-        else:
-            target = None
-        if target is None and change.entity_id != "story_position":
-            # Missing entity state means the project has not tracked this entity yet.
-            # Treat old_value as model-inferred story context, not an authoritative
-            # conflict against current_state.json.
-            continue
-        actual = _current_state_value_for_change(target, change)
-        if not _state_values_equivalent(actual, change.old_value):
+        if not comparison.matches:
             raise StateUpdateError(
                 f"state change {change.id} old_value mismatch for {change.entity_id}.{change.field}: "
-                f"expected {change.old_value!r}, actual {actual!r}"
+                f"expected {change.old_value!r}, actual {comparison.actual!r}"
             )
-
-
-def _current_state_value_for_change(target: Any | None, change: StateChange) -> Any:
-    if target is not None:
-        return getattr(target, change.field, None)
-    defaults: dict[str, Any] = {
-        "possessions": [],
-        "knowledge": [],
-        "goals": [],
-        "known_properties": [],
-        "active_events": [],
-    }
-    return defaults.get(change.field)
-
-
-def _state_values_equivalent(actual: Any, expected: Any) -> bool:
-    if actual == expected:
-        return True
-    if _numeric_values_equivalent(actual, expected):
-        return True
-    return _is_empty_state_scalar(actual) and _is_empty_state_scalar(expected)
-
-
-def _numeric_values_equivalent(left: Any, right: Any) -> bool:
-    if isinstance(left, bool) or isinstance(right, bool):
-        return False
-    if isinstance(left, int | float) and isinstance(right, str):
-        try:
-            return left == float(right.strip()) if "." in right else left == int(right.strip())
-        except ValueError:
-            return False
-    if isinstance(right, int | float) and isinstance(left, str):
-        try:
-            return right == float(left.strip()) if "." in left else right == int(left.strip())
-        except ValueError:
-            return False
-    return False
-
-
-def _is_empty_state_scalar(value: Any) -> bool:
-    return value is None or value == ""
 
 
 def _validate_applied_timeline(root: Path, timeline: TimelineFile) -> None:

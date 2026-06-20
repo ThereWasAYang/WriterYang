@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Iterable, Literal, TypeVar
+from typing import Any, Iterable, Literal, TypeVar
 
 from pydantic import BaseModel
 import yaml
@@ -27,6 +27,7 @@ from novel.core.schemas import (
     TimelineFile,
     WorldFile,
 )
+from novel.core.state_change_values import compare_state_change_old_value
 
 
 Severity = Literal["low", "medium", "high", "critical"]
@@ -171,6 +172,7 @@ def _check_snapshot(snapshot: ConsistencySnapshot) -> ConsistencyResult:
     findings.extend(_check_chapter_loop(snapshot))
     findings.extend(_check_body_workspace_language(snapshot))
     findings.extend(_check_unplanned_character_mentions(snapshot))
+    findings.extend(_check_character_gendered_references(snapshot))
     if not findings:
         passed.append("deterministic_consistency_checks_passed")
     else:
@@ -354,14 +356,22 @@ def _check_item_mentions_against_plan(snapshot: ConsistencySnapshot) -> list[Con
 def _check_state_update_old_values(snapshot: ConsistencySnapshot) -> list[ConsistencyFinding]:
     if not snapshot.state or not snapshot.proposal or snapshot.apply_log:
         return []
-    state_values = _state_value_lookup(snapshot.state)
+    character_ids = {item.id for item in snapshot.characters.characters} if snapshot.characters else set()
+    item_ids = {item.id for item in snapshot.items.items} if snapshot.items else set()
+    location_ids = {item.id for item in snapshot.locations.locations} if snapshot.locations else set()
     findings: list[ConsistencyFinding] = []
     source = _chapter_dir(snapshot) / "state_update_proposal.json"
     for change in snapshot.proposal.state_changes:
-        if change.old_value is None:
+        comparison = compare_state_change_old_value(
+            snapshot.state,
+            change,
+            character_ids=character_ids,
+            item_ids=item_ids,
+            location_ids=location_ids,
+        )
+        if not comparison.should_check:
             continue
-        actual = state_values.get((change.entity_id, change.field))
-        if actual != change.old_value:
+        if not comparison.matches:
             findings.append(
                 ConsistencyFinding(
                     id=f"cons_state_change_old_value_{change.id}",
@@ -369,7 +379,7 @@ def _check_state_update_old_values(snapshot: ConsistencySnapshot) -> list[Consis
                     type="state_conflict",
                     description=f"状态变更 {change.id} 的 old_value 已与 current_state 不一致。",
                     source=source,
-                    quote=f"expected={change.old_value!r}; actual={actual!r}",
+                    quote=f"expected={change.old_value!r}; actual={comparison.actual!r}",
                     suggested_fix="应用前基于当前 state 重新生成 state update proposal。",
                 )
             )
@@ -668,6 +678,115 @@ def _check_unplanned_character_mentions(snapshot: ConsistencySnapshot) -> list[C
             )
         )
     return findings
+
+
+def _check_character_gendered_references(snapshot: ConsistencySnapshot) -> list[ConsistencyFinding]:
+    if not snapshot.characters or not snapshot.audited_body:
+        return []
+    body = snapshot.audited_body
+    character_names = [item.name for item in snapshot.characters.characters if item.name]
+    findings: list[ConsistencyFinding] = []
+    for character in snapshot.characters.characters:
+        gender = _infer_character_gender(character)
+        if gender is None or character.name not in body:
+            continue
+        quote = _gender_conflict_quote(body, character.name, gender, character_names)
+        if quote is None:
+            continue
+        findings.append(
+            ConsistencyFinding(
+                id=f"cons_gender_reference_{snapshot.chapter_number or 0:03d}_{character.id}",
+                severity="medium",
+                type="continuity_issue",
+                description=f"角色 {character.id} 的正文性别指代疑似与 canon 不一致。",
+                source=_chapter_file(snapshot),
+                quote=quote[:160],
+                suggested_fix="根据 canon 中的角色性别修订该角色附近的代词和性别化称谓。",
+            )
+        )
+    return findings
+
+
+def _infer_character_gender(character: Any) -> Literal["male", "female"] | None:
+    gender = _normalize_gender_value(getattr(character, "gender", None))
+    if gender is not None:
+        return gender
+    appearance = getattr(character, "appearance", None)
+    if isinstance(appearance, dict):
+        gender = _normalize_gender_value(appearance.get("gender"))
+        if gender is not None:
+            return gender
+    values: list[str] = []
+    for value in (
+        getattr(character, "reader_visible_summary", None),
+        getattr(character, "private_author_notes", None),
+    ):
+        if isinstance(value, str):
+            values.append(value)
+    tags = getattr(character, "tags", None)
+    if isinstance(tags, list):
+        values.extend(item for item in tags if isinstance(item, str))
+    text = " ".join(values)
+    has_male = _has_male_marker(text)
+    has_female = _has_female_marker(text)
+    if has_male and not has_female:
+        return "male"
+    if has_female and not has_male:
+        return "female"
+    return None
+
+
+def _normalize_gender_value(value: object) -> Literal["male", "female"] | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"男", "男性", "male", "m"}:
+        return "male"
+    if normalized in {"女", "女性", "female", "f"}:
+        return "female"
+    return None
+
+
+def _has_male_marker(text: str) -> bool:
+    if any(marker in text for marker in ("男性", "男子", "长子", "次子", "幼子", "少子", "庶子", "嫡子")):
+        return True
+    return bool(re.search(r"[\u4e00-\u9fff]{1,8}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?子", text))
+
+
+def _has_female_marker(text: str) -> bool:
+    if any(marker in text for marker in ("女性", "女子", "长女", "次女", "幼女", "少女", "姑娘", "庶女", "嫡女")):
+        return True
+    return bool(re.search(r"[\u4e00-\u9fff]{1,8}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?女", text))
+
+
+def _gender_conflict_quote(
+    body: str,
+    character_name: str,
+    gender: Literal["male", "female"],
+    character_names: list[str],
+) -> str | None:
+    conflict_patterns = (
+        (r"她(?:面前|背后|目光|指尖|心中|额前|膝上|的话|的)", r"两个女子")
+        if gender == "male"
+        else (r"他(?:面前|背后|目光|指尖|心中|额前|膝上|的话|的)", r"两个男子")
+    )
+    for match in re.finditer(re.escape(character_name), body):
+        window = body[match.end() : match.end() + 120]
+        group_match = re.search(conflict_patterns[1], window)
+        if group_match:
+            return body[match.start() : match.end() + group_match.end() + 30]
+        pronoun_match = re.search(conflict_patterns[0], window)
+        if not pronoun_match:
+            continue
+        before_pronoun = window[: pronoun_match.start()]
+        if _contains_other_character_name(before_pronoun, character_name, character_names):
+            continue
+        return body[match.start() : match.end() + pronoun_match.end() + 30]
+    return None
+
+
+def _contains_other_character_name(text: str, character_name: str, character_names: list[str]) -> bool:
+    return any(name != character_name and name in text for name in character_names)
 
 
 def _check_reader_visible_hidden_truth_leaks(root: Path) -> list[ConsistencyFinding]:

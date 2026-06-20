@@ -1227,7 +1227,11 @@
       let storedFailed = false;
       if (sessionId) {
         $("sessionId").value = sessionId;
-        storedData = await loadCurrentSession({ silent: true });
+        try {
+          storedData = await apiGet("/api/session", { path: projectPath(), session_id: sessionId });
+        } catch (error) {
+          storedData = null;
+        }
       }
       if (sessionId && !storedData) {
         storedFailed = true;
@@ -1235,11 +1239,17 @@
         $("sessionId").value = "";
         renderOutlinePreviewPlaceholder();
       }
-      const latestData = await loadLatestActiveSession({ silent: true });
+      let latestData = null;
+      try {
+        latestData = await apiGet("/api/session/latest", { path: projectPath() });
+      } catch (error) {
+        latestData = null;
+      }
       if (
         latestData
         && (!storedData || (sessionHasGeneratedContent(latestData.session) && !sessionHasGeneratedContent(storedData.session)))
       ) {
+        await applyLoadedSessionData(latestData, { silent: true });
         if (!options.silent) setMessage(`已恢复最近 Session：${latestData.session.session_id}`);
         return latestData;
       }

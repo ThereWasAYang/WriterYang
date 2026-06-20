@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Any, Iterable, Literal, TypeVar
+from typing import Iterable, Literal, TypeVar
 
 from pydantic import BaseModel
 import yaml
 
+from novel.core.gender import CharacterGenderValue, infer_character_gender
 from novel.core.io import load_json, load_json_model
 from novel.core.schemas import (
     AuditEvidence,
@@ -140,7 +141,20 @@ def check_project_consistency(root: Path) -> ConsistencyResult:
     root = root.resolve()
     findings: list[ConsistencyFinding] = []
     passed: list[str] = []
-    findings.extend(_check_reader_visible_hidden_truth_leaks(root))
+    findings.extend(check_canon_consistency(root).findings)
+    project_snapshot = ConsistencySnapshot(
+        root=root,
+        characters=_load_optional_model(root / "memory" / "canon" / "characters.json", CharactersFile),
+        locations=_load_optional_model(root / "memory" / "canon" / "locations.json", LocationsFile),
+        items=_load_optional_model(root / "memory" / "canon" / "items.json", ItemsFile),
+        hidden_truths=_load_optional_model(root / "memory" / "canon" / "hidden_truths.json", HiddenTruthsFile),
+        foreshadowing=_load_optional_model(root / "memory" / "canon" / "foreshadowing.json", ForeshadowingFile),
+        state=_load_optional_model(root / "memory" / "state" / "current_state.json", EntityState),
+        timeline=_load_optional_model(root / "memory" / "state" / "timeline.json", TimelineFile),
+    )
+    project_result = _check_snapshot(project_snapshot)
+    findings.extend(project_result.findings)
+    passed.extend(project_result.passed_checks)
     chapters_dir = root / "memory" / "chapters"
     if chapters_dir.exists():
         for chapter_dir in sorted(path for path in chapters_dir.iterdir() if path.is_dir()):
@@ -160,6 +174,13 @@ def check_project_consistency(root: Path) -> ConsistencyResult:
     if not findings:
         passed.append("project_consistency_checks_passed")
     return ConsistencyResult(findings=tuple(_dedupe_findings(findings)), passed_checks=tuple(_dedupe_strings(passed)))
+
+
+def check_canon_consistency(root: Path) -> ConsistencyResult:
+    root = root.resolve()
+    findings = _check_reader_visible_hidden_truth_leaks(root)
+    passed = [] if findings else ["canon_consistency_checks_passed"]
+    return ConsistencyResult(findings=tuple(_dedupe_findings(findings)), passed_checks=tuple(passed))
 
 
 def _check_snapshot(snapshot: ConsistencySnapshot) -> ConsistencyResult:
@@ -687,7 +708,7 @@ def _check_character_gendered_references(snapshot: ConsistencySnapshot) -> list[
     character_names = [item.name for item in snapshot.characters.characters if item.name]
     findings: list[ConsistencyFinding] = []
     for character in snapshot.characters.characters:
-        gender = _infer_character_gender(character)
+        gender = infer_character_gender(character)
         if gender is None or character.name not in body:
             continue
         quote = _gender_conflict_quote(body, character.name, gender, character_names)
@@ -707,67 +728,15 @@ def _check_character_gendered_references(snapshot: ConsistencySnapshot) -> list[
     return findings
 
 
-def _infer_character_gender(character: Any) -> Literal["male", "female"] | None:
-    gender = _normalize_gender_value(getattr(character, "gender", None))
-    if gender is not None:
-        return gender
-    appearance = getattr(character, "appearance", None)
-    if isinstance(appearance, dict):
-        gender = _normalize_gender_value(appearance.get("gender"))
-        if gender is not None:
-            return gender
-    values: list[str] = []
-    for value in (
-        getattr(character, "reader_visible_summary", None),
-        getattr(character, "private_author_notes", None),
-    ):
-        if isinstance(value, str):
-            values.append(value)
-    tags = getattr(character, "tags", None)
-    if isinstance(tags, list):
-        values.extend(item for item in tags if isinstance(item, str))
-    text = " ".join(values)
-    has_male = _has_male_marker(text)
-    has_female = _has_female_marker(text)
-    if has_male and not has_female:
-        return "male"
-    if has_female and not has_male:
-        return "female"
-    return None
-
-
-def _normalize_gender_value(value: object) -> Literal["male", "female"] | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().lower()
-    if normalized in {"男", "男性", "male", "m"}:
-        return "male"
-    if normalized in {"女", "女性", "female", "f"}:
-        return "female"
-    return None
-
-
-def _has_male_marker(text: str) -> bool:
-    if any(marker in text for marker in ("男性", "男子", "长子", "次子", "幼子", "少子", "庶子", "嫡子")):
-        return True
-    return bool(re.search(r"[\u4e00-\u9fff]{1,8}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?子", text))
-
-
-def _has_female_marker(text: str) -> bool:
-    if any(marker in text for marker in ("女性", "女子", "长女", "次女", "幼女", "少女", "姑娘", "庶女", "嫡女")):
-        return True
-    return bool(re.search(r"[\u4e00-\u9fff]{1,8}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?女", text))
-
-
 def _gender_conflict_quote(
     body: str,
     character_name: str,
-    gender: Literal["male", "female"],
+    gender: CharacterGenderValue,
     character_names: list[str],
 ) -> str | None:
     conflict_patterns = (
         (r"她(?:面前|背后|目光|指尖|心中|额前|膝上|的话|的)", r"两个女子")
-        if gender == "male"
+        if gender == "男"
         else (r"他(?:面前|背后|目光|指尖|心中|额前|膝上|的话|的)", r"两个男子")
     )
     for match in re.finditer(re.escape(character_name), body):

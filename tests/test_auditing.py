@@ -283,6 +283,28 @@ def test_audit_precheck_localizes_canon_reference_warning(tmp_path: Path) -> Non
     assert issue.suggested_fix == "检查该 canon 关联关系，必要时补齐缺失 ID，或移除已经失效的引用。"
 
 
+def test_audit_precheck_reports_canon_reader_visible_leak_without_english_fallback(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    hidden_truths_path = root / "memory" / "canon" / "hidden_truths.json"
+    hidden_truths = json.loads(hidden_truths_path.read_text(encoding="utf-8"))
+    hidden_truths["hidden_truths"][0]["description"] = "旧车站会在雨夜短暂连接过去。"
+    hidden_truths_path.write_text(json.dumps(hidden_truths, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    locations_path = root / "memory" / "canon" / "locations.json"
+    locations = json.loads(locations_path.read_text(encoding="utf-8"))
+    locations["locations"][0]["reader_visible_summary"] = "旧车站会在雨夜短暂连接过去。"
+    locations_path.write_text(json.dumps(locations, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+
+    issue = next(item for item in result.report.issues if item.id == "audit_precheck_canon_error_1")
+    assert "reader_visible_summary 包含隐藏真相" in issue.description
+    assert "Canon 校验提示" not in issue.description
+    assert "hidden truth" not in issue.description
+
+
 def test_audit_precheck_flags_item_holder_location_conflict(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     _write_json(

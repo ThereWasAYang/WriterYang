@@ -1592,6 +1592,47 @@ def test_apply_old_setting_change_gender_tag_proposal_normalizes_on_apply(tmp_pa
     assert "女性" not in characters.characters[0].tags
 
 
+def test_setting_change_character_object_gender_normalization_strips_explicit_tag(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+    decision = {
+        "change_kind": "setting_change",
+        "target_files": ["memory/canon/characters.json"],
+        "operations": [
+            {
+                "op": "replace",
+                "file": "memory/canon/characters.json",
+                "path": "/characters/0",
+                "value": {
+                    "id": "char_lin_che",
+                    "name": "林澈",
+                    "role": "主要人物",
+                    "reader_visible_summary": "林澈是谢家次子。",
+                    "tags": ["男性", "谢家次子"],
+                },
+                "reason": "整对象更新中包含性别标签。",
+            }
+        ],
+        "domains": ["characters"],
+        "confidence": 0.9,
+    }
+
+    result = suggest_memory_repair(
+        root,
+        "明确林澈是谢家次子且为男性",
+        provider=MockProvider(fake_response=json.dumps(decision, ensure_ascii=False)),
+        change_kind="setting_change",
+    )
+
+    value = result.proposal.operations[0].value
+    assert isinstance(value, dict)
+    assert value["gender"] == "男"
+    assert value["tags"] == ["谢家次子"]
+    apply_memory_repair(root, result.proposal_path)
+    characters = load_json_model(root / "memory" / "canon" / "characters.json", CharactersFile)
+    assert characters.characters[0].gender == "男"
+    assert characters.characters[0].tags == ["谢家次子"]
+
+
 def test_setting_change_prompt_includes_json_pointer_structure(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
 

@@ -68,7 +68,7 @@ def test_validate_cli_reports_success(tmp_path: Path) -> None:
     code, stdout, stderr = _run_cli(["validate", "--path", str(root)])
 
     assert code == 0
-    assert "provider config default api_key_env is not set: OPENAI_API_KEY" in stdout
+    assert "provider 配置 default 的 api_key_env 未设置：OPENAI_API_KEY" in stdout
     assert "Validation passed: 2 warning(s)" in stdout
     assert stderr == ""
 
@@ -81,7 +81,7 @@ def test_validate_cli_reports_errors_and_nonzero_exit(tmp_path: Path) -> None:
     code, stdout, stderr = _run_cli(["validate", "--path", str(root)])
 
     assert code == 1
-    assert "error: memory/canon/characters.json: could not load JSON" in stdout
+    assert "error: memory/canon/characters.json: 无法读取 JSON 文件（JSONDecodeError）" in stdout
     assert "Validation failed:" in stderr
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Iterable, Sequence
 
 from pydantic import ValidationError
@@ -9,7 +10,7 @@ import yaml
 
 from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE
 from novel.core.chapter_memory import validate_chapter_memory
-from novel.core.consistency import check_project_consistency
+from novel.core.consistency import ConsistencyResult, check_canon_consistency, check_project_consistency
 from novel.core.env import load_project_env
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.migration import CURRENT_SCHEMA_VERSION
@@ -122,6 +123,7 @@ def validate_canon(root: Path) -> ValidationReport:
         ),
     )
     _validate_loaded_project(report, root, loaded, include_state=False)
+    _validate_canon_consistency_findings(report, root)
     return report
 
 
@@ -194,53 +196,79 @@ def _validate_model_schema_version(report: ValidationReport, path: Path, model: 
         return
     version = getattr(model, "schema_version", None)
     if version != CURRENT_SCHEMA_VERSION:
-        report.error(path, f"unsupported schema_version: {version}")
+        report.error(path, f"不支持的 schema_version：{version}")
 
 
 def _load_required_json(path: Path, model_type: type, report: ValidationReport):
     if not path.exists():
-        report.error(path, "required file is missing")
+        report.error(path, "缺少必需文件")
         return None
     try:
         return load_json_model(path, model_type)
     except ValidationError as exc:
         _add_validation_error(report, path, exc)
     except Exception as exc:
-        report.error(path, f"could not load JSON: {exc}")
+        report.error(path, f"无法读取 JSON 文件（{exc.__class__.__name__}）")
     return None
 
 
 def _load_required_yaml(path: Path, model_type: type, report: ValidationReport):
     if not path.exists():
-        report.error(path, "required file is missing")
+        report.error(path, "缺少必需文件")
         return None
     try:
         return load_yaml_model(path, model_type)
     except ValidationError as exc:
         _add_validation_error(report, path, exc)
     except Exception as exc:
-        report.error(path, f"could not load YAML: {exc}")
+        report.error(path, f"无法读取 YAML 文件（{exc.__class__.__name__}）")
     return None
 
 
 def _load_optional_yaml(path: Path, model_type: type, report: ValidationReport):
     if not path.exists():
-        report.warning(path, "optional file is missing")
+        report.warning(path, "可选文件不存在")
         return None
     try:
         return load_yaml_model(path, model_type)
     except ValidationError as exc:
         _add_validation_error(report, path, exc)
     except Exception as exc:
-        report.error(path, f"could not load YAML: {exc}")
+        report.error(path, f"无法读取 YAML 文件（{exc.__class__.__name__}）")
     return None
 
 
 def _add_validation_error(report: ValidationReport, path: Path, exc: ValidationError) -> None:
     for error in exc.errors():
         loc = ".".join(str(part) for part in error["loc"])
-        suffix = f" at {loc}" if loc else ""
-        report.error(path, f"{error['msg']}{suffix}")
+        suffix = f"：{loc}" if loc else ""
+        report.error(path, f"{_pydantic_error_message(error)}{suffix}")
+
+
+def _pydantic_error_message(error: Mapping[str, object]) -> str:
+    error_type = str(error.get("type") or "")
+    message = str(error.get("msg") or "")
+    if error_type == "missing":
+        return "缺少必填字段"
+    if error_type.startswith("string_type"):
+        return "字段应为字符串"
+    if error_type.startswith("int_type") or error_type.startswith("int_parsing"):
+        return "字段应为整数"
+    if error_type.startswith("bool_type") or error_type.startswith("bool_parsing"):
+        return "字段应为布尔值"
+    if error_type.startswith("list_type"):
+        return "字段应为数组"
+    if error_type.startswith("dict_type") or error_type.startswith("model_attributes_type"):
+        return "字段应为对象"
+    if error_type.startswith("literal_error"):
+        return "字段值不在允许范围内"
+    if error_type.startswith("string_too_short"):
+        return "字符串长度不足"
+    if error_type.startswith("string_pattern_mismatch"):
+        return "字符串格式不符合要求"
+    if error_type.startswith("value_error"):
+        return "字段值未通过业务校验"
+    return f"字段未通过 schema 校验（{message or error_type}）"
 
 
 def _validate_duplicate_ids(report: ValidationReport, root: Path, loaded: LoadedProject) -> None:
@@ -305,7 +333,7 @@ def _require_unique(
             duplicates.add(value)
         seen.add(value)
     for duplicate in sorted(duplicates):
-        report.error(path, f"duplicate {label}: {duplicate}")
+        report.error(path, f"重复的 {label}：{duplicate}")
 
 
 def _validate_provider_config_entries(
@@ -316,47 +344,47 @@ def _validate_provider_config_entries(
     path = root / "config" / "agents.yaml"
     required_profiles = set(PROFILE_NAMES)
     if agents.default is None:
-        report.warning(path, "default API config is missing; real projects should define config/agents.yaml default")
+        report.warning(path, "缺少 default API 配置；真实项目应在 config/agents.yaml 中定义 default")
         missing = sorted(required_profiles - set(agents.profiles))
         for name in missing:
-            report.warning(path, f"recommended profile is missing: {name}")
+            report.warning(path, f"缺少推荐 profile：{name}")
     else:
         _validate_single_provider_config(report, path, "default", agents.default)
         _validate_provider_env_presence(report, root, path, "default", agents.default)
         if agents.default.provider.lower() == "mock":
-            report.warning(path, "default API config uses mock provider; mock is intended for tests only")
+            report.warning(path, "default API 配置使用 mock provider；mock 仅用于测试")
     for name, config in agents.profiles.items():
         _validate_single_provider_config(report, path, f"profile {name}", config)
         if getattr(config, "inherit_default", False) is True:
             if agents.default is None:
-                report.error(path, f"profile {name} inherits default but default API config is missing")
+                report.error(path, f"profile {name} 继承 default，但 default API 配置不存在")
             continue
         if isinstance(config, AgentConfigPatch):
             provided = set(config.model_dump(exclude_none=True)) - {"inherit_default"}
             missing_fields = sorted({"provider", "model", "api_key_env"} - provided)
-            detail = f": missing {', '.join(missing_fields)}" if missing_fields else ""
+            detail = f"；缺少 {', '.join(missing_fields)}" if missing_fields else ""
             report.error(
                 path,
-                f"profile {name} is incomplete; set inherit_default: true or provide a full independent config{detail}",
+                f"profile {name} 配置不完整；请设置 inherit_default: true，或提供完整独立配置{detail}",
             )
             continue
         _validate_provider_env_presence(report, root, path, f"profile {name}", config)
         if config.provider and config.provider.lower() == "mock":
-            report.warning(path, f"profile {name} uses mock provider; mock is intended for tests only")
+            report.warning(path, f"profile {name} 使用 mock provider；mock 仅用于测试")
     unknown_tasks = sorted(set(agents.tasks) - set(TASK_TO_PROFILE))
     for name in unknown_tasks:
-        report.error(path, f"unknown task config: {name}")
+        report.error(path, f"未知 task 配置：{name}")
     for name, config in agents.tasks.items():
         _validate_single_provider_config(report, path, f"task {name}", config)
         if getattr(config, "inherit_default", False) is True:
-            report.warning(path, f"task {name} sets inherit_default; task config is already applied on its profile")
+            report.warning(path, f"task {name} 设置了 inherit_default；task 配置已经在对应 profile 上应用")
 
 
 def _validate_single_provider_config(
     report: ValidationReport, path: Path, name: str, config: AgentConfig | AgentConfigPatch
 ) -> None:
     if config.api_key_env and config.api_key_env.startswith(("sk-", "sk_")):
-        report.error(path, f"provider config {name} appears to store a raw API key")
+        report.error(path, f"provider 配置 {name} 疑似直接保存了原始 API key")
 
 
 def _validate_provider_env_presence(
@@ -368,9 +396,9 @@ def _validate_provider_env_presence(
 ) -> None:
     env = load_project_env(root)
     if config.api_key_env and not env.get(config.api_key_env):
-        report.warning(path, f"provider config {name} api_key_env is not set: {config.api_key_env}")
+        report.warning(path, f"provider 配置 {name} 的 api_key_env 未设置：{config.api_key_env}")
     if config.base_url_env and config.provider == "openai_compatible" and not env.get(config.base_url_env):
-        report.warning(path, f"provider config {name} base_url_env is not set: {config.base_url_env}")
+        report.warning(path, f"provider 配置 {name} 的 base_url_env 未设置：{config.base_url_env}")
 
 
 def _validate_embedding_config(
@@ -383,11 +411,11 @@ def _validate_embedding_config(
     for name, config in embeddings.providers.items():
         provider = config.provider.lower()
         if provider not in supported:
-            report.warning(path, f"embedding provider {name} uses unsupported provider: {config.provider}")
+            report.warning(path, f"embedding provider {name} 使用了不支持的 provider：{config.provider}")
         if provider != "local_hash" and not config.api_key_env:
-            report.error(path, f"embedding provider {name} requires api_key_env")
+            report.error(path, f"embedding provider {name} 缺少 api_key_env")
         if config.api_key_env and config.api_key_env.startswith(("sk-", "sk_")):
-            report.error(path, f"embedding provider {name} appears to store a raw API key")
+            report.error(path, f"embedding provider {name} 疑似直接保存了原始 API key")
 
 
 def _validate_references(report: ValidationReport, root: Path, loaded: LoadedProject) -> None:
@@ -408,7 +436,7 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
                 if relationship.target_id not in character_ids:
                     report.warning(
                         path,
-                        f"character {character.id} relationship references missing character: "
+                        f"角色 {character.id} 的 relationship 引用了不存在的角色："
                         f"{relationship.target_id}",
                     )
 
@@ -418,15 +446,14 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
             if location.parent_location_id and location.parent_location_id not in location_ids:
                 report.warning(
                     path,
-                    f"location {location.id} parent_location_id is missing: "
+                    f"地点 {location.id} 的 parent_location_id 不存在："
                     f"{location.parent_location_id}",
                 )
             for connected_id in location.connected_location_ids:
                 if connected_id not in location_ids:
                     report.warning(
                         path,
-                        f"location {location.id} connected_location_ids references missing "
-                        f"location: {connected_id}",
+                        f"地点 {location.id} 的 connected_location_ids 引用了不存在的地点：{connected_id}",
                     )
 
     if loaded.world:
@@ -436,8 +463,7 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
                 if character_id not in character_ids:
                     report.warning(
                         path,
-                        f"world rule {rule.id} known_by_character_ids references missing "
-                        f"character: {character_id}",
+                        f"世界规则 {rule.id} 的 known_by_character_ids 引用了不存在的角色：{character_id}",
                     )
 
     if loaded.hidden_truths:
@@ -447,13 +473,13 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
                 if entity_id not in entity_ids:
                     report.warning(
                         path,
-                        f"hidden truth {truth.id} related_entity_ids references missing entity: {entity_id}",
+                        f"隐藏真相 {truth.id} 的 related_entity_ids 引用了不存在的实体：{entity_id}",
                     )
             for thread_id in truth.foreshadowing_ids:
                 if thread_id not in thread_ids:
                     report.warning(
                         path,
-                        f"hidden truth {truth.id} foreshadowing_ids references missing thread: {thread_id}",
+                        f"隐藏真相 {truth.id} 的 foreshadowing_ids 引用了不存在的伏笔线：{thread_id}",
                     )
 
     if loaded.foreshadowing:
@@ -462,17 +488,16 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
             if thread.hidden_truth_id and thread.hidden_truth_id not in truth_ids:
                 report.warning(
                     path,
-                    f"foreshadowing thread {thread.id} hidden_truth_id references missing hidden truth: "
+                    f"伏笔线 {thread.id} 的 hidden_truth_id 引用了不存在的隐藏真相："
                     f"{thread.hidden_truth_id}",
                 )
             for entity_id in thread.related_entity_ids:
                 if entity_id not in entity_ids:
                     report.warning(
                         path,
-                        f"foreshadowing thread {thread.id} related_entity_ids references missing entity: "
+                        f"伏笔线 {thread.id} 的 related_entity_ids 引用了不存在的实体："
                         f"{entity_id}",
                     )
-        _validate_hidden_truth_not_reader_visible(report, path, loaded)
 
     if loaded.state:
         _validate_state_references(
@@ -488,61 +513,25 @@ def _validate_references(report: ValidationReport, root: Path, loaded: LoadedPro
 
     if loaded.timeline:
         path = root / "memory" / "state" / "timeline.json"
-        previous: tuple[int, int, int] | None = None
-        for event in (item for item in loaded.timeline.events if item.narrative_position is not None):
-            current = _event_narrative_key(event)
-            if previous and current < previous:
-                report.warning(path, "timeline events should be ordered by narrative_position chapter, scene, sequence")
-                break
-            previous = current
+        for event in loaded.timeline.events:
             if event.location_id and event.location_id not in location_ids:
                 report.warning(
                     path,
-                    f"event {event.id} location_id references missing location: {event.location_id}",
+                    f"Timeline 事件 {event.id} 的 location_id 引用了不存在的地点：{event.location_id}",
                 )
             for participant_id in event.participant_ids:
                 if participant_id not in character_ids:
                     report.warning(
                         path,
-                        f"event {event.id} participant_ids references missing character: "
+                        f"Timeline 事件 {event.id} 的 participant_ids 引用了不存在的角色："
                         f"{participant_id}",
                     )
             for change_id in event.state_change_ids:
                 if not _state_change_id_exists(root, change_id):
-                    report.warning(path, f"event {event.id} references missing state_change_id: {change_id}")
-            for cause_id in event.causes:
-                if _looks_like_id(cause_id) and cause_id not in timeline_ids:
-                    report.warning(path, f"event {event.id} causes references missing event: {cause_id}")
-            for effect_id in event.effects:
-                if _looks_like_id(effect_id) and effect_id not in timeline_ids:
-                    report.warning(path, f"event {event.id} effects references missing event: {effect_id}")
+                    report.warning(path, f"Timeline 事件 {event.id} 引用了不存在的 state_change_id：{change_id}")
 
     if loaded.timeline is not None:
         _validate_chapter_plan_references(report, root, canon_context_ids, character_ids, location_ids, timeline_ids)
-
-
-def _validate_hidden_truth_not_reader_visible(
-    report: ValidationReport, path: Path, loaded: LoadedProject
-) -> None:
-    if not loaded.hidden_truths:
-        return
-    visible_summaries = []
-    for character in loaded.characters.characters if loaded.characters else []:
-        visible_summaries.append((character.id, character.reader_visible_summary))
-    for location in loaded.locations.locations if loaded.locations else []:
-        visible_summaries.append((location.id, location.reader_visible_summary))
-    for item in loaded.items.items if loaded.items else []:
-        visible_summaries.append((item.id, item.reader_visible_summary))
-
-    for truth in loaded.hidden_truths.hidden_truths:
-        hidden_fragments = [truth.description.strip(), truth.title.strip()]
-        for entity_id, summary in visible_summaries:
-            for fragment in hidden_fragments:
-                if fragment and fragment in summary:
-                    report.error(
-                        path,
-                        f"hidden truth {truth.id} appears in reader_visible_summary for {entity_id}",
-                    )
 
 
 def _validate_state_references(
@@ -558,85 +547,64 @@ def _validate_state_references(
     path = root / "memory" / "state" / "current_state.json"
     latest_chapter = state.story_position.latest_chapter
 
-    item_holders = {item_state.entity_id: item_state.holder_id for item_state in state.item_states}
     item_locations = {item_state.entity_id: item_state.location_id for item_state in state.item_states}
-    possession_owner: dict[str, str] = {}
 
     for character_state in state.character_states:
         if character_state.entity_id not in character_ids:
             report.warning(
                 path,
-                f"character state references missing character: {character_state.entity_id}",
+                f"character state 引用了不存在的角色：{character_state.entity_id}",
             )
         if character_state.location_id and character_state.location_id not in location_ids:
             report.warning(
                 path,
-                f"character {character_state.entity_id} location_id references missing location: "
+                f"角色状态 {character_state.entity_id} 的 location_id 引用了不存在的地点："
                 f"{character_state.location_id}",
             )
         if character_state.last_updated_chapter > latest_chapter:
             report.error(
                 path,
-                f"character {character_state.entity_id} last_updated_chapter is greater than "
+                f"角色状态 {character_state.entity_id} 的 last_updated_chapter 大于 "
                 "story_position.latest_chapter",
             )
         for item_id in character_state.possessions:
-            previous_owner = possession_owner.get(item_id)
-            if previous_owner and previous_owner != character_state.entity_id:
-                report.error(
-                    path,
-                    f"item {item_id} appears in possessions of both {previous_owner} and "
-                    f"{character_state.entity_id}",
-                )
-            possession_owner[item_id] = character_state.entity_id
             if item_id not in item_ids:
                 report.warning(
                     path,
-                    f"character {character_state.entity_id} possession references missing item: "
+                    f"角色状态 {character_state.entity_id} 的 possession 引用了不存在的物品："
                     f"{item_id}",
-                )
-            elif item_holders.get(item_id) and item_holders[item_id] != character_state.entity_id:
-                report.warning(
-                    path,
-                    f"character {character_state.entity_id} possession conflicts with item "
-                    f"{item_id} holder_id {item_holders[item_id]}",
                 )
         if _is_dead_health(character_state.health):
             if character_state.goals:
                 report.warning(
                     path,
-                    f"dead character {character_state.entity_id} still has active goals in current_state",
+                    f"已死亡角色 {character_state.entity_id} 在 current_state 中仍有 active goals",
                 )
             if character_state.location_id:
                 report.warning(
                     path,
-                    f"dead character {character_state.entity_id} still has location_id in current_state",
+                    f"已死亡角色 {character_state.entity_id} 在 current_state 中仍有 location_id",
                 )
 
     for item_state in state.item_states:
         if item_state.entity_id not in item_ids:
-            report.warning(path, f"item state references missing item: {item_state.entity_id}")
+            report.warning(path, f"item state 引用了不存在的物品：{item_state.entity_id}")
         if item_state.holder_id and item_state.holder_id not in character_ids:
             report.warning(
                 path,
-                f"item {item_state.entity_id} holder_id references missing character: "
+                f"物品状态 {item_state.entity_id} 的 holder_id 引用了不存在的角色："
                 f"{item_state.holder_id}",
             )
         if item_state.location_id and item_state.location_id not in location_ids:
             report.warning(
                 path,
-                f"item {item_state.entity_id} location_id references missing location: "
+                f"物品状态 {item_state.entity_id} 的 location_id 引用了不存在的地点："
                 f"{item_state.location_id}",
-            )
-        if item_state.holder_id and item_state.location_id:
-            report.error(
-                path,
-                f"item {item_state.entity_id} has both holder_id and location_id",
             )
         if item_state.last_updated_chapter > latest_chapter:
             report.error(
                 path,
-                f"item {item_state.entity_id} last_updated_chapter is greater than "
+                f"物品状态 {item_state.entity_id} 的 last_updated_chapter 大于 "
                 "story_position.latest_chapter",
             )
 
@@ -644,41 +612,24 @@ def _validate_state_references(
         if location_state.entity_id not in location_ids:
             report.warning(
                 path,
-                f"location state references missing location: {location_state.entity_id}",
+                f"location state 引用了不存在的地点：{location_state.entity_id}",
             )
         if location_state.last_updated_chapter > latest_chapter:
             report.error(
                 path,
-                f"location {location_state.entity_id} last_updated_chapter is greater than "
+                f"地点状态 {location_state.entity_id} 的 last_updated_chapter 大于 "
                 "story_position.latest_chapter",
             )
         for event_id in location_state.active_events:
             if _looks_like_id(event_id) and event_id not in timeline_ids:
                 report.warning(
                     path,
-                    f"location {location_state.entity_id} active_events references missing event: {event_id}",
+                    f"地点状态 {location_state.entity_id} 的 active_events 引用了不存在的事件：{event_id}",
                 )
-
-    for item_id, holder_id in item_holders.items():
-        if not holder_id:
-            continue
-        matching = [
-            character_state
-            for character_state in state.character_states
-            if character_state.entity_id == holder_id and item_id in character_state.possessions
-        ]
-        if not matching:
-            report.warning(
-                path,
-                f"item {item_id} holder_id {holder_id} is not mirrored in character possessions",
-            )
-        owner = possession_owner.get(item_id)
-        if owner and owner != holder_id:
-            report.error(path, f"item {item_id} holder_id {holder_id} conflicts with possession owner {owner}")
 
     for item_id, location_id in item_locations.items():
         if location_id and location_id not in entity_ids:
-            report.warning(path, f"item {item_id} references missing entity location: {location_id}")
+            report.warning(path, f"物品 {item_id} 引用了不存在的实体地点：{location_id}")
 
     death_chapters: dict[str, int] = {}
     for character_state in state.character_states:
@@ -700,8 +651,7 @@ def _validate_state_references(
                     if death_chapter is not None and narrative.chapter > death_chapter:
                         report.warning(
                             timeline_path,
-                            f"character {participant_id} appears in event {event.id} after death state "
-                            f"recorded at chapter {death_chapter}",
+                            f"角色 {participant_id} 在死亡记录章节 {death_chapter} 之后仍出现在事件 {event.id} 中",
                         )
 
 
@@ -731,7 +681,7 @@ def _validate_single_chapter_output(
     try:
         dir_chapter_number = int(chapter_dir.name)
     except ValueError:
-        report.warning(chapter_dir, f"chapter directory name should be numeric: {chapter_dir.name}")
+        report.warning(chapter_dir, f"章节目录名应为数字：{chapter_dir.name}")
         dir_chapter_number = None
 
     plan: ChapterPlan | None = None
@@ -744,12 +694,12 @@ def _validate_single_chapter_output(
             if dir_chapter_number is not None and plan.chapter_number != dir_chapter_number:
                 report.error(
                     plan_path,
-                    f"plan chapter_number {plan.chapter_number} does not match directory {chapter_dir.name}",
+                    f"plan.json 的 chapter_number={plan.chapter_number} 与目录 {chapter_dir.name} 不一致",
                 )
         except ValidationError as exc:
             _add_validation_error(report, plan_path, exc)
         except Exception as exc:
-            report.error(plan_path, f"could not load chapter plan: {exc}")
+            report.error(plan_path, f"无法读取 chapter plan（{exc.__class__.__name__}）")
 
     draft_path = chapter_dir / "draft.md"
     polished_path = chapter_dir / "polished.md"
@@ -765,19 +715,19 @@ def _validate_single_chapter_output(
             if dir_chapter_number is not None and audit.chapter_number != dir_chapter_number:
                 report.error(
                     audit_path,
-                    f"audit chapter_number {audit.chapter_number} does not match directory {chapter_dir.name}",
+                    f"audit.json 的 chapter_number={audit.chapter_number} 与目录 {chapter_dir.name} 不一致",
                 )
             audited_file = chapter_dir / audit.audited_file
             if audit.audited_file not in {"draft.md", "polished.md"}:
-                report.warning(audit_path, f"audited_file is unusual: {audit.audited_file}")
+                report.warning(audit_path, f"audited_file 不是常规章节正文文件：{audit.audited_file}")
             if not audited_file.exists():
-                report.error(audit_path, f"audited_file is missing: {audit.audited_file}")
+                report.error(audit_path, f"audited_file 不存在：{audit.audited_file}")
             else:
                 _validate_chapter_markdown(report, audited_file, plan, audit.chapter_number)
         except ValidationError as exc:
             _add_validation_error(report, audit_path, exc)
         except Exception as exc:
-            report.error(audit_path, f"could not load audit report: {exc}")
+            report.error(audit_path, f"无法读取 audit report（{exc.__class__.__name__}）")
 
     metadata_path = chapter_dir / "metadata.json"
     if metadata_path.exists():
@@ -787,13 +737,13 @@ def _validate_single_chapter_output(
             if dir_chapter_number is not None and metadata.chapter_number != dir_chapter_number:
                 report.error(
                     metadata_path,
-                    f"metadata chapter_number {metadata.chapter_number} does not match directory {chapter_dir.name}",
+                    f"metadata.json 的 chapter_number={metadata.chapter_number} 与目录 {chapter_dir.name} 不一致",
                 )
             _validate_chapter_metadata_links(report, root, chapter_dir, metadata)
         except ValidationError as exc:
             _add_validation_error(report, metadata_path, exc)
         except Exception as exc:
-            report.error(metadata_path, f"could not load chapter metadata: {exc}")
+            report.error(metadata_path, f"无法读取 chapter metadata（{exc.__class__.__name__}）")
 
     _validate_optional_chapter_json(report, chapter_dir / "revision_log.json", RevisionLog)
     proposal = _validate_optional_chapter_json(
@@ -828,7 +778,7 @@ def _validate_optional_chapter_json(
     except ValidationError as exc:
         _add_validation_error(report, path, exc)
     except Exception as exc:
-        report.error(path, f"could not load JSON: {exc}")
+        report.error(path, f"无法读取 JSON 文件（{exc.__class__.__name__}）")
     return None
 
 
@@ -869,9 +819,16 @@ def _validate_memory_repair_outputs(report: ValidationReport, root: Path) -> Non
 
 
 def _validate_consistency_findings(report: ValidationReport, root: Path) -> None:
-    result = check_project_consistency(root)
+    _append_consistency_findings(report, check_project_consistency(root))
+
+
+def _validate_canon_consistency_findings(report: ValidationReport, root: Path) -> None:
+    _append_consistency_findings(report, check_canon_consistency(root))
+
+
+def _append_consistency_findings(report: ValidationReport, result: ConsistencyResult) -> None:
     for finding in result.findings:
-        message = f"{finding.id}: {finding.description} Evidence: {finding.quote}"
+        message = f"{finding.id}: {finding.description} 证据：{finding.quote}"
         if finding.severity in {"high", "critical"}:
             report.error(finding.source, message)
         else:
@@ -893,21 +850,21 @@ def _validate_state_update_proposal_references(
     applied_event_ids = _applied_event_ids_for_proposal(path, proposal)
     for change in proposal.state_changes:
         if change.entity_id not in entity_ids:
-            report.warning(path, f"state change {change.id} references missing entity: {change.entity_id}")
+            report.warning(path, f"state change {change.id} 引用了不存在的实体：{change.entity_id}")
     for event in proposal.timeline_events:
         if event.id in timeline_ids and event.id not in applied_event_ids:
-            report.error(path, f"timeline event id already exists: {event.id}")
+            report.error(path, f"timeline event id 已存在：{event.id}")
         if event.location_id and event.location_id not in location_ids:
-            report.warning(path, f"timeline event {event.id} location_id references missing location: {event.location_id}")
+            report.warning(path, f"timeline event {event.id} 的 location_id 引用了不存在的地点：{event.location_id}")
         for participant_id in event.participant_ids:
             if participant_id not in character_ids:
                 report.warning(
                     path,
-                    f"timeline event {event.id} participant_ids references missing character: {participant_id}",
+                    f"timeline event {event.id} 的 participant_ids 引用了不存在的角色：{participant_id}",
                 )
         for change_id in event.state_change_ids:
             if change_id not in change_ids and not _state_change_id_exists(path.parents[3], change_id):
-                report.warning(path, f"timeline event {event.id} references missing state_change_id: {change_id}")
+                report.warning(path, f"timeline event {event.id} 引用了不存在的 state_change_id：{change_id}")
 
 
 def _applied_event_ids_for_proposal(path: Path, proposal: StateUpdateProposal) -> set[str]:
@@ -932,18 +889,18 @@ def _validate_chapter_markdown(
     try:
         metadata = _read_markdown_metadata(path)
     except Exception as exc:
-        report.warning(path, f"could not read front matter: {exc}")
+        report.warning(path, f"无法读取 front matter（{exc.__class__.__name__}）")
         return
     chapter_number = metadata.get("chapter_number")
     if expected_chapter_number is not None and chapter_number not in {None, expected_chapter_number}:
-        report.error(path, f"front matter chapter_number {chapter_number} does not match {expected_chapter_number}")
+        report.error(path, f"front matter chapter_number={chapter_number} 与 {expected_chapter_number} 不一致")
     if plan and metadata.get("title") and metadata.get("title") != plan.title:
-        report.warning(path, "front matter title differs from plan title")
+        report.warning(path, "front matter title 与 plan title 不一致")
     based_on = metadata.get("based_on")
     if path.name == "draft.md" and based_on not in {None, "plan.json"}:
-        report.warning(path, f"draft based_on should be plan.json, got {based_on}")
+        report.warning(path, f"draft.md 的 based_on 应为 plan.json，当前为 {based_on}")
     if path.name == "polished.md" and based_on not in {None, "draft.md"}:
-        report.warning(path, f"polished based_on should be draft.md, got {based_on}")
+        report.warning(path, f"polished.md 的 based_on 应为 draft.md，当前为 {based_on}")
 
 
 def _validate_chapter_metadata_links(
@@ -963,20 +920,20 @@ def _validate_chapter_metadata_links(
     }
     for field_name, relative_path in field_paths.items():
         if relative_path and not (root / relative_path).exists():
-            report.error(path, f"{field_name} references missing file: {relative_path}")
+            report.error(path, f"{field_name} 引用了不存在的文件：{relative_path}")
     if metadata.status == "accepted":
         polished_path = root / metadata.polished_path if metadata.polished_path else chapter_dir / "polished.md"
         if not polished_path.exists():
-            report.error(path, "accepted chapter is missing polished.md")
+            report.error(path, "已认可章节缺少 polished.md")
         else:
             try:
                 front_matter = _read_markdown_metadata(polished_path)
                 if front_matter.get("status") != "accepted":
-                    report.error(path, "accepted metadata conflicts with polished.md front matter status")
+                    report.error(path, "已认可 metadata 与 polished.md front matter status 不一致")
             except Exception as exc:
-                report.error(path, f"could not read accepted polished.md front matter: {exc}")
+                report.error(path, f"无法读取已认可 polished.md 的 front matter（{exc.__class__.__name__}）")
         if metadata.accepted_at is None:
-            report.error(path, "accepted chapter metadata must include accepted_at")
+            report.error(path, "已认可章节 metadata 必须包含 accepted_at")
 
 
 def _read_markdown_metadata(path: Path) -> dict[str, object]:
@@ -1000,7 +957,7 @@ def _validate_optional_agent_outputs(report: ValidationReport, root: Path) -> No
         except ValidationError as exc:
             _add_validation_error(report, inspiration_path, exc)
         except Exception as exc:
-            report.error(inspiration_path, f"could not load inspiration brief: {exc}")
+            report.error(inspiration_path, f"无法读取 inspiration brief（{exc.__class__.__name__}）")
 
 
 def _validate_chapter_plan_references(
@@ -1022,34 +979,27 @@ def _validate_chapter_plan_references(
         if plan.required_context:
             for entity_id in plan.required_context.canon_entity_ids:
                 if entity_id not in entity_ids:
-                    report.warning(plan_path, f"required_context references missing canon entity: {entity_id}")
+                    report.warning(plan_path, f"required_context 引用了不存在的 canon entity：{entity_id}")
             for entity_id in plan.required_context.state_entity_ids:
                 if entity_id not in entity_ids:
-                    report.warning(plan_path, f"required_context references missing state entity: {entity_id}")
+                    report.warning(plan_path, f"required_context 引用了不存在的 state entity：{entity_id}")
             for event_id in plan.required_context.timeline_event_ids:
                 if event_id not in timeline_ids:
-                    report.warning(plan_path, f"required_context references missing timeline event: {event_id}")
+                    report.warning(plan_path, f"required_context 引用了不存在的 timeline event：{event_id}")
         for scene in plan.scenes:
             if scene.location_id and scene.location_id not in location_ids:
                 report.warning(
                     plan_path,
-                    f"scene {scene.scene_number} location_id references missing location: "
+                    f"scene {scene.scene_number} 的 location_id 引用了不存在的地点："
                     f"{scene.location_id}",
                 )
             for participant_id in scene.participant_ids:
                 if participant_id not in character_ids:
                     report.warning(
                         plan_path,
-                        f"scene {scene.scene_number} participant_ids references missing character: "
+                        f"scene {scene.scene_number} 的 participant_ids 引用了不存在的角色："
                     f"{participant_id}",
                 )
-
-
-def _event_narrative_key(event) -> tuple[int, int, int]:
-    narrative = event.narrative_position
-    if narrative is None:
-        raise ValueError(f"timeline event {event.id} has no narrative_position")
-    return (narrative.chapter, narrative.scene or 0, narrative.sequence or 0)
 
 
 def _state_change_id_exists(root: Path, change_id: str) -> bool:

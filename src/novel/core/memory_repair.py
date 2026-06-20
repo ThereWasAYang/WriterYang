@@ -15,6 +15,7 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.app_logging import log_app_warning
+from novel.core.gender import canonical_gender, infer_gender_from_character_payload, strip_explicit_gender_tags
 from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_file, load_json, load_json_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
@@ -1512,9 +1513,9 @@ def _target_schema_repair_prompt(
         "- timeline 的故事世界时间必须写入 story_position.time_label；story_position.certainty 只能是 certain、inferred 或 uncertain；顶层不要输出 certainty。\n"
         "- Location 顶层没有 description 字段；地点公开描述写 reader_visible_summary，隐藏/作者私有说明写 private_author_notes，地点规则写 rules[]；不要使用 /locations/{i}/description。\n"
         "- Character.role 只能表示叙事角色；默认使用主角、主要人物、配角、次要人物。家族身份、门派身份、排行、职业/江湖身份必须移入 tags，并可保留在 summary/notes。\n"
-        "- 明确性别必须写 Character.gender，值用 男 或 女；不要只向 tags 追加 男性/女性。\n"
+        "- 明确性别必须写 Character.gender，值用 男、女或未知；明确男/女时写 男/女，不要只向 tags 追加 男性/女性。\n"
         "- 不要把谢家长女、谢家次子、张家幼女、唐门二房之女、江湖散人、武当俗家弟子这类身份短语写入 Character.role。\n"
-        "- reader_visible_summary 只能写读者可见信息；如果错误提示 hidden truth appears in reader_visible_summary，必须把隐藏内容移到 private_author_notes 或 hidden_truths.json，不要放在 reader_visible_summary。\n"
+        "- reader_visible_summary 只能写读者可见信息；如果错误提示 reader_visible_summary 包含隐藏真相，必须把隐藏内容移到 private_author_notes 或 hidden_truths.json，不要放在 reader_visible_summary。\n"
         "- 如果错误提示 add would duplicate existing ... at /collection/index 或 duplicate ... id，说明该实体已经存在；"
         "不要保留 add /collection/-，请改成对应已有 path 的 replace（字段级 replace 优先），"
         "或在无法确定时清空 operations 并在 notes 写明原因。\n"
@@ -2463,7 +2464,7 @@ def _normalize_character_gender_tag_operation(
         or parts[2] != "tags"
     ):
         return None
-    gender = _canonical_gender_value(operation.value)
+    gender = canonical_gender(operation.value)
     if gender is None:
         return None
     character_index = int(parts[1])
@@ -2489,62 +2490,25 @@ def _normalize_character_gender_in_object(operation: MemoryRepairOperation) -> M
     ):
         return None
     value = json.loads(json.dumps(operation.value, ensure_ascii=False))
-    existing_gender = _canonical_gender_value(value.get("gender"))
+    existing_gender = canonical_gender(value.get("gender"))
+    stripped_tags, tags_changed = strip_explicit_gender_tags(value.get("tags"))
+    if stripped_tags is not None and tags_changed:
+        value["tags"] = stripped_tags
+
     if existing_gender is not None:
-        if value.get("gender") == existing_gender:
-            return None
+        gender_changed = value.get("gender") != existing_gender
         value["gender"] = existing_gender
-        return operation.model_copy(update={"value": value})
-    gender = _gender_from_character_payload(value)
+        if gender_changed or tags_changed:
+            return operation.model_copy(update={"value": value})
+        return None
+
+    gender = infer_gender_from_character_payload(value)
     if gender is None:
+        if tags_changed:
+            return operation.model_copy(update={"value": value})
         return None
     value["gender"] = gender
     return operation.model_copy(update={"value": value})
-
-
-def _gender_from_character_payload(value: dict[str, object]) -> str | None:
-    values: list[str] = []
-    for item in _string_values(value.get("tags")):
-        gender = _canonical_gender_value(item)
-        if gender is not None:
-            return gender
-        values.append(item)
-    for field in ("reader_visible_summary", "private_author_notes"):
-        text = value.get(field)
-        if not isinstance(text, str):
-            continue
-        values.append(text)
-    text = " ".join(values)
-    has_male = _has_male_gender_marker(text)
-    has_female = _has_female_gender_marker(text)
-    if has_male and not has_female:
-        return "男"
-    if has_female and not has_male:
-        return "女"
-    return None
-
-
-def _has_male_gender_marker(text: str) -> bool:
-    if any(marker in text for marker in ("男性", "男子", "长子", "次子", "幼子", "少子", "庶子", "嫡子")):
-        return True
-    return bool(re.search(r"[\u4e00-\u9fff]{1,8}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?子", text))
-
-
-def _has_female_gender_marker(text: str) -> bool:
-    if any(marker in text for marker in ("女性", "女子", "长女", "次女", "幼女", "少女", "姑娘", "庶女", "嫡女")):
-        return True
-    return bool(re.search(r"[\u4e00-\u9fff]{1,8}(?:家|氏)[长次二三四五六七八九十幼少庶嫡]?女", text))
-
-
-def _canonical_gender_value(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    if normalized in {"男", "男性"}:
-        return "男"
-    if normalized in {"女", "女性"}:
-        return "女"
-    return None
 
 
 def _character_field_exists(root: Path, index: int, field: str) -> bool:

@@ -148,6 +148,112 @@ def test_character_gendered_reference_conflict_is_reported(tmp_path: Path) -> No
     assert any(finding.id == "cons_gender_reference_001_char_linyan" for finding in result.findings)
 
 
+def test_character_gender_marker_in_summary_is_used_for_reference_audit(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_characters(root, summary="邵家次子，性格沉稳。")
+
+    result = check_chapter_consistency(
+        root,
+        1,
+        audited_body="邵希夷垂眼看着案上小盏。她面前的残酒已经冷透。",
+        audited_file="polished.md",
+        include_existing_audit=False,
+    )
+
+    assert any(finding.id == "cons_gender_reference_001_char_linyan" for finding in result.findings)
+
+
+def test_character_appearance_gender_is_used_for_reference_audit(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_characters(root, appearance={"gender": "女性"}, summary="邵希夷是主要人物。")
+
+    result = check_chapter_consistency(
+        root,
+        1,
+        audited_body="邵希夷停在门边。他面前的灯影微微摇晃。",
+        audited_file="polished.md",
+        include_existing_audit=False,
+    )
+
+    assert any(finding.id == "cons_gender_reference_001_char_linyan" for finding in result.findings)
+
+
+def test_character_gendered_reference_audit_avoids_common_false_positives(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_characters(root, gender="男", summary="邵家次子，性格沉稳。")
+
+    same_gender = check_chapter_consistency(
+        root,
+        1,
+        audited_body="邵希夷一直坐在舫心竹几前。他面前的青瓷小盏里，残酒已冷。",
+        audited_file="polished.md",
+        include_existing_audit=False,
+    )
+    group_reference = check_chapter_consistency(
+        root,
+        1,
+        audited_body="邵希夷与许连远一同入席，两个男子都没有先开口。",
+        audited_file="polished.md",
+        include_existing_audit=False,
+    )
+
+    assert not any(finding.id.startswith("cons_gender_reference") for finding in same_gender.findings)
+    assert not any(finding.id.startswith("cons_gender_reference") for finding in group_reference.findings)
+
+
+def test_character_gendered_reference_audit_skips_pronoun_after_other_character_name(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_json(
+        root / "memory" / "canon" / "characters.json",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "characters": [
+                {
+                    "id": "char_linyan",
+                    "name": "邵希夷",
+                    "role": "主要人物",
+                    "gender": "男",
+                    "reader_visible_summary": "邵家次子，性格沉稳。",
+                    "tags": [],
+                },
+                {
+                    "id": "char_shenwei",
+                    "name": "沈微",
+                    "role": "主要人物",
+                    "gender": "女",
+                    "reader_visible_summary": "沈微是同行者。",
+                    "tags": [],
+                },
+            ],
+        },
+    )
+
+    result = check_chapter_consistency(
+        root,
+        1,
+        audited_body="邵希夷转头看向沈微。她面前的灯影被风吹得发颤。",
+        audited_file="polished.md",
+        include_existing_audit=False,
+    )
+
+    assert not any(finding.id == "cons_gender_reference_001_char_linyan" for finding in result.findings)
+
+
+def test_character_gender_marker_ambiguity_is_not_reported(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_characters(root, summary="邵家次子，也是谢家长女传闻中的关键人物。")
+
+    result = check_chapter_consistency(
+        root,
+        1,
+        audited_body="邵希夷坐在舫心。她面前的酒盏已经冷了。",
+        audited_file="polished.md",
+        include_existing_audit=False,
+    )
+
+    assert not any(finding.id.startswith("cons_gender_reference") for finding in result.findings)
+
+
 def test_timeline_dual_order_allows_flashback_story_order(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     _write_timeline(
@@ -243,16 +349,25 @@ def _write_hidden_truth(root: Path, *, reveal_chapter: int) -> None:
     )
 
 
-def _write_characters(root: Path, *, gender: str | None = None, summary: str = "林砚是测试角色。") -> None:
+def _write_characters(
+    root: Path,
+    *,
+    gender: str | None = None,
+    summary: str = "林砚是测试角色。",
+    appearance: dict[str, object] | None = None,
+    tags: list[str] | None = None,
+) -> None:
     character: dict[str, object] = {
         "id": "char_linyan",
         "name": "邵希夷",
         "role": "主要人物",
         "reader_visible_summary": summary,
-        "tags": [],
+        "tags": tags or [],
     }
     if gender is not None:
         character["gender"] = gender
+    if appearance is not None:
+        character["appearance"] = appearance
     _write_json(
         root / "memory" / "canon" / "characters.json",
         {

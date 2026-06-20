@@ -55,6 +55,7 @@
 - `src/novel/core/embeddings.py`
 - `src/novel/core/env.py`
 - `src/novel/core/exporting.py`
+- `src/novel/core/gender.py`
 - `src/novel/core/inspection.py`
 - `src/novel/core/inspiration.py`
 - `src/novel/core/io.py`
@@ -558,11 +559,20 @@ ChapterPlan 引用提取：
 
 ### `src/novel/core/audit_localization.py`
 
-Audit 作者可读文案本地化：
+Audit 作者可读文案适配：
 
-- `localize_audit_report_for_author()`：将 `AuditReport.summary` 和 issue 作者说明转为中文展示/存储文本。
-- `localize_audit_issue_for_author()` / `localize_session_rewrite_issue_for_author()`：用于 Web/CLI 只读展示旧 audit 和 rewrite event。
-- `localize_canon_validation_message()`：把 canon validation 的已知英文引用诊断转为中文 audit issue 描述。
+- `localize_audit_report_for_author()`：对少量历史 mock summary 和外部英文 suggested_fix 做兼容转换；现行 deterministic audit/validation 在源头直接产中文。
+- `localize_audit_issue_for_author()` / `localize_session_rewrite_issue_for_author()`：用于 Web/CLI 只读展示 audit 和 rewrite event，不再维护 consistency 文案的第二套翻译表。
+- `localize_canon_validation_message()`：保持 identity；canon validation 由 `validation.py` 与 `consistency.py` 源头输出中文。
+
+### `core/gender.py`
+
+角色性别事实工具：
+
+- `canonical_gender()`：把 `男/男性/male/m`、`女/女性/female/f` 归一到 `男` / `女`；无法明确时返回 `None`。
+- `has_male_marker()` / `has_female_marker()`：识别 `次子`、`长女`、`某家次子` 等明确性别/排行短语。
+- `infer_character_gender()` / `infer_gender_from_character_payload()`：供 consistency audit 与 memory repair 共用的角色性别推断。
+- `strip_explicit_gender_tags()`：memory repair 写入 `Character.gender` 后剥离冗余显式性别 tag，保留家族排行等业务 tag。
 
 ### `core/consistency.py`
 
@@ -571,7 +581,8 @@ Audit 作者可读文案本地化：
 - `ConsistencySnapshot`：聚合 canon/state/timeline/chapter artifacts。
 - `ConsistencyFinding` / `ConsistencyResult`：确定性问题输出。
 - `check_chapter_consistency()`：章节级一致性检查。
-- `check_project_consistency()`：项目级闭环检查。
+- `check_canon_consistency()`：canon-only consistency 检查，供 `validate_canon()` 和 audit precheck 复用。
+- `check_project_consistency()`：项目级闭环检查，包含 canon-only 检查、project-level state/timeline 检查和章节闭环检查。
 - `_check_character_knowledge()`：角色已知/未知信息链。
 - `_check_item_flow()`：物品 holder/location 和 possession 双向一致。
 - `_check_timeline_order()`：timeline narrative order、story-world causes/effects 和 scene 边界。

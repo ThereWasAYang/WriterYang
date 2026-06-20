@@ -3151,7 +3151,7 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
     assert audit_summary[0]["blocking_issue_count"] == 1
 
 
-def test_api_session_audit_summary_localizes_old_english_audit_issue(tmp_path: Path) -> None:
+def test_api_session_audit_summary_does_not_translate_old_english_audit_description(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     session_id = "session_20260529_010101_000004"
     session_dir = root / "memory" / "sessions" / session_id
@@ -3202,7 +3202,10 @@ def test_api_session_audit_summary_localizes_old_english_audit_issue(tmp_path: P
 
     assert status == 200
     issue = payload["data"]["audit_summary"][0]["issues"][0]  # type: ignore[index]
-    assert issue["description"] == "隐藏真相 taohuayuan_truth 的 related_entity_ids 引用了不存在的实体：taohuayuan_village"
+    assert issue["description"] == (
+        "hidden truth taohuayuan_truth related_entity_ids "
+        "references missing entity: taohuayuan_village"
+    )
     assert issue["suggested_fix"] == "检查该 canon 关联关系，必要时补齐缺失 ID，或移除已经失效的引用。"
 
 

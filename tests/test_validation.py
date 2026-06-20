@@ -200,7 +200,7 @@ def test_validate_warns_when_default_agent_config_missing(tmp_path: Path) -> Non
     report = validate_project(root)
 
     assert report.ok
-    assert any("default API config is missing" in message.message for message in report.warnings)
+    assert any("缺少 default API 配置" in message.message for message in report.warnings)
 
 
 def test_validate_warns_when_agent_config_uses_mock(tmp_path: Path) -> None:
@@ -227,8 +227,8 @@ def test_validate_warns_when_agent_config_uses_mock(tmp_path: Path) -> None:
     report = validate_project(root)
 
     assert report.ok
-    assert any("default API config uses mock" in message.message for message in report.warnings)
-    assert any("profile scribe uses mock provider" in message.message for message in report.warnings)
+    assert any("default API 配置使用 mock provider" in message.message for message in report.warnings)
+    assert any("profile scribe 使用 mock provider" in message.message for message in report.warnings)
 
 
 def test_validate_ignores_provider_usage_summary(tmp_path: Path) -> None:
@@ -294,7 +294,7 @@ def test_validate_reports_unsupported_file_schema_version(tmp_path: Path) -> Non
     report = validate_project(root)
 
     assert not report.ok
-    assert any("unsupported schema_version: 999" in msg.message for msg in report.errors)
+    assert any("不支持的 schema_version：999" in msg.message for msg in report.errors)
 
 
 def test_validate_reports_duplicate_character_ids(tmp_path: Path) -> None:
@@ -323,7 +323,7 @@ def test_validate_reports_duplicate_character_ids(tmp_path: Path) -> None:
     report = validate_project(root)
 
     assert not report.ok
-    assert any("duplicate character id: char_lin_che" in msg.message for msg in report.errors)
+    assert any("重复的 character id：char_lin_che" in msg.message for msg in report.errors)
 
 
 def test_validate_reports_missing_required_fields(tmp_path: Path) -> None:
@@ -346,6 +346,29 @@ def test_validate_reports_missing_required_fields(tmp_path: Path) -> None:
 
     assert not report.ok
     assert any("reader_visible_summary" in msg.message for msg in report.errors)
+    assert any("缺少必填字段" in msg.message for msg in report.errors)
+
+
+def test_validate_common_error_messages_do_not_leak_english_prose(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    (root / "memory" / "canon" / "characters.json").write_text("{bad json", encoding="utf-8")
+    (root / "config" / "agents.yaml").write_text("default: [\n", encoding="utf-8")
+
+    report = validate_project(root)
+
+    messages = [message.message for message in report.messages]
+    assert any("无法读取 JSON 文件" in message for message in messages)
+    assert any("无法读取 YAML 文件" in message for message in messages)
+    forbidden_fragments = (
+        "could not load",
+        "required file is missing",
+        "unsupported schema_version",
+        "duplicate character id",
+        "references missing",
+    )
+    for fragment in forbidden_fragments:
+        assert not any(fragment in message for message in messages)
 
 
 def test_validate_warns_for_missing_cross_file_references(tmp_path: Path) -> None:
@@ -460,7 +483,7 @@ def test_validate_reports_state_transition_errors(tmp_path: Path) -> None:
 
     assert not report.ok
     assert any("last_updated_chapter" in msg.message for msg in report.errors)
-    assert any("both holder_id and location_id" in msg.message for msg in report.errors)
+    assert any("同时设置了 holder_id 和 location_id" in msg.message for msg in report.errors)
 
 
 def test_validate_reports_duplicate_possession_owner_and_dead_participant(tmp_path: Path) -> None:
@@ -510,8 +533,8 @@ def test_validate_reports_duplicate_possession_owner_and_dead_participant(tmp_pa
     report = validate_project(root)
 
     assert not report.ok
-    assert any("appears in possessions of both" in msg.message for msg in report.errors)
-    assert any("after death state" in msg.message for msg in report.warnings)
+    assert any("同时出现在多个角色的 possessions 中" in msg.message for msg in report.errors)
+    assert any("在死亡记录章节 1 之后仍出现在事件 event_after_death 中" in msg.message for msg in report.warnings)
 
 
 def test_validate_reports_invalid_chapter_plan_and_audit(tmp_path: Path) -> None:
@@ -571,11 +594,8 @@ def test_validate_reports_invalid_chapter_plan_and_audit(tmp_path: Path) -> None
     report = validate_project(root)
 
     assert not report.ok
-    assert any("scene numbers must be sequential" in msg.message for msg in report.errors)
-    assert any(
-        "passed audit reports cannot contain medium, high, or critical" in msg.message
-        for msg in report.errors
-    )
+    assert any(msg.path.name == "plan.json" and "字段值未通过业务校验" in msg.message for msg in report.errors)
+    assert any(msg.path.name == "audit.json" and "字段值未通过业务校验" in msg.message for msg in report.errors)
 
 
 def test_validate_chapter_plan_allows_world_rule_references(tmp_path: Path) -> None:
@@ -645,8 +665,8 @@ def test_validate_reports_chapter_output_linkage_errors(tmp_path: Path) -> None:
     report = validate_project(root)
 
     assert not report.ok
-    assert any("polished_path references missing file" in msg.message for msg in report.errors)
-    assert any("front matter chapter_number 2 does not match 1" in msg.message for msg in report.errors)
+    assert any("polished_path 引用了不存在的文件" in msg.message for msg in report.errors)
+    assert any("front matter chapter_number" in msg.message and "不一致" in msg.message for msg in report.errors)
 
 
 def test_validate_fails_accepted_chapter_with_blocking_audit_or_missing_state_apply(tmp_path: Path) -> None:
@@ -736,7 +756,9 @@ def test_validate_reports_hidden_truth_in_reader_visible_summary(tmp_path: Path)
     report = validate_project(root)
 
     assert not report.ok
-    assert any("reader_visible_summary 包含隐藏真相" in msg.message for msg in report.errors)
+    leak_errors = [msg for msg in report.errors if "reader_visible_summary 包含隐藏真相" in msg.message]
+    assert len(leak_errors) == 1
+    assert "hidden truth" not in leak_errors[0].message
 
 
 def _workspace_with_accepted_chapter(tmp_path: Path) -> Path:

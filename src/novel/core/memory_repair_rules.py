@@ -84,7 +84,7 @@ COLLECTION_SCHEMA_HINTS: dict[str, str] = {
         "strict add value schema: Character {id, name, role, gender?: 男|女|未知|null, reader_visible_summary, aliases[], private_author_notes?, "
         "appearance: object|null, personality: object|null, relationships: Relationship[], abilities: Ability[], secrets: Secret[], tags[]}.\n"
         "Character.role is narrative role only: use Chinese narrative roles such as 主角, 主要人物, 配角, 次要人物.\n"
-        "Use Character.gender for explicit gender facts such as 男性/女性; do not encode gender only as a tag.\n"
+        "Use Character.gender for explicit gender facts such as 男性/女性/未知; do not encode gender only as a tag.\n"
         "Never put family rank, sect identity, profession, or jianghu identity in role; phrases such as 谢家长女, 谢家次子, 张家幼女, 唐门二房之女, 江湖散人, 武当俗家弟子 must go into tags and summary/notes.\n"
         "Ability {name: string, description: string, limitations?: string|null}; never use string arrays for abilities.\n"
         "Secret {id: snake_case, visibility: reader_visible|hidden|partially_revealed, description: string, planned_reveal?: string|null}; never use string arrays for secrets."
@@ -132,7 +132,7 @@ SETTING_CHANGE_MAPPING_RULES = """设定变更默认映射规则：
 - 新人物/明确姓名默认写入 memory/canon/characters.json，新增路径使用 /characters/-。
 - Character.role 只表示叙事角色；新增人物默认使用中文叙事角色值：主角、主要人物、配角、次要人物。
 - 用户说“主要人物”时默认 role="主要人物"；明确主角用 role="主角"；明确次要/背景用 role="次要人物"；未明确时用 role="配角"。
-- 用户明确“男性/女性/性别”时，优先写入 Character.gender（男/女），不要只追加到 tags。
+- 用户明确“男性/女性/性别”时，优先写入 Character.gender（男/女/未知），不要只追加到 tags。
 - 家族身份、门派身份、排行、职业/江湖身份必须写入 tags，并可写入 reader_visible_summary 或 private_author_notes；不要把“谢家长女”“谢家次子”“张家幼女”“唐门二房之女”“江湖散人”“武当俗家弟子”等写入 role。
 - 新地点、宅邸、村庄、宫殿、门派驻地默认写入 memory/canon/locations.json，新增路径使用 /locations/-。
 - 地点公开描述写入 reader_visible_summary；隐藏/作者私有说明写入 private_author_notes；地点规则写入 rules[]；Location 顶层没有 description 字段，不要使用 /locations/{i}/description。

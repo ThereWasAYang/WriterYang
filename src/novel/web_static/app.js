@@ -1205,21 +1205,6 @@
       }
     }
 
-    async function loadLatestActiveSession(options = {}) {
-      try {
-        const data = await apiGet("/api/session/latest", { path: projectPath() });
-        const session = data.session || {};
-        if (!session.session_id) return null;
-        return await applyLoadedSessionData(data, {
-          ...options,
-          message: `已恢复最近 Session：${session.session_id}`,
-        });
-      } catch (error) {
-        if (!options.silent) setMessage(error.message, true);
-        return null;
-      }
-    }
-
     async function restoreRecentSessionIfEmpty(options = {}) {
       if ($("sessionId").value.trim()) return null;
       const sessionId = recentSessionId();

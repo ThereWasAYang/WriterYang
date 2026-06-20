@@ -337,6 +337,38 @@ def test_audit_precheck_flags_item_holder_location_conflict(tmp_path: Path) -> N
     assert item_issue.suggested_fix == "只保留 holder_id 或 location_id 其中一个。"
 
 
+def test_audit_precheck_flags_item_holder_missing_possession_mirror(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    _write_json(
+        root / "memory" / "state" / "current_state.json",
+        {
+            "story_position": {"latest_chapter": 0},
+            "character_states": [
+                {"entity_id": "char_lin_che", "possessions": [], "last_updated_chapter": 0}
+            ],
+            "item_states": [
+                {
+                    "entity_id": "item_broken_ticket",
+                    "holder_id": "char_lin_che",
+                    "last_updated_chapter": 0,
+                }
+            ],
+            "location_states": [],
+        },
+    )
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+
+    item_issue = next(
+        issue for issue in result.report.issues if issue.id == "cons_item_holder_missing_possession_item_broken_ticket"
+    )
+    assert item_issue.severity == "low"
+    assert item_issue.description == "物品 item_broken_ticket 设置了 holder_id，但持有角色的 possessions 未包含该物品。"
+
+
 def test_audit_precheck_flags_timeline_reversed_cause(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     _write_json(

@@ -187,7 +187,7 @@ class AgentConfig(FlexibleModel):
     @classmethod
     def reject_raw_keys(cls, value: str | None) -> str | None:
         if value and value.startswith(("sk-", "sk_")):
-            raise ValueError("store environment variable names, not raw API keys")
+            raise ValueError("请存储环境变量名，不要存储原始 API key")
         return value
 
 
@@ -210,7 +210,7 @@ class AgentConfigPatch(FlexibleModel):
     @classmethod
     def reject_raw_keys(cls, value: str | None) -> str | None:
         if value and value.startswith(("sk-", "sk_")):
-            raise ValueError("store environment variable names, not raw API keys")
+            raise ValueError("请存储环境变量名，不要存储原始 API key")
         return value
 
 
@@ -247,33 +247,33 @@ class AgentsConfig(SchemaVersionedModel):
     @model_validator(mode="after")
     def require_default_or_profiles(self) -> "AgentsConfig":
         if self.model_extra and "agents" in self.model_extra:
-            raise ValueError("agents config uses removed agents mapping; use profiles/tasks")
+            raise ValueError("agents config 使用了已移除的 agents mapping；请改用 profiles/tasks")
         if self.default is None and not self.profiles:
-            raise ValueError("agents config requires a default config or at least one profile config")
+            raise ValueError("agents config 需要 default 配置或至少一个 profile 配置")
         if self.default is not None and self.default.inherit_default:
-            raise ValueError("default config cannot inherit default")
+            raise ValueError("default config 不能 inherit default")
         if self.default is not None:
             task_only_fields = sorted(TASK_ONLY_CONFIG_FIELDS & set(self.default.model_fields_set))
             if task_only_fields:
                 fields = ", ".join(task_only_fields)
                 raise ValueError(
-                    f"default config contains task-only config field(s): {fields}; "
-                    "move temperature/reasoning/thinking overrides to tasks.<task>"
+                    f"default config 包含仅 task 可用的配置字段：{fields}；"
+                    "请将 temperature/reasoning/thinking 覆盖移到 tasks.<task>"
                 )
         unknown_profiles = sorted(set(self.profiles) - set(PROFILE_NAMES))
         if unknown_profiles:
-            raise ValueError(f"unknown profile config: {', '.join(unknown_profiles)}")
+            raise ValueError(f"未知 profile config：{', '.join(unknown_profiles)}")
         for profile_name, profile_config in sorted(self.profiles.items()):
             task_only_fields = sorted(TASK_ONLY_CONFIG_FIELDS & set(profile_config.model_fields_set))
             if task_only_fields:
                 fields = ", ".join(task_only_fields)
                 raise ValueError(
-                    f"profile {profile_name} contains task-only config field(s): {fields}; "
-                    "move temperature/reasoning/thinking overrides to tasks.<task>"
+                    f"profile {profile_name} 包含仅 task 可用的配置字段：{fields}；"
+                    "请将 temperature/reasoning/thinking 覆盖移到 tasks.<task>"
                 )
         unknown_tasks = sorted(set(self.tasks) - set(TASK_TO_PROFILE))
         if unknown_tasks:
-            raise ValueError(f"unknown task config: {', '.join(unknown_tasks)}")
+            raise ValueError(f"未知 task config：{', '.join(unknown_tasks)}")
         return self
 
 
@@ -291,7 +291,7 @@ class EmbeddingProviderConfig(FlexibleModel):
     @classmethod
     def reject_raw_keys(cls, value: str | None) -> str | None:
         if value and value.startswith(("sk-", "sk_")):
-            raise ValueError("store environment variable names, not raw API keys")
+            raise ValueError("请存储环境变量名，不要存储原始 API key")
         return value
 
 
@@ -302,7 +302,7 @@ class EmbeddingsConfig(SchemaVersionedModel):
     @model_validator(mode="after")
     def validate_active_provider(self) -> EmbeddingsConfig:
         if self.active_provider not in self.providers:
-            raise ValueError(f"active_provider is not configured: {self.active_provider}")
+            raise ValueError(f"active_provider 未配置：{self.active_provider}")
         return self
 
 
@@ -398,7 +398,7 @@ class Character(FlexibleModel):
                 duplicates.add(secret.id)
             seen.add(secret.id)
         if duplicates:
-            raise ValueError(f"duplicate secret ids: {', '.join(sorted(duplicates))}")
+            raise ValueError(f"secret id 重复：{', '.join(sorted(duplicates))}")
         return self
 
 
@@ -503,7 +503,7 @@ class ForeshadowingThread(FlexibleModel):
     @model_validator(mode="after")
     def payoff_not_before_intro(self) -> ForeshadowingThread:
         if self.planned_payoff and self.planned_payoff.chapter < self.introduced_in_chapter:
-            raise ValueError("planned_payoff.chapter must be greater than or equal to introduced_in_chapter")
+            raise ValueError("planned_payoff.chapter 必须大于或等于 introduced_in_chapter")
         return self
 
 
@@ -632,12 +632,12 @@ class StateUpdateProposal(SchemaVersionedModel):
         _require_unique_values([event.id for event in self.timeline_events], "timeline event id")
         for change in self.state_changes:
             if change.chapter != self.chapter_number:
-                raise ValueError(f"state change {change.id} chapter must match proposal chapter_number")
+                raise ValueError(f"state change {change.id} 的 chapter 必须与 proposal chapter_number 一致")
         for event in self.timeline_events:
             if event.narrative_position is None:
-                raise ValueError(f"timeline event {event.id} narrative_position is required for StateUpdateProposal")
+                raise ValueError(f"timeline event {event.id} 在 StateUpdateProposal 中必须包含 narrative_position")
             if event.narrative_position.chapter != self.chapter_number:
-                raise ValueError(f"timeline event {event.id} chapter must match proposal chapter_number")
+                raise ValueError(f"timeline event {event.id} 的 chapter 必须与 proposal chapter_number 一致")
         return self
 
 
@@ -783,14 +783,14 @@ class CreationSession(SchemaVersionedModel):
     @model_validator(mode="after")
     def validate_scope_and_status(self) -> CreationSession:
         if sorted(set(self.chapter_range)) != self.chapter_range:
-            raise ValueError("chapter_range must be sorted and unique")
+            raise ValueError("chapter_range 必须升序排列且去重")
         if self.scope_type == "segments" and not self.segment_range:
-            raise ValueError("segment sessions require segment_range")
+            raise ValueError("segment session 必须设置 segment_range")
         if self.status in {"outline_approved", "generating", "needs_revision", "needs_user_review", "accepted", "archived"}:
             if self.outline_status != "approved":
-                raise ValueError("approved-or-later sessions require outline_status=approved")
+                raise ValueError("approved 及之后状态的 session 必须满足 outline_status=approved")
         if self.status == "archived" and self.content_status != "archived":
-            raise ValueError("archived sessions require content_status=archived")
+            raise ValueError("archived session 必须满足 content_status=archived")
         return self
 
 
@@ -829,11 +829,11 @@ class RevisionRouteDecision(SchemaVersionedModel):
     @model_validator(mode="after")
     def require_matching_instruction(self) -> RevisionRouteDecision:
         if self.route == "plot_replan" and not _has_text(self.instruction_for_plot):
-            raise ValueError("plot_replan requires instruction_for_plot")
+            raise ValueError("plot_replan 必须包含 instruction_for_plot")
         if self.route == "writer_rewrite" and not _has_text(self.instruction_for_writer):
-            raise ValueError("writer_rewrite requires instruction_for_writer")
+            raise ValueError("writer_rewrite 必须包含 instruction_for_writer")
         if self.route == "revision_patch" and not _has_text(self.instruction_for_revision):
-            raise ValueError("revision_patch requires instruction_for_revision")
+            raise ValueError("revision_patch 必须包含 instruction_for_revision")
         return self
 
 
@@ -849,7 +849,7 @@ class AskIntentDecision(SchemaVersionedModel):
     @model_validator(mode="after")
     def validate_apply_has_repair_id(self) -> "AskIntentDecision":
         if self.task == "memory_repair_apply" and not _has_text(self.repair_id):
-            raise ValueError("memory_repair_apply requires repair_id")
+            raise ValueError("memory_repair_apply 必须包含 repair_id")
         return self
 
 
@@ -966,7 +966,7 @@ class ChapterPlan(SchemaVersionedModel):
         expected = list(range(1, len(self.scenes) + 1))
         actual = [scene.scene_number for scene in self.scenes]
         if actual != expected:
-            raise ValueError(f"scene numbers must be sequential from 1, got {actual}")
+            raise ValueError(f"scene_number 必须从 1 开始连续，当前为 {actual}")
         return self
 
 
@@ -1087,12 +1087,12 @@ class AuditReport(SchemaVersionedModel):
             severe = [issue.id for issue in self.issues if issue.severity in {"medium", "high", "critical"}]
             if severe:
                 raise ValueError(
-                    "passed audit reports cannot contain medium, high, or critical issues: "
+                    "passed audit report 不能包含 medium、high 或 critical issue："
                     + ", ".join(severe)
                 )
         for issue in self.issues:
             if issue.type != "informational" and not issue.suggested_fix:
-                raise ValueError(f"audit issue {issue.id} must include suggested_fix")
+                raise ValueError(f"audit issue {issue.id} 必须包含 suggested_fix")
         return self
 
 
@@ -1204,7 +1204,7 @@ class MemoryChangeClarificationDecision(SchemaVersionedModel):
     @model_validator(mode="after")
     def require_questions_when_needed(self) -> "MemoryChangeClarificationDecision":
         if self.status == "needs_clarification" and not any(_has_text(question) for question in self.questions):
-            raise ValueError("needs_clarification requires at least one question")
+            raise ValueError("needs_clarification 必须至少包含一个 question")
         return self
 
 
@@ -1234,7 +1234,7 @@ class MemoryChangeBatch(FlexibleModel):
     @model_validator(mode="after")
     def require_scope(self) -> "MemoryChangeBatch":
         if not self.target_files and not self.domains:
-            raise ValueError("batch requires target_files or domains")
+            raise ValueError("batch 必须包含 target_files 或 domains")
         return self
 
 
@@ -1311,7 +1311,7 @@ def _require_unique_values(values: list[str], label: str) -> None:
             duplicates.add(value)
         seen.add(value)
     if duplicates:
-        raise ValueError(f"duplicate {label}: {', '.join(sorted(duplicates))}")
+        raise ValueError(f"{label} 重复：{', '.join(sorted(duplicates))}")
 
 
 def _has_text(value: str | None) -> bool:

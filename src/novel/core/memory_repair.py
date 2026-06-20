@@ -2491,23 +2491,24 @@ def _normalize_character_gender_in_object(operation: MemoryRepairOperation) -> M
         return None
     value = json.loads(json.dumps(operation.value, ensure_ascii=False))
     existing_gender = canonical_gender(value.get("gender"))
-    stripped_tags, tags_changed = strip_explicit_gender_tags(value.get("tags"))
-    if stripped_tags is not None and tags_changed:
-        value["tags"] = stripped_tags
+    inferred_gender = infer_gender_from_character_payload(value)
 
     if existing_gender is not None:
         gender_changed = value.get("gender") != existing_gender
         value["gender"] = existing_gender
+        stripped_tags, tags_changed = strip_explicit_gender_tags(value.get("tags"))
+        if stripped_tags is not None and tags_changed:
+            value["tags"] = stripped_tags
         if gender_changed or tags_changed:
             return operation.model_copy(update={"value": value})
         return None
 
-    gender = infer_gender_from_character_payload(value)
-    if gender is None:
-        if tags_changed:
-            return operation.model_copy(update={"value": value})
+    if inferred_gender is None:
         return None
-    value["gender"] = gender
+    value["gender"] = inferred_gender
+    stripped_tags, tags_changed = strip_explicit_gender_tags(value.get("tags"))
+    if stripped_tags is not None and tags_changed:
+        value["tags"] = stripped_tags
     return operation.model_copy(update={"value": value})
 
 

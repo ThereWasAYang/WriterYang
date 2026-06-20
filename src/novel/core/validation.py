@@ -267,6 +267,16 @@ def _pydantic_error_message(error: Mapping[str, object]) -> str:
     if error_type.startswith("string_pattern_mismatch"):
         return "字符串格式不符合要求"
     if error_type.startswith("value_error"):
+        reason = None
+        context = error.get("ctx")
+        if isinstance(context, Mapping):
+            context_error = context.get("error")
+            if context_error is not None:
+                reason = str(context_error)
+        if not reason and message.startswith("Value error, "):
+            reason = message.removeprefix("Value error, ")
+        if reason:
+            return f"字段值未通过业务校验：{reason}"
         return "字段值未通过业务校验"
     return f"字段未通过 schema 校验（{message or error_type}）"
 

@@ -215,7 +215,7 @@ def test_profile_task_only_fields_are_rejected(tmp_path: Path) -> None:
     else:
         raise AssertionError("expected schema rejection")
 
-    assert "task-only" in message
+    assert "仅 task 可用" in message
     assert "tasks.<task>" in message
 
 
@@ -244,7 +244,7 @@ def test_default_task_only_fields_are_rejected(tmp_path: Path) -> None:
     else:
         raise AssertionError("expected schema rejection")
 
-    assert "default config contains task-only" in message
+    assert "default config 包含仅 task 可用的配置字段" in message
     assert "tasks.<task>" in message
 
 
@@ -320,7 +320,7 @@ def test_unknown_task_config_is_rejected(tmp_path: Path) -> None:
     try:
         load_agents_config(path)
     except Exception as exc:
-        assert "unknown task config" in str(exc)
+        assert "未知 task config" in str(exc)
     else:
         raise AssertionError("expected schema rejection")
 

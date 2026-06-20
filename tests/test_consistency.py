@@ -73,6 +73,39 @@ def test_item_holder_location_and_possession_conflicts_are_reported(tmp_path: Pa
 
     assert "cons_item_holder_location_item_bell" in finding_ids
     assert "cons_item_holder_possession_item_bell" in finding_ids
+    assert "cons_item_holder_missing_possession_item_bell" not in finding_ids
+
+
+def test_item_holder_without_possession_mirror_is_reported_as_low_warning(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _write_state(
+        root,
+        character_states=[
+            {
+                "entity_id": "char_linyan",
+                "location_id": "loc_station",
+                "knowledge": [],
+                "possessions": [],
+                "last_updated_chapter": 1,
+            }
+        ],
+        item_states=[
+            {
+                "entity_id": "item_bell",
+                "holder_id": "char_linyan",
+                "condition": "完好",
+                "last_updated_chapter": 1,
+            }
+        ],
+    )
+
+    result = check_chapter_consistency(root, 1, include_existing_audit=False)
+
+    finding = next(
+        item for item in result.findings if item.id == "cons_item_holder_missing_possession_item_bell"
+    )
+    assert finding.severity == "low"
+    assert finding.description == "物品 item_bell 设置了 holder_id，但持有角色的 possessions 未包含该物品。"
 
 
 def test_state_update_old_value_allows_numeric_strings_and_missing_entity_state(tmp_path: Path) -> None:

@@ -341,6 +341,19 @@ def _check_item_flow(snapshot: ConsistencySnapshot) -> list[ConsistencyFinding]:
                         suggested_fix="同步 item_state.holder_id 与 character_state.possessions。",
                     )
                 )
+    for item in snapshot.state.item_states:
+        if item.holder_id and item.entity_id not in possession_owner:
+            findings.append(
+                ConsistencyFinding(
+                    id=f"cons_item_holder_missing_possession_{item.entity_id}",
+                    severity="low",
+                    type="state_conflict",
+                    description=f"物品 {item.entity_id} 设置了 holder_id，但持有角色的 possessions 未包含该物品。",
+                    source=source,
+                    quote=f"holder_id={item.holder_id}; possessions=missing",
+                    suggested_fix="将该物品加入持有角色的 possessions，或移除 item_state.holder_id。",
+                )
+            )
     findings.extend(_check_item_mentions_against_plan(snapshot))
     findings.extend(_check_state_update_old_values(snapshot))
     return findings

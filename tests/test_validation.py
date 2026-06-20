@@ -486,6 +486,38 @@ def test_validate_reports_state_transition_errors(tmp_path: Path) -> None:
     assert any("同时设置了 holder_id 和 location_id" in msg.message for msg in report.errors)
 
 
+def test_validate_reports_item_holder_missing_possession_mirror(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    _write_json(
+        root / "memory" / "canon" / "characters.json",
+        {
+            "characters": [
+                {"id": "char_lin_che", "name": "林澈", "role": "主角", "reader_visible_summary": "旧物修复师。"}
+            ]
+        },
+    )
+    _write_json(
+        root / "memory" / "canon" / "items.json",
+        {"items": [{"id": "item_ticket", "name": "车票", "type": "线索", "reader_visible_summary": "半张旧车票。"}]},
+    )
+    _write_json(
+        root / "memory" / "state" / "current_state.json",
+        {
+            "story_position": {"latest_chapter": 1},
+            "character_states": [{"entity_id": "char_lin_che", "possessions": [], "last_updated_chapter": 1}],
+            "item_states": [{"entity_id": "item_ticket", "holder_id": "char_lin_che", "last_updated_chapter": 1}],
+            "location_states": [],
+        },
+    )
+
+    report = validate_project(root)
+
+    assert report.ok
+    assert any("cons_item_holder_missing_possession_item_ticket" in msg.message for msg in report.warnings)
+    assert any("持有角色的 possessions 未包含该物品" in msg.message for msg in report.warnings)
+
+
 def test_validate_reports_duplicate_possession_owner_and_dead_participant(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
@@ -594,8 +626,18 @@ def test_validate_reports_invalid_chapter_plan_and_audit(tmp_path: Path) -> None
     report = validate_project(root)
 
     assert not report.ok
-    assert any(msg.path.name == "plan.json" and "字段值未通过业务校验" in msg.message for msg in report.errors)
-    assert any(msg.path.name == "audit.json" and "字段值未通过业务校验" in msg.message for msg in report.errors)
+    assert any(
+        msg.path.name == "plan.json"
+        and "字段值未通过业务校验：scene_number 必须从 1 开始连续" in msg.message
+        for msg in report.errors
+    )
+    assert any(
+        msg.path.name == "audit.json"
+        and "字段值未通过业务校验：passed audit report 不能包含 medium、high 或 critical issue" in msg.message
+        for msg in report.errors
+    )
+    assert not any("scene numbers must be sequential" in msg.message for msg in report.errors)
+    assert not any("passed audit reports cannot contain" in msg.message for msg in report.errors)
 
 
 def test_validate_chapter_plan_allows_world_rule_references(tmp_path: Path) -> None:

@@ -2819,7 +2819,7 @@ def test_frontend_basic_render() -> None:
     assert "recentSessionStorageKey" in app_js
     assert "writeryang.lastSession." in app_js
     assert 'apiGet("/api/session/latest"' in app_js
-    assert "loadLatestActiveSession" in app_js
+    assert "loadLatestActiveSession" not in app_js
     assert "sessionHasGeneratedContent" in app_js
     assert "showSessionGeneratedContentIfAvailable" in app_js
     assert "prepareSessionRunAction" in app_js

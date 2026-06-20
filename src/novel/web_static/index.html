@@ -367,6 +367,20 @@
             <textarea id="rejectedTextViewer" class="editor" readonly placeholder="点击“查看被打回原文”后显示快照"></textarea>
           </div>
 
+          <div id="chapterProsePanel" class="panel chapter-prose-panel">
+            <div class="row prose-toolbar">
+              <h2 style="margin: 0;">本章正文</h2>
+              <select id="proseViewSource" title="选择查看的正文版本">
+                <option value="polished">润色稿 polished.md</option>
+                <option value="draft">初稿 draft.md</option>
+              </select>
+              <button id="reloadProseView">重新加载</button>
+              <button id="openProseFile">在项目文件中打开</button>
+            </div>
+            <div id="proseViewMeta" class="preview-meta">完成写作后，本章正文会自动显示在这里，可直接通读全文。</div>
+            <div id="chapterProseViewer" class="prose-reader prose-empty">点击左侧“开始写作”，生成的正文会自动出现在这里并定位到此处；也可以在上方选择版本后点“重新加载”。</div>
+          </div>
+
           <div class="panel">
             <div class="row">
               <button class="tab active" data-tab="chapterCompare">章节对照</button>

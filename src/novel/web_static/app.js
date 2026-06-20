@@ -495,7 +495,7 @@
           <div style="margin-top: 6px;">
             [${escapeHtml(event.status || "")}/${escapeHtml(event.event_type || "")}]
             ${escapeHtml(event.message || "")}
-            ${(event.target_files || []).length ? `<div>files: ${escapeHtml((event.target_files || []).join(", "))}</div>` : ""}
+            ${(event.target_files || []).length ? `<div>涉及文件：${escapeHtml((event.target_files || []).join(", "))}</div>` : ""}
           </div>
         `).join("")}
       `;
@@ -571,7 +571,7 @@
             <td>${escapeHtml(chapter.title || "")}</td>
             <td>${escapeHtml(chapter.status || "")}</td>
             <td>${chapter.has_plan ? "plan " : ""}${chapter.has_draft ? "draft " : ""}${chapter.has_polished ? "polished " : ""}${chapter.has_audit ? "audit " : ""}${memoryLabel}</td>
-            <td>${escapeHtml(chapter.audit_status || "")}</td>
+            <td>${escapeHtml(auditStatusLabel(chapter.audit_status))}</td>
             <td><button data-chapter="${chapter.chapter_number}" class="select-chapter">选择</button>${memoryAction}</td>
           </tr>
         `;
@@ -812,6 +812,7 @@
       if (chapterComparePreviewEndpoints.has(endpoint)) {
         showTab("chapterCompare");
         await loadCompare();
+        focusChapterProse();
       }
     }
 
@@ -1595,6 +1596,76 @@
         }
       }));
       setMessage("章节对照已加载");
+      await loadProseView({ silent: true });
+    }
+
+    const proseSourceLabels = { polished: "润色稿", draft: "初稿" };
+
+    function splitChapterFrontmatter(text) {
+      const raw = String(text || "");
+      if (!raw.startsWith("---\n")) return { title: "", body: raw };
+      const end = raw.indexOf("\n---", 4);
+      if (end === -1) return { title: "", body: raw };
+      const meta = raw.slice(4, end);
+      const body = raw.slice(end + 4).replace(/^\s*\n/, "");
+      const match = meta.match(/^title:\s*(.+)$/m);
+      const title = match ? match[1].trim().replace(/^["']|["']$/g, "") : "";
+      return { title, body };
+    }
+
+    async function loadProseView(options = {}) {
+      const select = $("proseViewSource");
+      if (!select) return null;
+      const requested = options.source || select.value || "polished";
+      const chapter = options.chapter || compareChapterNumber();
+      const viewer = $("chapterProseViewer");
+      const meta = $("proseViewMeta");
+      const order = requested === "draft" ? ["draft"] : ["polished", "draft"];
+      for (const source of order) {
+        let data;
+        try {
+          data = await apiGet("/api/chapter-file", { path: projectPath(), chapter, file: source });
+        } catch (error) {
+          viewer.textContent = `无法读取正文：${error.message}`;
+          viewer.classList.add("prose-empty");
+          meta.textContent = `第 ${chapter} 章正文读取失败`;
+          if (!options.silent) setMessage(error.message, true);
+          return null;
+        }
+        const relPath = data.relative_path
+          || `memory/chapters/${String(chapter).padStart(3, "0")}/${source}.md`;
+        if (data.exists && String(data.content || "").trim()) {
+          const { title, body } = splitChapterFrontmatter(data.content);
+          viewer.textContent = body.trim() ? body : data.content;
+          viewer.classList.remove("prose-empty");
+          select.value = source;
+          const fallbackNote = (requested === "polished" && source === "draft")
+            ? "（暂无润色稿，显示初稿）" : "";
+          const titleNote = title ? ` · 《${title}》` : "";
+          meta.textContent = `第 ${chapter} 章${titleNote} · ${proseSourceLabels[source]} · ${relPath}${fallbackNote}`;
+          if (!options.silent) setMessage(`已加载第 ${chapter} 章正文（${proseSourceLabels[source]}）`);
+          return source;
+        }
+      }
+      viewer.textContent = requested === "draft"
+        ? `第 ${chapter} 章尚无初稿（draft.md）。`
+        : `第 ${chapter} 章尚未生成正文。点击左侧“开始写作”后会自动显示在这里。`;
+      viewer.classList.add("prose-empty");
+      meta.textContent = `第 ${chapter} 章 · 暂无正文`;
+      if (!options.silent) setMessage(`第 ${chapter} 章暂无正文`, true);
+      return null;
+    }
+
+    function openProseFile() {
+      const chapter = compareChapterNumber();
+      const source = $("proseViewSource").value || "polished";
+      const relPath = `memory/chapters/${String(chapter).padStart(3, "0")}/${source}.md`;
+      return readWorkspaceFile(relPath);
+    }
+
+    function focusChapterProse() {
+      const panel = $("chapterProsePanel");
+      if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     async function loadEditorFile() {
@@ -1660,13 +1731,13 @@
 
     function renderAuditIssues(issues) {
       if (!issues.length) {
-        $("auditIssueList").textContent = "无 issue";
+        $("auditIssueList").textContent = "无问题";
         return;
       }
       $("auditIssueList").innerHTML = issues.map((issue, index) => {
         const first = (issue.matches || [])[0] || {};
-        const loc = first.matched ? `line ${first.line}, col ${first.column}` : "无法定位";
-        return `<button class="issue-button" data-index="${index}"><b>${escapeHtml(issue.id)}</b> <span class="badge">${escapeHtml(issue.severity || "")}</span><br>${escapeHtml(issue.description || "")}<br><small>${escapeHtml(loc)}</small></button>`;
+        const loc = first.matched ? `第 ${first.line} 行第 ${first.column} 列` : "无法定位";
+        return `<button class="issue-button" data-index="${index}"><b>${escapeHtml(issue.id)}</b> <span class="badge">${escapeHtml(auditSeverityLabel(issue.severity))}</span><br>${escapeHtml(issue.description || "")}<br><small>${escapeHtml(loc)}</small></button>`;
       }).join("");
       document.querySelectorAll(".issue-button").forEach((button) => {
         button.addEventListener("click", () => {
@@ -1674,7 +1745,7 @@
           latestSelectedAuditIssue = issue;
           const match = (issue.matches || []).find((item) => item.matched);
           if (!match) {
-            setMessage("该 issue 的 evidence 无法定位到正文", true);
+            setMessage("该问题的依据无法定位到正文", true);
             return;
           }
           const viewer = $("auditTextViewer");
@@ -2631,7 +2702,7 @@
       }
       if (Array.isArray(data.audit_summary)) {
         const blocking = data.audit_summary.reduce((count, item) => count + (item.blocking_issue_count || 0), 0);
-        if (blocking) parts.push(`blocking issues=${blocking}`);
+        if (blocking) parts.push(`阻断问题=${blocking}`);
       }
       if (Array.isArray(data.rewrite_events) && data.rewrite_events.length) {
         parts.push(`auto rewrites=${data.rewrite_events.length}`);
@@ -2642,7 +2713,7 @@
       const usageText = apiCallUsageText(data.api_call_usage);
       if (usageText) parts.push(usageText);
       if (data.proposal?.repair_id) parts.push(`repair=${data.proposal.repair_id}`);
-      if (data.overall_status) parts.push(`audit=${data.overall_status}`);
+      if (data.overall_status) parts.push(`审核结论=${auditStatusLabel(data.overall_status)}`);
       if (Array.isArray(data.warnings) && data.warnings.length) {
         parts.push(`warnings=${data.warnings.length}`);
       }
@@ -2891,25 +2962,57 @@
       $("currentValidationSummary").textContent = `项目检查：${errorCount} 个错误，${warningCount} 个警告`;
     }
 
+    const AUDIT_SEVERITY_LABELS = { low: "低", medium: "中", high: "高", critical: "严重" };
+    const AUDIT_STATUS_LABELS = { passed: "通过", needs_revision: "需修订", blocked: "已阻断" };
+    const AUDIT_TYPE_LABELS = {
+      state_conflict: "状态冲突",
+      continuity_issue: "连续性问题",
+      knowledge_conflict: "知识链冲突",
+      premature_reveal: "提前揭示伏笔",
+      style_mismatch: "文风不符",
+      plot_logic_issue: "情节逻辑问题",
+      character_voice_issue: "人物口吻问题",
+      timeline_conflict: "时间线冲突",
+      canon_conflict: "设定冲突",
+      plan_deviation: "偏离大纲",
+    };
+
+    function auditSeverityLabel(value) {
+      return value ? (AUDIT_SEVERITY_LABELS[value] || value) : "";
+    }
+
+    function auditStatusLabel(value) {
+      return value ? (AUDIT_STATUS_LABELS[value] || value) : "";
+    }
+
+    function auditTypeLabel(value) {
+      return value ? (AUDIT_TYPE_LABELS[value] || value) : "";
+    }
+
+    function renderAuditIssueRows(issues, emptyText) {
+      if (!issues.length) return `<div>${emptyText}</div>`;
+      return issues.map((issue) => `
+        <div style="margin-top: 4px;">
+          <b>${escapeHtml(issue.id || "")}</b>
+          [${escapeHtml(auditSeverityLabel(issue.severity))}/${escapeHtml(auditTypeLabel(issue.type))}]
+          ${escapeHtml(issue.description || "")}
+          ${issue.suggested_fix ? `<div>建议修复：${escapeHtml(issue.suggested_fix)}</div>` : ""}
+        </div>
+      `).join("");
+    }
+
     function renderSessionAuditSummary(auditSummary) {
-      if (!auditSummary.length) return "<div style=\"margin-top: 8px;\">audit: 未生成</div>";
+      if (!auditSummary.length) return "<div style=\"margin-top: 8px;\">审核：未生成</div>";
       return auditSummary.map((item) => {
-        const issues = item.issues || [];
-        const issueRows = issues.length
-          ? issues.map((issue) => `
-              <div style="margin-top: 4px;">
-                <b>${escapeHtml(issue.id || "")}</b>
-                [${escapeHtml(issue.severity || "")}/${escapeHtml(issue.type || "")}]
-                ${escapeHtml(issue.description || "")}
-                ${issue.suggested_fix ? `<div>fix: ${escapeHtml(issue.suggested_fix)}</div>` : ""}
-              </div>
-            `).join("")
-          : "<div>无 issue</div>";
+        const issueRows = renderAuditIssueRows(item.issues || [], "无问题");
+        const statusText = item.overall_status
+          ? auditStatusLabel(item.overall_status)
+          : (item.exists ? "读取失败" : "未生成");
         return `
           <div style="margin-top: 8px;">
-            <b>第 ${escapeHtml(item.chapter_number)} 章 audit</b>:
-            ${escapeHtml(item.overall_status || (item.exists ? "读取失败" : "未生成"))}
-            ，blocking=${escapeHtml(item.blocking_issue_count || 0)}
+            <b>第 ${escapeHtml(item.chapter_number)} 章审核</b>：
+            ${escapeHtml(statusText)}
+            ，阻断问题 ${escapeHtml(item.blocking_issue_count || 0)} 个
             ${item.error ? `<div class="message error">${escapeHtml(item.error)}</div>` : ""}
             <div>${issueRows}</div>
           </div>
@@ -2927,27 +3030,20 @@
         <b>自动打回重写记录</b>
         ${events.map((event) => {
           const actionText = event.action === "plot_replan" ? "重写大纲" : "修正文";
-          const issueRows = (event.blocking_issues || []).map((issue) => `
-            <div style="margin-top: 4px;">
-              <b>${escapeHtml(issue.id || "")}</b>
-              [${escapeHtml(issue.severity || "")}/${escapeHtml(issue.type || "")}]
-              ${escapeHtml(issue.description || "")}
-              ${issue.suggested_fix ? `<div>fix: ${escapeHtml(issue.suggested_fix)}</div>` : ""}
-            </div>
-          `).join("") || "<div>无阻断 issue</div>";
+          const issueRows = renderAuditIssueRows(event.blocking_issues || [], "无阻断问题");
           const snapshotButton = event.rejected_text_snapshot_path
             ? `<button class="view-rejected-text" data-path="${escapeAttr(event.rejected_text_snapshot_path)}">查看被打回原文</button>`
             : "";
           const selectButton = `<button class="select-rewrite-event" data-event-id="${escapeAttr(event.event_id)}">选择该打回记录</button>`;
           const auditRevisions = (event.audit_revision_history || []).length
-            ? `<div>audit 复审次数：${escapeHtml((event.audit_revision_history || []).length)}</div>`
+            ? `<div>审核复审次数：${escapeHtml((event.audit_revision_history || []).length)}</div>`
             : "";
           return `
             <div style="margin-top: 8px;">
-              <div>第 ${escapeHtml(event.chapter_number)} 章第 ${escapeHtml(event.round_number)} 轮被 Audit 打回：${escapeHtml(actionText)}，status=${escapeHtml(event.status || "")}</div>
-              <div>event: ${escapeHtml(event.event_id || "")}</div>
-              <div>undo: ${escapeHtml(event.undo_status || "not_requested")}</div>
-              <div>audit: ${escapeHtml(event.trigger_audit_path || "")}</div>
+              <div>第 ${escapeHtml(event.chapter_number)} 章第 ${escapeHtml(event.round_number)} 轮被审核打回：${escapeHtml(actionText)}，状态=${escapeHtml(event.status || "")}</div>
+              <div>事件 ID：${escapeHtml(event.event_id || "")}</div>
+              <div>撤回状态：${escapeHtml(event.undo_status || "not_requested")}</div>
+              <div>审核文件：${escapeHtml(event.trigger_audit_path || "")}</div>
               ${selectButton} ${snapshotButton}
               ${auditRevisions}
               <div>${issueRows}</div>
@@ -3001,6 +3097,9 @@
     $("inspireProject").addEventListener("click", inspireProject);
     $("regenerateInspiration").addEventListener("click", regenerateInspiration);
     $("openInspirationFile").addEventListener("click", () => readWorkspaceFile(inspirationPreviewPath));
+    $("reloadProseView").addEventListener("click", () => loadProseView());
+    $("openProseFile").addEventListener("click", openProseFile);
+    $("proseViewSource").addEventListener("change", () => loadProseView());
     $("reloadOutlinePreview").addEventListener("click", loadCurrentSession);
     $("canonSuggest").addEventListener("click", canonSuggest);
     $("canonApply").addEventListener("click", canonApply);

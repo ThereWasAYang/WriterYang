@@ -25,6 +25,7 @@ from novel.core.agent_defaults import (
     TASK_TO_PROFILE,
     inherited_profile_config_patch,
     profile_for_task,
+    profile_config_defaults,
     profile_inherited_patch_fields,
 )
 from novel.core.app_logging import log_app_warning
@@ -935,9 +936,11 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
         if inherit_default is True:
             current_profile = profiles.get(profile_name)
             current_mapping = current_profile if isinstance(current_profile, dict) else None
+            current_mapping = _drop_legacy_profile_default_patch(profile_name, current_mapping)
+            cleaned_mapping = _drop_legacy_profile_default_patch(profile_name, cleaned) or {}
             profiles[profile_name] = {
                 **inherited_profile_config_patch(profile_name, current_mapping),
-                **profile_inherited_patch_fields(cleaned),
+                **profile_inherited_patch_fields(cleaned_mapping),
                 "inherit_default": True,
             }
             continue
@@ -960,9 +963,11 @@ def _save_provider_config(data: dict[str, object]) -> dict[str, object]:
             raise WebAPIError("invalid_request", f"unknown task: {task_name}", status=400)
         cleaned = _clean_agent_config_patch(patch)
         cleaned.pop("inherit_default", None)
-        current_task = tasks.get(task_name)
-        current_mapping = current_task if isinstance(current_task, dict) else {}
-        tasks[task_name] = {**current_mapping, **cleaned}
+        if cleaned:
+            tasks[task_name] = cleaned
+        elif task_name in tasks:
+            tasks.pop(task_name, None)
+            cleared_tasks.append(task_name)
     updated["profiles"] = profiles
     updated["tasks"] = tasks
     updated.pop("agents", None)
@@ -1010,8 +1015,26 @@ def _refresh_inherited_profile_snapshots(config: dict[str, object]) -> None:
         current = profiles.get(profile_name)
         current_mapping = current if isinstance(current, dict) else None
         if current is None or (isinstance(current, dict) and current.get("inherit_default") is True):
-            profiles[profile_name] = inherited_profile_config_patch(profile_name, current_mapping)
+            cleaned = _drop_legacy_profile_default_patch(profile_name, current_mapping)
+            profiles[profile_name] = inherited_profile_config_patch(profile_name, cleaned)
     config["profiles"] = profiles
+
+
+def _drop_legacy_profile_default_patch(
+    profile_name: str,
+    current: dict[str, object] | None,
+) -> dict[str, object] | None:
+    if not current:
+        return None
+    legacy_defaults = profile_config_defaults(profile_name)
+    cleaned: dict[str, object] = {}
+    for key, value in current.items():
+        if key == "inherit_default":
+            continue
+        if key in legacy_defaults and legacy_defaults[key] == value:
+            continue
+        cleaned[key] = value
+    return cleaned
 
 
 def _validate_provider_payload_config(config: AgentsConfig) -> None:

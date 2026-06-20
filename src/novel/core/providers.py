@@ -16,7 +16,6 @@ from novel.core.agent_defaults import (
     TASK_ONLY_CONFIG_FIELDS,
     TASK_TO_PROFILE,
     config_patch_fields,
-    profile_config_defaults,
     task_business_defaults,
 )
 from novel.core.io import append_jsonl, atomic_write_json
@@ -855,7 +854,7 @@ def _merge_profile_config(
     base = default_config
     patch_source = profile_config
     if patch_source is None:
-        patch_source = AgentConfigPatch.model_validate({"inherit_default": True, **profile_config_defaults(profile_name)})
+        patch_source = AgentConfigPatch.model_validate({"inherit_default": True})
     if getattr(patch_source, "inherit_default", False) is True:
         if base is None:
             raise ProviderError(f"profile {profile_name} inherits default but default API config is missing")

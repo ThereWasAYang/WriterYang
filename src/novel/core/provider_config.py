@@ -154,7 +154,7 @@ def resolve_profile_config_source(
     if profile_name in agents_config.profiles:
         return f"default+profile:{profile_name}" if agents_config.default is not None else f"profile:{profile_name}"
     if agents_config.default is not None:
-        return f"default+profile-defaults:{profile_name}"
+        return "default"
     return "unresolved"
 
 

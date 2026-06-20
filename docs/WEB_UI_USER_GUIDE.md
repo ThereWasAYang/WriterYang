@@ -46,9 +46,9 @@ http://127.0.0.1:8765
 5. 如需语义检索，勾选“配置 embedding API”，填写 embedding base URL、API Key 和模型名，再点击“测试并保存 embedding API / 跳过”。如果暂时不配置，关键词检索仍可用。
 6. 点击“推荐可用端口”或手动输入端口，再点击“保存端口”。保存前会验证端口是否可用；保存成功后，下次双击 `WriterYang_WebUI.command` 会使用这个端口启动。
 
-真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和模型能力参数。初始引导完成后，这组 API 会作为 default；`scribe`、`architect`、`loremaster`、`clerk` 四个 profile 默认继承 default，并可分别覆盖模型、token、上下文、超时和重试等能力参数。`temperature`、`thinking.type`、`reasoning` 属于 task 业务参数，只在高级 Task 覆盖区调整。
+真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和模型能力参数。初始引导完成后，这组 API 会作为 default；`scribe`、`architect`、`loremaster`、`clerk` 四个 profile 默认完整继承 default，只有显式写入 profile patch 时才分别覆盖模型、token、上下文、超时和重试等能力参数。`temperature`、`thinking.type`、`reasoning` 属于 task 业务参数，在“任务级覆盖”折叠区的表单控件中调整。
 
-以后如果你想单独调整模型能力，可以打开“模型与检索配置”页里的“Profile 模型配置”。页面展示 4 张 profile 模型卡：`scribe` 负责正文、润色和修订，`architect` 负责计划和审核，`loremaster` 负责灵感/设定/文风，`clerk` 负责状态提取、章节记忆、`intent_router` 和记忆修复。勾选“继承 default”时，profile 继承 default 的 provider/model/base URL/API env，并允许覆盖 token、上下文、超时、重试和 `json_response_format`；取消勾选后，页面会把当前生效配置填入表单并保存为独立完整 profile。右侧“当前 Profile 生效配置”会显示最终来源；完整脱敏 JSON 只放在调试折叠区。任务级覆盖在“高级”折叠区，默认隐藏，主要用于 `intent_router` 等少数 task 单独换模型，或覆盖某个 task 的 `temperature`、`thinking.type`、`reasoning`。不要把真实 API Key 写进配置页。
+以后如果你想单独调整模型能力，可以打开“模型与检索配置”页里的“Profile 模型配置”。页面展示 4 张 profile 模型卡：`scribe` 负责正文、润色和修订，`architect` 负责计划和审核，`loremaster` 负责灵感/设定/文风，`clerk` 负责状态提取、章节记忆、`intent_router` 和记忆修复。勾选“继承 default”时，profile 继承 default 的 provider/model/base URL/API env、token、上下文、超时、重试和 `json_response_format`；如果需要单独覆盖 profile 参数，可在 Profile 高级 JSON 中写 patch。取消勾选后，页面会把当前生效配置填入表单并保存为独立完整 profile。右侧“当前 Profile 生效配置”会显示最终来源；完整脱敏 JSON 只放在调试折叠区。任务级覆盖在“任务级覆盖”折叠区，默认隐藏，提供 `temperature`、`thinking.type`、`reasoning` 表单控件，也可在 Task 高级 JSON 中给 `intent_router` 等少数 task 单独换模型。不要把真实 API Key 写进配置页。
 
 ![Profile 模型配置页](assets/web-ui-guide/provider_config.png)
 
@@ -146,7 +146,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 
 | 区域 | 用途 | 使用方法 |
 | --- | --- | --- |
-| Profile 模型配置 | 查看和编辑 4 个 profile 的非密钥模型配置。 | Profile 默认勾选“继承 default”，可覆盖 model、token、上下文、超时、重试和 `json_response_format`；取消勾选后复制当前生效配置并开放 provider、model、base_url_env、api_key_env 等字段。任务级覆盖放在高级折叠区，适合 `intent_router` 等少数 task 单独换模型或覆盖 `temperature`、`thinking.type`、`reasoning`；不会显示或保存真实 API Key。 |
+| Profile 模型配置 | 查看和编辑 4 个 profile 的非密钥模型配置。 | Profile 默认勾选“继承 default”，不写 profile patch 时会跟随 default 的 model、token、上下文、超时、重试和 `json_response_format`；取消勾选后复制当前生效配置并开放 provider、model、base_url_env、api_key_env 等字段。任务级覆盖放在折叠区，提供 `temperature`、`thinking.type`、`reasoning` 控件，也适合 `intent_router` 等少数 task 单独换模型；不会显示或保存真实 API Key。 |
 | Embedding API 配置 | 重新测试并保存语义检索 API。 | 已配置成功时默认收起输入框，并显示“Embedding API 已配置”、provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。保存前会用当前批量和维度验证真实 API，保存成功后会清空输入框并自动刷新语义向量索引。API Key 只写入 `.env`。 |
 | 检索状态 | 显示 FTS 和 embedding 是否可用。 | 红色 embedding 提示表示语义检索不可用，但关键词检索仍可用。 |
 | 刷新关键词索引 | 增量刷新 FTS。 | 本地操作，不调用外部 API。 |

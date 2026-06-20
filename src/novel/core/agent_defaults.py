@@ -105,7 +105,7 @@ def inherited_profile_config_patch(
     profile_name: str,
     current: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    patch = {"inherit_default": True, **profile_config_defaults(profile_name)}
+    patch = {"inherit_default": True}
     if current:
         patch.update(profile_inherited_patch_fields(current))
     return patch

@@ -842,7 +842,61 @@ def test_api_provider_config_save_updates_default_config(tmp_path: Path) -> None
     assert "thinking" not in content["default"]  # type: ignore[operator]
     assert content["profiles"]["scribe"]["inherit_default"] is True  # type: ignore[index]
     assert "model" not in content["profiles"]["scribe"]  # type: ignore[index]
+    assert "max_tokens" not in content["profiles"]["scribe"]  # type: ignore[index]
+    assert "max_context_tokens" not in content["profiles"]["scribe"]  # type: ignore[index]
     assert payload["data"]["effective_profiles"]["scribe"]["config"]["model"] == "web-default-model"  # type: ignore[index]
+
+
+def test_api_provider_config_default_capacity_updates_inherited_profiles(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "default": {"max_tokens": 1234, "max_context_tokens": 5678}}),
+    )
+
+    assert status == 200
+    content = payload["data"]["config"]["content"]  # type: ignore[index]
+    for profile_name in ("scribe", "architect", "loremaster", "clerk"):
+        assert content["profiles"][profile_name]["inherit_default"] is True  # type: ignore[index]
+        assert "max_tokens" not in content["profiles"][profile_name]  # type: ignore[index]
+        assert "max_context_tokens" not in content["profiles"][profile_name]  # type: ignore[index]
+        effective = payload["data"]["effective_profiles"][profile_name]["config"]  # type: ignore[index]
+        assert effective["max_tokens"] == 1234
+        assert effective["max_context_tokens"] == 5678
+
+    config_path = root / "config" / "agents.yaml"
+    assert resolve_agent_config(config_path, "writer").max_tokens == 1234
+    assert resolve_agent_config(config_path, "audit").max_context_tokens == 5678
+
+
+def test_api_provider_config_default_capacity_keeps_explicit_inherited_patch(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    setup_status, setup_payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "profiles": {"scribe": {"inherit_default": True, "max_tokens": 16000}}}),
+    )
+    assert setup_status == 200
+    assert setup_payload["ok"] is True
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "default": {"max_tokens": 1234, "max_context_tokens": 5678}}),
+    )
+
+    assert status == 200
+    content = payload["data"]["config"]["content"]  # type: ignore[index]
+    assert content["profiles"]["scribe"]["inherit_default"] is True  # type: ignore[index]
+    assert content["profiles"]["scribe"]["max_tokens"] == 16000  # type: ignore[index]
+    assert "max_context_tokens" not in content["profiles"]["scribe"]  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["config"]["max_tokens"] == 16000  # type: ignore[index]
+    assert payload["data"]["effective_profiles"]["scribe"]["config"]["max_context_tokens"] == 5678  # type: ignore[index]
 
 
 def test_api_provider_config_rejects_provider_unsupported_json_response_format(tmp_path: Path) -> None:
@@ -877,6 +931,42 @@ def test_api_provider_config_save_can_add_known_task_override(tmp_path: Path) ->
     assert content["tasks"]["revision"]["temperature"] == 0.4  # type: ignore[index]
     assert payload["data"]["effective_tasks"]["revision"]["config"]["model"] == "web-revision-model"  # type: ignore[index]
     assert payload["data"]["effective_tasks"]["revision"]["config"]["temperature"] == 0.4  # type: ignore[index]
+
+
+def test_api_provider_config_task_save_replaces_existing_override_and_empty_clears(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    setup_status, setup_payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "tasks": {"revision": {"model": "web-revision-model", "temperature": 0.4}}}),
+    )
+    assert setup_status == 200
+    assert setup_payload["ok"] is True
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "tasks": {"revision": {"temperature": 0.2}}}),
+    )
+
+    assert status == 200
+    content = payload["data"]["config"]["content"]  # type: ignore[index]
+    assert content["tasks"]["revision"] == {"temperature": 0.2}  # type: ignore[index]
+    assert payload["data"]["effective_tasks"]["revision"]["config"]["model"] == "model-name"  # type: ignore[index]
+    assert payload["data"]["effective_tasks"]["revision"]["config"]["temperature"] == 0.2  # type: ignore[index]
+
+    clear_status, clear_payload = handle_api_request(
+        "POST",
+        "/api/provider-config",
+        "",
+        json.dumps({"path": str(root), "tasks": {"revision": {}}}),
+    )
+
+    assert clear_status == 200
+    assert clear_payload["data"]["cleared_tasks"] == ["revision"]  # type: ignore[index]
+    assert "revision" not in clear_payload["data"]["config"]["content"]["tasks"]  # type: ignore[index]
 
 
 def test_api_provider_config_rejects_task_only_profile_fields(tmp_path: Path) -> None:
@@ -993,7 +1083,7 @@ def test_api_provider_config_clear_profile_override_restores_default(tmp_path: P
     after = resolve_agent_config(config_path, "writer")
     assert after.model == "model-name"
     assert after.max_tokens == 24000
-    assert payload["data"]["effective_tasks"]["writer"]["source_label"] == "default+profile-defaults:scribe+task-defaults:writer"  # type: ignore[index]
+    assert payload["data"]["effective_tasks"]["writer"]["source_label"] == "default+task-defaults:writer"  # type: ignore[index]
     assert list((root / "config").glob("agents.yaml.bak_*"))
 
 
@@ -2463,6 +2553,11 @@ def test_frontend_basic_render() -> None:
     assert 'id="providerMaxRetriesField"' in html
     assert 'id="providerFieldEditor"' in html
     assert 'id="providerAdvancedStatus"' in html
+    assert 'id="providerTaskSelect"' in html
+    assert 'id="providerTaskThinkingTypeField"' in html
+    assert 'id="providerTaskReasoningField"' in html
+    assert 'id="providerTaskTemperatureField"' in html
+    assert 'id="providerTaskEditor"' in html
     assert 'id="providerConfigWarnings"' in html
     assert 'id="clearProviderAgentConfig"' not in html
     assert "继承 / 不设置" not in html

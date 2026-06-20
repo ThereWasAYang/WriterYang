@@ -47,6 +47,7 @@
       "providerTimeoutSecondsField", "providerMaxRetriesField",
     ];
     const jsonResponseFormatValues = ["auto", "json_object", "json_schema", "json_schema_strict"];
+    const providerTaskFormFields = ["thinking", "reasoning", "temperature"];
     const embeddingFormIds = {
       setup: {
         provider: "setupEmbeddingProvider",
@@ -2063,7 +2064,7 @@
       const caps = applyProviderCapabilityState(name !== "default" && inheritsDefault);
       $("providerFieldEditor").value = JSON.stringify(
         name !== "default" && inheritsDefault
-          ? providerBusinessPatchAllowedByCapabilities(profile, caps)
+          ? providerInheritedOverridePatch(name, caps)
           : providerEditablePatch(profile, caps),
         null,
         2,
@@ -2100,6 +2101,12 @@
       return patch;
     }
 
+    function providerInheritedOverridePatch(name, capabilities = currentProviderCapabilities()) {
+      const effectiveOverride = providerEffectiveProfilesCache?.[name]?.override;
+      const raw = effectiveOverride || providerConfigCache?.profiles?.[name] || {};
+      return providerBusinessPatchAllowedByCapabilities(providerConfigFields(raw), capabilities);
+    }
+
     function fillProviderForm(agent) {
       $("providerProviderField").value = agent.provider || "";
       $("providerModelField").value = agent.model || "";
@@ -2118,7 +2125,10 @@
       if (name === "default") return;
       const inheritsDefault = $("providerInheritDefaultField").checked;
       fillProviderForm(providerProfileDisplayConfig(name, inheritsDefault));
-      applyProviderCapabilityState(inheritsDefault);
+      const caps = applyProviderCapabilityState(inheritsDefault);
+      if (inheritsDefault) {
+        $("providerFieldEditor").value = JSON.stringify(providerInheritedOverridePatch(name, caps), null, 2);
+      }
       renderProviderEffectivePanel();
     }
 
@@ -2195,7 +2205,7 @@
           throw new Error("高级 JSON 必须是对象");
         }
       }
-      const patch = { ...advanced, ...buildProviderBusinessPatchFromForm() };
+      const patch = { ...advanced };
       return providerBusinessPatchAllowedByCapabilities(patch, currentProviderCapabilities());
     }
 
@@ -2220,7 +2230,7 @@
         if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) return;
         const inheritsDefault = $("providerProfileSelect").value !== "default" && $("providerInheritDefaultField").checked;
         const patch = inheritsDefault
-          ? { ...advanced, ...buildProviderBusinessPatchFromForm() }
+          ? { ...advanced }
           : { ...advanced, ...buildProviderPatchFromForm() };
         const allowed = inheritsDefault
           ? providerBusinessPatchAllowedByCapabilities(patch, currentProviderCapabilities())
@@ -2335,8 +2345,53 @@
       if (!$("providerTaskSelect")) return;
       const taskName = $("providerTaskSelect").value;
       const raw = providerConfigCache?.tasks?.[taskName] || {};
-      $("providerTaskEditor").value = JSON.stringify(raw, null, 2);
+      $("providerTaskThinkingTypeField").value = raw.thinking?.type || "";
+      $("providerTaskReasoningField").value = raw.reasoning || "";
+      $("providerTaskTemperatureField").value = raw.temperature ?? "";
+      $("providerTaskEditor").value = JSON.stringify(providerTaskAdvancedPatch(raw), null, 2);
       renderProviderTaskEffectivePanel();
+    }
+
+    function providerTaskAdvancedPatch(raw) {
+      const patch = {};
+      Object.entries(raw || {}).forEach(([key, value]) => {
+        if (!providerTaskFormFields.includes(key) && value !== undefined && value !== null) {
+          patch[key] = value;
+        }
+      });
+      return patch;
+    }
+
+    function providerTaskFormPatch() {
+      const patch = {};
+      const thinkingType = $("providerTaskThinkingTypeField").value.trim();
+      const reasoning = $("providerTaskReasoningField").value.trim();
+      const temperatureRaw = $("providerTaskTemperatureField").value.trim();
+      if (thinkingType) {
+        patch.thinking = { type: thinkingType };
+      }
+      if (reasoning) {
+        patch.reasoning = reasoning;
+      }
+      if (temperatureRaw) {
+        const temperature = Number(temperatureRaw);
+        if (Number.isNaN(temperature)) throw new Error("temperature 必须是数字");
+        patch.temperature = temperature;
+      }
+      return patch;
+    }
+
+    function providerTaskPatchFromEditorAndForm() {
+      const raw = $("providerTaskEditor").value.trim();
+      let advanced = {};
+      if (raw) {
+        advanced = JSON.parse(raw);
+        if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) {
+          throw new Error("Task 高级 JSON 必须是对象");
+        }
+      }
+      providerTaskFormFields.forEach((field) => delete advanced[field]);
+      return { ...advanced, ...providerTaskFormPatch() };
     }
 
     function renderProviderTaskEffectivePanel() {
@@ -2370,11 +2425,7 @@
     async function saveProviderTaskConfig() {
       try {
         const taskName = $("providerTaskSelect").value;
-        const raw = $("providerTaskEditor").value.trim();
-        const patch = raw ? JSON.parse(raw) : {};
-        if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
-          throw new Error("Task JSON 必须是对象");
-        }
+        const patch = providerTaskPatchFromEditorAndForm();
         if (Object.prototype.hasOwnProperty.call(patch, "json_response_format")) {
           const allowed = providerEffectiveTasksCache?.[taskName]?.parameter_capabilities?.json_response_format?.allowed_values || jsonResponseFormatValues;
           if (!allowed.includes(patch.json_response_format)) {

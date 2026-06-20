@@ -252,8 +252,37 @@ def test_missing_profile_uses_default_with_profile_and_task_defaults(tmp_path: P
     assert config.provider == "deepseek"
     assert config.model == "default-model"
     assert config.api_key_env == "DEFAULT_API_KEY"
-    assert config.max_tokens == 24000
+    assert config.max_tokens == 8192
     assert config.temperature == 0.5
+
+
+def test_missing_profile_inherits_default_capacity_without_profile_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "agents.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "default": {
+                    "provider": "deepseek",
+                    "api_key_env": "DEFAULT_API_KEY",
+                    "model": "default-model",
+                    "max_tokens": 1234,
+                    "max_context_tokens": 5678,
+                },
+                "profiles": {},
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    writer = resolve_agent_config(path, "writer")
+    audit = resolve_agent_config(path, "audit")
+
+    assert writer.max_tokens == 1234
+    assert writer.max_context_tokens == 5678
+    assert audit.max_tokens == 1234
+    assert audit.max_context_tokens == 5678
 
 
 def test_unknown_task_config_is_rejected(tmp_path: Path) -> None:

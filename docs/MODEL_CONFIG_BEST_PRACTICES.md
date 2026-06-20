@@ -4,7 +4,7 @@ WriterYang 支持给不同能力 profile 配不同模型，并允许少数高杠
 
 ## Provider 字段
 
-真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。新项目默认让 4 个 profile 继承 `default`，YAML 中保存 `profiles` 和可选 `tasks`。运行时按 `task -> profile -> default` 解析；`default` 和 profile 用于模型能力分层，task patch 用于微调 `temperature`、`thinking`、`reasoning`，也允许 `intent_router` 等高杠杆 task 单独覆盖 provider/model/base URL/API env/token/timeout。真实 API Key 写入项目 `.env`，YAML 只保存环境变量名。
+真实项目必须先配置 `config/agents.yaml` 顶层 `default` API。新项目默认让 4 个 profile 继承 `default`，YAML 中保存 `profiles` 和可选 `tasks`。运行时按 `task -> profile -> default` 解析；共同窗口、输出长度和超时优先放在 `default`，profile 只在确实需要差异时写 patch。task patch 用于微调 `temperature`、`thinking`、`reasoning`，也允许 `intent_router` 等高杠杆 task 单独覆盖 provider/model/base URL/API env/token/timeout。真实 API Key 写入项目 `.env`，YAML 只保存环境变量名。
 
 ```yaml
 default:
@@ -23,16 +23,10 @@ profiles:
     timeout_seconds: 180
   architect:
     inherit_default: true
-    max_context_tokens: 128000
-    max_tokens: 8192
   loremaster:
     inherit_default: true
-    max_context_tokens: 64000
-    max_tokens: 8192
   clerk:
     inherit_default: true
-    max_context_tokens: 64000
-    max_tokens: 8192
 tasks:
   intent_router:
     inherit_default: false
@@ -49,7 +43,7 @@ tasks:
     timeout_seconds: 60
 ```
 
-解析顺序：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。`profiles` 只允许 `scribe`、`architect`、`loremaster`、`clerk`；`tasks` 只允许已登记 task。`temperature`、`thinking`、`reasoning` 是 task-only 字段，只能通过内置 task 默认或 `tasks.<task>` 覆盖；写入 `default` 或 `profiles.*` 会被 schema 拒绝。旧的 `agents:` 任务键配置已经移除，不再有 fallback agent 借用逻辑。缺少 `default`、profile 或 task 配置不完整时，`validate`、`doctor` 和 Web UI 会告警，运行到未配置 task 时会失败。
+解析顺序：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。`profiles` 只允许 `scribe`、`architect`、`loremaster`、`clerk`；`tasks` 只允许已登记 task。`inherit_default: true` 的 profile 不写 patch 字段时完整跟随 `default`；写入 `max_tokens`、`max_context_tokens`、`timeout_seconds` 等字段时才覆盖对应参数。`temperature`、`thinking`、`reasoning` 是 task-only 字段，只能通过内置 task 默认或 `tasks.<task>` 覆盖；写入 `default` 或 `profiles.*` 会被 schema 拒绝。旧的 `agents:` 任务键配置已经移除，不再有 fallback agent 借用逻辑。缺少 `default`、profile 或 task 配置不完整时，`validate`、`doctor` 和 Web UI 会告警，运行到未配置 task 时会失败。
 
 `config/agents.yaml` 的 `provider` 当前支持：
 
@@ -103,7 +97,7 @@ thinking:
 | `loremaster` | `inspiration`、`style_guide`、`canon` | 创意构思、中文表达、稳定 JSON/ID、低频设定生成。 | `max_context_tokens: 64000`，`max_tokens: 8192`，中文表达和成本平衡。 |
 | `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair`、`setup` | 低创意抽取、分类路由、JSON patch、快速稳定、成本可控。 | `max_context_tokens: 64000`，`max_tokens: 4096-8192`，低延迟和低成本优先。 |
 
-表中的 `max_tokens`、`max_context_tokens`、`timeout_seconds` 属于 default/profile 能力参数。Profile 勾选 `inherit_default: true` 时可以在继承态下覆盖这些参数；task override 默认只建议覆盖 `temperature`、`thinking`、`reasoning`，只有 `intent_router`、`memory_repair` 等确实需要独立模型时再写完整 task 配置。
+表中的 `max_tokens`、`max_context_tokens`、`timeout_seconds` 属于 default/profile 能力参数。Profile 勾选 `inherit_default: true` 后默认跟随 `default`；需要让某个 profile 与 default 不同时，再在 profile patch 中覆盖这些参数。task override 默认只建议覆盖 `temperature`、`thinking`、`reasoning`，只有 `intent_router`、`memory_repair` 等确实需要独立模型时再写完整 task 配置。
 
 ## 参数解释
 
@@ -121,9 +115,9 @@ thinking:
 ## 推荐落地策略
 
 1. 先配置顶层 `default` 真实 API，并用 `novel doctor --project <project>` 检查环境变量是否存在。
-2. 4 个 profile 默认继承 `default`；优先调 profile 的上下文、输出长度和超时。
+2. 4 个 profile 默认继承 `default`；共同上下文、输出长度和超时先调 `default`，只有 profile 需要差异时再写 profile patch。
 3. JSON 输出类 task 先低温测试，确认 schema 稳定。
-4. 正文类 task 先用内置温度默认；如果某个 task 仍有明显差异，再在 `tasks` 高级区写 `temperature`、`thinking`、`reasoning` patch 或完整覆盖。
+4. 正文类 task 先用内置温度默认；如果某个 task 仍有明显差异，再在 Web UI 的“任务级覆盖”区或 `tasks.<task>` 中写 `temperature`、`thinking`、`reasoning` patch 或完整覆盖。
 5. 如需离线熟悉流程，显式传 `--provider mock`，不要把 mock 写成真实项目 default。
 6. 真实 API 上线前运行：
 

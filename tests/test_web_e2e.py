@@ -46,6 +46,31 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
                 "() => document.querySelector('#providerConfigPanel')?.textContent?.includes('api_key_env')"
             )
             assert "api_key_env" in (page.locator("#providerConfigPanel").text_content() or "")
+            page.select_option("#providerProfileSelect", "default")
+            page.fill("#providerMaxTokensField", "30001")
+            page.fill("#providerMaxContextTokensField", "150001")
+            page.click("#saveProviderConfig")
+            page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('Profile 模型配置已保存')")
+
+            page.select_option("#providerProfileSelect", "scribe")
+            assert page.locator("#providerInheritDefaultField").is_checked()
+            assert page.locator("#providerMaxTokensField").input_value() == "30001"
+            assert page.locator("#providerMaxContextTokensField").input_value() == "150001"
+            page.select_option("#providerProfileSelect", "architect")
+            assert page.locator("#providerInheritDefaultField").is_checked()
+            assert page.locator("#providerMaxTokensField").input_value() == "30001"
+            assert page.locator("#providerMaxContextTokensField").input_value() == "150001"
+
+            page.locator("summary", has_text="任务级覆盖").click()
+            page.select_option("#providerTaskSelect", "revision")
+            page.select_option("#providerTaskThinkingTypeField", "disabled")
+            page.fill("#providerTaskReasoningField", "medium")
+            page.fill("#providerTaskTemperatureField", "0.4")
+            page.click("#saveProviderTaskConfig")
+            page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('Task 覆盖配置已保存')")
+            assert "temperature" in page.locator("#providerTaskEffectivePanel").inner_text()
+            assert "0.4" in page.locator("#providerTaskEffectivePanel").inner_text()
+
             page.select_option("#providerProfileSelect", "scribe")
             assert page.locator("#providerThinkingTypeField").count() == 0
             assert page.locator("#providerTemperatureField").count() == 0

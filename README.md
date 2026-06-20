@@ -273,13 +273,8 @@ default:
 profiles:
   scribe:
     inherit_default: true
-    max_context_tokens: 128000
-    max_tokens: 24000
-    timeout_seconds: 180
   architect:
     inherit_default: true
-    max_context_tokens: 128000
-    max_tokens: 8192
 tasks:
   intent_router:
     temperature: 0
@@ -297,13 +292,13 @@ tasks:
 | `zai` | 智谱 / GLM 官方 API | 默认 base URL 为 `https://open.bigmodel.cn/api/paas/v4`，会发送智谱 GLM 支持的 `thinking.type`，并解析返回中的 `reasoning_content`。结构化输出默认使用 `json_object`。 |
 | `mock` | 测试 / 调试 | 不调用真实 API，仅用于自动化测试、离线 smoke 和文档演示。真实创作不要把它作为 default。 |
 
-解析顺序是：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。`default` 只作为 provider/model/base URL/API env 等模型能力种子；profile 勾选 `inherit_default: true` 时继承 `default`，并可覆盖 `max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries`、`json_response_format` 等模型能力和容量参数。`reasoning`、`thinking`、`temperature` 只允许写在 `tasks.<task>`，用于覆盖单个任务的业务默认；写入 `default` 或 `profiles.*` 会被拒绝。旧的 `agents:` 任务键配置已经移除，`novel validate`、`novel doctor` 和 Web UI 的“Profile 模型配置”页会提示新 schema 问题。
+解析顺序是：显式 `--provider mock` 测试覆盖 > task override > task 内置业务默认 > profile 配置 > `default`。`default` 是 provider/model/base URL/API env 和容量参数的共同种子；profile 勾选 `inherit_default: true` 且不写 patch 字段时会完整跟随 `default`，只有显式写入 `max_tokens`、`max_context_tokens`、`timeout_seconds`、`max_retries`、`json_response_format` 等字段时才覆盖对应能力参数。`reasoning`、`thinking`、`temperature` 只允许写在 `tasks.<task>`，用于覆盖单个任务的业务默认；写入 `default` 或 `profiles.*` 会被拒绝。旧的 `agents:` 任务键配置已经移除，`novel validate`、`novel doctor` 和 Web UI 的“Profile 模型配置”页会提示新 schema 问题。
 
 `thinking.type` 默认为 `disabled`。当前只有 `deepseek` 和 `zai` 会把该字段发送到请求体，格式为 `{"thinking": {"type": "..."}}`。标准 `openai` 和通用 `openai_compatible` 不发送这个厂商字段。
 
 `json_response_format` 用于控制结构化 Agent 的 provider payload，取值为 `auto`、`json_object`、`json_schema`、`json_schema_strict`。默认 `auto` 保持兼容：`openai` 使用 `json_schema`，`deepseek` / `zai` / `openai_compatible` 使用 `json_object`。[DeepSeek 官方 JSON Output](https://api-docs.deepseek.com/zh-cn/guides/json_mode) 要求请求体设置 `response_format: {"type":"json_object"}`，并且 prompt 中包含 `json` 和期望结构示例；WriterYang 会自动追加标准 JSON mode guard 和紧凑 schema skeleton。`json_schema_strict` 只允许显式 opt-in；DeepSeek / ZAI 下配置 strict 会在本地报清晰错误，不会发出请求。
 
-Web UI 的 Profile 模型配置页只编辑 profile 的模型能力和容量字段。`thinking.type`、`reasoning`、`temperature` 放在 Task 覆盖高级区；保存 task 覆盖时会按 provider 校验 `json_response_format`，运行时再由 provider adapter 决定哪些厂商私有参数会进入 payload。`timeout_seconds`、`max_retries` 是本地 HTTP 调用参数，仍可在 profile 或 task 中生效。
+Web UI 的 Profile 模型配置页只编辑 profile 的模型能力和容量字段。`thinking.type`、`reasoning`、`temperature` 放在“任务级覆盖”区，有独立表单控件；其他少数 task override 仍可写入高级 JSON。保存 task 覆盖时会按 provider 校验 `json_response_format`，运行时再由 provider adapter 决定哪些厂商私有参数会进入 payload。`timeout_seconds`、`max_retries` 是本地 HTTP 调用参数，仍可在 profile 或 task 中生效。
 
 Provider 发送请求前会对最终 messages 做 CJK-aware prompt token 粗估；估算值超过当前 `max_context_tokens` 时会抛出 `ProviderContextLimitError` 并中断任务，不会继续调用真实 API。`project.yaml.context_budget.enabled` 默认仍为 `false`：当前预算策略过小，远小于主流模型上下文窗口，容易限制模型能力。后续计划改成动态上下文预算系统后再重新开启预算裁剪。
 
@@ -652,7 +647,7 @@ web:
 - 项目搜索：在 Web UI 中搜索角色、地点、物品、时间线事件和章节文本。默认使用 FTS；语义检索模式为 `auto` 时只在 embedding 配置完整时启用，兼容勾选“强制使用 embedding 语义检索”时会按 `on` 处理。
 - 用量统计：读取 `/api/usage`，展示 provider calls、成功/失败次数、token 汇总，以及按 Task / Provider / Model 的统计；stream 调用会尽量记录 provider 返回的 usage 和 `finish_reason`。
 - 导出：主页可导出 Markdown 或 DOCX，可指定章节列表、章节范围、标题、输出路径、是否包含未 accepted 章节，以及是否覆盖已有导出文件。
-- Profile 模型配置：用表单展示并允许编辑 `scribe`、`architect`、`loremaster`、`clerk` 的非密钥字段，例如 provider、model、base_url_env、api_key_env、max tokens、context、timeout；勾选“继承 default”时继承 default 并保留 profile patch，取消后保存为独立完整配置。任务级覆盖在高级区，默认隐藏，用于 `intent_router` 等少数 task 单独换模型或覆盖 `temperature`、`reasoning`、`thinking`。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
+- Profile 模型配置：用表单展示并允许编辑 `scribe`、`architect`、`loremaster`、`clerk` 的非密钥字段，例如 provider、model、base_url_env、api_key_env、max tokens、context、timeout；勾选“继承 default”时默认完整跟随 default，只保留用户在高级 JSON 中显式写入的 profile patch，取消后保存为独立完整配置。任务级覆盖默认隐藏，提供 `temperature`、`reasoning`、`thinking.type` 表单控件，也支持在高级 JSON 中给 `intent_router` 等少数 task 单独换模型。只显示环境变量名和是否存在，不显示真实值，保存前会校验并备份。
 - Embedding API 配置：在“模型与检索配置”页重新测试并保存语义检索 API。已配置成功时默认收起输入框，显示“Embedding API 已配置”、当前 provider、模型名、`dimensions` 和 `batch_size`；点击“修改配置”后重新填写 Base URL、API Key、provider、模型名和参数。API Key 只写入项目 `.env`，保存前会用当前批量和维度验证真实 API，保存成功后清空输入框并自动刷新语义向量索引。
 - 如果页面提示“Web UI 后台版本不匹配”，通常是更新代码后只刷新了浏览器页面、没有重启正在运行的 Web UI 后台进程。请停止旧后台，重新用当前安装环境启动 Web UI，然后刷新页面；前端不会用旧接口响应猜测 Agent 或 embedding 配置状态。
 - 状态和时间线：以表格、章节分组和物品/角色状态摘要查看 `current_state.json`、`timeline.json`。

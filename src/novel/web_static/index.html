@@ -615,6 +615,29 @@
                 <summary>任务级覆盖</summary>
                 <label for="providerTaskSelect">Task</label>
                 <select id="providerTaskSelect"></select>
+                <div class="form-grid provider-form-grid" style="margin-top: 10px;">
+                  <div>
+                    <label for="providerTaskThinkingTypeField">thinking.type</label>
+                    <select id="providerTaskThinkingTypeField">
+                      <option value="">使用默认</option>
+                      <option value="disabled">disabled</option>
+                      <option value="enabled">enabled</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="providerTaskReasoningField">reasoning</label>
+                    <input id="providerTaskReasoningField" list="providerReasoningOptions" placeholder="low / medium / high">
+                    <datalist id="providerReasoningOptions">
+                      <option value="low"></option>
+                      <option value="medium"></option>
+                      <option value="high"></option>
+                    </datalist>
+                  </div>
+                  <div>
+                    <label for="providerTaskTemperatureField">temperature</label>
+                    <input id="providerTaskTemperatureField" type="number" min="0" step="0.1" placeholder="使用默认">
+                  </div>
+                </div>
                 <label for="providerTaskEditor">Task 非密钥配置 JSON</label>
                 <textarea id="providerTaskEditor" class="editor" style="min-height: 150px;"></textarea>
                 <div class="actions">

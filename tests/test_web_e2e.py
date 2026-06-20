@@ -166,6 +166,50 @@ def test_workbench_instruction_bar_stays_visible_while_scrolling(tmp_path: Path)
         server.server_close()
 
 
+def test_workbench_session_status_scrolls_with_content(tmp_path: Path) -> None:
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    try:
+        port = _free_port()
+    except PermissionError:
+        pytest.skip("local port binding is not permitted in this sandbox")
+    server = ThreadingHTTPServer(("127.0.0.1", port), _handler_class())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/")
+            page.click("button[data-page='workbenchPage']")
+
+            assert page.locator(".workbench-session-status").evaluate(
+                "node => window.getComputedStyle(node).position"
+            ) == "static"
+            page.eval_on_selector("#rejectedTextViewer", "node => node.scrollIntoView({block: 'center'})")
+            page.wait_for_function(
+                """() => {
+                    const commandBar = document.querySelector("#workbenchCommandBar")?.getBoundingClientRect();
+                    const statusNode = document.querySelector(".workbench-session-status");
+                    const status = statusNode?.getBoundingClientRect();
+                    const rejectedText = document.querySelector("#rejectedTextViewer")?.getBoundingClientRect();
+                    if (!commandBar || !statusNode || !status || !rejectedText) return false;
+                    const statusPosition = window.getComputedStyle(statusNode).position;
+                    const rejectedTextVisible = rejectedText.top < window.innerHeight && rejectedText.bottom > commandBar.bottom + 8;
+                    const statusScrolledWithPage = status.top < commandBar.bottom;
+                    const statusAboveTarget = status.bottom < rejectedText.top;
+                    return statusPosition === "static" && rejectedTextVisible && statusScrolledWithPage && statusAboveTarget;
+                }"""
+            )
+            browser.close()
+    except Exception as exc:
+        if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
+            pytest.skip("Playwright browser binaries are not installed")
+        raise
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_web_ui_initializes_project_under_custom_parent_directory(tmp_path: Path) -> None:
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     parent = tmp_path / "custom-parent"

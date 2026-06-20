@@ -2905,9 +2905,13 @@ def test_workbench_prioritizes_session_flow_layout() -> None:
     assert "position: sticky; top: var(--app-header-sticky-offset, 76px); z-index: 7;" in app_css
     assert ".workbench-instruction { min-height: 220px; line-height: 1.55; }" in app_css
     assert ".workbench-session-status {" in app_css
-    assert "position: sticky; top: var(--workbench-secondary-sticky-offset, var(--app-header-sticky-offset, 76px));" in app_css
+    session_status_css = app_css.split(".workbench-session-status {", 1)[1].split("}", 1)[0]
+    assert "position: sticky" not in session_status_css
+    assert "top:" not in session_status_css
+    assert "z-index" not in session_status_css
+    assert "margin: -14px -14px 10px; padding: 14px 14px 10px;" in session_status_css
     assert "border-bottom: 1px solid #e4e8ed; background: #fff;" in app_css
-    assert ".workbench-session-status { position: static; margin: -14px -14px 10px; }" in app_css
+    assert ".workbench-session-status { position: static;" not in app_css
     assert "--app-header-sticky-offset: 76px;" in app_css
     assert "--workbench-secondary-sticky-offset: 76px;" in app_css
     assert "syncWorkbenchStickyOffset" in app_js

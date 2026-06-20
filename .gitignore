@@ -18,6 +18,7 @@ myNovel/
 .vscode/
 .idea/
 .codex/
+.agents/
 **/memory/search_index.json
 **/memory/search_index.sqlite
 **/runs/*

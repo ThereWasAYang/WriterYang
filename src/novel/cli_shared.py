@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import cast
 
 from novel.core.agent_defaults import PROFILE_NAMES
+from novel.core.audit_localization import localize_audit_issue_for_author
 from novel.core.env import load_project_env
 from novel.core.management import load_management_events
 from novel.core.io import load_yaml, load_yaml_model
@@ -141,13 +142,14 @@ def _polish_mode_from_arg(value: str | None) -> PolishMode | None:
 def _audit_issue_lines(report: AuditReport) -> list[str]:
     if not report.issues:
         return []
-    lines = ["Audit issues:"]
+    lines = ["Audit 问题："]
     for issue in sorted(report.issues, key=lambda item: _severity_rank(item.severity), reverse=True):
-        lines.append(f"- [{issue.severity}/{issue.type}] {issue.id}: {issue.description}")
-        if issue.suggested_fix:
-            lines.append(f"  suggested_fix: {issue.suggested_fix}")
+        localized = localize_audit_issue_for_author(issue)
+        lines.append(f"- [{localized.severity}/{localized.type}] {localized.id}: {localized.description}")
+        if localized.suggested_fix:
+            lines.append(f"  建议修复：{localized.suggested_fix}")
     if all(issue.severity == "low" for issue in report.issues):
-        lines.append("Low issues are not auto-fixed; choose whether to revise with revise-chapter --from-audit.")
+        lines.append("低级别问题不会自动修复；可按需运行 revise-chapter --from-audit 生成修订版。")
     return lines
 
 def _management_event_payload(root: Path) -> list[dict[str, object]]:

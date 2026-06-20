@@ -12,6 +12,11 @@ from novel.core.agent_output import (
     AgentInvocationContext,
     AgentOutputContract,
 )
+from novel.core.audit_localization import (
+    CANON_REFERENCE_SUGGESTED_FIX,
+    localize_audit_report_for_author,
+    localize_canon_validation_message,
+)
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.consistency import check_chapter_consistency
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
@@ -158,12 +163,12 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
                 severity="critical",
                 issue_type="continuity_issue",
                 description=(
-                    f"Provider returned chapter_number {provider_report.chapter_number}, "
-                    f"expected {options.chapter_number}."
+                    f"Provider 返回的 chapter_number 是 {provider_report.chapter_number}，"
+                    f"但本次请求的是第 {options.chapter_number} 章。"
                 ),
                 source="provider_response",
                 quote=f"chapter_number={provider_report.chapter_number}",
-                suggested_fix="Regenerate the audit with the requested chapter number.",
+                suggested_fix="用本次请求的章节编号重新生成 audit。",
             ),
         )
     if provider_report.audited_file != options.audited_file:
@@ -174,12 +179,12 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
                 severity="high",
                 issue_type="continuity_issue",
                 description=(
-                    f"Provider returned audited_file {provider_report.audited_file}, "
-                    f"expected {options.audited_file}."
+                    f"Provider 返回的 audited_file 是 {provider_report.audited_file}，"
+                    f"但本次请求的是 {options.audited_file}。"
                 ),
                 source="provider_response",
                 quote=f"audited_file={provider_report.audited_file}",
-                suggested_fix="Use the requested audited_file value in audit.json.",
+                suggested_fix="在 audit.json 中使用本次请求的 audited_file 值。",
             ),
         )
 
@@ -291,12 +296,12 @@ def run_deterministic_prechecks(
                 severity="critical",
                 issue_type="continuity_issue",
                 description=(
-                    f"plan.json chapter_number {context.plan.chapter_number} does not match "
-                    f"requested chapter {options.chapter_number}."
+                    f"plan.json 的 chapter_number 是 {context.plan.chapter_number}，"
+                    f"与本次请求的第 {options.chapter_number} 章不一致。"
                 ),
                 source=str(chapter_dir / "plan.json"),
                 quote=f"chapter_number={context.plan.chapter_number}",
-                suggested_fix="Update plan.json or audit the matching chapter directory.",
+                suggested_fix="修正 plan.json，或改为审核与该 plan 匹配的章节目录。",
             )
         )
 
@@ -310,12 +315,12 @@ def run_deterministic_prechecks(
                 severity="critical",
                 issue_type="continuity_issue",
                 description=(
-                    f"{options.audited_file} front matter chapter_number {front_chapter} "
-                    f"does not match requested chapter {options.chapter_number}."
+                    f"{options.audited_file} front matter 中的 chapter_number 是 {front_chapter}，"
+                    f"与本次请求的第 {options.chapter_number} 章不一致。"
                 ),
                 source=str(chapter_dir / options.audited_file),
                 quote=f"chapter_number={front_chapter}",
-                suggested_fix="Regenerate or correct the chapter front matter before export.",
+                suggested_fix="导出前重新生成章节文件，或修正章节 front matter。",
             )
         )
 
@@ -356,8 +361,8 @@ def _with_deterministic_summary(context: AuditContext, precheck: PrecheckResult)
 
 def _deterministic_summary_from_issues(issues: tuple[AuditIssue, ...]) -> str:
     if not issues:
-        return "Deterministic consistency checks: no blocking issues found.\n"
-    lines = ["Deterministic consistency checks:"]
+        return "程序一致性检查：未发现阻断问题。\n"
+    lines = ["程序一致性检查："]
     for issue in issues:
         evidence = issue.evidence[0] if issue.evidence else None
         source = evidence.source if evidence else ""
@@ -393,10 +398,10 @@ def _validate_audited_body_against_plan(
             issue_id="audit_precheck_plan_keywords_missing",
             severity="medium",
             issue_type="plot_logic_issue",
-            description=f"{options.audited_file} does not contain obvious keywords from plan title/goal/summary.",
+            description=f"{options.audited_file} 未包含 plan 标题、目标或摘要中的明显关键词。",
             source=str(chapter_dir / options.audited_file),
             quote=context.plan.goal[:120],
-            suggested_fix="Review whether the chapter drifted away from plan.json; revise or update the plan if intentional.",
+            suggested_fix="检查章节是否偏离 plan.json；如非有意偏离，请修订正文；如有意调整，请更新计划。",
         )
     )
 
@@ -600,7 +605,7 @@ def parse_audit_report(content: str) -> AuditReport:
     except json.JSONDecodeError as exc:
         raise AuditError(f"provider did not return valid AuditReport JSON: {exc}") from exc
     try:
-        return AuditReport.model_validate(_normalize_audit_report_data(data))
+        return localize_audit_report_for_author(AuditReport.model_validate(_normalize_audit_report_data(data)))
     except ValidationError as exc:
         raise AuditError(f"provider returned invalid AuditReport: {exc}") from exc
 
@@ -793,9 +798,9 @@ def combine_audit_reports(
     checks = _unique_preserve_order([*passed_checks, *provider_report.passed_checks])
     summary = provider_report.summary
     if precheck_issues:
-        summary = f"Deterministic pre-checks found {len(precheck_issues)} issue(s). {summary}"
+        summary = f"程序预检发现 {len(precheck_issues)} 个问题。{summary}"
 
-    return AuditReport(
+    return localize_audit_report_for_author(AuditReport(
         chapter_number=chapter_number,
         audited_file=audited_file,
         overall_status=status,
@@ -803,7 +808,7 @@ def combine_audit_reports(
         issues=issues,
         passed_checks=checks,
         created_at=utc_now(),
-    )
+    ))
 
 
 def default_mock_audit_report_json(
@@ -815,7 +820,7 @@ def default_mock_audit_report_json(
             "chapter_number": chapter_number,
             "audited_file": audited_file,
             "overall_status": "passed",
-            "summary": "Mock audit found no blocking consistency issues.",
+            "summary": "Mock audit 未发现阻断性一致性问题。",
             "issues": [],
             "passed_checks": [
                 "canon_consistency_reviewed",
@@ -840,10 +845,10 @@ def _validate_state_file(root: Path, issues: list[AuditIssue], passed_checks: li
                 issue_id="audit_precheck_current_state_schema",
                 severity="high",
                 issue_type="state_conflict",
-                description=f"current_state.json cannot be validated as EntityState: {exc}",
+                description=f"current_state.json 无法通过 EntityState schema 校验：{exc}",
                 source=str(path),
                 quote=exc.__class__.__name__,
-                suggested_fix="Fix memory/state/current_state.json before accepting this chapter.",
+                suggested_fix="认可本章前先修复 memory/state/current_state.json。",
             )
         )
     else:
@@ -860,10 +865,10 @@ def _validate_timeline_file(root: Path, issues: list[AuditIssue], passed_checks:
                 issue_id="audit_precheck_timeline_schema",
                 severity="high",
                 issue_type="timeline_conflict",
-                description=f"timeline.json cannot be validated as TimelineFile: {exc}",
+                description=f"timeline.json 无法通过 TimelineFile schema 校验：{exc}",
                 source=str(path),
                 quote=exc.__class__.__name__,
-                suggested_fix="Fix memory/state/timeline.json before accepting this chapter.",
+                suggested_fix="认可本章前先修复 memory/state/timeline.json。",
             )
         )
     else:
@@ -880,10 +885,10 @@ def _validate_canon_files(root: Path, issues: list[AuditIssue], passed_checks: l
                 issue_id=f"audit_precheck_canon_error_{index}",
                 severity="high",
                 issue_type="canon_conflict",
-                description=message.message,
+                description=localize_canon_validation_message(message.message),
                 source=str(message.path),
-                quote="canon validation error",
-                suggested_fix="Fix canon validation errors before accepting this chapter.",
+                quote="canon 校验错误",
+                suggested_fix="先修复 canon 校验错误，再认可本章。",
             )
         )
     for index, message in enumerate(report.warnings, start=1):
@@ -892,10 +897,10 @@ def _validate_canon_files(root: Path, issues: list[AuditIssue], passed_checks: l
                 issue_id=f"audit_precheck_canon_warning_{index}",
                 severity="low",
                 issue_type="canon_conflict",
-                description=message.message,
+                description=localize_canon_validation_message(message.message),
                 source=str(message.path),
-                quote="canon validation warning",
-                suggested_fix="Review the referenced canon relationship and update missing IDs if needed.",
+                quote="canon 校验警告",
+                suggested_fix=CANON_REFERENCE_SUGGESTED_FIX,
             )
         )
 

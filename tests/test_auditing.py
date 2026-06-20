@@ -232,7 +232,7 @@ def test_audit_precheck_flags_hidden_truth_text_in_polished_body(tmp_path: Path)
     )
 
     assert result.report.overall_status == "needs_revision"
-    assert any(issue.type == "premature_reveal" for issue in result.report.issues)
+    assert any(issue.type == "premature_reveal" and "计划揭示前暴露" in issue.description for issue in result.report.issues)
 
 
 def test_audit_precheck_flags_character_knows_unrevealed_hidden_truth(tmp_path: Path) -> None:
@@ -260,8 +260,27 @@ def test_audit_precheck_flags_character_knows_unrevealed_hidden_truth(tmp_path: 
     )
 
     assert result.report.overall_status == "needs_revision"
-    assert any(issue.type == "premature_reveal" and "knows hidden truth" in issue.description for issue in result.report.issues)
+    assert any(issue.type == "premature_reveal" and "已经知道隐藏真相" in issue.description for issue in result.report.issues)
     assert result.deterministic_highest_severity == "high"
+
+
+def test_audit_precheck_localizes_canon_reference_warning(tmp_path: Path) -> None:
+    root = _workspace_with_polished(tmp_path)
+    hidden_truths_path = root / "memory" / "canon" / "hidden_truths.json"
+    hidden_truths = json.loads(hidden_truths_path.read_text(encoding="utf-8"))
+    hidden_truths["hidden_truths"][0]["related_entity_ids"].append("taohuayuan_village")
+    hidden_truths_path.write_text(json.dumps(hidden_truths, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    result = audit_chapter(
+        ChapterAuditOptions(root=root, chapter_number=1),
+        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
+    )
+
+    issue = next(item for item in result.report.issues if item.id == "audit_precheck_canon_warning_1")
+    assert issue.severity == "low"
+    assert issue.type == "canon_conflict"
+    assert issue.description == "隐藏真相 truth_station_overlap 的 related_entity_ids 引用了不存在的实体：taohuayuan_village"
+    assert issue.suggested_fix == "检查该 canon 关联关系，必要时补齐缺失 ID，或移除已经失效的引用。"
 
 
 def test_audit_precheck_flags_item_holder_location_conflict(tmp_path: Path) -> None:
@@ -291,7 +310,9 @@ def test_audit_precheck_flags_item_holder_location_conflict(tmp_path: Path) -> N
     )
 
     assert result.report.overall_status == "needs_revision"
-    assert any(issue.id == "cons_item_holder_location_item_broken_ticket" for issue in result.report.issues)
+    item_issue = next(issue for issue in result.report.issues if issue.id == "cons_item_holder_location_item_broken_ticket")
+    assert item_issue.description == "物品 item_broken_ticket 同时设置了 holder_id 和 location_id。"
+    assert item_issue.suggested_fix == "只保留 holder_id 或 location_id 其中一个。"
 
 
 def test_audit_precheck_flags_timeline_reversed_cause(tmp_path: Path) -> None:
@@ -325,7 +346,7 @@ def test_audit_precheck_flags_timeline_reversed_cause(tmp_path: Path) -> None:
     )
 
     assert result.report.overall_status == "needs_revision"
-    assert any(issue.type == "timeline_conflict" for issue in result.report.issues)
+    assert any(issue.type == "timeline_conflict" and "故事世界" in issue.description for issue in result.report.issues)
 
 
 def test_audit_precheck_allows_flashback_without_story_order(tmp_path: Path) -> None:
@@ -368,7 +389,7 @@ def test_audit_prompt_includes_deterministic_summary(tmp_path: Path) -> None:
 
     audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
 
-    assert "Deterministic consistency checks" in provider.requests[0].user_prompt
+    assert "程序一致性检查" in provider.requests[0].user_prompt
     assert "请不要机械重复这些结论" in provider.requests[0].user_prompt
 
 
@@ -572,7 +593,7 @@ def test_low_only_audit_issues_are_passed_and_displayed(tmp_path: Path) -> None:
 
     assert report.overall_status == "passed"
     assert any("称呼略显老派" in line for line in lines)
-    assert any("not auto-fixed" in line for line in lines)
+    assert any("低级别问题不会自动修复" in line for line in lines)
 
 
 def test_audit_chapter_repairs_invalid_provider_report_once(tmp_path: Path) -> None:

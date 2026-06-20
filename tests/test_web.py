@@ -3126,6 +3126,61 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
     assert audit_summary[0]["blocking_issue_count"] == 1
 
 
+def test_api_session_audit_summary_localizes_old_english_audit_issue(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    session_id = "session_20260529_010101_000004"
+    session_dir = root / "memory" / "sessions" / session_id
+    session_dir.mkdir(parents=True)
+    chapter_dir = root / "memory" / "chapters" / "001"
+    chapter_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_model_json(
+        chapter_dir / "audit.json",
+        AuditReport.model_validate(
+            {
+                "chapter_number": 1,
+                "audited_file": "polished.md",
+                "overall_status": "passed",
+                "summary": "Old audit report.",
+                "issues": [
+                    {
+                        "id": "audit_precheck_canon_warning_1",
+                        "severity": "low",
+                        "type": "canon_conflict",
+                        "description": (
+                            "hidden truth taohuayuan_truth related_entity_ids "
+                            "references missing entity: taohuayuan_village"
+                        ),
+                        "evidence": [{"source": "memory/canon/hidden_truths.json", "quote": "canon validation warning"}],
+                        "suggested_fix": "Review the referenced canon relationship and update missing IDs if needed.",
+                    }
+                ],
+                "created_at": "2026-05-22T00:00:00Z",
+            }
+        ),
+    )
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    session = CreationSession(
+        session_id=session_id,
+        scope_type="chapters",
+        chapter_range=[1],
+        user_intent="写第1章",
+        status="needs_revision",
+        outline_status="approved",
+        content_status="needs_revision",
+        approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
+        created_at=now,
+        updated_at=now,
+    )
+    atomic_write_model_json(session_dir / "session.json", session)
+
+    status, payload = handle_api_request("GET", "/api/session", f"path={root}&session_id={session_id}", None)
+
+    assert status == 200
+    issue = payload["data"]["audit_summary"][0]["issues"][0]  # type: ignore[index]
+    assert issue["description"] == "隐藏真相 taohuayuan_truth 的 related_entity_ids 引用了不存在的实体：taohuayuan_village"
+    assert issue["suggested_fix"] == "检查该 canon 关联关系，必要时补齐缺失 ID，或移除已经失效的引用。"
+
+
 def test_api_session_rewrite_events_returns_summary_and_snapshot_path(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     session_id = "session_20260529_010101_000002"

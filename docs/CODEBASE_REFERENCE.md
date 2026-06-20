@@ -554,6 +554,14 @@ ChapterPlan 引用提取：
 - `combine_audit_reports()`：合并 deterministic 和模型审核。
 - `_status_for_issues()`：severity 到 overall_status 的策略。
 
+### `src/novel/core/audit_localization.py`
+
+Audit 作者可读文案本地化：
+
+- `localize_audit_report_for_author()`：将 `AuditReport.summary` 和 issue 作者说明转为中文展示/存储文本。
+- `localize_audit_issue_for_author()` / `localize_session_rewrite_issue_for_author()`：用于 Web/CLI 只读展示旧 audit 和 rewrite event。
+- `localize_canon_validation_message()`：把 canon validation 的已知英文引用诊断转为中文 audit issue 描述。
+
 ### `core/consistency.py`
 
 确定性一致性引擎：
@@ -889,5 +897,6 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 | Prompt 改动 | `src/novel/prompts/*.txt` -> `tests/test_prompts.py` -> `AGENT_PROMPT_ASSEMBLY.md` |
 | 文件写入安全 | `io.py`、`locking.py`、调用 service |
 | 一致性规则 | `consistency.py` -> `auditing.py` / `validation.py` |
+| Audit 作者文案 | `audit_localization.py` -> `auditing.py` / Web/CLI 展示 -> audit/web tests |
 | search/context | `search.py` -> Agent service use_search_context -> tests |
 | export | `exporting.py` -> CLI/Web -> manifest tests |

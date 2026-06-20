@@ -68,8 +68,8 @@ class ConsistencyResult:
 
     def render_for_prompt(self) -> str:
         if not self.findings:
-            return "Deterministic consistency checks: no blocking issues found.\n"
-        lines = ["Deterministic consistency checks:"]
+            return "程序一致性检查：未发现阻断问题。\n"
+        lines = ["程序一致性检查："]
         for finding in self.findings:
             lines.append(
                 f"- {finding.id} [{finding.severity}/{finding.type}] "
@@ -196,13 +196,12 @@ def _check_hidden_truth_body_exposure(snapshot: ConsistencySnapshot) -> list[Con
                         severity="high",
                         type="premature_reveal",
                         description=(
-                            f"Chapter appears to reveal hidden truth {truth.id} before its planned reveal."
+                            f"本章疑似在计划揭示前暴露了隐藏真相 {truth.id}。"
                         ),
                         source=source,
                         quote=fragment[:160],
                         suggested_fix=(
-                            "Remove or disguise this hidden truth from reader-facing text, "
-                            "or explicitly move its planned reveal to this chapter."
+                            "从读者可见正文中移除或弱化该隐藏真相，或明确把计划揭示章节改到本章。"
                         ),
                     )
                 )
@@ -219,10 +218,10 @@ def _check_hidden_truth_body_exposure(snapshot: ConsistencySnapshot) -> list[Con
                         id=f"cons_{snapshot.chapter_number:03d}_foreshadow_hidden_{thread.id}",
                         severity="high",
                         type="premature_reveal",
-                        description=f"Chapter appears to reveal foreshadowing hidden text for {thread.id}.",
+                        description=f"本章疑似提前暴露了伏笔线 {thread.id} 的隐藏信息。",
                         source=source,
                         quote=hidden_text[:160],
-                        suggested_fix="Keep only reader-visible clue text before the planned payoff chapter.",
+                        suggested_fix="在计划回收章节前，只保留读者可见的线索文本。",
                     )
                 )
     return findings
@@ -246,12 +245,12 @@ def _check_character_knowledge(snapshot: ConsistencySnapshot) -> list[Consistenc
                         severity="high",
                         type="premature_reveal",
                         description=(
-                            f"Character {character.entity_id} knows hidden truth {matched.id} before planned reveal."
+                            f"角色 {character.entity_id} 在计划揭示前已经知道隐藏真相 {matched.id}。"
                         ),
                         source=source,
                         quote=value[:160],
                         suggested_fix=(
-                            "Remove this knowledge from current_state until reveal, or update hidden_truth planned_reveal."
+                            "在揭示前从 current_state 移除该知识，或调整 hidden_truth 的 planned_reveal。"
                         ),
                     )
                 )
@@ -261,10 +260,10 @@ def _check_character_knowledge(snapshot: ConsistencySnapshot) -> list[Consistenc
                         id=f"cons_knowledge_unknown_{character.entity_id}_{index}",
                         severity="low",
                         type="state_conflict",
-                        description=f"Character {character.entity_id} knowledge references an unknown id-like value.",
+                        description=f"角色 {character.entity_id} 的 knowledge 引用了未知的疑似 ID 值。",
                         source=source,
                         quote=value[:160],
-                        suggested_fix="Use stable canon/timeline ids for structured knowledge or rewrite as natural language.",
+                        suggested_fix="结构化 knowledge 请使用稳定的 canon/timeline ID，或改写为自然语言。",
                     )
                 )
     return findings
@@ -284,10 +283,10 @@ def _check_item_flow(snapshot: ConsistencySnapshot) -> list[ConsistencyFinding]:
                     id=f"cons_item_holder_location_{item.entity_id}",
                     severity="high",
                     type="state_conflict",
-                    description=f"Item {item.entity_id} has both holder_id and location_id.",
+                    description=f"物品 {item.entity_id} 同时设置了 holder_id 和 location_id。",
                     source=source,
                     quote=f"holder_id={item.holder_id}; location_id={item.location_id}",
-                    suggested_fix="Set either holder_id or location_id, not both.",
+                    suggested_fix="只保留 holder_id 或 location_id 其中一个。",
                 )
             )
     for character in snapshot.state.character_states:
@@ -299,10 +298,10 @@ def _check_item_flow(snapshot: ConsistencySnapshot) -> list[ConsistencyFinding]:
                         id=f"cons_item_multi_owner_{item_id}",
                         severity="high",
                         type="state_conflict",
-                        description=f"Item {item_id} appears in possessions of multiple characters.",
+                        description=f"物品 {item_id} 同时出现在多个角色的 possessions 中。",
                         source=source,
                         quote=f"{previous}, {character.entity_id}",
-                        suggested_fix="Keep the item in exactly one character possession list.",
+                        suggested_fix="确保该物品只出现在一个角色的 possessions 中。",
                     )
                 )
             possession_owner[item_id] = character.entity_id
@@ -313,10 +312,10 @@ def _check_item_flow(snapshot: ConsistencySnapshot) -> list[ConsistencyFinding]:
                         id=f"cons_item_holder_possession_{item_id}",
                         severity="high",
                         type="state_conflict",
-                        description=f"Item {item_id} holder_id conflicts with character possessions.",
+                        description=f"物品 {item_id} 的 holder_id 与角色 possessions 不一致。",
                         source=source,
                         quote=f"holder_id={holder}; possession_owner={character.entity_id}",
-                        suggested_fix="Synchronize item_state.holder_id with character_state.possessions.",
+                        suggested_fix="同步 item_state.holder_id 与 character_state.possessions。",
                     )
                 )
     findings.extend(_check_item_mentions_against_plan(snapshot))
@@ -343,10 +342,10 @@ def _check_item_mentions_against_plan(snapshot: ConsistencySnapshot) -> list[Con
                     id=f"cons_item_scene_location_{item.id}",
                     severity="medium",
                     type="continuity_issue",
-                    description=f"Item {item.id} is mentioned, but current_state places it outside planned scenes.",
+                    description=f"正文提到了物品 {item.id}，但 current_state 显示它不在本章计划场景中。",
                     source=_chapter_file(snapshot),
                     quote=f"{item.name}: location_id={state.location_id}",
-                    suggested_fix="Move the item through state_update, adjust the scene location, or revise the text.",
+                    suggested_fix="通过 state_update 移动物品，调整场景地点，或修订正文。",
                 )
             )
     return findings
@@ -368,10 +367,10 @@ def _check_state_update_old_values(snapshot: ConsistencySnapshot) -> list[Consis
                     id=f"cons_state_change_old_value_{change.id}",
                     severity="high",
                     type="state_conflict",
-                    description=f"State change {change.id} old_value no longer matches current_state.",
+                    description=f"状态变更 {change.id} 的 old_value 已与 current_state 不一致。",
                     source=source,
                     quote=f"expected={change.old_value!r}; actual={actual!r}",
-                    suggested_fix="Regenerate the state update proposal from the current state before applying it.",
+                    suggested_fix="应用前基于当前 state 重新生成 state update proposal。",
                 )
             )
     return findings
@@ -399,13 +398,13 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
                     id=f"cons_timeline_order_{event.id}",
                     severity=severity,
                     type="timeline_conflict",
-                    description="Timeline events are not ordered by narrative_position chapter, scene, and sequence.",
+                    description="Timeline 事件未按 narrative_position 的 chapter、scene、sequence 排序。",
                     source=source,
                     quote=(
                         f"{event.id}: chapter={narrative.chapter}, "
                         f"scene={narrative.scene}, sequence={narrative.sequence}"
                     ),
-                    suggested_fix="Sort timeline events by narrative_position or correct the event narrative position.",
+                    suggested_fix="按 narrative_position 排序 timeline 事件，或修正事件的 narrative_position。",
                 )
             )
             break
@@ -437,10 +436,10 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
                         id=f"cons_timeline_scene_{event.id}",
                         severity="medium",
                         type="timeline_conflict",
-                        description=f"Timeline event {event.id} scene is outside ChapterPlan scene range.",
+                        description=f"Timeline 事件 {event.id} 的 scene 超出 ChapterPlan 场景范围。",
                         source=source,
                         quote=f"narrative_position.scene={scene}; plan_scene_count={scene_count}",
-                        suggested_fix="Correct event.narrative_position.scene or update the chapter plan scene list.",
+                        suggested_fix="修正 event.narrative_position.scene，或更新章节计划的场景列表。",
                     )
                 )
     return findings
@@ -458,10 +457,10 @@ def _check_chapter_loop(snapshot: ConsistencySnapshot) -> list[ConsistencyFindin
                 id=f"cons_loop_plan_chapter_{chapter_number:03d}",
                 severity="critical",
                 type="continuity_issue",
-                description="plan.json chapter_number does not match chapter directory.",
+                description="plan.json 的 chapter_number 与章节目录不一致。",
                 source=chapter_dir / "plan.json",
                 quote=f"chapter_number={snapshot.plan.chapter_number}",
-                suggested_fix="Move the plan to the matching chapter directory or regenerate it.",
+                suggested_fix="把 plan 移到匹配的章节目录，或重新生成计划。",
             )
         )
     for name, metadata in (("draft.md", snapshot.draft_metadata), ("polished.md", snapshot.polished_metadata)):
@@ -474,10 +473,10 @@ def _check_chapter_loop(snapshot: ConsistencySnapshot) -> list[ConsistencyFindin
                     id=f"cons_loop_{name.replace('.', '_')}_chapter_{chapter_number:03d}",
                     severity="critical",
                     type="continuity_issue",
-                    description=f"{name} front matter chapter_number does not match chapter directory.",
+                    description=f"{name} 的 front matter chapter_number 与章节目录不一致。",
                     source=chapter_dir / name,
                     quote=f"chapter_number={front_chapter}",
-                    suggested_fix=f"Regenerate {name} or correct its front matter.",
+                    suggested_fix=f"重新生成 {name}，或修正其 front matter。",
                 )
             )
     if snapshot.proposal and snapshot.proposal.chapter_number != chapter_number:
@@ -486,10 +485,10 @@ def _check_chapter_loop(snapshot: ConsistencySnapshot) -> list[ConsistencyFindin
                 id=f"cons_loop_state_proposal_{chapter_number:03d}",
                 severity="high",
                 type="state_conflict",
-                description="state_update_proposal.json chapter_number does not match chapter directory.",
+                description="state_update_proposal.json 的 chapter_number 与章节目录不一致。",
                 source=chapter_dir / "state_update_proposal.json",
                 quote=f"chapter_number={snapshot.proposal.chapter_number}",
-                suggested_fix="Regenerate the state update proposal for this chapter.",
+                suggested_fix="为本章重新生成 state update proposal。",
             )
         )
     if snapshot.apply_log and snapshot.apply_log.chapter_number != chapter_number:
@@ -498,10 +497,10 @@ def _check_chapter_loop(snapshot: ConsistencySnapshot) -> list[ConsistencyFindin
                 id=f"cons_loop_state_apply_{chapter_number:03d}",
                 severity="high",
                 type="state_conflict",
-                description="state_update_apply_log.json chapter_number does not match chapter directory.",
+                description="state_update_apply_log.json 的 chapter_number 与章节目录不一致。",
                 source=chapter_dir / "state_update_apply_log.json",
                 quote=f"chapter_number={snapshot.apply_log.chapter_number}",
-                suggested_fix="Rollback and re-apply the correct state update proposal.",
+                suggested_fix="回滚后重新应用正确的 state update proposal。",
             )
         )
     if snapshot.metadata:
@@ -526,10 +525,10 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
                 id=f"cons_accepted_audit_{metadata.chapter_number:03d}",
                 severity="critical",
                 type="continuity_issue",
-                description="Accepted chapter must have a readable audit report.",
+                description="已认可章节必须有可读取的 audit 报告。",
                 source=chapter_dir / "metadata.json",
                 quote=f"audit_path={metadata.audit_path or 'audit.json'}",
-                suggested_fix="Regenerate audit.json and rerun accept-chapter.",
+                suggested_fix="重新生成 audit.json，然后重新运行 accept-chapter。",
             )
         )
     else:
@@ -547,10 +546,10 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
                     id=f"cons_accepted_audit_{metadata.chapter_number:03d}",
                     severity="critical",
                     type="continuity_issue",
-                    description="Accepted chapter must not have medium, high, or critical audit issues.",
+                    description="已认可章节不能保留 medium、high 或 critical 级别的 audit 问题。",
                     source=chapter_dir / "metadata.json",
                     quote=f"audit_path={metadata.audit_path or 'audit.json'}",
-                    suggested_fix="Resolve blocking audit issues and rerun accept-chapter after audit passes.",
+                    suggested_fix="解决阻断性 audit 问题，待 audit 通过后重新运行 accept-chapter。",
                 )
             )
         elif audit_data.get("overall_status") != "passed":
@@ -559,10 +558,10 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
                     id=f"cons_accepted_audit_{metadata.chapter_number:03d}",
                     severity="medium",
                     type="continuity_issue",
-                    description="Accepted chapter audit has non-blocking issues.",
+                    description="已认可章节的 audit 仍有非阻断问题。",
                     source=chapter_dir / "metadata.json",
                     quote=f"overall_status={audit_data.get('overall_status')}",
-                    suggested_fix="Review low/medium audit issues when convenient, or rerun audit after revision.",
+                    suggested_fix="检查低/中级别 audit 问题，或修订后重新运行 audit。",
                 )
             )
     apply_path = snapshot.root / metadata.state_update_apply_log_path if metadata.state_update_apply_log_path else chapter_dir / "state_update_apply_log.json"
@@ -573,10 +572,10 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
                 id=f"cons_accepted_state_apply_{metadata.chapter_number:03d}",
                 severity="critical",
                 type="state_conflict",
-                description="Accepted chapter must have an applied state update log.",
+                description="已认可章节必须有已应用的 state update log。",
                 source=chapter_dir / "metadata.json",
                 quote=f"state_update_apply_log_path={metadata.state_update_apply_log_path or 'state_update_apply_log.json'}",
-                suggested_fix="Run propose-state-update/apply-state-update before accepting the chapter.",
+                suggested_fix="认可章节前先运行 propose-state-update/apply-state-update。",
             )
         )
     return findings
@@ -595,10 +594,10 @@ def _check_existing_audit_loop(snapshot: ConsistencySnapshot) -> list[Consistenc
                 id=f"cons_loop_audit_chapter_{chapter_number:03d}",
                 severity="critical",
                 type="continuity_issue",
-                description="audit.json chapter_number does not match chapter directory.",
+                description="audit.json 的 chapter_number 与章节目录不一致。",
                 source=chapter_dir / "audit.json",
                 quote=f"chapter_number={audit_data.get('chapter_number')}",
-                suggested_fix="Regenerate the audit for this chapter.",
+                suggested_fix="重新生成本章 audit。",
             )
         )
     audited_file = audit_data.get("audited_file")
@@ -608,10 +607,10 @@ def _check_existing_audit_loop(snapshot: ConsistencySnapshot) -> list[Consistenc
                 id=f"cons_loop_audit_file_{chapter_number:03d}",
                 severity="high",
                 type="continuity_issue",
-                description="audit.json audited_file must be draft.md or polished.md.",
+                description="audit.json 的 audited_file 必须是 draft.md 或 polished.md。",
                 source=chapter_dir / "audit.json",
                 quote=str(audited_file),
-                suggested_fix="Regenerate the audit with a supported audited_file.",
+                suggested_fix="使用受支持的 audited_file 重新生成 audit。",
             )
         )
     elif audited_file and not (chapter_dir / str(audited_file)).exists():
@@ -620,10 +619,10 @@ def _check_existing_audit_loop(snapshot: ConsistencySnapshot) -> list[Consistenc
                 id=f"cons_loop_audit_missing_file_{chapter_number:03d}",
                 severity="high",
                 type="continuity_issue",
-                description="audit.json references a missing audited_file.",
+                description="audit.json 引用了不存在的 audited_file。",
                 source=chapter_dir / "audit.json",
                 quote=str(audited_file),
-                suggested_fix="Regenerate the missing file or rerun audit against an existing file.",
+                suggested_fix="重新生成缺失文件，或改为审核一个已存在的文件。",
             )
         )
     return findings
@@ -641,10 +640,10 @@ def _check_body_workspace_language(snapshot: ConsistencySnapshot) -> list[Consis
             id=f"cons_workspace_language_{snapshot.chapter_number or 0:03d}",
             severity="medium",
             type="style_mismatch",
-            description="Reader-facing chapter text contains workspace or agent-process language.",
+            description="面向读者的章节正文包含工作区或 Agent 流程用语。",
             source=_chapter_file(snapshot),
             quote=", ".join(hits),
-            suggested_fix="Remove agent/process wording from draft or polished prose.",
+            suggested_fix="从 draft 或 polished 正文中移除 Agent/流程用语。",
         )
     ]
 
@@ -662,10 +661,10 @@ def _check_unplanned_character_mentions(snapshot: ConsistencySnapshot) -> list[C
                 id=f"cons_unplanned_character_{snapshot.chapter_number or 0:03d}_{character.id}",
                 severity="low",
                 type="continuity_issue",
-                description=f"Character {character.id} is mentioned but not listed in ChapterPlan participants.",
+                description=f"角色 {character.id} 在正文中出现，但未列入 ChapterPlan 的 participants。",
                 source=_chapter_file(snapshot),
                 quote=character.name,
-                suggested_fix="Add the character to the relevant plan scene or remove the accidental mention.",
+                suggested_fix="把该角色加入相关计划场景，或移除误写的出场。",
             )
         )
     return findings
@@ -697,10 +696,10 @@ def _check_reader_visible_hidden_truth_leaks(root: Path) -> list[ConsistencyFind
                             id=f"cons_reader_visible_hidden_{truth.id}_{entity_id}",
                             severity="critical",
                             type="premature_reveal",
-                            description=f"Reader-visible summary for {entity_id} contains hidden truth {truth.id}.",
+                            description=f"实体 {entity_id} 的 reader_visible_summary 包含隐藏真相 {truth.id}。",
                             source=path,
                             quote=fragment[:160],
-                            suggested_fix="Move hidden information into private_author_notes or hidden_truths.json only.",
+                            suggested_fix="把隐藏信息仅保存在 private_author_notes 或 hidden_truths.json 中。",
                         )
                     )
                     break
@@ -714,15 +713,15 @@ def _check_reader_visible_hidden_truth_leaks(root: Path) -> list[ConsistencyFind
             ):
                 findings.append(
                     ConsistencyFinding(
-                        id=f"cons_reader_visible_foreshadow_{thread.id}",
-                        severity="high",
-                        type="premature_reveal",
-                        description=f"Foreshadowing thread {thread.id} reader-visible description leaks hidden_truth text.",
-                        source=root / "memory" / "canon" / "foreshadowing.json",
-                        quote=thread.hidden_truth[:160],
-                        suggested_fix="Keep reader_visible clue text separate from hidden_truth.",
+                            id=f"cons_reader_visible_foreshadow_{thread.id}",
+                            severity="high",
+                            type="premature_reveal",
+                            description=f"伏笔线 {thread.id} 的读者可见描述泄露了 hidden_truth 文本。",
+                            source=root / "memory" / "canon" / "foreshadowing.json",
+                            quote=thread.hidden_truth[:160],
+                            suggested_fix="将 reader_visible 线索文本与 hidden_truth 分开保存。",
+                        )
                     )
-                )
     return findings
 
 
@@ -731,10 +730,10 @@ def _timeline_missing_reference(source: Path, event: TimelineEvent, ref_id: str,
         id=f"cons_timeline_missing_{event.id}_{ref_type}_{ref_id}",
         severity="medium",
         type="timeline_conflict",
-        description=f"Timeline event {event.id} references missing {ref_type} event {ref_id}.",
+        description=f"Timeline 事件 {event.id} 的 {ref_type} 引用了不存在的事件：{ref_id}",
         source=source,
         quote=f"{ref_type}={ref_id}",
-        suggested_fix="Create the referenced timeline event or remove the stale reference.",
+        suggested_fix="创建被引用的 timeline 事件，或移除失效引用。",
     )
 
 
@@ -748,13 +747,13 @@ def _timeline_reversed_reference(
         id=f"cons_timeline_reversed_{event.id}_{ref_type}_{referenced.id}",
         severity="high",
         type="timeline_conflict",
-        description=f"Timeline event {event.id} has a reversed story-world {ref_type} relationship with {referenced.id}.",
+        description=f"Timeline 事件 {event.id} 与 {referenced.id} 的故事世界 {ref_type} 关系顺序反了。",
         source=source,
         quote=(
             f"{event.id}=thread {event.story_position.thread_id}/order {event.story_position.order}; "
             f"{referenced.id}=thread {referenced.story_position.thread_id}/order {referenced.story_position.order}"
         ),
-        suggested_fix="Correct story_position.order or causes/effects so story-world causes happen before effects.",
+        suggested_fix="修正 story_position.order 或 causes/effects，确保故事世界中的原因早于结果发生。",
     )
 
 

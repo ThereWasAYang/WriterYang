@@ -672,10 +672,10 @@ def test_validate_fails_accepted_chapter_with_blocking_audit_or_missing_state_ap
 
     assert not report.ok
     assert any(
-        "Accepted chapter must not have medium, high, or critical audit issues" in msg.message
+        "已认可章节不能保留 medium、high 或 critical 级别的 audit 问题" in msg.message
         for msg in report.errors
     )
-    assert any("Accepted chapter must have an applied state update log" in msg.message for msg in report.errors)
+    assert any("已认可章节必须有已应用的 state update log" in msg.message for msg in report.errors)
 
 
 def test_validate_allows_accepted_chapter_with_non_blocking_audit_issues(tmp_path: Path) -> None:
@@ -699,7 +699,7 @@ def test_validate_allows_accepted_chapter_with_non_blocking_audit_issues(tmp_pat
     report = validate_project(root)
 
     assert report.ok
-    assert any("Accepted chapter audit has non-blocking issues" in msg.message for msg in report.warnings)
+    assert any("已认可章节的 audit 仍有非阻断问题" in msg.message for msg in report.warnings)
 
 
 def test_validate_reports_hidden_truth_in_reader_visible_summary(tmp_path: Path) -> None:
@@ -736,7 +736,7 @@ def test_validate_reports_hidden_truth_in_reader_visible_summary(tmp_path: Path)
     report = validate_project(root)
 
     assert not report.ok
-    assert any("Reader-visible summary" in msg.message for msg in report.errors)
+    assert any("reader_visible_summary 包含隐藏真相" in msg.message for msg in report.errors)
 
 
 def _workspace_with_accepted_chapter(tmp_path: Path) -> Path:

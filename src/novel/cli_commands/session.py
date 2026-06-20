@@ -3,6 +3,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from novel.core.audit_localization import (
+    localize_audit_issue_for_author,
+    localize_session_rewrite_issue_for_author,
+)
 from novel.core.session import (
     CreationSessionError,
     SessionActionOptions,
@@ -189,16 +193,17 @@ def _session_low_issue_lines(root: Path, audit_history: list[str]) -> list[str]:
         for issue in report.issues:
             if issue.severity != "low":
                 continue
+            localized = localize_audit_issue_for_author(issue)
             low_issues.append(
-                f"- [{issue.severity}/{issue.type}] {issue.id}: {issue.description}"
-                + (f" suggested_fix: {issue.suggested_fix}" if issue.suggested_fix else "")
+                f"- [{localized.severity}/{localized.type}] {localized.id}: {localized.description}"
+                + (f" 建议修复：{localized.suggested_fix}" if localized.suggested_fix else "")
             )
     if not low_issues:
         return []
     return [
-        "Low audit issues for user review:",
+        "低级别 Audit 问题供用户确认：",
         *low_issues,
-        "Choose: accept as-is, or run session revise-content <session_id> --from-audit to create a revised version.",
+        "可选择直接接受，或运行 session revise-content <session_id> --from-audit 生成修订版。",
     ]
 
 def _session_rewrite_payload(root: Path, session: CreationSession) -> list[dict[str, object]]:
@@ -244,9 +249,10 @@ def _session_rewrite_lines(root: Path, session: CreationSession) -> list[str]:
         if event.audit_revision_history:
             lines.append(f"  audit_revisions: {len(event.audit_revision_history)}")
         for issue in event.blocking_issues:
-            lines.append(f"  reason [{issue.severity}/{issue.type}] {issue.id}: {issue.description}")
-            if issue.suggested_fix:
-                lines.append(f"  suggested_fix: {issue.suggested_fix}")
+            localized = localize_session_rewrite_issue_for_author(issue)
+            lines.append(f"  reason [{localized.severity}/{localized.type}] {localized.id}: {localized.description}")
+            if localized.suggested_fix:
+                lines.append(f"  建议修复：{localized.suggested_fix}")
     return lines
 
 def _session_latest_revision_route_payload(session: CreationSession) -> dict[str, object] | None:

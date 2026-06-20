@@ -29,6 +29,10 @@ from novel.core.agent_defaults import (
     profile_inherited_patch_fields,
 )
 from novel.core.app_logging import log_app_warning
+from novel.core.audit_localization import (
+    localize_audit_issue_for_author,
+    localize_session_rewrite_issue_for_author,
+)
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import (
     CanonAppliedProposalRecord,
@@ -1920,16 +1924,18 @@ def _session_audit_summary(root: Path, session: CreationSession) -> list[dict[st
                 }
             )
             continue
-        issues = [
-            {
-                "id": issue.id,
-                "severity": issue.severity,
-                "type": issue.type,
-                "description": issue.description,
-                "suggested_fix": issue.suggested_fix,
-            }
-            for issue in report.issues
-        ]
+        issues = []
+        for issue in report.issues:
+            localized = localize_audit_issue_for_author(issue)
+            issues.append(
+                {
+                    "id": localized.id,
+                    "severity": localized.severity,
+                    "type": localized.type,
+                    "description": localized.description,
+                    "suggested_fix": localized.suggested_fix,
+                }
+            )
         summaries.append(
             {
                 "chapter_number": chapter_number,
@@ -1969,14 +1975,14 @@ def _session_rewrite_event_summary(root: Path, session: CreationSession) -> list
             "updated_at": event.updated_at.isoformat() if event.updated_at else None,
             "blocking_issues": [
                 {
-                    "id": issue.id,
-                    "severity": issue.severity,
-                    "type": issue.type,
-                    "description": issue.description,
-                    "evidence": [evidence.model_dump(mode="json") for evidence in issue.evidence],
-                    "suggested_fix": issue.suggested_fix,
+                    "id": localized.id,
+                    "severity": localized.severity,
+                    "type": localized.type,
+                    "description": localized.description,
+                    "evidence": [evidence.model_dump(mode="json") for evidence in localized.evidence],
+                    "suggested_fix": localized.suggested_fix,
                 }
-                for issue in event.blocking_issues
+                for localized in (localize_session_rewrite_issue_for_author(issue) for issue in event.blocking_issues)
             ],
         }
         for event in events
@@ -2346,13 +2352,14 @@ def _audit_annotations(root: Path, query: dict[str, str]) -> dict[str, object]:
                     **(location or {}),
                 }
             )
+        localized = localize_audit_issue_for_author(issue)
         issues.append(
             {
-                "id": issue.id,
-                "severity": issue.severity,
-                "type": issue.type,
-                "description": issue.description,
-                "suggested_fix": issue.suggested_fix,
+                "id": localized.id,
+                "severity": localized.severity,
+                "type": localized.type,
+                "description": localized.description,
+                "suggested_fix": localized.suggested_fix,
                 "matches": matches,
             }
         )

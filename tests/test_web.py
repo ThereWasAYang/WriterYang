@@ -2486,14 +2486,20 @@ def test_frontend_basic_render() -> None:
     assert 'id="projectParentPath"' in html
     assert 'id="projectInitPathPreview"' in html
     assert 'id="runtimePanel"' in html
+    assert html.index('id="homePage"') < html.index('id="runtimePanel"') < html.index('<div class="dashboard-grid">')
+    assert html.index('id="runtimePanel"') > html.index("</header>")
+    assert 'class="header-message-row hidden"' in html
     assert 'id="messageDetails" class="message-detail-button hidden"' in html
     assert '<link rel="stylesheet" href="/static/app.css">' in html
     assert '<script src="/static/app.js"></script>' in html
     assert "<style>" not in html
     assert "<script>\n" not in html
     assert "runtime-panel" in frontend
+    assert "home-runtime-panel" in frontend
     assert ".header-status" in app_css
     assert ".header-message-row .message" in app_css
+    assert ".main-nav { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }" in app_css
+    assert ".main-nav .nav-button { flex: 0 0 auto; white-space: nowrap; }" in app_css
     assert "max-height: 38px" in app_css
     assert "overflow: hidden" in app_css
     assert "min-width: 0" in app_css
@@ -2507,6 +2513,7 @@ def test_frontend_basic_render() -> None:
     assert "setMessage(error.message, true, error.detailText || \"\")" in app_js
     assert "if (button.id !== \"messageDetails\") button.disabled = disabled;" in app_js
     assert "syncMessageDetailsButton();" in app_js
+    assert 'messageRow.classList.toggle("hidden", !display.text && !hasDetails);' in app_js
     assert "showMainPage(\"logsPage\")" in app_js
     assert "showTab(\"singleFileView\")" in app_js
     assert "$(\"fileViewer\").textContent = latestHeaderMessageDetails" in app_js
@@ -2895,14 +2902,14 @@ def test_workbench_prioritizes_session_flow_layout() -> None:
     assert 'id="workbenchSessionStatusPanel" class="panel"' in html
     assert 'class="workbench-session-status"' in html
     assert ".workbench-command-bar {" in app_css
-    assert "position: sticky; top: var(--app-header-sticky-offset, 92px); z-index: 7;" in app_css
+    assert "position: sticky; top: var(--app-header-sticky-offset, 76px); z-index: 7;" in app_css
     assert ".workbench-instruction { min-height: 220px; line-height: 1.55; }" in app_css
     assert ".workbench-session-status {" in app_css
-    assert "position: sticky; top: var(--workbench-secondary-sticky-offset, var(--app-header-sticky-offset, 92px));" in app_css
+    assert "position: sticky; top: var(--workbench-secondary-sticky-offset, var(--app-header-sticky-offset, 76px));" in app_css
     assert "border-bottom: 1px solid #e4e8ed; background: #fff;" in app_css
     assert ".workbench-session-status { position: static; margin: -14px -14px 10px; }" in app_css
-    assert "--app-header-sticky-offset: 92px;" in app_css
-    assert "--workbench-secondary-sticky-offset: 92px;" in app_css
+    assert "--app-header-sticky-offset: 76px;" in app_css
+    assert "--workbench-secondary-sticky-offset: 76px;" in app_css
     assert "syncWorkbenchStickyOffset" in app_js
     assert 'document.documentElement.style.setProperty("--workbench-secondary-sticky-offset"' in app_js
     assert '$("debugOptionsDetails").addEventListener("toggle", () => window.requestAnimationFrame(syncWorkbenchStickyOffset));' in app_js

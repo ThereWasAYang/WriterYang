@@ -240,6 +240,8 @@
       const display = summarizedMessage(text);
       const explicitDetails = String(detailsText || "");
       const hasDetails = Boolean(explicitDetails) || display.isLong;
+      const messageRow = document.querySelector(".header-message-row");
+      if (messageRow) messageRow.classList.toggle("hidden", !display.text && !hasDetails);
       latestHeaderMessageDetails = hasDetails ? (explicitDetails || String(text ?? "")) : "";
       $("message").textContent = hasDetails && !display.isLong ? `${display.text}（点击查看详情）` : display.text;
       $("message").className = isError ? "message error" : "message";
@@ -370,13 +372,15 @@
         }
         renderRuntime(runtimeSummary);
       } catch (error) {
+        $("runtimePanel").className = "metric runtime-panel home-runtime-panel status-warn";
         $("runtimePanel").innerHTML = `<b>运行环境</b><div class="status-bad">${escapeHtml(error.message)}</div>`;
+        syncWorkbenchStickyOffset();
       }
     }
 
     function renderRuntime(runtime) {
       const ok = Boolean(runtime.managed_install);
-      $("runtimePanel").className = `metric runtime-panel ${ok ? "status-ok" : "status-warn"}`;
+      $("runtimePanel").className = `metric runtime-panel home-runtime-panel ${ok ? "status-ok" : "status-warn"}`;
       $("runtimePanel").innerHTML = `
         <b>运行环境：${escapeHtml(runtime.environment || "未知")}</b>
         <div>版本：${escapeHtml(runtime.version || "")}</div>

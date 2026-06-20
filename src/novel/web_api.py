@@ -96,6 +96,7 @@ from novel.core.schemas import (
 )
 from novel.core.security import redact_secret_text, validate_secret_config_file
 from novel.core.session import (
+    CreationSessionError,
     SessionActionOptions,
     SessionInstructionOptions,
     SessionRunOptions,
@@ -104,6 +105,7 @@ from novel.core.session import (
     accept_session,
     approve_outline,
     archive_session,
+    find_latest_active_session,
     load_session_progress,
     load_session,
     load_rewrite_events,
@@ -252,6 +254,9 @@ def handle_api_request(
     except SearchError as exc:
         log_failure(400, "search_error", exc)
         return _failure(400, "search_error", str(exc), request_id=request_id)
+    except CreationSessionError as exc:
+        log_failure(400, "session_error", exc)
+        return _failure(400, "session_error", str(exc), request_id=request_id)
     except ValueError as exc:
         log_failure(400, "invalid_request", exc)
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
@@ -284,6 +289,7 @@ def _get_routes():
         "/api/management-events": lambda query: _management_events(_root_from_query(query), _optional_int(query.get("limit")) or 20),
         "/api/audit-annotations": lambda query: _audit_annotations(_root_from_query(query), query),
         "/api/session": _session_api,
+        "/api/session/latest": _session_latest_api,
         "/api/session/progress": _session_progress_api,
         "/api/session/rewrite-events": _session_rewrite_events_api,
         "/api/diff": lambda query: _workspace_diff(
@@ -1795,6 +1801,22 @@ def _session_api(query: dict[str, str]) -> dict[str, object]:
         "rewrite_events": _session_rewrite_event_summary(root, session),
         "management_events": _management_event_summary(root),
     }
+
+
+def _session_latest_api(query: dict[str, str]) -> dict[str, object]:
+    root = _root_from_query(query)
+    prefer_generated = query.get("prefer_generated") is None or _truthy(query.get("prefer_generated"))
+    result = find_latest_active_session(root, prefer_generated=prefer_generated)
+    if result is None:
+        return {
+            "session": None,
+            "progress": None,
+            "audit_summary": [],
+            "rewrite_events": [],
+            "management_events": _management_event_summary(root),
+            "message": "No active session found.",
+        }
+    return _session_result_payload(result)
 
 
 def _session_progress_api(query: dict[str, str]) -> dict[str, object]:

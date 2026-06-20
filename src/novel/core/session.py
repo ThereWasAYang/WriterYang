@@ -277,8 +277,19 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     root = options.root.resolve()
     session = load_session(root, options.session_id)
     _ensure_session_mutable(root, session)
-    if session.status not in {"outline_approved", "generating", "needs_revision"} or session.outline_status != "approved":
+    if session.outline_status != "approved" or session.status in {"drafting_intent", "outline_proposed"}:
         raise CreationSessionError("approve the outline before running content generation")
+    if _session_has_generated_content(session):
+        raise CreationSessionError(
+            "session content is already generated; review, revise, accept, or archive it instead of running content generation"
+        )
+    if (
+        session.status not in {"outline_approved", "generating"}
+        or session.content_status not in {"not_started", "generating"}
+    ):
+        raise CreationSessionError(
+            f"session cannot run content generation from status {session.status}/{session.content_status}"
+        )
     if session.scope_type == "segments":
         return _run_segment_session(root, session, options)
 
@@ -1151,6 +1162,40 @@ def load_session(root: Path, session_id: str) -> CreationSession:
     if not path.exists():
         raise CreationSessionError(f"session not found: {session_id}")
     return load_json_model(path, CreationSession)
+
+
+def find_latest_active_session(root: Path, prefer_generated: bool = True) -> SessionResult | None:
+    root = root.resolve()
+    sessions_dir = root / "memory" / "sessions"
+    if not sessions_dir.exists():
+        return None
+    sessions: list[CreationSession] = []
+    for path in sessions_dir.glob("session_*/session.json"):
+        try:
+            session = load_json_model(path, CreationSession)
+        except Exception:
+            continue
+        if session.status == "archived" or session.content_status == "archived":
+            continue
+        sessions.append(session)
+    if not sessions:
+        return None
+    pool = [session for session in sessions if _session_has_generated_content(session)] if prefer_generated else []
+    selected = max(pool or sessions, key=lambda session: (session.updated_at, session.session_id))
+    return SessionResult(
+        session=selected,
+        session_path=_session_path(root, selected.session_id),
+        message="Latest active session loaded.",
+    )
+
+
+def _session_has_generated_content(session: CreationSession) -> bool:
+    generated_statuses = {"needs_revision", "needs_user_review", "accepted"}
+    return (
+        bool(session.final_output_paths)
+        or session.status in generated_statuses
+        or session.content_status in generated_statuses
+    )
 
 
 def load_rewrite_events(root: Path, session_id: str) -> list[SessionRewriteEvent]:

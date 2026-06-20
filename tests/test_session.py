@@ -319,17 +319,46 @@ def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
     }
 
 
+def test_find_latest_active_session_prefers_generated_content_over_newer_outline(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(
+        ["session", "start", "写第1章，突出雨夜旧车站", "--path", str(root), "--chapters", "1", "--provider", "mock"]
+    )
+    generated_session = _latest_session(root)
+    assert _run_cli(["session", "approve-outline", generated_session.session_id, "--path", str(root)])[0] == 0
+    assert _run_cli(["session", "run", generated_session.session_id, "--path", str(root), "--provider", "mock"])[0] == 0
+    _run_cli(
+        ["session", "start", "重做第1章大纲", "--path", str(root), "--chapters", "1", "--provider", "mock"]
+    )
+    outline_session = _latest_session(root)
+    corrupt_session_dir = root / "memory" / "sessions" / "session_99991231_235959_999999"
+    corrupt_session_dir.mkdir(parents=True)
+    (corrupt_session_dir / "session.json").write_text("{not-json", encoding="utf-8")
+
+    preferred = session_module.find_latest_active_session(root)
+    latest = session_module.find_latest_active_session(root, prefer_generated=False)
+
+    assert preferred is not None
+    assert preferred.session.session_id == generated_session.session_id
+    assert preferred.session.content_status == "needs_user_review"
+    assert latest is not None
+    assert latest.session.session_id == outline_session.session_id
+
+
+def test_find_latest_active_session_returns_none_without_valid_active_sessions(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    corrupt_session_dir = root / "memory" / "sessions" / "session_99991231_235959_999999"
+    corrupt_session_dir.mkdir(parents=True)
+    (corrupt_session_dir / "session.json").write_text("{not-json", encoding="utf-8")
+
+    assert session_module.find_latest_active_session(root) is None
+
+
 def test_session_run_writes_progress_and_honors_cancel_at_boundary(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_ready(tmp_path)
     _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
     session = _latest_session(root)
     _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
-    session_path = root / "memory" / "sessions" / session.session_id / "session.json"
-    approved = load_json_model(session_path, CreationSession)
-    atomic_write_model_json(
-        session_path,
-        approved.model_copy(update={"final_output_paths": ["memory/chapters/001/polished.previous.md"]}),
-    )
     chapter_dir = root / "memory" / "chapters" / "001"
 
     def fake_generate(root_arg: Path, chapter_number: int, *args: object, **kwargs: object) -> None:
@@ -353,7 +382,7 @@ def test_session_run_writes_progress_and_honors_cancel_at_boundary(tmp_path: Pat
     progress = load_session_progress(root, session.session_id)
     assert result.session.status == "needs_revision"
     assert result.session.content_status == "needs_revision"
-    assert result.session.final_output_paths == ["memory/chapters/001/polished.previous.md"]
+    assert result.session.final_output_paths == []
     assert progress.status == "cancelled"
     assert progress.cancel_requested_at is not None
     assert progress.completed_at is not None

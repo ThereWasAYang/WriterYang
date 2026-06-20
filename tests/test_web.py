@@ -1308,6 +1308,105 @@ def test_api_session_approve_promotes_plan_and_respects_force(tmp_path: Path) ->
     assert list(chapter_dir.glob("plan.md.bak_*"))
 
 
+def test_api_session_latest_prefers_generated_session_and_handles_empty_project(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    empty_status, empty_payload = handle_api_request("GET", "/api/session/latest", f"path={root}", None)
+    assert empty_status == 200
+    assert empty_payload["data"]["session"] is None  # type: ignore[index]
+
+    start_status, start_payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "写第1章", "chapters": "1", "provider": "mock"}),
+    )
+    generated_session_id = start_payload["data"]["session"]["session_id"]  # type: ignore[index]
+    approve_status, _ = handle_api_request(
+        "POST",
+        "/api/session/approve-outline",
+        "",
+        json.dumps({"path": str(root), "session_id": generated_session_id, "provider": "mock"}),
+    )
+    run_status, _ = handle_api_request(
+        "POST",
+        "/api/session/run",
+        "",
+        json.dumps({"path": str(root), "session_id": generated_session_id, "provider": "mock"}),
+    )
+    newer_outline_status, newer_outline_payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "重做第1章大纲", "chapters": "1", "provider": "mock"}),
+    )
+    newer_outline_id = newer_outline_payload["data"]["session"]["session_id"]  # type: ignore[index]
+
+    latest_status, latest_payload = handle_api_request("GET", "/api/session/latest", f"path={root}", None)
+    newest_status, newest_payload = handle_api_request(
+        "GET",
+        "/api/session/latest",
+        f"path={root}&prefer_generated=0",
+        None,
+    )
+
+    assert start_status == 200
+    assert approve_status == 200
+    assert run_status == 200
+    assert newer_outline_status == 200
+    assert latest_status == 200
+    assert latest_payload["data"]["session"]["session_id"] == generated_session_id  # type: ignore[index]
+    assert latest_payload["data"]["session"]["content_status"] == "needs_user_review"  # type: ignore[index]
+    assert newest_status == 200
+    assert newest_payload["data"]["session"]["session_id"] == newer_outline_id  # type: ignore[index]
+
+
+def test_api_session_run_returns_session_error_for_invalid_workflow_states(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+    start_status, start_payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "写第1章", "chapters": "1", "provider": "mock"}),
+    )
+    session_id = start_payload["data"]["session"]["session_id"]  # type: ignore[index]
+
+    unapproved_status, unapproved_payload = handle_api_request(
+        "POST",
+        "/api/session/run",
+        "",
+        json.dumps({"path": str(root), "session_id": session_id, "provider": "mock"}),
+    )
+    approve_status, _ = handle_api_request(
+        "POST",
+        "/api/session/approve-outline",
+        "",
+        json.dumps({"path": str(root), "session_id": session_id, "provider": "mock"}),
+    )
+    first_run_status, _ = handle_api_request(
+        "POST",
+        "/api/session/run",
+        "",
+        json.dumps({"path": str(root), "session_id": session_id, "provider": "mock"}),
+    )
+    second_run_status, second_run_payload = handle_api_request(
+        "POST",
+        "/api/session/run",
+        "",
+        json.dumps({"path": str(root), "session_id": session_id, "provider": "mock"}),
+    )
+
+    assert start_status == 200
+    assert unapproved_status == 400
+    assert unapproved_payload["error"]["code"] == "session_error"  # type: ignore[index]
+    assert "approve the outline" in unapproved_payload["error"]["message"]  # type: ignore[index]
+    assert approve_status == 200
+    assert first_run_status == 200
+    assert second_run_status == 400
+    assert second_run_payload["error"]["code"] == "session_error"  # type: ignore[index]
+    assert "already generated" in second_run_payload["error"]["message"]  # type: ignore[index]
+    assert "operation_failed" not in json.dumps(second_run_payload, ensure_ascii=False)
+
+
 def test_api_validate_endpoint_returns_project_report(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 
@@ -2694,7 +2793,14 @@ def test_frontend_basic_render() -> None:
     assert "rememberSessionId" in app_js
     assert "recentSessionStorageKey" in app_js
     assert "writeryang.lastSession." in app_js
-    assert 'renderOutlinePreviewPlaceholder();\n        if (!options.silent) setMessage("最近 Session 已失效' in app_js
+    assert 'apiGet("/api/session/latest"' in app_js
+    assert "loadLatestActiveSession" in app_js
+    assert "sessionHasGeneratedContent" in app_js
+    assert "showSessionGeneratedContentIfAvailable" in app_js
+    assert "prepareSessionRunAction" in app_js
+    assert "请先批准大纲，再开始写作。" in app_js
+    assert "当前 Session 已生成正文" in app_js
+    assert "最近 Session 已失效" in app_js
     assert "outlinePreviewEndpoints.has(endpoint)" in app_js
     assert "chapterComparePreviewEndpoints.has(endpoint)" in app_js
     assert "outline_proposal.md" in app_js

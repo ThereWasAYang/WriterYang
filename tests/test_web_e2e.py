@@ -123,6 +123,65 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
         server.server_close()
 
 
+def test_web_ui_restores_generated_session_without_local_storage(tmp_path: Path) -> None:
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    root = _workspace_ready_for_generation(tmp_path)
+    try:
+        port = _free_port()
+    except PermissionError:
+        pytest.skip("local port binding is not permitted in this sandbox")
+    server = ThreadingHTTPServer(("127.0.0.1", port), _handler_class())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{port}/")
+            page.fill("#projectPath", str(root))
+            page.click("#openProject")
+            page.wait_for_function("() => document.querySelector('#statusPanel')?.textContent?.includes('雨夜旧车站')")
+            page.click("button[data-page='workbenchPage']")
+            page.select_option("#provider", "mock")
+            page.fill("#instruction", "写第1章，突出雨夜旧车站")
+            page.click("#sessionStart")
+            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('outline_proposed')")
+            session_id = page.locator("#sessionId").input_value()
+            page.click("#sessionApprove")
+            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('outline: approved')")
+            page.click("#sessionRun")
+            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('needs_user_review')")
+            page.wait_for_function("() => document.querySelector('#chapterProseViewer')?.textContent?.includes('真正沉默')")
+            page.close()
+
+            restored_context = browser.new_context()
+            restored_page = restored_context.new_page()
+            restored_page.goto(f"http://127.0.0.1:{port}/")
+            restored_page.fill("#projectPath", str(root))
+            restored_page.click("#openProject")
+            restored_page.click("button[data-page='workbenchPage']")
+            restored_page.wait_for_function(
+                f"() => document.querySelector('#sessionId')?.value === {json.dumps(session_id)}"
+            )
+            restored_page.wait_for_function(
+                "() => document.querySelector('#chapterProseViewer')?.textContent?.includes('真正沉默')"
+            )
+            restored_page.click("#sessionRun")
+            restored_page.wait_for_function(
+                "() => document.querySelector('#message')?.textContent?.includes('当前 Session 已生成正文')"
+            )
+            assert "approve the outline" not in (restored_page.locator("#message").text_content() or "")
+            restored_context.close()
+            browser.close()
+    except Exception as exc:
+        if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
+            pytest.skip("Playwright browser binaries are not installed")
+        raise
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_workbench_instruction_bar_stays_visible_while_scrolling(tmp_path: Path) -> None:
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     try:

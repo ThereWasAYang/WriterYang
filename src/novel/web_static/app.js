@@ -744,6 +744,7 @@
 
     async function runSessionAction(endpoint, payload, label) {
       if (!validateSessionAction(endpoint)) return;
+      if (!(await prepareSessionRunAction(endpoint))) return;
       return withBusy(label, async () => {
         const shouldPollRewriteEvents = endpoint === "/api/session/run";
         let rewritePoller = null;
@@ -805,15 +806,54 @@
       return true;
     }
 
+    async function prepareSessionRunAction(endpoint) {
+      if (endpoint !== "/api/session/run") return true;
+      const data = await loadCurrentSession({ silent: true });
+      const session = data?.session || {};
+      if (!session.session_id) return true;
+      if (sessionNeedsOutlineApproval(session)) {
+        await loadOutlinePreview(session, { silent: true });
+        renderNextStep(data);
+        setMessage("请先批准大纲，再开始写作。", true);
+        return false;
+      }
+      if (sessionHasGeneratedContent(session)) {
+        await showSessionGeneratedContentIfAvailable(session, { silent: true });
+        renderNextStep(data);
+        setMessage("当前 Session 已生成正文，请先查看草稿、按 Audit/用户意见修订，或认可/归档。", true);
+        return false;
+      }
+      return true;
+    }
+
     async function refreshSessionGeneratedPreview(endpoint, session) {
       if (outlinePreviewEndpoints.has(endpoint)) {
         await loadOutlinePreview(session, { silent: true });
       }
-      if (chapterComparePreviewEndpoints.has(endpoint)) {
-        showTab("chapterCompare");
-        await loadCompare();
-        focusChapterProse();
+      if (chapterComparePreviewEndpoints.has(endpoint) || sessionHasGeneratedContent(session)) {
+        await showSessionGeneratedContentIfAvailable(session, { silent: true, force: true });
       }
+    }
+
+    function sessionHasGeneratedContent(session = {}) {
+      const generatedStatuses = new Set(["needs_revision", "needs_user_review", "accepted"]);
+      return Boolean((session.final_output_paths || []).length)
+        || generatedStatuses.has(session.status)
+        || generatedStatuses.has(session.content_status);
+    }
+
+    function sessionNeedsOutlineApproval(session = {}) {
+      return session.outline_status !== "approved"
+        || session.status === "drafting_intent"
+        || session.status === "outline_proposed";
+    }
+
+    async function showSessionGeneratedContentIfAvailable(session = {}, options = {}) {
+      if (!options.force && !sessionHasGeneratedContent(session)) return false;
+      showTab("chapterCompare");
+      await loadCompare();
+      focusChapterProse();
+      return true;
     }
 
     function sessionPayload(options = {}) {
@@ -1131,6 +1171,19 @@
       }, options);
     }
 
+    async function applyLoadedSessionData(data, options = {}) {
+      const session = data?.session || {};
+      if (!session.session_id) return null;
+      $("sessionId").value = session.session_id;
+      rememberSessionId(session.session_id);
+      renderSessionSummary(data);
+      renderNextStep(data);
+      await loadOutlinePreview(session, { silent: true });
+      await showSessionGeneratedContentIfAvailable(session, { silent: true });
+      if (!options.silent && options.message) setMessage(options.message);
+      return data;
+    }
+
     async function loadCurrentSession(options = {}) {
       const sessionId = $("sessionId").value.trim();
       if (!sessionId) {
@@ -1140,12 +1193,10 @@
       }
       try {
         const data = await apiGet("/api/session", { path: projectPath(), session_id: sessionId });
-        renderSessionSummary(data);
-        renderNextStep(data);
-        rememberSessionId(sessionId);
-        await loadOutlinePreview(data.session || {}, { silent: true });
-        if (!options.silent) setMessage(`已加载 Session：${sessionId}`);
-        return data;
+        return await applyLoadedSessionData(data, {
+          ...options,
+          message: `已加载 Session：${sessionId}`,
+        });
       } catch (error) {
         $("outlinePreviewMeta").textContent = `Session：${sessionId}`;
         $("outlinePreview").textContent = `无法加载 Session：${error.message}`;
@@ -1154,21 +1205,51 @@
       }
     }
 
+    async function loadLatestActiveSession(options = {}) {
+      try {
+        const data = await apiGet("/api/session/latest", { path: projectPath() });
+        const session = data.session || {};
+        if (!session.session_id) return null;
+        return await applyLoadedSessionData(data, {
+          ...options,
+          message: `已恢复最近 Session：${session.session_id}`,
+        });
+      } catch (error) {
+        if (!options.silent) setMessage(error.message, true);
+        return null;
+      }
+    }
+
     async function restoreRecentSessionIfEmpty(options = {}) {
       if ($("sessionId").value.trim()) return null;
       const sessionId = recentSessionId();
-      if (!sessionId) return null;
-      $("sessionId").value = sessionId;
-      const data = await loadCurrentSession({ silent: true });
-      if (!data) {
+      let storedData = null;
+      let storedFailed = false;
+      if (sessionId) {
+        $("sessionId").value = sessionId;
+        storedData = await loadCurrentSession({ silent: true });
+      }
+      if (sessionId && !storedData) {
+        storedFailed = true;
         localStorage.removeItem(recentSessionStorageKey());
         $("sessionId").value = "";
         renderOutlinePreviewPlaceholder();
-        if (!options.silent) setMessage("最近 Session 已失效，请重新创建或填写 Session ID。", true);
-      } else if (!options.silent) {
-        setMessage(`已恢复最近 Session：${sessionId}`);
       }
-      return data;
+      const latestData = await loadLatestActiveSession({ silent: true });
+      if (
+        latestData
+        && (!storedData || (sessionHasGeneratedContent(latestData.session) && !sessionHasGeneratedContent(storedData.session)))
+      ) {
+        if (!options.silent) setMessage(`已恢复最近 Session：${latestData.session.session_id}`);
+        return latestData;
+      }
+      if (storedData) {
+        await applyLoadedSessionData(storedData, { silent: true });
+        if (!options.silent) setMessage(`已恢复最近 Session：${storedData.session.session_id}`);
+        return storedData;
+      }
+      if (storedFailed && !options.silent) setMessage("最近 Session 已失效，请重新创建或填写 Session ID。", true);
+      return null;
     }
 
     async function loadInspirationPreview(options = {}) {

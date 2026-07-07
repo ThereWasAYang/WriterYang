@@ -6,19 +6,31 @@ WriterYang 是一个面向中文长篇小说创作的 AI 辅助写作工具。�
 
 ## 环境配置
 
-建议为 WriterYang 创建一个独立 Python 3.12 环境，不要直接使用系统 Python，也不要复用已有项目环境。
+建议为 WriterYang 创建一个独立 Python 环境，不要直接使用系统 Python，也不要复用已有项目环境。当前支持 Python 3.11-3.13，推荐 3.12。
 
-推荐使用一键安装脚本：
+推荐使用一键安装脚本。macOS / Linux：
 
 ```bash
 ./install.sh
+```
+
+Windows PowerShell：
+
+```powershell
+.\install.ps1
+```
+
+Windows 命令提示符：
+
+```bat
+install.bat
 ```
 
 它会自动检测 conda；如果本机有 conda，会优先创建 `WriterYang_YYMMDD` 格式的新环境，例如 `WriterYang_260531`。如果当天同名环境已经存在，会自动使用 `WriterYang_26053101`、`WriterYang_26053102` 这样的后缀。没有 conda 时，脚本会回退到 `.venv/WriterYang_YYMMDD`。
 
 安装完成后，脚本会以 editable 模式安装当前源码目录。之后你更新代码或拉取新版本后，只需要重启 Web UI，就会加载新的源码和前端静态文件，不需要每次重新安装。脚本还会自动寻找可用 Web UI 端口，打印完整地址并弹出浏览器。默认从 `8765` 开始；如果端口被占用，会自动尝试下一个端口。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
 
-脚本还会生成 `WriterYang_WebUI.command` 启动器和同目录的 `WriterYang_WebUI.config.json`。之后不懂命令行的用户可以直接双击启动器打开 Web UI；启动器会固定使用安装脚本创建的新环境，并从 config 文件读取下次启动端口。Web UI 中保存端口会先验证端口可用，再更新这个 config 文件；如果下次启动时该端口临时被占用，启动器会自动改用下一个空闲端口并提示用户重新保存端口。Web server 停止后，交互式终端会进入一个已经激活新环境的子 shell，后续 `novel ...` 命令默认走这个新环境；输入 `exit` 可以回到原终端。
+脚本还会生成 Web UI 启动器和同目录的 `WriterYang_WebUI.config.json`：macOS / Linux 默认是 `WriterYang_WebUI.command`，Windows 默认是 `WriterYang_WebUI.cmd`。之后不懂命令行的用户可以直接双击启动器打开 Web UI；启动器会固定使用安装脚本创建的新环境，并从 config 文件读取下次启动端口。Web UI 中保存端口会先验证端口可用，再更新这个 config 文件；如果下次启动时该端口临时被占用，启动器会自动改用下一个空闲端口并提示用户重新保存端口。Web server 停止后，交互式终端会进入一个已经激活新环境的子 shell，后续 `novel ...` 命令默认走这个新环境；输入 `exit` 可以回到原终端。
 
 也可以直接运行 Python 入口：
 
@@ -31,11 +43,12 @@ python scripts/install_writeryang.py --no-open-web
 python scripts/install_writeryang.py --no-web
 python scripts/install_writeryang.py --no-activate-shell
 python scripts/install_writeryang.py --launcher-path ./WriterYang_WebUI.command
+python scripts/install_writeryang.py --launcher-path ./WriterYang_WebUI.cmd
 ```
 
 脚本默认安装运行依赖；开发者需要测试、lint、mypy、build 等工具时使用 `--dev`。如果不希望安装后启动 Web UI，使用 `--no-web`；如果只是不想自动弹出浏览器，使用 `--no-open-web`。如果不想在安装后进入新环境子 shell，使用 `--no-activate-shell`。
 
-如果你之前使用旧版本安装脚本创建过环境，Web UI 可能仍在读取环境 `site-packages` 里的旧副本。解决方式是重新运行 `./install.sh` 创建新环境，或者在旧环境中执行一次：
+如果你之前使用旧版本安装脚本创建过环境，Web UI 可能仍在读取环境 `site-packages` 里的旧副本。解决方式是重新运行当前平台的一键安装脚本创建新环境，或者在旧环境中执行一次：
 
 ```bash
 python -m pip install -e .
@@ -57,7 +70,7 @@ novel doctor
 使用 conda：
 
 ```bash
-conda create -n writeryang python=3.12 -y
+conda create -n writeryang "python>=3.11,<3.14" -y
 conda activate writeryang
 python -m pip install --upgrade pip
 ```
@@ -65,9 +78,15 @@ python -m pip install --upgrade pip
 如果不使用 conda，也可以用 Python 自带的 venv：
 
 ```bash
-python3.12 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
+```
+
+Windows venv 激活命令为：
+
+```bat
+.venv\Scripts\activate
 ```
 
 后续命令都假设你已经激活了这个新环境。你可以用下面命令确认当前 Python 路径：
@@ -166,7 +185,7 @@ novel init "雨夜旧车站" --path ./rain-station
 - 输入一组 OpenAI-compatible API Key、base URL 和模型名，作为所有 profile 的缺省 API 配置。
 - 工具会先做一次连通性测试；通过后才把真实 key 写入项目根目录 `.env`，并把 `config/agents.yaml` 的顶层 `default` 指向对应环境变量名。
 - 可选配置 embedding API；跳过后仍可使用关键词/FTS 检索。
-- 选择 CLI Web UI 默认端口；如果端口被占用会自动推荐下一个可用端口，并写入 `project.yaml`。这个端口只影响 `novel web --path ...`，不影响 `WriterYang_WebUI.command` 的启动器配置。
+- 选择 CLI Web UI 默认端口；如果端口被占用会自动推荐下一个可用端口，并写入 `project.yaml`。这个端口只影响 `novel web --path ...`，不影响安装器生成的 Web UI 启动器配置。
 - 最后默认打开 Web UI。
 
 `.env` 是本地私密运行文件，会被 `.gitignore`、Web 文件树、导出和日志排除。`config/agents.yaml` 不保存真实密钥；之后可以在这个文件中为 4 个 profile 覆盖模型、`max_tokens`、上下文、超时和重试等能力参数，也可以在少数 task 覆盖 `thinking.type`、`reasoning`、`temperature` 等业务参数。
@@ -313,7 +332,9 @@ Provider 调用日志会写入项目的 `runs/provider_calls.jsonl`。这是轻�
 
 为了方便 debug，每次 Agent 模型调用还会把完整输入输出写入 `runs/model_io/{request_id}.json`，并追加摘要到 `runs/model_io/index.jsonl`。完整日志包含 system prompt、user prompt、上下文、`prompt_version`、发送给 provider 的安全请求体、模型正文输出、reasoning 内容、`finish_reason`、原始响应摘要和错误信息；流式响应的原始日志只保留 chunk 数、finish chunk 和 usage chunk，避免把重复 SSE 元数据大量落盘。日志不会写入 HTTP header、Authorization、真实 API Key 或环境变量值。注意：这些日志会包含小说正文、隐藏设定和作者指令，仅适合本地排查，默认不应提交到 Git。
 
-每次真实 provider 调用完成后，工具会根据调用日志刷新 `runs/provider_usage.json`，用于实时统计当前小说项目的累计调用量和 token 消耗。可以用下面的命令查看：
+`runs/model_io/` 默认保留最近 500 份完整日志，并限制总体积约 200MB；写入新日志后会 best-effort 清理更旧的 model I/O 文件并同步裁剪 `index.jsonl`。高级用户可以用环境变量调整：`WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES`；设为 `0` 表示关闭对应上限。若只需要轻量排障，可以设置 `WRITERYANG_MODEL_IO_MODE=metadata`，此时仍写日志文件和索引，但 prompt、正文、raw response 会被省略。
+
+每次真实 provider 调用完成后，工具会根据调用日志增量刷新 `runs/provider_usage.json`，用于实时统计当前小说项目的累计调用量和 token 消耗；如果日志被截断或替换，会自动退回全量重算。可以用下面的命令查看：
 
 ```bash
 novel usage --path ./rain-station
@@ -624,7 +645,7 @@ web:
 
 如果没有配置，默认使用 `8765`。命令行 `--port` 会覆盖项目配置。端口被占用时，命令会给出清晰错误提示并退出，例如建议改用 `novel web --port 8766`。
 
-`WriterYang_WebUI.command` 使用启动器配置 `WriterYang_WebUI.config.json`，不读取小说项目的 `project.yaml.web.default_port`。Web UI 页面里的端口设置更新的是启动器配置；保存时会验证端口可用。若启动器启动时发现配置端口已被占用，会临时改用下一个空闲端口，并在运行环境面板提醒用户重新保存端口。
+安装器生成的 Web UI 启动器使用 `WriterYang_WebUI.config.json`，不读取小说项目的 `project.yaml.web.default_port`。macOS / Linux 默认启动器是 `WriterYang_WebUI.command`，Windows 默认启动器是 `WriterYang_WebUI.cmd`。Web UI 页面里的端口设置更新的是启动器配置；保存时会验证端口可用。若启动器启动时发现配置端口已被占用，会临时改用下一个空闲端口，并在运行环境面板提醒用户重新保存端口。
 
 打开 `http://127.0.0.1:8765`。如果希望 CLI 启动服务时自动打开浏览器，可以使用 `novel web --open`；默认和 `--no-open` 都不会自动打开。Web UI 顶部有 6 个主页面：主页、创作工作台、文风设置、小说状态管理、模型与检索配置、运行日志 / 项目文件；运行环境详情显示在主页的信息框中，不会常驻占用所有页面的顶部空间。Web API 调用同一套 core service，不返回真实 API Key。长任务执行时会显示已用时和最近操作；当前任务相关按钮会临时禁用，但取消当前 Session 任务和刷新类按钮仍可用。完成后会保留真实返回消息和 Session 状态，不会被自动刷新覆盖。
 
@@ -726,6 +747,7 @@ JSON Schema 文件位于 `schemas/`，也可以通过 `novel schema export --out
 WRITERYANG_REAL_BASE_URL=
 WRITERYANG_REAL_API_KEY=
 WRITERYANG_REAL_MODEL=
+WRITERYANG_REAL_PROVIDER=
 ```
 
 也兼容以下 DeepSeek 变量名：
@@ -742,6 +764,15 @@ DEEPSEEK_V4PRO_MODEL=
 ZAI_BASE_URL=
 ZAI_API_KEY=
 ZAI_MODEL=
+```
+
+Zhipu embedding 可使用：
+
+```bash
+ZHIPU_API_KEY=
+ZHIPU_EMBEDDING_BASE_URL=
+ZHIPU_EMBEDDING_MODEL=
+ZHIPU_EMBEDDING_DIMENSIONS=
 ```
 
 运行真实 API 测试：

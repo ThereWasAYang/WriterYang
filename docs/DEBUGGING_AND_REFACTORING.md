@@ -199,9 +199,9 @@ runs/agent_output_violations/{request_id}.json
 | --- | --- |
 | `runs/run_*.json` | workflow/orchestrator run log，记录步骤、输入输出、错误。 |
 | `runs/provider_calls.jsonl` | provider 调用轻量日志：provider、model、耗时、状态、token。 |
-| `runs/provider_usage.json` | 根据 provider_calls 刷新的累计用量。 |
-| `runs/model_io/{request_id}.json` | 完整模型输入输出，含 prompt、context、payload、raw response。 |
-| `runs/model_io/index.jsonl` | model_io 索引。 |
+| `runs/provider_usage.json` | 根据 provider_calls 增量刷新的累计用量；日志被截断时会自动重算。 |
+| `runs/model_io/{request_id}.json` | 完整模型输入输出，含 prompt、context、payload、raw response；默认受保留上限管理。 |
+| `runs/model_io/index.jsonl` | model_io 索引，会随保留策略裁剪。 |
 | `runs/agent_output_violations/{request_id}.json` | Agent 输出契约违规，例如内部 Agent 反问。 |
 | `memory/chapters/{NNN}/context_report*.json` | 检索上下文报告，说明 included/excluded/context visibility。 |
 | `*.bak_*` | 重要文件覆盖或 state/timeline apply 前备份。 |
@@ -212,6 +212,7 @@ runs/agent_output_violations/{request_id}.json
 - 不写 Authorization。
 - 不写真实 API Key 或 env value。
 - 但会包含小说正文、用户指令和 hidden truth。不要提交 `runs/`。
+- `runs/model_io/` 默认保留最近 500 份、总体积约 200MB；可用 `WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 调整，用 `WRITERYANG_MODEL_IO_MODE=metadata` 改为只保留轻量元数据。
 
 ## 4. 重构前 checklist
 

@@ -24,6 +24,11 @@ from novel.core.json_schema import (
     model_output_schema_skeleton,
     strict_model_output_schema_payload,
 )
+from novel.core.model_io import (
+    compact_model_io_payload,
+    model_io_retention_policy_from_env,
+    prune_model_io_dir,
+)
 from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.security import redact_secret_text
 from novel.core.timeutil import new_request_id, utc_now_iso
@@ -346,6 +351,9 @@ class LoggingModelProvider(ModelProvider):
             "token_usage": _token_usage_payload(response.token_usage if response else None),
             "provider_call_log_path": "runs/provider_calls.jsonl",
         }
+        policy = model_io_retention_policy_from_env()
+        if policy.mode == "metadata":
+            log = compact_model_io_payload(log)
         atomic_write_json(model_io_path, log)
         append_jsonl(
             model_io_dir / "index.jsonl",
@@ -363,6 +371,10 @@ class LoggingModelProvider(ModelProvider):
                 "model_io_path": f"runs/model_io/{request_id}.json",
             },
         )
+        try:
+            prune_model_io_dir(model_io_dir, policy)
+        except Exception:
+            return
 
     def _secret_values(self) -> tuple[str, ...]:
         api_key = getattr(self.provider, "api_key", None)

@@ -17,10 +17,10 @@ novel --version
 
 ## 2. 测试
 
-建议在干净的独立 Python 3.12 环境中执行发布检查：
+建议在干净的独立 Python 环境中执行发布检查。当前支持 Python 3.11-3.13，发布机推荐使用 3.12：
 
 ```bash
-conda create -n writeryang-release python=3.12 -y
+conda create -n writeryang-release "python>=3.11,<3.14" -y
 conda activate writeryang-release
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"

@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+from typing import Mapping
 from urllib.parse import urlparse
 
 from novel.core.web_launcher import WEB_HOST_ENV, WEB_PORT_ENV, WEB_URL_ENV
@@ -21,6 +22,9 @@ _STATIC_CONTENT_TYPES = {
     ".js": "application/javascript; charset=utf-8",
     ".html": "text/html; charset=utf-8",
 }
+DEFAULT_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024
+MAX_REQUEST_BODY_BYTES_ENV = "WRITERYANG_WEB_MAX_BODY_BYTES"
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def index_html() -> str:
@@ -90,7 +94,30 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
             if not parsed.path.startswith("/api/"):
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
-            length = int(self.headers.get("Content-Length") or "0")
+            if not is_allowed_post_source(
+                host_header=self.headers.get("Host"),
+                origin_header=self.headers.get("Origin"),
+            ):
+                self._send_json(403, {"ok": False, "error": {"code": "forbidden_origin", "message": "POST origin is not allowed"}})
+                return
+            try:
+                length = parse_content_length(self.headers.get("Content-Length"))
+            except ValueError:
+                self._send_json(400, {"ok": False, "error": {"code": "invalid_content_length", "message": "Content-Length must be a non-negative integer"}})
+                return
+            max_body = max_request_body_bytes()
+            if length > max_body:
+                self._send_json(
+                    413,
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "request_body_too_large",
+                            "message": f"request body exceeds {max_body} bytes",
+                        },
+                    },
+                )
+                return
             body = self.rfile.read(length) if length else b"{}"
             status, payload = handle_api_request("POST", parsed.path, parsed.query, body)
             self._send_json(status, payload)
@@ -126,3 +153,58 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
             self.send_header("Expires", "0")
 
     return Handler
+
+
+def parse_content_length(raw: str | None) -> int:
+    if raw is None or not raw.strip():
+        return 0
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError("Content-Length must be an integer") from exc
+    if value < 0:
+        raise ValueError("Content-Length must not be negative")
+    return value
+
+
+def max_request_body_bytes(env: Mapping[str, str] | None = None) -> int:
+    values = os.environ if env is None else env
+    raw = values.get(MAX_REQUEST_BODY_BYTES_ENV)
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_REQUEST_BODY_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_MAX_REQUEST_BODY_BYTES
+    return value if value > 0 else DEFAULT_MAX_REQUEST_BODY_BYTES
+
+
+def is_allowed_post_source(*, host_header: str | None, origin_header: str | None) -> bool:
+    host, host_port = _parse_host_port(host_header)
+    if host is not None and not _is_local_host(host):
+        return False
+    if host_port == -1:
+        return False
+    if not origin_header:
+        return True
+    origin = urlparse(origin_header)
+    if origin.scheme not in {"http", "https"} or not origin.hostname or not _is_local_host(origin.hostname):
+        return False
+    if host_port is not None and origin.port is not None and origin.port != host_port:
+        return False
+    return True
+
+
+def _parse_host_port(value: str | None) -> tuple[str | None, int | None]:
+    if value is None or not value.strip():
+        return None, None
+    parsed = urlparse(f"//{value.strip()}")
+    try:
+        port = parsed.port
+    except ValueError:
+        return parsed.hostname, -1
+    return parsed.hostname, port
+
+
+def _is_local_host(host: str) -> bool:
+    return host.strip("[]").lower() in LOCAL_HOSTS

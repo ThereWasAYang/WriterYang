@@ -3387,6 +3387,52 @@ def test_web_server_access_log_is_env_controlled(monkeypatch) -> None:
     assert "GET /" in enabled_stderr.getvalue()
 
 
+def test_web_server_content_length_validation() -> None:
+    assert web_server.parse_content_length(None) == 0
+    assert web_server.parse_content_length("12") == 12
+
+    for value in ("bad", "-1"):
+        try:
+            web_server.parse_content_length(value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected invalid Content-Length: {value}")
+
+
+def test_web_server_request_body_limit_is_configurable() -> None:
+    assert web_server.max_request_body_bytes({}) == 32 * 1024 * 1024
+    assert web_server.max_request_body_bytes({"WRITERYANG_WEB_MAX_BODY_BYTES": "1024"}) == 1024
+    assert web_server.max_request_body_bytes({"WRITERYANG_WEB_MAX_BODY_BYTES": "bad"}) == 32 * 1024 * 1024
+
+
+def test_web_server_post_source_validation() -> None:
+    assert web_server.is_allowed_post_source(host_header="127.0.0.1:8765", origin_header=None) is True
+    assert (
+        web_server.is_allowed_post_source(
+            host_header="127.0.0.1:8765",
+            origin_header="http://127.0.0.1:8765",
+        )
+        is True
+    )
+    assert (
+        web_server.is_allowed_post_source(
+            host_header="localhost:8765",
+            origin_header="http://localhost:8765",
+        )
+        is True
+    )
+    assert (
+        web_server.is_allowed_post_source(
+            host_header="127.0.0.1:8765",
+            origin_header="https://evil.example",
+        )
+        is False
+    )
+    assert web_server.is_allowed_post_source(host_header="evil.example", origin_header=None) is False
+    assert web_server.is_allowed_post_source(host_header="127.0.0.1:bad", origin_header=None) is False
+
+
 def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 

@@ -691,6 +691,56 @@ def test_logging_provider_records_stream_output(tmp_path) -> None:
     assert data["response"]["content"] == "hello world"
 
 
+def test_logging_provider_prunes_model_io_by_retention_limit(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("WRITERYANG_MODEL_IO_MAX_FILES", "2")
+    monkeypatch.setenv("WRITERYANG_MODEL_IO_MAX_BYTES", "0")
+    provider = LoggingModelProvider(
+        provider=MockProvider(fixed_text="mock output"),
+        agent_name="writer",
+        provider_name="mock",
+        model="mock-model",
+        root=tmp_path,
+    )
+
+    for request_id in ("provider_old", "provider_mid", "provider_new"):
+        provider.generate(ModelRequest(system_prompt="s", user_prompt="u", request_id=request_id))
+
+    model_io_dir = tmp_path / "runs" / "model_io"
+    logs = sorted(path.name for path in model_io_dir.glob("provider_*.json"))
+    index_lines = (model_io_dir / "index.jsonl").read_text(encoding="utf-8").splitlines()
+
+    assert logs == ["provider_mid.json", "provider_new.json"]
+    assert len(index_lines) == 2
+    assert "provider_old" not in "\n".join(index_lines)
+    assert "provider_mid" in index_lines[0]
+    assert "provider_new" in index_lines[1]
+
+
+def test_logging_provider_metadata_mode_omits_full_prompt_and_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("WRITERYANG_MODEL_IO_MODE", "metadata")
+    provider = LoggingModelProvider(
+        provider=MockProvider(fake_response={"content": "完整正文", "reasoning_content": "隐藏推理"}),
+        agent_name="writer",
+        provider_name="mock",
+        model="mock-model",
+        root=tmp_path,
+    )
+
+    provider.generate(ModelRequest(system_prompt="系统提示", user_prompt="用户提示", context="上下文"))
+
+    log_path = next((tmp_path / "runs" / "model_io").glob("provider_*.json"))
+    text = log_path.read_text(encoding="utf-8")
+    data = json.loads(text)
+    assert "系统提示" not in text
+    assert "用户提示" not in text
+    assert "完整正文" not in text
+    assert data["request"]["system_prompt"].startswith("[omitted")
+    assert data["response"]["content"].startswith("[omitted")
+
+
 def test_provider_stream_parses_sse_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
     provider = OpenAICompatibleProvider(

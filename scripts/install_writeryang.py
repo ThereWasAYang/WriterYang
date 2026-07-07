@@ -13,12 +13,13 @@ import shutil
 import socket
 import subprocess
 import sys
-import time
-from urllib.parse import urlparse
 from typing import Mapping, Optional, Sequence
 
 
-PYTHON_VERSION = "3.12"
+SUPPORTED_PYTHON_VERSIONS = ("3.12", "3.11", "3.13")
+MIN_PYTHON_VERSION = (3, 11)
+MAX_PYTHON_VERSION_EXCLUSIVE = (3, 14)
+CONDA_PYTHON_SPEC = "python>=3.11,<3.14"
 ENV_PREFIX = "WriterYang"
 WEB_HOST = "127.0.0.1"
 DEFAULT_WEB_PORT = 8765
@@ -60,8 +61,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--no-activate-shell", action="store_true", help="Do not enter the new environment shell after installation.")
     parser.add_argument(
         "--launcher-path",
-        default="WriterYang_WebUI.command",
-        help="Path for the generated macOS/Linux Web UI launcher. Defaults to WriterYang_WebUI.command.",
+        default=None,
+        help="Path for the generated Web UI launcher. Defaults to WriterYang_WebUI.command on macOS/Linux and WriterYang_WebUI.cmd on Windows.",
     )
     parser.add_argument(
         "--venv-root",
@@ -80,7 +81,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             web_port=args.web_port,
             start_web=not args.no_web,
             check_web_port=not args.dry_run,
-            launcher_path=Path(args.launcher_path),
+            launcher_path=Path(args.launcher_path) if args.launcher_path else None,
             activate_shell=not args.no_activate_shell,
         )
     except RuntimeError as exc:
@@ -147,7 +148,7 @@ def build_install_plan(
             check_port=check_web_port,
         )
         commands = [
-            [conda, "create", "-n", env_name, f"python={PYTHON_VERSION}", "-y"],
+            [conda, "create", "-n", env_name, CONDA_PYTHON_SPEC, "-y"],
             [str(env_python), "-m", "pip", "install", "--upgrade", "pip"],
             [str(env_python), "-m", "pip", "install", *install_args],
         ]
@@ -169,9 +170,13 @@ def build_install_plan(
             else None,
         )
 
-    python = find_python312()
-    if not python:
-        raise RuntimeError("conda was not found, and python3.12 is not available for venv fallback")
+    python_command = find_supported_python()
+    if not python_command:
+        accepted = ", ".join(SUPPORTED_PYTHON_VERSIONS)
+        raise RuntimeError(
+            "conda was not found, and no supported Python was found for venv fallback "
+            f"(accepted: {accepted}; recommended: 3.12)"
+        )
     venv_root = venv_root.resolve()
     env_name = unique_name(base_name, existing_venv_names(venv_root))
     venv_path = venv_root / env_name
@@ -183,7 +188,7 @@ def build_install_plan(
         check_port=check_web_port,
     )
     commands = [
-        [python, "-m", "venv", str(venv_path)],
+        [*python_command, "-m", "venv", str(venv_path)],
         [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"],
         [str(venv_python), "-m", "pip", "install", *install_args],
     ]
@@ -247,6 +252,28 @@ def build_activate_shell(
     conda_env_prefix: Path | None = None,
     venv_path: Path | None = None,
 ) -> ShellLaunch:
+    if os.name == "nt":
+        shell = env.get("COMSPEC") or shutil.which("cmd.exe") or "cmd.exe"
+        overrides: dict[str, str] = {}
+        if conda_env_prefix and env_name:
+            bin_dir = conda_env_prefix / "Scripts"
+            existing_path = env.get("PATH", "")
+            overrides = {
+                "CONDA_DEFAULT_ENV": env_name,
+                "CONDA_PREFIX": str(conda_env_prefix),
+                "PATH": f"{bin_dir}{os.pathsep}{existing_path}" if existing_path else str(bin_dir),
+            }
+        elif venv_path:
+            bin_dir = venv_path / "Scripts"
+            existing_path = env.get("PATH", "")
+            overrides = {
+                "VIRTUAL_ENV": str(venv_path),
+                "PATH": f"{bin_dir}{os.pathsep}{existing_path}" if existing_path else str(bin_dir),
+            }
+        else:
+            raise RuntimeError("activate shell requires either conda/env_name or venv_path")
+        return ShellLaunch(command=[shell, "/K"], env=overrides)
+
     shell = env.get("SHELL") or shutil.which("zsh") or shutil.which("bash") or "/bin/sh"
     if conda_env_prefix and env_name:
         bin_dir = conda_env_prefix / "bin"
@@ -301,11 +328,11 @@ def find_conda(env: Mapping[str, str]) -> Optional[str]:
 
 def conda_env_prefix(conda: str, env_name: str) -> Path:
     conda_path = Path(conda).resolve()
-    if conda_path.parent.name == "bin":
+    if conda_path.parent.name in {"bin", "Scripts", "condabin"}:
         return conda_path.parent.parent / "envs" / env_name
     raise RuntimeError(
         f"could not infer conda environment prefix from {conda}; "
-        "run the installer from a shell where CONDA_EXE points to conda's bin/conda"
+        "run the installer from a shell where CONDA_EXE points to conda's executable"
     )
 
 
@@ -349,8 +376,46 @@ def existing_conda_env_names(conda: str) -> set[str]:
     return {Path(str(path)).name for path in envs}
 
 
-def find_python312() -> Optional[str]:
-    return shutil.which("python3.12")
+def find_supported_python() -> list[str] | None:
+    for candidate in (*SUPPORTED_PYTHON_VERSIONS, "python3", "python"):
+        executable = shutil.which(f"python{candidate}" if candidate[0].isdigit() else candidate)
+        command = [executable] if executable else None
+        if command and is_supported_python(command):
+            return command
+    py_launcher = shutil.which("py")
+    if py_launcher:
+        for version in SUPPORTED_PYTHON_VERSIONS:
+            command = [py_launcher, f"-{version}"]
+            if is_supported_python(command):
+                return command
+    return None
+
+
+def is_supported_python(command: Sequence[str]) -> bool:
+    version = python_version_info(command)
+    if version is None:
+        return False
+    return MIN_PYTHON_VERSION <= version < MAX_PYTHON_VERSION_EXCLUSIVE
+
+
+def python_version_info(command: Sequence[str]) -> tuple[int, int] | None:
+    completed = subprocess.run(
+        [
+            *command,
+            "-c",
+            "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    try:
+        major, minor = completed.stdout.strip().split(".", 1)
+        return int(major), int(minor)
+    except ValueError:
+        return None
 
 
 def existing_venv_names(venv_root: Path) -> set[str]:
@@ -399,10 +464,14 @@ def is_interactive_terminal(env: Mapping[str, str]) -> bool:
 
 
 def _resolve_launcher_path(repo_root: Path, launcher_path: Path | None) -> Path:
-    path = launcher_path or Path("WriterYang_WebUI.command")
+    path = launcher_path or Path(_default_launcher_filename())
     if not path.is_absolute():
         path = repo_root / path
     return path
+
+
+def _default_launcher_filename() -> str:
+    return "WriterYang_WebUI.cmd" if os.name == "nt" else "WriterYang_WebUI.command"
 
 
 def _launcher_config_path(launcher_path: Path) -> Path:
@@ -421,7 +490,20 @@ def _write_web_launcher_config(path: Path, *, host: str, port: int) -> None:
 
 def _write_web_launcher(path: Path, command: list[str], *, cwd: Path, config_path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    content = (
+    suffix = path.suffix.lower()
+    if suffix in {".cmd", ".bat"}:
+        content = _windows_cmd_launcher_content(path, command, cwd=cwd, config_path=config_path)
+    elif suffix == ".ps1":
+        content = _powershell_launcher_content(path, command, cwd=cwd, config_path=config_path)
+    else:
+        content = _bash_launcher_content(path, command, cwd=cwd, config_path=config_path)
+    path.write_text(content, encoding="utf-8")
+    if os.name != "nt":
+        path.chmod(0o755)
+
+
+def _bash_launcher_content(path: Path, command: list[str], *, cwd: Path, config_path: Path) -> str:
+    return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"cd {shlex.quote(str(cwd))}\n"
@@ -429,8 +511,41 @@ def _write_web_launcher(path: Path, command: list[str], *, cwd: Path, config_pat
         f"export {WEB_LAUNCHER_CONFIG_ENV}={shlex.quote(str(config_path))}\n"
         f"exec {shlex.join(command)}\n"
     )
-    path.write_text(content, encoding="utf-8")
-    path.chmod(0o755)
+
+
+def _windows_cmd_launcher_content(path: Path, command: list[str], *, cwd: Path, config_path: Path) -> str:
+    return (
+        "@echo off\r\n"
+        "setlocal\r\n"
+        f'cd /d "{cwd}"\r\n'
+        f'set "{WEB_LAUNCHER_PATH_ENV}={path}"\r\n'
+        f'set "{WEB_LAUNCHER_CONFIG_ENV}={config_path}"\r\n'
+        f"{subprocess.list2cmdline(command)}\r\n"
+        "exit /b %ERRORLEVEL%\r\n"
+    )
+
+
+def _powershell_launcher_content(path: Path, command: list[str], *, cwd: Path, config_path: Path) -> str:
+    return (
+        "Set-StrictMode -Version Latest\n"
+        f"Set-Location -LiteralPath {_powershell_literal(str(cwd))}\n"
+        f"$env:{WEB_LAUNCHER_PATH_ENV} = {_powershell_literal(str(path))}\n"
+        f"$env:{WEB_LAUNCHER_CONFIG_ENV} = {_powershell_literal(str(config_path))}\n"
+        f"{_powershell_command(command)}\n"
+        "exit $LASTEXITCODE\n"
+    )
+
+
+def _powershell_command(command: list[str]) -> str:
+    if not command:
+        raise RuntimeError("launcher command must not be empty")
+    executable = _powershell_literal(command[0])
+    args = ", ".join(_powershell_literal(arg) for arg in command[1:])
+    return f"& {executable} @({args})"
+
+
+def _powershell_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _print_plan(plan: InstallPlan, *, dry_run: bool) -> None:
@@ -491,22 +606,6 @@ def _run_web_command(command: list[str], *, cwd: Path) -> None:
         process.send_signal(signal.SIGINT)
         process.wait()
         print("\nWeb UI stopped.")
-
-
-def _wait_for_web_server(url: str, timeout_seconds: float = 15.0) -> bool:
-    parsed = urlparse(url)
-    host = parsed.hostname
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    if not host:
-        return False
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.2):
-                return True
-        except OSError:
-            time.sleep(0.1)
-    return False
 
 
 if __name__ == "__main__":

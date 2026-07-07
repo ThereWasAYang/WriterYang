@@ -49,7 +49,14 @@ def test_conda_plan_is_preferred_when_conda_exists(monkeypatch, tmp_path: Path) 
 
     assert plan.mode == "conda"
     assert plan.env_name == "WriterYang_260531"
-    assert plan.commands[0] == ["/opt/conda/bin/conda", "create", "-n", "WriterYang_260531", "python=3.12", "-y"]
+    assert plan.commands[0] == [
+        "/opt/conda/bin/conda",
+        "create",
+        "-n",
+        "WriterYang_260531",
+        "python>=3.11,<3.14",
+        "-y",
+    ]
     assert plan.commands[1] == [
         "/opt/conda/envs/WriterYang_260531/bin/python",
         "-m",
@@ -105,7 +112,7 @@ def test_conda_plan_uses_suffix_when_env_exists(monkeypatch, tmp_path: Path) -> 
 def test_venv_plan_when_conda_missing(monkeypatch, tmp_path: Path) -> None:
     installer = _load_installer()
     monkeypatch.setattr(installer, "find_conda", lambda env: None)
-    monkeypatch.setattr(installer, "find_python312", lambda: "/usr/bin/python3.12")
+    monkeypatch.setattr(installer, "find_supported_python", lambda: ["/usr/bin/python3.12"])
     monkeypatch.setattr(installer, "is_port_available", lambda host, port: True)
 
     plan = installer.build_install_plan(
@@ -159,6 +166,51 @@ def test_installer_uses_editable_install_args() -> None:
 
     assert installer.editable_install_args(dev=False) == ["-e", "."]
     assert installer.editable_install_args(dev=True) == ["-e", ".[dev]"]
+
+
+def test_supported_python_probe_prefers_recommended_version(monkeypatch) -> None:
+    installer = _load_installer()
+    candidates = {
+        "python3.12": "/usr/bin/python3.12",
+        "python3.11": "/usr/bin/python3.11",
+        "python3.13": "/usr/bin/python3.13",
+        "python3": "/usr/bin/python3",
+        "python": "/usr/bin/python",
+    }
+    monkeypatch.setattr(installer.shutil, "which", lambda name: candidates.get(name))
+    monkeypatch.setattr(
+        installer,
+        "python_version_info",
+        lambda executable: {
+            ("/usr/bin/python3.12",): (3, 12),
+            ("/usr/bin/python3.11",): (3, 11),
+            ("/usr/bin/python3.13",): (3, 13),
+            ("/usr/bin/python3",): (3, 10),
+            ("/usr/bin/python",): (3, 10),
+        }.get(tuple(executable)),
+    )
+
+    assert installer.find_supported_python() == ["/usr/bin/python3.12"]
+
+
+def test_supported_python_probe_can_use_windows_py_launcher(monkeypatch) -> None:
+    installer = _load_installer()
+    monkeypatch.setattr(installer.shutil, "which", lambda name: "/Windows/py.exe" if name == "py" else None)
+    monkeypatch.setattr(
+        installer,
+        "python_version_info",
+        lambda command: (3, 11) if tuple(command) == ("/Windows/py.exe", "-3.11") else None,
+    )
+
+    assert installer.find_supported_python() == ["/Windows/py.exe", "-3.11"]
+
+
+def test_supported_python_probe_rejects_unsupported_versions(monkeypatch) -> None:
+    installer = _load_installer()
+    monkeypatch.setattr(installer.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(installer, "python_version_info", lambda executable: (3, 10))
+
+    assert installer.find_supported_python() is None
 
 
 def test_web_port_uses_next_available_port(monkeypatch, tmp_path: Path) -> None:
@@ -255,6 +307,37 @@ def test_write_web_launcher_creates_executable_command_file(tmp_path: Path) -> N
     assert config_payload["port"] == 8765
     assert config_payload["host"] == "127.0.0.1"
     assert launcher.stat().st_mode & 0o111
+
+
+def test_write_web_launcher_creates_windows_cmd_file(tmp_path: Path) -> None:
+    installer = _load_installer()
+    launcher = tmp_path / "WriterYang_WebUI.cmd"
+    config = tmp_path / "WriterYang_WebUI.config.json"
+    command = [r"C:\WriterYang\Scripts\novel.exe", "web-launch", "--config", str(config), "--open"]
+
+    installer._write_web_launcher(launcher, command, cwd=tmp_path, config_path=config)
+
+    content = launcher.read_text(encoding="utf-8")
+    assert "@echo off" in content
+    assert "cd /d" in content
+    assert "WRITERYANG_WEB_LAUNCHER_CONFIG" in content
+    assert "web-launch" in content
+    assert "exit /b %ERRORLEVEL%" in content
+
+
+def test_write_web_launcher_creates_powershell_file(tmp_path: Path) -> None:
+    installer = _load_installer()
+    launcher = tmp_path / "WriterYang_WebUI.ps1"
+    config = tmp_path / "WriterYang_WebUI.config.json"
+    command = [r"C:\WriterYang\Scripts\novel.exe", "web-launch", "--config", str(config), "--open"]
+
+    installer._write_web_launcher(launcher, command, cwd=tmp_path, config_path=config)
+
+    content = launcher.read_text(encoding="utf-8")
+    assert "Set-StrictMode" in content
+    assert "Set-Location -LiteralPath" in content
+    assert "$env:WRITERYANG_WEB_LAUNCHER_CONFIG" in content
+    assert "web-launch" in content
 
 
 def test_dry_run_does_not_execute_create_or_install(monkeypatch, capsys) -> None:

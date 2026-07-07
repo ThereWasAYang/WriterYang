@@ -132,6 +132,16 @@ def test_export_json_schemas_writes_files(tmp_path: Path) -> None:
     assert schema["title"] == "ChapterPlan"
 
 
+def test_checked_in_json_schemas_match_models() -> None:
+    payloads = schema_payloads()
+
+    for name, payload in payloads.items():
+        path = Path("schemas") / f"{name}.schema.json"
+        assert path.is_file(), path
+        checked_in = json.loads(path.read_text(encoding="utf-8"))
+        assert checked_in == payload, name
+
+
 def test_schema_export_cli(tmp_path: Path) -> None:
     output = tmp_path / "schemas"
 

@@ -68,6 +68,7 @@
 - `src/novel/core/memory_repair_ops.py`
 - `src/novel/core/memory_repair_rules.py`
 - `src/novel/core/migration.py`
+- `src/novel/core/model_io.py`
 - `src/novel/core/orchestrator.py`
 - `src/novel/core/plan_refs.py`
 - `src/novel/core/planning.py`
@@ -148,6 +149,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 端口冲突时给清晰错误。
 - 从 `web_static/` 安全读取 `index.html`、`app.css`、`app.js`，并通过 `/static/...` 提供静态资源。
 - 对 HTML、静态资源和 API 响应发送 no-cache headers，避免浏览器继续显示旧版 Web UI。
+- 对 POST 请求做 HTTP 层保护：限制请求体大小，并校验 `Host` / `Origin` 属于本机同源。
 - 不包含业务逻辑。
 
 ### `src/novel/web_api.py`
@@ -336,7 +338,7 @@ JSON Schema 导出：
 - `ModelResponse`：模型内容、原始响应、token、reasoning。
 - `ModelProvider`：抽象接口。
 - `MockProvider`：测试 provider，支持响应序列和 stream chunks。
-- `LoggingModelProvider`：包裹 provider，写完整 model_io 日志；request 段记录 `prompt_version`，stream 原始响应只保留 chunk 数、finish chunk 和 usage chunk。
+- `LoggingModelProvider`：包裹 provider，写 model_io 日志；request 段记录 `prompt_version`，stream 原始响应只保留 chunk 数、finish chunk 和 usage chunk。写入后调用 model_io 保留策略，默认裁剪旧日志。
 - `OpenAICompatibleProvider`：OpenAI Chat Completions 兼容实现。
 - `ProviderFactory`：根据 `AgentConfig` 创建 provider。
 - `ProviderError` 及子类：env、HTTP、auth、rate limit、timeout、network、response 错误。
@@ -349,6 +351,14 @@ JSON Schema 导出：
 - `_model_response_from_openai_raw()`：解析 OpenAI 格式返回。
 - `_stream_content_from_line()`：解析 SSE chunk。
 - `_redact_data()` / `_redact_text()`：日志脱敏。
+
+### `core/model_io.py`
+
+Model I/O 生命周期：
+
+- `model_io_retention_policy_from_env()`：读取 `WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 和 `WRITERYANG_MODEL_IO_MODE`。
+- `compact_model_io_payload()`：metadata 模式下省略 prompt、正文和 raw response。
+- `prune_model_io_dir()`：按最近条数和总体积裁剪旧 `runs/model_io/*.json`，并同步重写 `index.jsonl`。
 
 ### `core/provider_config.py`
 
@@ -390,7 +400,7 @@ JSON Schema 导出：
 - `WebLauncherConfig`：启动器级 Web UI 端口配置，保存到未追踪的 `WriterYang_WebUI.config.json`。
 - `save_web_launcher_port_config()`：保存启动器端口前验证端口可用；当前 Web UI 正在使用的端口允许保存。
 - `recommend_web_launcher_port()` / `find_available_port()`：为启动器端口设置推荐可保存端口。
-- `write_web_launcher_command()`：生成动态 `WriterYang_WebUI.command`，下次启动时读取 config 文件。
+- `_write_web_launcher()`：按平台生成动态 Web UI 启动器，macOS / Linux 默认 `WriterYang_WebUI.command`，Windows 默认 `WriterYang_WebUI.cmd`，下次启动时读取 config 文件。
 
 ### `core/embeddings.py`
 
@@ -783,8 +793,8 @@ orchestrator 项目管家修复 proposal：
 Provider 用量统计：
 
 - `UsageBucket` / `UsageSummary`。
-- `summarize_provider_call_log()`：读取 `provider_calls.jsonl`，汇总 total、by_task、by_provider、by_model 和 by_status。
-- `refresh_provider_usage_summary()` / `refresh_provider_usage_summary_for_log()`：刷新 `provider_usage.json`。
+- `summarize_provider_call_log()`：全量读取 `provider_calls.jsonl`，汇总 total、by_task、by_provider、by_model 和 by_status。
+- `refresh_provider_usage_summary()` / `refresh_provider_usage_summary_for_log()`：增量刷新 `provider_usage.json`；日志截断或缓存失配时自动全量重算。
 - `provider_usage_path()` / `provider_call_log_path()`：默认路径。
 
 ## 10. Validation

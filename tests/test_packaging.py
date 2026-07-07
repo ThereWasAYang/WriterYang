@@ -123,6 +123,8 @@ def test_readme_core_commands_match_cli() -> None:
         'tmp_project="$(mktemp -d)/writeryang-template"',
         'novel init "模板校验" --path "$tmp_project" --no-guide',
         "./install.sh",
+        ".\\install.ps1",
+        "install.bat",
         "python scripts/install_writeryang.py --dry-run",
         "python scripts/install_writeryang.py --web-port 9000",
         "python scripts/install_writeryang.py --no-web",
@@ -197,6 +199,10 @@ def test_manifest_includes_user_and_developer_docs() -> None:
     manifest = Path("MANIFEST.in").read_text(encoding="utf-8")
 
     for expected in (
+        "include install.sh",
+        "include install.ps1",
+        "include install.bat",
+        "include scripts/install_writeryang.py",
         "include docs/WEB_UI_USER_GUIDE.md",
         "include docs/DEVELOPER_GUIDE.md",
         "include docs/CODEBASE_REFERENCE.md",
@@ -211,6 +217,8 @@ def test_github_workflows_include_web_e2e_and_blocking_mypy() -> None:
     tests_workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
     release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 
+    for version in ('"3.11"', '"3.12"', '"3.13"'):
+        assert version in tests_workflow
     for workflow in (tests_workflow, release_workflow):
         assert "Type check" in workflow
         assert "mypy src scripts" in workflow
@@ -247,7 +255,11 @@ def test_user_docs_use_generic_environment_setup() -> None:
     combined = "\n".join(path.read_text(encoding="utf-8") for path in docs)
 
     assert "conda create -n writeryang" in combined
-    assert "python=3.12" in combined
+    assert "支持 Python 3.11-3.13" in combined
+    assert "推荐 3.12" in combined
+    assert "python>=3.11,<3.14" in combined
+    assert "python=3.12" not in combined
+    assert "python3.12 -m venv" not in combined
     local_env_name = "py" + "312"
     local_conda_run = "conda run " + "-n " + local_env_name
     assert local_conda_run not in combined

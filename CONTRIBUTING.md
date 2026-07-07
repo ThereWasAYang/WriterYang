@@ -4,10 +4,10 @@
 
 ## 开发环境
 
-推荐创建独立 Python 3.12 环境：
+推荐创建独立 Python 环境。当前支持 Python 3.11-3.13，推荐 3.12：
 
 ```bash
-conda create -n writeryang-dev python=3.12 -y
+conda create -n writeryang-dev "python>=3.11,<3.14" -y
 conda activate writeryang-dev
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"

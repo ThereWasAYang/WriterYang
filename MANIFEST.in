@@ -2,6 +2,10 @@ include README.md
 include CHANGELOG.md
 include CONTRIBUTING.md
 include pyproject.toml
+include install.sh
+include install.ps1
+include install.bat
+include scripts/install_writeryang.py
 include docs/INTEGRATION.md
 include docs/RELEASE.md
 include docs/QUICKSTART.md

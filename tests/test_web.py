@@ -31,6 +31,25 @@ import novel.web_server as web_server
 from novel.web_server import WebServerError, index_html, run_web_server, static_asset_bytes
 
 
+FRONTEND_SCRIPT_PATHS = (
+    "app_state.js",
+    "app_workbench.js",
+    "app_workspace.js",
+    "app_config.js",
+    "app_render.js",
+    "app_bootstrap.js",
+)
+
+
+def _frontend_js() -> str:
+    chunks: list[str] = []
+    for script_path in FRONTEND_SCRIPT_PATHS:
+        asset = static_asset_bytes(f"/static/{script_path}")
+        assert asset is not None, script_path
+        chunks.append(asset[0].decode("utf-8"))
+    return "\n".join(chunks)
+
+
 def test_api_status_endpoint(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 
@@ -2099,7 +2118,7 @@ def test_api_setting_change_suggest_batches_and_returns_single_merged_proposal(t
             ),
         ]
     )
-    monkeypatch.setattr("novel.core.memory_repair.create_agent_provider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr("novel.core.memory_repair.generation.create_agent_provider", lambda *args, **kwargs: provider)
 
     status, payload = handle_api_request(
         "POST",
@@ -2232,7 +2251,7 @@ def test_api_setting_change_suggest_repairs_location_description_path(tmp_path: 
             ),
         ]
     )
-    monkeypatch.setattr("novel.core.memory_repair.create_agent_provider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr("novel.core.memory_repair.generation.create_agent_provider", lambda *args, **kwargs: provider)
 
     status, payload = handle_api_request(
         "POST",
@@ -2384,7 +2403,7 @@ def test_api_setting_change_suggest_restores_regressed_duplicate_context_adds(tm
             ),
         ]
     )
-    monkeypatch.setattr("novel.core.memory_repair.create_agent_provider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr("novel.core.memory_repair.generation.create_agent_provider", lambda *args, **kwargs: provider)
 
     status, payload = handle_api_request(
         "POST",
@@ -2560,8 +2579,8 @@ def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: P
     def fail_revise_outline(*args: object, **kwargs: object) -> None:
         raise AssertionError("content review setting changes must not revise outline")
 
-    monkeypatch.setattr("novel.web_api.revise_content", fake_revise_content)
-    monkeypatch.setattr("novel.web_api.revise_outline", fail_revise_outline)
+    monkeypatch.setattr("novel.web_api.memory.revise_content", fake_revise_content)
+    monkeypatch.setattr("novel.web_api.memory.revise_outline", fail_revise_outline)
 
     suggest_status, suggest_payload = handle_api_request(
         "POST",
@@ -2603,7 +2622,7 @@ def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: P
 def test_frontend_basic_render() -> None:
     html = index_html()
     app_css = (static_asset_bytes("/static/app.css") or (b"", ""))[0].decode("utf-8")
-    app_js = (static_asset_bytes("/static/app.js") or (b"", ""))[0].decode("utf-8")
+    app_js = _frontend_js()
     frontend = f"{html}\n{app_css}\n{app_js}"
 
     assert 'id="projectPath"' in html
@@ -2615,7 +2634,9 @@ def test_frontend_basic_render() -> None:
     assert 'class="header-message-row hidden"' in html
     assert 'id="messageDetails" class="message-detail-button hidden"' in html
     assert '<link rel="stylesheet" href="/static/app.css">' in html
-    assert '<script src="/static/app.js"></script>' in html
+    for script_path in FRONTEND_SCRIPT_PATHS:
+        assert f'<script src="/static/{script_path}"></script>' in html
+    assert html.index("/static/app_state.js") < html.index("/static/app_bootstrap.js")
     assert "<style>" not in html
     assert "<script>\n" not in html
     assert "runtime-panel" in frontend
@@ -3010,11 +3031,9 @@ def test_frontend_basic_render() -> None:
 def test_workbench_prioritizes_session_flow_layout() -> None:
     html = index_html()
     css_asset = static_asset_bytes("/static/app.css")
-    js_asset = static_asset_bytes("/static/app.js")
     assert css_asset is not None
-    assert js_asset is not None
     app_css = css_asset[0].decode("utf-8")
-    app_js = js_asset[0].decode("utf-8")
+    app_js = _frontend_js()
 
     command_bar_index = html.index('id="workbenchCommandBar"')
     workspace_grid_index = html.index('<div class="workspace-grid">')
@@ -3055,7 +3074,7 @@ def test_workbench_prioritizes_session_flow_layout() -> None:
 
 def test_static_assets_are_served_from_web_static() -> None:
     css = static_asset_bytes("/static/app.css")
-    js = static_asset_bytes("/static/app.js")
+    js = static_asset_bytes("/static/app_bootstrap.js")
     missing = static_asset_bytes("/static/missing.js")
     traversal = static_asset_bytes("/static/../web_server.py")
 
@@ -3125,7 +3144,7 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
             message="fake revised",
         )
 
-    monkeypatch.setattr("novel.web_api.revise_content", fake_revise_content)
+    monkeypatch.setattr("novel.web_api.session.revise_content", fake_revise_content)
 
     status, payload = handle_api_request(
         "POST",
@@ -3317,7 +3336,7 @@ def test_api_session_rewrite_control_endpoints_pass_event_id(tmp_path: Path, mon
         captured["instruction"] = options.instruction
         return SessionResult(session=session, session_path=session_dir / "session.json", message="controlled")
 
-    monkeypatch.setattr("novel.web_api.revise_audit", fake_control)
+    monkeypatch.setattr("novel.web_api.session.revise_audit", fake_control)
     status, payload = handle_api_request(
         "POST",
         "/api/session/revise-audit",

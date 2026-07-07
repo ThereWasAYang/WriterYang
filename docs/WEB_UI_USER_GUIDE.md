@@ -44,7 +44,7 @@ http://127.0.0.1:8765
 3. 在“默认模型名”输入模型名，例如你的服务商提供的 chat 模型名称。
 4. 点击“测试并保存默认 API”。工具会先做一次最小连通性测试，成功后才把这组配置设为所有 profile 的默认 API。
 5. 如需语义检索，勾选“配置 embedding API”，填写 embedding base URL、API Key 和模型名，再点击“测试并保存 embedding API / 跳过”。如果暂时不配置，关键词检索仍可用。
-6. 点击“推荐可用端口”或手动输入端口，再点击“保存端口”。保存前会验证端口是否可用；保存成功后，下次双击安装器生成的 Web UI 启动器会使用这个端口启动。macOS / Linux 默认启动器是 `WriterYang_WebUI.command`，Windows 默认启动器是 `WriterYang_WebUI.cmd`。
+6. 点击“推荐可用端口”或手动输入端口，再点击“保存端口”。保存前会验证端口是否可用；保存成功后，下次双击安装器生成的 Web UI 启动器会使用这个端口启动。推广初期支持 macOS / Linux，默认启动器是 `WriterYang_WebUI.command`；Windows 适配暂缓，不建议在 Windows 上使用当前版本。
 
 真实 API Key 会写入项目 `.env`，不会写进 `config/agents.yaml`、日志、文件树或导出文件。`config/agents.yaml` 只保存环境变量名、模型名和模型能力参数。初始引导完成后，这组 API 会作为 default；`scribe`、`architect`、`loremaster`、`clerk` 四个 profile 默认完整继承 default，只有显式写入 profile patch 时才分别覆盖模型、token、上下文、超时和重试等能力参数。`temperature`、`thinking.type`、`reasoning` 属于 task 业务参数，在“任务级覆盖”折叠区的表单控件中调整。
 

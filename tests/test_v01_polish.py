@@ -78,6 +78,7 @@ def _is_local_sensitive_or_build_file(path: str) -> bool:
 def test_docs_mention_current_generated_files() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     integration = (ROOT / "docs" / "INTEGRATION.md").read_text(encoding="utf-8")
+    docs = readme + "\n" + integration
 
     for name in (
         "memory/search_index.json",
@@ -85,13 +86,15 @@ def test_docs_mention_current_generated_files() -> None:
         "revision_log.json",
         "export_manifest.json",
     ):
-        assert name in readme or name in integration
-    assert "accepted" in readme
-    assert "不直接修改 `current_state.json` 或 `timeline.json`" in readme
+        assert name in docs
+    assert "accepted" in docs
+    assert "不直接修改 `current_state.json` 或 `timeline.json`" in docs
 
 
 def test_readme_prefers_current_canon_show_command() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    command_docs = (ROOT / "docs" / "CLI_COMMANDS.md").read_text(encoding="utf-8")
+    docs = readme + "\n" + command_docs
 
-    assert "novel canon show --path ./rain-station" in readme
-    assert "兼容别名" in readme
+    assert "novel canon show --path" in docs
+    assert "兼容别名" in docs

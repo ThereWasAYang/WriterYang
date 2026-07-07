@@ -112,7 +112,7 @@ runs/agent_output_violations/{request_id}.json
 - `core/auditing.py`
 - `core/consistency.py`
 - `core/session.py`
-- `core/memory_repair.py`
+- `core/memory_repair/`
 - `core/management.py`
 - `core/state_update.py`
 - `core/validation.py`
@@ -187,9 +187,9 @@ runs/agent_output_violations/{request_id}.json
 
 相关代码：
 
-- `web_api.py`
+- `web_api/`
 - `web_server.py`
-- `web_static/index.html` / `app.css` / `app.js`
+- `web_static/index.html` / `app.css` / `app_*.js`
 - `tests/test_web.py`
 - `tests/test_web_e2e.py`
 
@@ -213,6 +213,7 @@ runs/agent_output_violations/{request_id}.json
 - 不写真实 API Key 或 env value。
 - 但会包含小说正文、用户指令和 hidden truth。不要提交 `runs/`。
 - `runs/model_io/` 默认保留最近 500 份、总体积约 200MB；可用 `WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 调整，用 `WRITERYANG_MODEL_IO_MODE=metadata` 改为只保留轻量元数据。
+- Web POST 请求体默认限制为 32MB；可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整。调大前先确认本机内存和调用入口可信。
 
 ## 4. 重构前 checklist
 

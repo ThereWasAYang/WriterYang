@@ -39,7 +39,16 @@
 - `src/novel/cli_commands/project_system.py`
 - `src/novel/cli_commands/search.py`
 - `src/novel/cli_commands/session.py`
-- `src/novel/web_api.py`
+- `src/novel/web_api/__init__.py`
+- `src/novel/web_api/common.py`
+- `src/novel/web_api/config.py`
+- `src/novel/web_api/deps.py`
+- `src/novel/web_api/envelope.py`
+- `src/novel/web_api/generation.py`
+- `src/novel/web_api/inspection.py`
+- `src/novel/web_api/memory.py`
+- `src/novel/web_api/router.py`
+- `src/novel/web_api/session.py`
 - `src/novel/web_server.py`
 - `src/novel/core/__init__.py`
 - `src/novel/core/agent_defaults.py`
@@ -63,7 +72,15 @@
 - `src/novel/core/json_schema.py`
 - `src/novel/core/locking.py`
 - `src/novel/core/management.py`
-- `src/novel/core/memory_repair.py`
+- `src/novel/core/memory_repair/__init__.py`
+- `src/novel/core/memory_repair/apply.py`
+- `src/novel/core/memory_repair/deps.py`
+- `src/novel/core/memory_repair/generation.py`
+- `src/novel/core/memory_repair/impact.py`
+- `src/novel/core/memory_repair/models.py`
+- `src/novel/core/memory_repair/preflight.py`
+- `src/novel/core/memory_repair/service.py`
+- `src/novel/core/memory_repair/validation.py`
 - `src/novel/core/memory_repair_mock.py`
 - `src/novel/core/memory_repair_ops.py`
 - `src/novel/core/memory_repair_rules.py`
@@ -147,21 +164,32 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 启动静态页面和 API。
 - 读取默认端口或 CLI 传入端口。
 - 端口冲突时给清晰错误。
-- 从 `web_static/` 安全读取 `index.html`、`app.css`、`app.js`，并通过 `/static/...` 提供静态资源。
+- 从 `web_static/` 安全读取 `index.html`、`app.css` 和 `app_*.js`，并通过 `/static/...` 提供静态资源。
 - 对 HTML、静态资源和 API 响应发送 no-cache headers，避免浏览器继续显示旧版 Web UI。
 - 对 POST 请求做 HTTP 层保护：限制请求体大小，并校验 `Host` / `Origin` 属于本机同源。
 - 不包含业务逻辑。
 
-### `src/novel/web_api.py`
+### `src/novel/web_api/`
 
-本地 JSON API。核心 class/function：
+本地 JSON API 包，保留 `from novel.web_api import handle_api_request` 入口。核心模块：
 
-- `WebErrorPayload` / `WebResponsePayload`：统一 `{ok,data,error}` 形态。
-- `WebAPIError`：带稳定 code、HTTP status、details 的 API 异常。
+- `__init__.py`：导出 `handle_api_request()`、`_locked_write()` 和 `WebAPIError`，兼容旧导入。
+- `router.py`：统一 API 入口、GET/POST 路由表、项目锁和失败日志。
+- `envelope.py`：统一响应模型和 `_success()` / `_failure()` 导出。
+- `common.py`：响应 envelope、路径白名单、请求解析、provider usage 注入和共享 helper。
+- `generation.py`：章节计划、写作、润色、审核、导出、章节记忆和章节文件保存。
+- `config.py`：文风、provider/embedding 配置、项目初始化和 Web 初始引导。
+- `memory.py`：inspiration、canon、设定变更和项目管家 Web API。
+- `session.py`：Session start/revise/approve/run/cancel/accept/archive、进度和 rewrite event API。
+- `inspection.py`：项目状态、文件树、运行日志、provider 摘要、状态/时间线、diff 和 audit annotation。
+
+主要行为：
+
 - `handle_api_request()`：统一 API 入口；先解析 method/path/body，再通过 `_get_routes()` / `_post_routes()` 路由表分发到 handler。
-- `_get_routes()` / `_post_routes()`：Web API 顶层路由表。新增 endpoint 时优先在这里登记，避免继续扩大 `if method/path` 链；写操作通过路由元数据进入 `_locked_write()`，必要时可给 route 指定项目 root resolver。
-- `_success()` / `_failure()`：统一响应结构。
 - `_locked_write()`：Web 写操作项目锁；锁、usage marker 和失败日志必须使用同一个 route root resolver。
+- `_success()` / `_failure()`：统一 `{ok,data,error}` 响应结构。
+- `WebAPIError`：带稳定 code、HTTP status、details 的 API 异常。
+- `_runtime_summary()`：返回 Web server 当前 Python 路径、环境名和包版本，帮助确认 Web UI 是否运行在安装器创建的新环境。
 - `_runtime_summary()`：返回 Web server 当前 Python 路径、环境名和包版本，帮助确认 Web UI 是否运行在安装器创建的新环境。
 - `_list_projects()`：列出给定根目录下可打开的小说项目，不读取 `.env*`。
 - `get_project_status()` / `format_canon()` / `_list_chapters()`：分别支持项目状态、canon 摘要和章节列表 API。
@@ -183,7 +211,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
 - `_session_progress_api()` / `_session_cancel()`：读取 `progress.json` 的脱敏进度摘要，并写入协作式取消请求；取消接口不走项目写锁，避免被正在运行的 `session run` 阻塞。
 - `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
-- `_memory_repair_suggest()` / `_memory_repair_apply()` / `_settings_change_suggest()` / `_settings_change_answer()`：项目管家 proposal、设定变更澄清和 apply API，调用 `core/memory_repair.py`，不在 Web 层直接 patch 文件。
+- `_memory_repair_suggest()` / `_memory_repair_apply()` / `_settings_change_suggest()` / `_settings_change_answer()`：项目管家 proposal、设定变更澄清和 apply API，调用 `core/memory_repair/`，不在 Web 层直接 patch 文件。
 - `_session_revise_audit()` / `_session_retry_rewrite()` / `_session_undo_rewrite()`：Audit 复审、基于新审核重试打回、撤回打回并恢复快照。
 - `_management_events()` / `_management_event_summary()`：读取 `memory/management_events.jsonl`，供 Web 显示后台状态/时间线/记忆刷新。
 - `_file_tree()`：列出 workspace 白名单文件，排除 `.env*`、缓存、索引、备份。
@@ -200,7 +228,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 ### `src/novel/web_static/index.html`
 
-无构建 vanilla 前端的页面结构。只保留 DOM、页面分区和表单控件，通过 `/static/app.css` 和 `/static/app.js` 引入样式与交互逻辑。包含：
+无构建 vanilla 前端的页面结构。只保留 DOM、页面分区和表单控件，通过 `/static/app.css` 和按顺序加载的 `/static/app_*.js` 引入样式与交互逻辑。包含：
 
 - 顶部主导航：主页、创作工作台、文风设置、小说状态管理、模型与检索配置、运行日志 / 项目文件。
 - 主页：项目路径输入、打开/刷新、项目检查、新建项目、项目初始引导、项目状态、章节列表和下一步提示。
@@ -218,9 +246,27 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 Web UI 样式文件。包含顶栏、主导航、页面网格、面板、表单、章节预览、文件树、状态标签、时间线卡片和移动端单列布局。修改视觉布局时优先改这里，不要把新样式重新塞回 `index.html`。
 
-### `src/novel/web_static/app.js`
+### `src/novel/web_static/app_*.js`
 
-Web UI 交互脚本。负责：
+Web UI 交互脚本按功能拆分，不引入打包器：
+
+- `src/novel/web_static/app_state.js`
+- `src/novel/web_static/app_workbench.js`
+- `src/novel/web_static/app_workspace.js`
+- `src/novel/web_static/app_config.js`
+- `src/novel/web_static/app_render.js`
+- `src/novel/web_static/app_bootstrap.js`
+
+职责划分：
+
+- `app_state.js`：全局状态、通用 helper、API 调用、主页状态渲染和基础 artifact 预览。
+- `app_workbench.js`：创作工作台、Session 行为、inspiration/canon、设定变更和项目初始引导动作。
+- `app_workspace.js`：项目检查、章节记忆、导出、文件查看、章节对照、编辑器、audit 定位、运行日志、搜索和用量统计。
+- `app_config.js`：provider/embedding 配置、状态/时间线、diff 和 tab 切换。
+- `app_render.js`：HTML escaping、时间格式化、busy 状态、Session 进度、下一步提示、validation、audit 和 rewrite event 渲染。
+- `app_bootstrap.js`：事件绑定、本地存储恢复、初始加载和 resize/observer 绑定。
+
+这些脚本仍共享一个普通浏览器全局作用域。整体负责：
 
 - 通用 `$()`、`apiGet()`、`apiPost()`、`setMessage()` 等工具函数。
 - 主页面切换、页内 tab 切换和状态保持。
@@ -237,7 +283,7 @@ Web UI 交互脚本。负责：
 - 自动打回区域支持选择 rewrite event、查看被打回原文、纠正 Audit 理解并重新审核、根据新审核重试打回、撤回打回。
 - `renderNextStep()`：根据项目状态、validation 结果和 session 状态显示下一步操作建议。
 
-`app.js` 只做前端状态和 API 调用，不应复制 core 业务逻辑。新增 Web 能力时，后端逻辑仍应放在 `web_api.py` / `core/`，前端只负责收集输入和展示结果。
+前端脚本只做前端状态和 API 调用，不应复制 core 业务逻辑。新增 Web 能力时，后端逻辑仍应放在 `web_api/` / `core/`，前端只负责收集输入和展示结果。
 
 ## 5. Core 基础设施模块
 
@@ -400,7 +446,7 @@ Model I/O 生命周期：
 - `WebLauncherConfig`：启动器级 Web UI 端口配置，保存到未追踪的 `WriterYang_WebUI.config.json`。
 - `save_web_launcher_port_config()`：保存启动器端口前验证端口可用；当前 Web UI 正在使用的端口允许保存。
 - `recommend_web_launcher_port()` / `find_available_port()`：为启动器端口设置推荐可保存端口。
-- `_write_web_launcher()`：按平台生成动态 Web UI 启动器，macOS / Linux 默认 `WriterYang_WebUI.command`，Windows 默认 `WriterYang_WebUI.cmd`，下次启动时读取 config 文件。
+- `_write_web_launcher()`：生成动态 Web UI 启动器，推广初期面向 macOS / Linux 的 `WriterYang_WebUI.command`；Windows 适配暂缓，不作为当前发布支持平台。启动器下次启动时读取 config 文件。
 
 ### `core/embeddings.py`
 
@@ -691,9 +737,9 @@ Audit 作者可读文案适配：
 - `load_management_events()`：读取最近事件，供 CLI/Web UI 显示。
 - `management_events_path()`：返回事件日志路径。
 
-### `core/memory_repair.py`
+### `core/memory_repair/`
 
-orchestrator 项目管家修复 proposal：
+orchestrator 项目管家修复 proposal 包，保留 `from novel.core.memory_repair import ...` public API：
 
 - `MemoryRepairError`：proposal/apply 失败。
 - `MemoryRepairSuggestResult` / `MemoryRepairApplyResult` / `SettingChangeSuggestionResult`：service 返回结构。
@@ -704,10 +750,16 @@ orchestrator 项目管家修复 proposal：
 - `apply_memory_repair()`：校验 proposal，限制白名单文件，先执行 schema/semantic preflight，再按 JSON Pointer 应用 `add/replace/remove`，备份目标文件，atomic write，运行 validate；失败时写失败 apply log 并尝试回滚。
 - `_memory_repair_user_prompt()` / `_memory_pointer_index()`：组装 MemoryRepairDecision prompt，注入目标文件结构、集合 key、现有条目的 index/id/name 和 JSON Pointer 路径示例；集合字段提示来自当前 schema，避免 hidden_truths/foreshadowing 字段漂移，并说明 `Character.role` 只表示叙事角色、身份短语应进入 `tags`。
 - `render_memory_repair_markdown()`：把 proposal 渲染为用户可读说明。
+- `service.py`：proposal 生成、设定变更交互、clarification session 和 orchestration。
+- `generation.py`：结构化生成、JSON 解析、prompt 和 pointer index。
+- `apply.py`：proposal apply、Markdown 渲染和决策清洗。
+- `impact.py`：批次合并、影响分析、follow-up action 和 proposal notes。
+- `preflight.py`：目标 schema / semantic preflight、自动修复和安全重试辅助。
+- `validation.py`：白名单、schema 校验、路径/id helper。
+- `models.py`：错误类型和 result dataclass。
 - `core/memory_repair_rules.py`：白名单文件、domain 映射、collection key、schema hint、设定变更映射规则和 Character.role 语义规则。
 - `core/memory_repair_mock.py`：仅用于 mock/config fixture 的启发式测试路径，不作为真实业务推断路径。
 - `core/memory_repair_ops.py`：JSON Pointer patch 执行器和备份恢复工具。
-- `_validate_file_model()`：用对应 schema 校验修改后的白名单文件。
 
 ### `core/workflow.py`
 
@@ -929,7 +981,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 | 目标 | 优先修改 |
 | --- | --- |
 | 新 CLI 命令 | core service -> `cli.py::build_parser()` -> 新增 `_cmd_*()` handler -> 登记 `_COMMAND_HANDLERS` -> tests |
-| 新 Web API | core service -> `web_api.py::handle_api_request()` -> frontend -> tests |
+| 新 Web API | core service -> `web_api/router.py::handle_api_request()` -> frontend -> tests |
 | 新 Agent | prompt txt -> core service -> provider config -> schema -> tests |
 | 新 schema 文件 | `schemas.py` -> `json_schema.py` -> `schemas/*.schema.json` -> validation tests |
 | Provider 适配 | `providers.py` payload/parse -> config schema -> provider tests |

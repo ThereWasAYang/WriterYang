@@ -103,6 +103,8 @@ def test_readme_documents_all_profile_model_roles() -> None:
 
 def test_readme_core_commands_match_cli() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
+    command_docs = Path("docs/CLI_COMMANDS.md").read_text(encoding="utf-8")
+    combined_docs = readme + "\n" + command_docs
     parser_help = build_parser().format_help()
 
     for command in (
@@ -123,13 +125,14 @@ def test_readme_core_commands_match_cli() -> None:
         'tmp_project="$(mktemp -d)/writeryang-template"',
         'novel init "模板校验" --path "$tmp_project" --no-guide',
         "./install.sh",
-        ".\\install.ps1",
-        "install.bat",
         "python scripts/install_writeryang.py --dry-run",
         "python scripts/install_writeryang.py --web-port 9000",
         "python scripts/install_writeryang.py --no-web",
     ):
-        assert command in readme
+        assert command in combined_docs
+    assert "Windows 适配暂缓" in readme
+    assert ".\\install.ps1" not in readme
+    assert "install.bat" not in readme
     for parser_command in (
         "init",
         "validate",
@@ -203,6 +206,7 @@ def test_manifest_includes_user_and_developer_docs() -> None:
         "include install.ps1",
         "include install.bat",
         "include scripts/install_writeryang.py",
+        "include docs/CLI_COMMANDS.md",
         "include docs/WEB_UI_USER_GUIDE.md",
         "include docs/DEVELOPER_GUIDE.md",
         "include docs/CODEBASE_REFERENCE.md",
@@ -264,6 +268,24 @@ def test_user_docs_use_generic_environment_setup() -> None:
     local_conda_run = "conda run " + "-n " + local_env_name
     assert local_conda_run not in combined
     assert local_env_name not in combined
+
+
+def test_user_docs_document_prelaunch_platform_and_runtime_limits() -> None:
+    docs = [
+        Path("README.md"),
+        Path("docs/QUICKSTART.md"),
+        Path("docs/WEB_UI_USER_GUIDE.md"),
+        Path("docs/RELEASE.md"),
+        Path("docs/DEBUGGING_AND_REFACTORING.md"),
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in docs)
+    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "Windows 适配暂缓" in combined
+    assert "推广初期" in combined
+    assert "WRITERYANG_WEB_MAX_BODY_BYTES" in combined
+    assert "model_io" in changelog
+    assert "默认保留最近 500 份" in changelog
 
 
 def test_tracked_markdown_docs_do_not_reference_local_only_internal_docs() -> None:

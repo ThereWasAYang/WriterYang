@@ -24,16 +24,17 @@ def test_codebase_reference_covers_python_entrypoints_and_core_modules() -> None
     reference = Path("docs/CODEBASE_REFERENCE.md").read_text(encoding="utf-8")
     expected_paths = [
         "src/novel/cli.py",
-        "src/novel/web_api.py",
         "src/novel/web_server.py",
         "src/novel/web_static/index.html",
         "src/novel/web_static/app.css",
-        "src/novel/web_static/app.js",
+        *[str(path) for path in sorted(Path("src/novel/web_api").glob("*.py"))],
+        *[str(path) for path in sorted(Path("src/novel/web_static").glob("app_*.js"))],
         *[
             str(path)
             for path in sorted(Path("src/novel/core").glob("*.py"))
             if path.name != "__init__.py"
         ],
+        *[str(path) for path in sorted(Path("src/novel/core/memory_repair").glob("*.py"))],
     ]
 
     for rel_path in expected_paths:

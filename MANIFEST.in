@@ -9,6 +9,7 @@ include scripts/install_writeryang.py
 include docs/INTEGRATION.md
 include docs/RELEASE.md
 include docs/QUICKSTART.md
+include docs/CLI_COMMANDS.md
 include docs/MEMORY_EDITING.md
 include docs/MODEL_CONFIG_BEST_PRACTICES.md
 include docs/WEB_UI_USER_GUIDE.md
@@ -26,5 +27,5 @@ exclude docs/DATA_SCHEMA.md
 exclude docs/WORKFLOW.md
 exclude docs/ROADMAP.md
 recursive-include examples *.yaml *.json *.md .gitkeep
-recursive-include src/novel/web_static *.html
+recursive-include src/novel/web_static *.html *.css *.js
 recursive-include src/novel/prompts *.txt

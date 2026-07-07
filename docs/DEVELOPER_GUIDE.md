@@ -21,12 +21,12 @@ src/novel/
   cli.py                # CLI parser wiring、dispatch map、兼容 re-export
   cli_shared.py         # CLI JSON/quiet 输出、错误包装、路径和通用 helper
   cli_commands/         # 按领域拆分的 CLI handler
-  web_api.py            # 本地 Web API，包装 core service
+  web_api/              # 本地 Web API 包，包装 core service
   web_server.py         # 静态页面和 API 的本地 HTTP server
   web_static/           # Vanilla Web 前端静态资源
     index.html          # 页面结构
     app.css             # 页面样式
-    app.js              # API 调用和交互逻辑
+    app_*.js            # 按功能拆分的 API 调用和交互逻辑
   core/                 # 可复用业务逻辑，CLI/Web 共用
   prompts/              # Agent system prompt 模板
 schemas/                # 由 Pydantic 导出的 JSON Schema
@@ -187,7 +187,7 @@ novel export markdown --path <project>
 
 - 作者协作层：改 `session.py` / `orchestrator.py` / Web session API。
 - 单步 Agent 能力：改对应 core service，例如 `planning.py`、`drafting.py`。
-- 项目读写/展示：改 `inspection.py`、`validation.py`、`web_api.py` 或 CLI 输出。
+- 项目读写/展示：改 `inspection.py`、`validation.py`、`web_api/` 或 CLI 输出。
 - 基础设施：改 provider、schema、search、io、locking、security。
 
 ## 6. 如何新增 CLI 命令
@@ -211,9 +211,9 @@ CLI 输出约定：
 
 ## 7. 如何新增 Web API
 
-Web API 在 `src/novel/web_api.py`。新增接口时：
+Web API 在 `src/novel/web_api/`。新增接口时：
 
-1. 在 `_get_routes()` / `_post_routes()` 注册路径，不要继续扩大 method/path 条件链。
+1. 在 `router.py` 的 `_get_routes()` / `_post_routes()` 注册路径，不要继续扩大 method/path 条件链。
 2. 请求体读取使用 `_json_body()`。
 3. 项目根目录解析使用 `_root_from_query()`、`_root_from_body()` 或 route 专用 root resolver；写锁、usage marker 和失败日志要使用同一解析结果。
 4. 成功返回 `_success(data)`；失败返回 `_failure(...)`。

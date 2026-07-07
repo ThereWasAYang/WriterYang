@@ -2,6 +2,15 @@
 
 ## 0.1.1 - 未发布
 
+- 推广初期平台口径收敛为 macOS / Linux；Windows 适配暂缓，相关入口脚本保留为后续验收基础但不作为当前支持平台。
+- README 瘦身为项目入口索引，新增 `docs/CLI_COMMANDS.md` 承接详细 CLI 命令参考。
+- Web API 从单文件拆为 `src/novel/web_api/` 包，按 router、common、generation、config、memory、session、inspection 分域组织，保持 HTTP 路由和响应结构不变。
+- Web 前端从单一 `app.js` 拆为多个无构建普通脚本，按状态/API、创作工作台、工作区、配置、渲染和启动绑定分域加载。
+- `core/memory_repair.py` 拆为 `core/memory_repair/` 包，保留原 public API，内部按 service、generation、apply、impact、preflight、validation 和 models 分层。
+- 安装器支持 Python 3.11-3.13，推荐 3.12；conda 环境使用 `python>=3.11,<3.14`。
+- `runs/model_io/` 默认保留最近 500 份完整日志，并限制总体积约 200MB；`WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 可调整上限，`WRITERYANG_MODEL_IO_MODE=metadata` 可省略 prompt、正文和 raw response。
+- `runs/provider_usage.json` 改为根据新增 provider log 增量刷新；日志截断或替换时自动全量重算。
+- Web server 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整，并校验本机 Host / Origin。
 - 增加 `novel migrate`，为项目工作区补齐 `schema_version`，覆盖 `project.yaml`、`config/agents.yaml` 和所有核心 JSON 文件。
 - 增加结构化章节状态文件 `memory/chapters/{chapter}/metadata.json`。
 - `accept-chapter` 现在会写入章节 metadata，并继续保持 `polished.md` front matter 兼容。

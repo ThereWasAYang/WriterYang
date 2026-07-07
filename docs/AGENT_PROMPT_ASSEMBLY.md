@@ -393,7 +393,7 @@ Prompt 组装：
 - 用户对已生成内容提出修改意见时，`route_revision_request()` 调用 `intent_router` task provider 输出 `RevisionRouteDecision` JSON；路由只能是 `plot_replan`、`writer_rewrite`、`revision_patch`。
 - 路由输出解析或 Pydantic 校验失败时会 repair retry 一次；仍失败则保守 fallback 为 `writer_rewrite`，只有明确局部语句替换才 fallback 为 `revision_patch`。
 - route decision 会写入 session 的 `revision_route_history`，并通过 Web UI/CLI 展示。
-- 当请求被识别为 memory repair 时，orchestrator 作为项目管家调用 `core/memory_repair.py`：先生成 `MemoryRepairDecision`，再写 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后通过显式 `memory-repair apply` 或结构化 `memory_repair_apply` 决策再 apply。
+- 当请求被识别为 memory repair 时，orchestrator 作为项目管家调用 `core/memory_repair/`：先生成 `MemoryRepairDecision`，再写 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后通过显式 `memory-repair apply` 或结构化 `memory_repair_apply` 决策再 apply。
 - memory repair 不是创意生成。它只读取项目文件、生成白名单 JSON Pointer operations、写 proposal/apply log，并通过 `management_events.jsonl` 通知用户后台记忆刷新。
 - `setting-change suggest` 会先调用 `MemoryChangeClarificationDecision` 澄清 gate：只有创作意图本身不足、替换/删除目标不唯一或存在剧情含义歧义时，才返回 `needs_clarification` 和 1-3 个问题，保存到 `memory/repairs/clarifications/{clarification_id}/session.json`；用户通过 `setting-change answer` 或 Web UI 补充后再继续。
 - 澄清 gate 不得要求用户选择目标文件、字段、visibility 或 JSON Pointer。人物/地点/物品/world/hidden_truths/foreshadowing 的默认映射由系统根据当前结构完成；新实体无 exact id/name/alias 匹配时默认新增。

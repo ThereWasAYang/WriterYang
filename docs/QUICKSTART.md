@@ -4,31 +4,17 @@
 
 ## 1. 创建独立环境并安装
 
-建议先使用一键脚本创建独立环境并安装。当前支持 Python 3.11-3.13，推荐 3.12。
-
-macOS / Linux：
+建议先使用一键脚本创建独立环境并安装。当前支持 Python 3.11-3.13，推荐 3.12。推广初期仅面向 macOS / Linux 使用和验收；Windows 适配暂缓，不建议在 Windows 上执行真实创作流程。
 
 ```bash
 ./install.sh
-```
-
-Windows PowerShell：
-
-```powershell
-.\install.ps1
-```
-
-Windows 命令提示符：
-
-```bat
-install.bat
 ```
 
 脚本安装完成后会以 editable 模式安装当前源码目录，并自动寻找可用端口，打印 Web UI 地址并弹出浏览器。默认从 `8765` 开始；端口被占用会自动换下一个。Web server 会在当前终端前台运行，按 `Ctrl+C` 停止。
 
 editable 模式的含义是：之后你更新 WriterYang 源码后，只需要重启 Web UI，就会加载新版本。如果你之前用旧脚本安装过，Web UI 一直显示旧界面，可以重新运行当前平台的一键安装脚本，或进入旧环境后执行 `python -m pip install -e .`。
 
-安装器还会生成 Web UI 启动器和同目录的 `WriterYang_WebUI.config.json`：macOS / Linux 默认是 `WriterYang_WebUI.command`，Windows 默认是 `WriterYang_WebUI.cmd`。以后可以直接双击启动器打开 Web UI，它会固定使用本次安装创建的新环境，并从 config 文件读取下次启动端口。Web UI 中保存端口会先验证端口可用，再更新这个 config 文件；如果下次启动时端口被占用，启动器会临时改用下一个空闲端口并提醒你重新保存端口。Web server 停止后，终端会进入一个已激活新环境的子 shell；后续 `novel ...` 命令默认使用这个新环境，输入 `exit` 回到原终端。想指定安装时的起始端口可用：
+安装器还会生成 Web UI 启动器和同目录的 `WriterYang_WebUI.config.json`：macOS / Linux 默认是 `WriterYang_WebUI.command`。以后可以直接双击启动器打开 Web UI，它会固定使用本次安装创建的新环境，并从 config 文件读取下次启动端口。Web UI 中保存端口会先验证端口可用，再更新这个 config 文件；如果下次启动时端口被占用，启动器会临时改用下一个空闲端口并提醒你重新保存端口。Web server 停止后，终端会进入一个已激活新环境的子 shell；后续 `novel ...` 命令默认使用这个新环境，输入 `exit` 回到原终端。想指定安装时的起始端口可用：
 
 ```bash
 ./install.sh --web-port 9000
@@ -71,7 +57,7 @@ python -m pip install -e ".[dev]"
 novel --version
 ```
 
-不使用 conda 的用户可以改用 `python -m venv .venv`，激活后再运行同样的 `python -m pip install -e ".[dev]"`。Windows 的 venv 激活命令是 `.venv\Scripts\activate`。
+不使用 conda 的用户可以改用 `python -m venv .venv`，激活后再运行同样的 `python -m pip install -e ".[dev]"`。
 
 ## 2. 创建项目
 

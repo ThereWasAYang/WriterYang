@@ -235,6 +235,16 @@ novel status --project ./rain-station --json --quiet
 novel ask "请审核第1章一致性" --project ./rain-station --provider config --json --quiet
 ```
 
+## 常见生成文件
+
+外部 Agent 可以读取这些生成文件做状态同步，但不要把它们当作手写源文件直接覆盖：
+
+- `memory/search_index.json` / `memory/search_index.sqlite`：搜索索引，可重建。
+- `memory/chapters/{chapter}/state_update_proposal.json`：章节状态更新建议；生成 proposal 时不直接修改 `current_state.json` 或 `timeline.json`。
+- `memory/chapters/{chapter}/revision_log.json`：章节修订记录。
+- `exports/export_manifest.json`：导出清单。
+- `memory/chapters/{chapter}/metadata.json`：章节 metadata，`accepted` 状态用于判断是否可进入默认导出。
+
 ## 轻量 Tool Manifest
 
 `docs/openclaw_tool_manifest.json` 提供了一个非 MCP 的轻量工具描述，列出推荐调用方式。

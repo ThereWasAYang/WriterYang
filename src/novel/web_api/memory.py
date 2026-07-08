@@ -1,9 +1,47 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
-from .common import *
+from .deps import (
+    Path,
+    CanonAppliedProposalRecord,
+    CanonSuggestOptions,
+    apply_canon_proposal,
+    load_canon_applied_proposals,
+    load_canon_provider,
+    suggest_canon,
+    InspirationOptions,
+    load_inspiration_provider,
+    run_inspiration_agent,
+    load_json,
+    MemoryRepairError,
+    SettingChangeSuggestionResult,
+    answer_setting_change_clarification,
+    apply_memory_repair,
+    suggest_setting_change_interactive,
+    PolishMode,
+    VectorContextMode,
+    SessionInstructionOptions,
+    load_session,
+    revise_content,
+    revise_outline,
+    is_default_inspiration_placeholder,
+)
+
+from .common import (
+    WebAPIError,
+    _safe_workspace_file,
+    _require_workspace,
+    _root_from_query,
+    _root_from_body,
+    _optional_string,
+    _string_list,
+    _memory_change_stage,
+    _vector_context_mode,
+    _polish_mode,
+    _optional_int,
+    _default_canon_proposal_path,
+    _relative,
+)
+
 from .inspection import _management_event_summary
 from .session import _session_result_payload
 

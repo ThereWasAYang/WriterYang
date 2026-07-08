@@ -1,9 +1,48 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
-from .common import *
+from .deps import (
+    difflib,
+    json,
+    Path,
+    cast,
+    yaml,
+    TASK_TO_PROFILE,
+    profile_for_task,
+    localize_audit_issue_for_author,
+    chapter_memory_freshness_warnings,
+    load_project_env,
+    load_json,
+    load_json_model,
+    load_yaml,
+    load_management_events,
+    resolve_agent_config_source,
+    resolve_profile_config_source,
+    EmbeddingError,
+    resolve_embedding_parameters,
+    AgentsConfig,
+    AuditReport,
+    ChapterMemory,
+    ChapterPlan,
+    EmbeddingsConfig,
+    ProviderFactory,
+    summarize_provider_usage,
+)
+
+from .common import (
+    EDITABLE_PROFILE_NAMES,
+    EDITABLE_TASK_NAMES,
+    _safe_config_file,
+    _agent_config_warnings,
+    _safe_json,
+    _sanitize_config,
+    _safe_workspace_file,
+    _locate_quote,
+    _is_safe_tree_path,
+    _require_workspace,
+    _relative,
+    _safe_error,
+)
+
 from .config import _parameter_capabilities_payload, _profile_config_payload, _profile_parameter_capabilities_payload
 
 def _management_events(root: Path, limit: int = 20) -> dict[str, object]:

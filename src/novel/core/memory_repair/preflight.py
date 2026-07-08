@@ -1,10 +1,31 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
-from .models import *
-from .validation import *
+from .deps import (
+    json,
+    Path,
+    re,
+    Iterable,
+    canonical_gender,
+    infer_gender_from_character_payload,
+    strip_explicit_gender_tags,
+    load_json,
+    _apply_operations_to_data,
+    _pointer_parts,
+    ALLOWED_MEMORY_FILES,
+    CHARACTER_ROLE_IDENTITY_PATTERNS,
+    NARRATIVE_CHARACTER_ROLES,
+    UNIQUE_ID_COLLECTIONS,
+    MemoryChangeKind,
+    MemoryRepairOperation,
+    MemoryRepairProposal,
+)
+
+
+from .validation import (
+    _group_operations,
+    _validate_file_model,
+)
+
 
 def _coerce_int(value: object) -> int | None:
     if isinstance(value, bool):
@@ -665,4 +686,40 @@ def _dedupe_preserve_order(values: Iterable[str]) -> list[str]:
         result.append(value)
     return result
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "_coerce_int",
+    "_preview_operations",
+    "_preflight_memory_repair_operations",
+    "_preflight_error_message",
+    "_preflight_operation_contract_errors",
+    "_restore_regressed_existing_add_operations",
+    "_existing_replace_operations_by_entity_id",
+    "_existing_replace_operation_key",
+    "_duplicate_existing_add_operation_key",
+    "_operation_existing_collection_item_id",
+    "_existing_collection_id_index",
+    "_preflight_unique_collection_id_errors",
+    "_preflight_setting_change_add_id_conflicts",
+    "_collection_id_index",
+    "_normalize_setting_change_gender_operations",
+    "_normalize_character_gender_tag_operation",
+    "_normalize_character_gender_in_object",
+    "_character_field_exists",
+    "_auto_repair_setting_change_semantics",
+    "_auto_repair_character_identity_tags",
+    "_auto_repair_timeline_unanchored_backstory",
+    "_preflight_hidden_truth_reader_visible_leaks",
+    "_memory_data_after_operations",
+    "_collection_items",
+    "_preflight_setting_change_semantics",
+    "_preflight_character_setting_change_semantics",
+    "_preflight_location_setting_change_semantics",
+    "_preflight_character_role_semantics",
+    "_preflight_character_role_value",
+    "_character_identity_phrases_from_fields",
+    "_identity_phrases",
+    "_trim_identity_phrase",
+    "_string_values",
+    "_operation_semantic_location",
+    "_dedupe_preserve_order",
+]

@@ -7,6 +7,8 @@
 - Web API 从单文件拆为 `src/novel/web_api/` 包，按 router、common、generation、config、memory、session、inspection 分域组织，保持 HTTP 路由和响应结构不变。
 - Web 前端从单一 `app.js` 拆为多个无构建普通脚本，按状态/API、创作工作台、工作区、配置、渲染和启动绑定分域加载。
 - `core/memory_repair.py` 拆为 `core/memory_repair/` 包，保留原 public API，内部按 service、generation、apply、impact、preflight、validation 和 models 分层。
+- 拆分后的 `web_api` 与 `memory_repair` 模块恢复显式 import、静态 `__all__`、ruff 和 mypy 覆盖，避免拆分过渡期的星号导入和整包类型豁免长期化。
+- `memory_repair` 的 timeline backstory 自动修复只接受严格整数章节值；`bool`、非整数 `float` 和带 `+` 前缀的字符串不再被折算成章节号，而是交由 schema/preflight 校验处理。
 - 安装器支持 Python 3.11-3.13，推荐 3.12；conda 环境使用 `python>=3.11,<3.14`。
 - `runs/model_io/` 默认保留最近 500 份完整日志，并限制总体积约 200MB；`WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 可调整上限，`WRITERYANG_MODEL_IO_MODE=metadata` 可省略 prompt、正文和 raw response。
 - `runs/provider_usage.json` 改为根据新增 provider log 增量刷新；日志截断或替换时自动全量重算。

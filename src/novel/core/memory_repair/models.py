@@ -1,8 +1,18 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
+from typing import Literal
+
+from .deps import (
+    dataclass,
+    Path,
+    MemoryChangeClarificationSession,
+    MemoryChangeKind,
+    MemoryRepairDecision,
+    MemoryRepairApplyLog,
+    MemoryRepairOperation,
+    MemoryRepairProposal,
+)
+
 
 class MemoryRepairError(RuntimeError):
     """Raised when a memory repair proposal cannot be created or applied safely."""
@@ -37,4 +47,10 @@ class _PreparedMemoryRepairDecision:
     notes: list[str]
     change_kind: MemoryChangeKind
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "MemoryRepairError",
+    "MemoryRepairSuggestResult",
+    "MemoryRepairApplyResult",
+    "SettingChangeSuggestionResult",
+    "_PreparedMemoryRepairDecision",
+]

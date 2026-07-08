@@ -39,7 +39,17 @@ pytest -m web_e2e -q
 
 测试不能依赖真实 API Key。`mypy src scripts` 是阻断式类型门禁；发布前必须保持 0 errors。
 
-## 3. API Key 安全
+## 3. Windows 适配重启前置清单
+
+当前推广期不支持 Windows。后续重启 Windows 适配时，至少完成下列运行期修复和验收后，才允许在 README、Quickstart 或 Release Notes 中声明 Windows 可用：
+
+- 修复 `core/locking.py` 的持锁进程探活逻辑：Windows 上不要用 `os.kill(pid, 0)` 探活，应改为基于 `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` 等只查询不终止的实现，并覆盖持锁进程存活、进程退出和 PID 复用场景。
+- 将 Web 启动器写入收敛到 `core/web_launcher.py` 单一信源，按平台分发 `.command` / `.bat` / `.ps1` 或等价入口；保存端口时不得用 bash-only 写入器覆盖 Windows 启动器。
+- 恢复并验收 Windows 安装入口，优先保证无需调整 PowerShell 执行策略的 `install.bat` 路径；`install.ps1` 只能作为明确说明前置条件的补充入口。
+- 修复安装器激活脚本中 `nt` 分支的环境 PATH 拼接，确保虚拟环境目录前缀正确。
+- 增加 `windows-latest` CI，并至少覆盖安装、CLI smoke、Web 端口保存、启动器生成和锁文件恢复测试。
+
+## 4. API Key 安全
 
 发布前搜索是否误提交了真实密钥：
 
@@ -49,7 +59,7 @@ python -c "from pathlib import Path; from novel.core.security import scan_securi
 
 项目文件可以包含 `OPENAI_API_KEY` 这类环境变量名，但不能包含真实 key 值。`.env.example` 只能包含空值变量名，例如 `OPENAI_API_KEY=`。
 
-## 4. 初始化模板
+## 5. 初始化模板
 
 验证当前 `novel init` 模板：
 
@@ -60,7 +70,7 @@ novel validate --path "$tmp_project"
 novel status --path "$tmp_project"
 ```
 
-## 5. 构建包
+## 6. 构建包
 
 安装开发依赖并构建：
 
@@ -77,7 +87,7 @@ dist/writeryang-<version>.tar.gz
 dist/writeryang-<version>-py3-none-any.whl
 ```
 
-## 6. 本地安装冒烟测试
+## 7. 本地安装冒烟测试
 
 创建干净虚拟环境，安装 wheel，然后运行：
 
@@ -88,7 +98,7 @@ novel init "Smoke Test" --path /tmp/writeryang-smoke
 novel validate --path /tmp/writeryang-smoke
 ```
 
-## 7. Release Notes
+## 8. Release Notes
 
 发布前记录：
 
@@ -98,7 +108,7 @@ novel validate --path /tmp/writeryang-smoke
 - 破坏性变更，如有。
 - 已知限制。
 
-## 8. 发布
+## 9. 发布
 
 当前默认发布目标是 GitHub Release。
 

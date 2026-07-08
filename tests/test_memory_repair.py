@@ -21,10 +21,22 @@ from novel.core.memory_repair import (
     suggest_setting_change,
     suggest_setting_change_interactive,
 )
+from novel.core.memory_repair.preflight import _coerce_int
 from novel.core.prompts import load_prompt_template
 from novel.core.providers import MockProvider
 from novel.core.schemas import CharactersFile, MemoryChangeClarificationSession, MemoryRepairDecision, MemoryRepairProposal, TimelineFile, WorldFile
 from novel.core.workspace import InitOptions, init_workspace
+
+
+def test_memory_repair_preflight_coerce_int_uses_strict_integer_semantics() -> None:
+    assert _coerce_int(False) is None
+    assert _coerce_int(True) is None
+    assert _coerce_int(0.5) is None
+    assert _coerce_int("+12") is None
+
+    assert _coerce_int(0) == 0
+    assert _coerce_int("-0") == 0
+    assert _coerce_int(0.0) == 0
 
 
 def test_ask_memory_repair_creates_proposal_without_modifying_timeline(tmp_path: Path) -> None:

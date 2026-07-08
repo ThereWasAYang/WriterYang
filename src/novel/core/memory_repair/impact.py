@@ -1,11 +1,49 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
-from .models import *
-from .validation import *
-from .preflight import *
+from .deps import (
+    json,
+    Path,
+    re,
+    atomic_write_model_json,
+    load_json,
+    _unescape_pointer,
+    ALLOWED_MEMORY_FILES,
+    DOMAIN_FILES,
+    FILE_COLLECTION_KEYS,
+    FILE_DOMAINS,
+    SCANNED_IMPACT_SUFFIXES,
+    STATE_COLLECTION_KEYS,
+    MemoryChangeBatch,
+    MemoryChangeBatchPlan,
+    MemoryChangeDomain,
+    MemoryChangeClarificationDecision,
+    MemoryChangeClarificationSession,
+    MemoryChangeConversationTurn,
+    MemoryChangeFollowupAction,
+    MemoryChangeImpact,
+    MemoryChangeKind,
+    MemoryChangeStage,
+    MemoryRepairDecision,
+    MemoryRepairRiskLevel,
+    MemoryRepairOperation,
+    utc_now,
+)
+
+from .models import (
+    MemoryRepairError,
+    MemoryRepairSuggestResult,
+    _PreparedMemoryRepairDecision,
+)
+
+from .validation import (
+    _clarification_path,
+    _new_clarification_id,
+)
+
+from .preflight import (
+    _dedupe_preserve_order,
+)
+
 
 def _validate_memory_change_batch_plan(plan: MemoryChangeBatchPlan) -> None:
     if plan.change_kind != "setting_change":
@@ -148,6 +186,8 @@ def _no_op_setting_change_proposal(
     audit_issue_ids: list[str],
     notes: list[str],
 ) -> MemoryRepairSuggestResult:
+    from .service import suggest_memory_repair
+
     decision = MemoryRepairDecision(
         change_kind="setting_change",
         target_files=[],
@@ -582,15 +622,6 @@ def _coerce_positive_int(value: object) -> int | None:
     return number if number > 0 else None
 
 
-def _coerce_int(value: object) -> int | None:
-    if not isinstance(value, (int, float, str, bytes, bytearray)):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _looks_like_entity_id(value: str) -> bool:
     return bool(re.fullmatch(r"[a-z][a-z0-9_]*", value))
 
@@ -641,4 +672,37 @@ def _normalize_string_list(value: object) -> list[str]:
         return normalized
     return [json.dumps(value, ensure_ascii=False, sort_keys=True)]
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "_validate_memory_change_batch_plan",
+    "_target_files_for_batch",
+    "_batch_memory_repair_request",
+    "_merge_batched_memory_repair_decisions",
+    "_fallback_clarification_decision",
+    "_new_clarification_session",
+    "_write_clarification_session",
+    "_no_op_setting_change_proposal",
+    "_combined_setting_change_request",
+    "_entity_id_has_references",
+    "_dedupe_domains",
+    "_domains_from_files",
+    "_analyze_memory_change_impact",
+    "_memory_change_followups",
+    "_affected_entity_ids",
+    "_entity_ids_from_operation_path",
+    "_list_entity_at",
+    "_ids_from_entity",
+    "_chapters_from_timeline_operations",
+    "_impact_scan_paths",
+    "_chapter_number_from_path",
+    "_session_id_from_path",
+    "_sessions_referencing_chapters",
+    "_chapter_is_accepted",
+    "_safe_session_data",
+    "_session_chapters",
+    "_impact_summary",
+    "_coerce_positive_int",
+    "_looks_like_entity_id",
+    "_safe_rel",
+    "_proposal_notes",
+    "_normalize_string_list",
+]

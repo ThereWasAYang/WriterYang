@@ -1,9 +1,71 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
-from .common import *
+from .deps import (
+    Path,
+    cast,
+    DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
+    DEFAULT_AGENT_MAX_TOKENS,
+    DEFAULT_AGENT_TIMEOUT_SECONDS,
+    TASK_ONLY_CONFIG_FIELDS,
+    drop_legacy_profile_default_patch,
+    inherited_profile_config_patch,
+    profile_inherited_patch_fields,
+    latest_chapter_version_path,
+    atomic_write_text,
+    atomic_write_yaml,
+    backup_if_exists,
+    load_yaml,
+    refresh_search_index,
+    search_index_status,
+    configure_default_provider,
+    configure_embedding_provider,
+    StyleGuideGenerationOptions,
+    generate_style_guide,
+    load_style_guide_provider,
+    utc_now,
+    web_launcher,
+    AgentConfig,
+    AgentsConfig,
+    RevisionRecord,
+    validate_secret_config_file,
+    ProviderError,
+    ProviderFactory,
+    provider_parameter_capabilities,
+    resolve_json_response_format,
+    InitOptions,
+    default_style_guide_markdown,
+    init_workspace,
+)
+
+from .common import (
+    EDITABLE_PROFILE_NAMES,
+    EDITABLE_TASK_NAMES,
+    STYLE_GUIDE_RELATIVE_PATH,
+    WebAPIError,
+    _sanitize_config,
+    _is_allowed_chapter_version_name,
+    _next_version_path,
+    _new_revision_id,
+    _append_web_revision_log,
+    _is_archived_chapter,
+    _clean_agent_config_patch,
+    _require_workspace,
+    _root_from_body,
+    _init_project_root_from_body,
+    _chapter_number,
+    _optional_string,
+    _optional_int,
+    _optional_float,
+    _provider_name,
+    _truthy,
+    _required_string,
+    _configured_web_port,
+    _current_web_endpoint,
+    _split_csv,
+    _relative,
+    _safe_error,
+)
+
 
 def _style_guide(root: Path) -> dict[str, object]:
     _require_workspace(root)

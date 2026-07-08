@@ -1,11 +1,63 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
-from .models import *
-from .validation import *
-from .impact import *
+from .deps import (
+    json,
+    Path,
+    ValidationError,
+    AgentInvocationContext,
+    AgentOutputContract,
+    AgentOutputContractError,
+    generate_with_output_guard,
+    log_app_warning,
+    load_json,
+    JsonExtractionError,
+    extract_json_object,
+    mock_memory_change_batch_plan,
+    mock_memory_change_clarification_decision,
+    mock_memory_repair_decision,
+    _escape_pointer,
+    _unescape_pointer,
+    load_prompt_template,
+    prompt_template_version,
+    ProviderOverrides,
+    create_agent_provider,
+    default_agent_config_path,
+    ModelProvider,
+    ModelRequest,
+    ALLOWED_MEMORY_FILES,
+    COLLECTION_FIELD_HINTS,
+    COLLECTION_PATH_FILES,
+    COLLECTION_SCHEMA_HINTS,
+    FILE_COLLECTION_KEYS,
+    POINTER_PATH_FILES,
+    SETTING_CHANGE_MAPPING_RULES,
+    STATE_COLLECTION_KEYS,
+    MemoryChangeBatchPlan,
+    MemoryChangeClarificationDecision,
+    MemoryChangeConversationTurn,
+    MemoryChangeKind,
+    MemoryChangeStage,
+    MemoryRepairDecision,
+    REPAIR_ERROR_LIMIT,
+    REPAIR_INVALID_OUTPUT_LIMIT,
+    JsonRepairExhaustedError,
+    generate_json_with_repair,
+)
+
+from .models import (
+    MemoryRepairError,
+)
+
+from .validation import (
+    _format_preflight_errors,
+)
+
+from .impact import (
+    _validate_memory_change_batch_plan,
+    _fallback_clarification_decision,
+    _normalize_string_list,
+)
+
 
 def generate_memory_change_clarification_decision(
     root: Path,
@@ -802,4 +854,32 @@ def _empty_memory_repair_decision(note: str) -> MemoryRepairDecision:
         source="fallback",
     )
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "generate_memory_change_clarification_decision",
+    "parse_memory_change_clarification_decision",
+    "generate_memory_change_batch_plan",
+    "parse_memory_change_batch_plan",
+    "_normalize_memory_change_batch_data",
+    "generate_memory_repair_decision",
+    "_repair_memory_repair_decision_target_schema",
+    "parse_memory_repair_decision",
+    "_normalize_memory_repair_decision_data",
+    "_normalize_memory_repair_operation",
+    "_infer_file_from_pointer_path",
+    "_normalize_add_collection_path",
+    "_is_append_collection_path",
+    "_memory_repair_user_prompt",
+    "_memory_change_batch_plan_user_prompt",
+    "_memory_change_clarification_user_prompt",
+    "_normalize_allowed_target_files",
+    "_memory_pointer_index",
+    "_file_pointer_index",
+    "_state_pointer_index",
+    "_timeline_pointer_index",
+    "_memory_id_summary",
+    "_collect_ids",
+    "_repair_decision_repair_prompt",
+    "_structured_decision_repair_prompt",
+    "_target_schema_repair_prompt",
+    "_empty_memory_repair_decision",
+]

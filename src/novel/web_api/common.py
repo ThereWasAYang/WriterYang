@@ -1,8 +1,43 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
+from typing import Literal
+
+from .deps import (
+    Callable,
+    json,
+    os,
+    Path,
+    re,
+    sys,
+    Mapping,
+    cast,
+    BaseModel,
+    Field,
+    __version__,
+    PROFILE_NAMES,
+    TASK_ONLY_CONFIG_FIELDS,
+    TASK_TO_PROFILE,
+    is_allowed_chapter_version_name,
+    next_chapter_version_path,
+    load_project_env,
+    atomic_write_model_json,
+    backup_if_exists,
+    load_json,
+    load_json_model,
+    load_yaml,
+    new_request_id,
+    utc_timestamp,
+    web_launcher,
+    AgentsConfig,
+    PolishMode,
+    RevisionLog,
+    RevisionRecord,
+    VectorContextMode,
+    MemoryChangeStage,
+    redact_secret_text,
+    ProviderName,
+)
+
 
 APIResponse = tuple[int, dict[str, object]]
 WebPostHandler = Callable[[dict[str, object]], dict[str, object]]
@@ -508,4 +543,59 @@ def _safe_error(exc: Exception | str) -> str:
     return redact_secret_text(str(exc), extra_secrets=env_secrets)
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "APIResponse",
+    "WebPostHandler",
+    "RootResolver",
+    "PostRoute",
+    "SAFE_FILE_SUFFIXES",
+    "EXCLUDED_DIRS",
+    "EXCLUDED_FILENAMES",
+    "EDITABLE_PROFILE_NAMES",
+    "EDITABLE_TASK_NAMES",
+    "STYLE_GUIDE_RELATIVE_PATH",
+    "WebErrorPayload",
+    "WebResponsePayload",
+    "WebAPIError",
+    "_safe_config_file",
+    "_agent_config_warnings",
+    "_safe_json",
+    "_collect_env_names",
+    "_sanitize_config",
+    "_safe_workspace_file",
+    "_locate_quote",
+    "_compact_text",
+    "_is_allowed_chapter_version_name",
+    "_next_version_path",
+    "_new_revision_id",
+    "_append_web_revision_log",
+    "_is_archived_chapter",
+    "_clean_agent_config_patch",
+    "_is_safe_tree_path",
+    "_is_safe_file_rel_path",
+    "_require_workspace",
+    "_json_body",
+    "_root_from_query",
+    "_root_from_body",
+    "_init_project_root_from_body",
+    "_chapter_number",
+    "_optional_string",
+    "_string_list",
+    "_memory_change_stage",
+    "_vector_context_mode",
+    "_polish_mode",
+    "_optional_int",
+    "_optional_float",
+    "_provider_name",
+    "_audit_focus",
+    "_truthy",
+    "_required_string",
+    "_configured_web_port",
+    "_current_web_endpoint",
+    "_split_csv",
+    "_default_canon_proposal_path",
+    "_runtime_summary",
+    "_default_project_parent",
+    "_relative",
+    "_safe_error",
+]

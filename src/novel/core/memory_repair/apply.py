@@ -1,12 +1,49 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
-from .models import *
-from .validation import *
-from .preflight import *
-from .impact import *
+from .deps import (
+    Path,
+    log_app_warning,
+    atomic_write_json,
+    atomic_write_model_json,
+    backup_file,
+    load_json,
+    load_json_model,
+    record_management_event,
+    _apply_operations_to_data,
+    _restore_backups,
+    ALLOWED_MEMORY_FILES,
+    MemoryRepairDecision,
+    MemoryRepairApplyLog,
+    MemoryRepairOperation,
+    MemoryRepairProposal,
+    utc_now,
+    validate_project,
+)
+
+from .models import (
+    MemoryRepairError,
+    MemoryRepairApplyResult,
+)
+
+from .validation import (
+    _format_preflight_errors,
+    _group_operations,
+    _ensure_allowed_file,
+    _validate_file_model,
+    _resolve_proposal_path,
+    _repair_dir,
+)
+
+from .preflight import (
+    _preflight_memory_repair_operations,
+    _normalize_setting_change_gender_operations,
+)
+
+from .impact import (
+    _entity_id_has_references,
+    _entity_ids_from_operation_path,
+)
+
 
 def apply_memory_repair(root: Path, proposal_path: Path) -> MemoryRepairApplyResult:
     root = root.resolve()
@@ -201,4 +238,9 @@ def _drop_unsafe_remove_operations(
         safe_operations.append(operation)
     return safe_operations
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "apply_memory_repair",
+    "render_memory_repair_markdown",
+    "_sanitize_repair_decision",
+    "_drop_unsafe_remove_operations",
+]

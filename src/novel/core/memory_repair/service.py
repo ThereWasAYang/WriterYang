@@ -1,14 +1,74 @@
-# mypy: ignore-errors
-# ruff: noqa: F403,F405
 from __future__ import annotations
 
-from .deps import *
-from .models import *
-from .validation import *
-from .preflight import *
-from .impact import *
-from .generation import *
-from .apply import *
+from .deps import (
+    Path,
+    log_app_warning,
+    atomic_write_json,
+    atomic_write_model_json,
+    atomic_write_text,
+    load_json_model,
+    record_management_event,
+    ModelProvider,
+    MemoryChangeClarificationSession,
+    MemoryChangeConversationTurn,
+    MemoryChangeKind,
+    MemoryChangeStage,
+    MemoryRepairDecision,
+    MemoryRepairProposal,
+    utc_now,
+    validate_project,
+)
+
+from .models import (
+    MemoryRepairError,
+    MemoryRepairSuggestResult,
+    SettingChangeSuggestionResult,
+    _PreparedMemoryRepairDecision,
+)
+
+from .validation import (
+    _format_preflight_errors,
+    _repair_dir,
+    _clarification_path,
+    _new_repair_id,
+)
+
+from .preflight import (
+    _preview_operations,
+    _preflight_memory_repair_operations,
+    _restore_regressed_existing_add_operations,
+    _normalize_setting_change_gender_operations,
+    _auto_repair_setting_change_semantics,
+)
+
+from .impact import (
+    _target_files_for_batch,
+    _batch_memory_repair_request,
+    _merge_batched_memory_repair_decisions,
+    _new_clarification_session,
+    _write_clarification_session,
+    _no_op_setting_change_proposal,
+    _combined_setting_change_request,
+    _dedupe_domains,
+    _domains_from_files,
+    _analyze_memory_change_impact,
+    _memory_change_followups,
+    _proposal_notes,
+)
+
+from .generation import (
+    generate_memory_change_clarification_decision,
+    generate_memory_change_batch_plan,
+    generate_memory_repair_decision,
+    _repair_memory_repair_decision_target_schema,
+)
+
+from .apply import (
+    render_memory_repair_markdown,
+    _sanitize_repair_decision,
+    _drop_unsafe_remove_operations,
+)
+
 
 def suggest_memory_repair(
     root: Path,
@@ -445,4 +505,11 @@ def answer_setting_change_clarification(
 def load_setting_change_clarification(root: Path, clarification_id: str) -> MemoryChangeClarificationSession:
     return load_json_model(_clarification_path(root.resolve(), clarification_id), MemoryChangeClarificationSession)
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "suggest_memory_repair",
+    "_prepare_memory_repair_decision",
+    "suggest_setting_change",
+    "suggest_setting_change_interactive",
+    "answer_setting_change_clarification",
+    "load_setting_change_clarification",
+]

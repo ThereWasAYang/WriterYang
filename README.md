@@ -95,7 +95,7 @@ Web UI 使用同一套 core logic，不会把真实 API Key 返回到前端。�
 - 模型与检索配置：Profile 模型配置、Embedding API 配置、FTS / embedding 索引刷新。
 - 运行日志 / 项目文件：查看项目文件、运行日志、provider 调用和用量统计。
 
-Web API 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整。Web server 还会校验本机 Host / Origin，避免非本机页面对本地服务发起写操作。
+Web API 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整。Web server 还会校验 `/api/*` 请求的本机 Host / Origin，避免非本机页面读取或写入本地项目内容。
 
 ## 模型配置
 

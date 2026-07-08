@@ -1881,6 +1881,27 @@ def test_setting_change_clarification_answer_generates_proposal(tmp_path: Path) 
     assert result.proposal_result.proposal.operations[0].path == "/characters/0/reader_visible_summary"
 
 
+def test_setting_change_clarification_limit_generates_no_op_proposal(tmp_path: Path) -> None:
+    root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
+    first = suggest_setting_change_interactive(root, "把某个人物改一下", provider_name="mock")
+    assert first.clarification is not None
+
+    result = answer_setting_change_clarification(
+        root,
+        first.clarification.clarification_id,
+        "还是改一下。",
+        provider_name="mock",
+        max_clarification_rounds=1,
+    )
+
+    assert result.status == "proposal_ready"
+    assert result.proposal_result is not None
+    proposal = result.proposal_result.proposal
+    assert proposal.target_files == []
+    assert proposal.operations == []
+    assert any("达到最大轮数" in note or "无法安全定位" in note for note in proposal.notes)
+
+
 def test_setting_change_modifies_world_rule(tmp_path: Path) -> None:
     root = _workspace_with_timeline_event(tmp_path)
     (root / "memory" / "canon" / "world.json").write_text(

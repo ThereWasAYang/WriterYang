@@ -84,6 +84,12 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
                 self._send_bytes(200, body, content_type)
                 return
             if parsed.path.startswith("/api/"):
+                if not is_allowed_api_source(
+                    host_header=self.headers.get("Host"),
+                    origin_header=self.headers.get("Origin"),
+                ):
+                    self._send_forbidden_source()
+                    return
                 status, payload = handle_api_request("GET", parsed.path, parsed.query, None)
                 self._send_json(status, payload)
                 return
@@ -98,7 +104,7 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
                 host_header=self.headers.get("Host"),
                 origin_header=self.headers.get("Origin"),
             ):
-                self._send_json(403, {"ok": False, "error": {"code": "forbidden_origin", "message": "POST origin is not allowed"}})
+                self._send_forbidden_source()
                 return
             try:
                 length = parse_content_length(self.headers.get("Content-Length"))
@@ -152,6 +158,18 @@ def _handler_class() -> type[BaseHTTPRequestHandler]:
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
 
+        def _send_forbidden_source(self) -> None:
+            self._send_json(
+                403,
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "forbidden_origin",
+                        "message": "API request source is not allowed",
+                    },
+                },
+            )
+
     return Handler
 
 
@@ -179,7 +197,7 @@ def max_request_body_bytes(env: Mapping[str, str] | None = None) -> int:
     return value if value > 0 else DEFAULT_MAX_REQUEST_BODY_BYTES
 
 
-def is_allowed_post_source(*, host_header: str | None, origin_header: str | None) -> bool:
+def is_allowed_api_source(*, host_header: str | None, origin_header: str | None) -> bool:
     host, host_port = _parse_host_port(host_header)
     if host is not None and not _is_local_host(host):
         return False
@@ -193,6 +211,10 @@ def is_allowed_post_source(*, host_header: str | None, origin_header: str | None
     if host_port is not None and origin.port is not None and origin.port != host_port:
         return False
     return True
+
+
+def is_allowed_post_source(*, host_header: str | None, origin_header: str | None) -> bool:
+    return is_allowed_api_source(host_header=host_header, origin_header=origin_header)
 
 
 def _parse_host_port(value: str | None) -> tuple[str | None, int | None]:

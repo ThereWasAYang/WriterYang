@@ -12,7 +12,8 @@
 - 安装器支持 Python 3.11-3.13，推荐 3.12；conda 环境使用 `python>=3.11,<3.14`。
 - `runs/model_io/` 默认保留最近 500 份完整日志，并限制总体积约 200MB；`WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 可调整上限，`WRITERYANG_MODEL_IO_MODE=metadata` 可省略 prompt、正文和 raw response。
 - `runs/provider_usage.json` 改为根据新增 provider log 增量刷新；日志截断或替换时自动全量重算。
-- Web server 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整，并校验本机 Host / Origin。
+- Web server 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整，并校验 `/api/*` 请求的本机 Host / Origin；GET API 读面也会拒绝非本机来源。
+- `novel.web_api` 包级出口移除无消费方的 `revise_content` / `revise_outline` 转口；内部 Web API 模块和 CLI 仍使用 core session 修订函数。
 - 增加 `novel migrate`，为项目工作区补齐 `schema_version`，覆盖 `project.yaml`、`config/agents.yaml` 和所有核心 JSON 文件。
 - 增加结构化章节状态文件 `memory/chapters/{chapter}/metadata.json`。
 - `accept-chapter` 现在会写入章节 metadata，并继续保持 `polished.md` front matter 兼容。

@@ -166,14 +166,14 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - 端口冲突时给清晰错误。
 - 从 `web_static/` 安全读取 `index.html`、`app.css` 和 `app_*.js`，并通过 `/static/...` 提供静态资源。
 - 对 HTML、静态资源和 API 响应发送 no-cache headers，避免浏览器继续显示旧版 Web UI。
-- 对 POST 请求做 HTTP 层保护：限制请求体大小，并校验 `Host` / `Origin` 属于本机同源。
+- 对 Web API 请求做 HTTP 层保护：限制 POST 请求体大小，并校验 `/api/*` 的 `Host` / `Origin` 属于本机同源。
 - 不包含业务逻辑。
 
 ### `src/novel/web_api/`
 
 本地 JSON API 包，保留 `from novel.web_api import handle_api_request` 入口。核心模块：
 
-- `__init__.py`：导出 `handle_api_request()`、`_locked_write()` 和 `WebAPIError`，兼容旧导入。
+- `__init__.py`：导出 `handle_api_request()`、`_locked_write()`、`web_launcher` 和 `WebAPIError`，兼容仍在测试中使用的 monkeypatch 路径。
 - `router.py`：统一 API 入口、GET/POST 路由表、项目锁和失败日志。
 - `envelope.py`：统一响应模型和 `_success()` / `_failure()` 导出。
 - `common.py`：响应 envelope、路径白名单、请求解析、provider usage 注入和共享 helper。

@@ -3427,6 +3427,7 @@ def test_web_server_request_body_limit_is_configurable() -> None:
 
 def test_web_server_post_source_validation() -> None:
     assert web_server.is_allowed_post_source(host_header="127.0.0.1:8765", origin_header=None) is True
+    assert web_server.is_allowed_api_source(host_header="127.0.0.1:8765", origin_header=None) is True
     assert (
         web_server.is_allowed_post_source(
             host_header="127.0.0.1:8765",
@@ -3450,6 +3451,47 @@ def test_web_server_post_source_validation() -> None:
     )
     assert web_server.is_allowed_post_source(host_header="evil.example", origin_header=None) is False
     assert web_server.is_allowed_post_source(host_header="127.0.0.1:bad", origin_header=None) is False
+
+
+def test_web_server_get_api_rejects_non_local_source() -> None:
+    handler = object.__new__(web_server._handler_class())
+    handler.path = "/api/runtime"
+    handler.headers = {"Host": "evil.example"}
+    captured: dict[str, object] = {}
+
+    def fake_send_json(status: int, payload: dict[str, object]) -> None:
+        captured["status"] = status
+        captured["payload"] = payload
+
+    handler._send_json = fake_send_json
+
+    handler.do_GET()
+
+    assert captured["status"] == 403
+    assert captured["payload"] == {
+        "ok": False,
+        "error": {"code": "forbidden_origin", "message": "API request source is not allowed"},
+    }
+
+
+def test_web_server_get_root_does_not_apply_api_source_validation() -> None:
+    handler = object.__new__(web_server._handler_class())
+    handler.path = "/"
+    handler.headers = {"Host": "evil.example"}
+    captured: dict[str, object] = {}
+
+    def fake_send_text(status: int, body: str, content_type: str) -> None:
+        captured["status"] = status
+        captured["body"] = body
+        captured["content_type"] = content_type
+
+    handler._send_text = fake_send_text
+
+    handler.do_GET()
+
+    assert captured["status"] == 200
+    assert captured["content_type"] == "text/html; charset=utf-8"
+    assert "<html" in str(captured["body"])
 
 
 def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:

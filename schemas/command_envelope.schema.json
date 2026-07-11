@@ -1,5 +1,53 @@
 {
   "$defs": {
+    "BudgetUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "chapters": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Chapters",
+          "type": "integer"
+        },
+        "model_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Model Calls",
+          "type": "integer"
+        },
+        "provider_attempts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Provider Attempts",
+          "type": "integer"
+        },
+        "auto_revision_rounds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Auto Revision Rounds",
+          "type": "integer"
+        },
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "BudgetUsage",
+      "type": "object"
+    },
     "MemoryRepairApplyCommand": {
       "additionalProperties": false,
       "properties": {
@@ -242,6 +290,121 @@
       "title": "ProductionExportCommand",
       "type": "object"
     },
+    "ProjectInitCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "project.init",
+          "default": "project.init",
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "language": {
+          "default": "zh-CN",
+          "title": "Language",
+          "type": "string"
+        },
+        "genre": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Genre",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "ProjectInitCommand",
+      "type": "object"
+    },
+    "ProjectShowCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "project.show",
+          "default": "project.show",
+          "title": "Type",
+          "type": "string"
+        },
+        "target": {
+          "default": "canon",
+          "enum": [
+            "characters",
+            "timeline",
+            "state",
+            "canon"
+          ],
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "title": "ProjectShowCommand",
+      "type": "object"
+    },
+    "ProjectStatusCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "project.status",
+          "default": "project.status",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "ProjectStatusCommand",
+      "type": "object"
+    },
+    "ProjectValidateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "project.validate",
+          "default": "project.validate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "ProjectValidateCommand",
+      "type": "object"
+    },
     "RevisionBlocksCommand": {
       "additionalProperties": false,
       "properties": {
@@ -360,6 +523,93 @@
         "instruction"
       ],
       "title": "RevisionStartCommand",
+      "type": "object"
+    },
+    "SearchCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "search",
+          "default": "search",
+          "title": "Type",
+          "type": "string"
+        },
+        "query": {
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "search_type": {
+          "default": "all",
+          "enum": [
+            "character",
+            "location",
+            "item",
+            "event",
+            "chapter",
+            "chapter_memory",
+            "all"
+          ],
+          "title": "Search Type",
+          "type": "string"
+        },
+        "limit": {
+          "default": 10,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "chapter_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chapter Number"
+        },
+        "highlight": {
+          "default": false,
+          "title": "Highlight",
+          "type": "boolean"
+        },
+        "use_vector": {
+          "default": false,
+          "title": "Use Vector",
+          "type": "boolean"
+        },
+        "embedding_provider_name": {
+          "default": "config",
+          "title": "Embedding Provider Name",
+          "type": "string"
+        },
+        "embedding_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Embedding Config Path"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "title": "SearchCommand",
       "type": "object"
     },
     "SessionCommand": {
@@ -762,6 +1012,70 @@
       ],
       "title": "Surface",
       "type": "string"
+    },
+    "WorkflowBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "max_chapters": {
+          "minimum": 1,
+          "title": "Max Chapters",
+          "type": "integer"
+        },
+        "max_model_calls": {
+          "minimum": 0,
+          "title": "Max Model Calls",
+          "type": "integer"
+        },
+        "max_provider_attempts": {
+          "minimum": 0,
+          "title": "Max Provider Attempts",
+          "type": "integer"
+        },
+        "max_auto_revision_rounds": {
+          "minimum": 0,
+          "title": "Max Auto Revision Rounds",
+          "type": "integer"
+        },
+        "max_input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Input Tokens"
+        },
+        "max_output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Output Tokens"
+        }
+      },
+      "required": [
+        "max_chapters",
+        "max_model_calls",
+        "max_provider_attempts",
+        "max_auto_revision_rounds"
+      ],
+      "title": "WorkflowBudget",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -797,11 +1111,16 @@
           "memory_repair.apply": "#/$defs/MemoryRepairApplyCommand",
           "memory_repair.suggest": "#/$defs/MemoryRepairSuggestCommand",
           "preview.package": "#/$defs/PreviewPackageCommand",
+          "project.init": "#/$defs/ProjectInitCommand",
+          "project.show": "#/$defs/ProjectShowCommand",
+          "project.status": "#/$defs/ProjectStatusCommand",
+          "project.validate": "#/$defs/ProjectValidateCommand",
           "revision.accept": "#/$defs/RevisionCommand",
           "revision.blocks": "#/$defs/RevisionBlocksCommand",
           "revision.run": "#/$defs/RevisionCommand",
           "revision.show": "#/$defs/RevisionCommand",
           "revision.start": "#/$defs/RevisionStartCommand",
+          "search": "#/$defs/SearchCommand",
           "session.accept": "#/$defs/SessionCommand",
           "session.approve_outline": "#/$defs/SessionCommand",
           "session.archive": "#/$defs/SessionCommand",
@@ -856,6 +1175,21 @@
         },
         {
           "$ref": "#/$defs/SettingChangeApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectStatusCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectInitCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectValidateCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectShowCommand"
+        },
+        {
+          "$ref": "#/$defs/SearchCommand"
         }
       ],
       "title": "Command"
@@ -864,6 +1198,12 @@
       "default": false,
       "title": "Confirmed",
       "type": "boolean"
+    },
+    "budget": {
+      "$ref": "#/$defs/WorkflowBudget"
+    },
+    "initial_budget_usage": {
+      "$ref": "#/$defs/BudgetUsage"
     },
     "issued_at": {
       "format": "date-time",

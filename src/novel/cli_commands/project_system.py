@@ -7,13 +7,15 @@ import webbrowser
 from pathlib import Path
 
 from novel.core.inspection import (
-    ProjectReadError,
-    format_characters,
-    format_canon,
-    format_state,
+    ProjectStatus,
     format_status,
-    format_timeline,
-    get_project_status,
+)
+from novel.core.command_bus import DomainError
+from novel.core.contracts import (
+    ProjectInitCommand,
+    ProjectShowCommand,
+    ProjectStatusCommand,
+    ProjectValidateCommand,
 )
 from novel.core.json_schema import export_json_schemas
 from novel.core.setup_guide import (
@@ -21,15 +23,12 @@ from novel.core.setup_guide import (
 )
 from novel.core.usage import UsageError, summarize_provider_usage
 import novel.core.web_launcher as web_launcher
-from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
-from novel.core.validation import validate_project
 from novel.cli_shared import (
     _wants_json,
     _quiet,
     _success,
     _failure,
     _print_json,
-    _validation_payload,
     _status_payload,
     _format_usage_summary,
     _resolve_web_port,
@@ -38,30 +37,34 @@ from novel.cli_shared import (
     completion_script,
     run_doctor,
     format_doctor_result,
+    _dispatch_cli_command,
 )
 
 def _cmd_init(args: argparse.Namespace) -> int:
-    options = InitOptions(
-        title=args.title,
-        root=Path(args.path),
-        project_id=args.project_id,
-        language=args.language,
-        genre=args.genre,
-    )
     try:
-        result = init_workspace(options)
-    except WorkspaceExistsError as exc:
-        return _failure(args, str(exc), error_type="workspace_exists")
+        payload = _dispatch_cli_command(
+            args,
+            Path(args.path).expanduser().resolve(),
+            ProjectInitCommand(
+                title=args.title,
+                project_id=args.project_id,
+                language=args.language,
+                genre=args.genre,
+            ),
+        )
+        root = Path(str(payload["root"])).resolve()
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
     setup_lines: list[str] = []
     open_web = False
     web_port: int | None = None
     if _should_run_init_guide(args):
         try:
-            setup_lines, open_web, web_port = _run_init_setup_guide(result.root)
+            setup_lines, open_web, web_port = _run_init_setup_guide(root)
         except SetupGuideError as exc:
             return _failure(
                 args,
-                f"Workspace created at {result.root}, but initial setup failed: {exc}",
+                f"Workspace created at {root}, but initial setup failed: {exc}",
                 error_type="setup_guide_error",
             )
     elif not getattr(args, "no_guide", False) and not _wants_json(args) and not _quiet(args):
@@ -71,7 +74,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         from novel.web_server import WebServerError, run_web_server
 
         url = f"http://127.0.0.1:{web_port}"
-        print(f"Created novel workspace: {result.root}")
+        print(f"Created novel workspace: {root}")
         for line in setup_lines:
             print(line)
         print(f"Web UI: {url}")
@@ -86,42 +89,48 @@ def _cmd_init(args: argparse.Namespace) -> int:
         args,
         {
             "command": "init",
-            "root": str(result.root),
-            "project_file": str(result.root / "project.yaml"),
+            **payload,
+            "root": str(root),
+            "project_file": str(root / "project.yaml"),
             "setup_guide_ran": bool(setup_lines) and not setup_lines[0].startswith("Skipped"),
             "setup_messages": setup_lines,
             "web_port": web_port,
         },
         [
-            f"Created novel workspace: {result.root}",
-            f"Project file: {result.root / 'project.yaml'}",
+            f"Created novel workspace: {root}",
+            f"Project file: {root / 'project.yaml'}",
             *setup_lines,
         ],
     )
 
 def _cmd_validate(args: argparse.Namespace) -> int:
-    report = validate_project(Path(args.path))
-    payload = _validation_payload(report)
+    try:
+        result = _dispatch_cli_command(
+            args,
+            Path(args.path).expanduser().resolve(),
+            ProjectValidateCommand(),
+        )
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
+    valid = bool(result.get("valid"))
+    messages_value = result.get("messages")
+    messages: list[object] = messages_value if isinstance(messages_value, list) else []
     if _wants_json(args):
-        _print_json({"ok": report.ok, "command": "validate", "validation": payload})
-        return 0 if report.ok else 1
+        _print_json({"ok": valid, "command": "validate", "validation": result})
+        return 0 if valid else 1
     if _quiet(args):
-        return 0 if report.ok else 1
-    for message in report.messages:
-        path = message.path
-        try:
-            path = path.relative_to(report.root)
-        except ValueError:
-            pass
-        print(f"{message.level}: {path}: {message.message}")
+        return 0 if valid else 1
+    for message in messages:
+        if isinstance(message, dict):
+            print(f"{message.get('level')}: {message.get('path')}: {message.get('message')}")
 
-    if report.ok:
-        print(f"Validation passed: {len(report.warnings)} warning(s)")
+    if valid:
+        print(f"Validation passed: {result.get('warning_count', 0)} warning(s)")
         return 0
 
     print(
-        f"Validation failed: {len(report.errors)} error(s), "
-        f"{len(report.warnings)} warning(s)",
+        f"Validation failed: {result.get('error_count', 0)} error(s), "
+        f"{result.get('warning_count', 0)} warning(s)",
         file=sys.stderr,
     )
     return 1
@@ -165,12 +174,27 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 def _cmd_status(args: argparse.Namespace) -> int:
     try:
-        status = get_project_status(Path(args.path))
-    except ProjectReadError as exc:
-        return _failure(args, str(exc), error_type="project_read_error")
+        result = _dispatch_cli_command(
+            args,
+            Path(args.path).expanduser().resolve(),
+            ProjectStatusCommand(),
+        )
+        status_data = result.get("status")
+        if not isinstance(status_data, dict):
+            raise DomainError("internal_error", "command result is missing status")
+        status = ProjectStatus(
+            **{
+                **status_data,
+                "latest_run_log": Path(status_data["latest_run_log"])
+                if status_data.get("latest_run_log")
+                else None,
+            }
+        )
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
     return _success(
         args,
-        {"command": "status", "status": _status_payload(status)},
+        {**result, "command": "status", "status": _status_payload(status)},
         [format_status(status, Path(args.path))],
     )
 
@@ -185,19 +209,17 @@ def _cmd_usage(args: argparse.Namespace) -> int:
 
 def _cmd_show(args: argparse.Namespace) -> int:
     try:
-        if args.target == "characters":
-            output = format_characters(Path(args.path))
-        elif args.target == "timeline":
-            output = format_timeline(Path(args.path))
-        elif args.target == "canon":
-            output = format_canon(Path(args.path))
-        else:
-            output = format_state(Path(args.path))
-    except ProjectReadError as exc:
-        return _failure(args, str(exc), error_type="project_read_error")
+        result = _dispatch_cli_command(
+            args,
+            Path(args.path).expanduser().resolve(),
+            ProjectShowCommand(target=args.target),
+        )
+        output = str(result.get("output") or "")
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
     return _success(
         args,
-        {"command": "show", "target": args.target, "output": output},
+        {**result, "command": "show", "target": args.target, "output": output},
         [output],
     )
 

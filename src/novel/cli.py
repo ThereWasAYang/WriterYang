@@ -248,7 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show the execution plan without calling agents or writing files.",
+        help="Build a command proposal without executing it or writing domain artifacts.",
     )
     ask_parser.add_argument(
         "--force",
@@ -256,16 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow selected services to overwrite their normal target files.",
     )
     ask_parser.add_argument(
-        "--max-steps",
-        type=int,
-        default=8,
-        help="Maximum handoff steps. Defaults to 8.",
-    )
-    ask_parser.add_argument(
-        "--max-retries",
-        type=int,
-        default=0,
-        help="Maximum retries per task. Defaults to 0.",
+        "--confirm",
+        action="store_true",
+        help="Execute the proposed command after reviewing its scope and budget.",
     )
     ask_parser.add_argument(
         "--max-agent-calls",
@@ -273,18 +266,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=8,
         help="Maximum agent calls. Defaults to 8.",
     )
-    ask_parser.add_argument(
-        "--show-handoff-rules",
-        action="store_true",
-        help="Print allowed handoff rules before the plan.",
-    )
+    ask_parser.add_argument("--max-chapters", type=int, default=20)
+    ask_parser.add_argument("--max-provider-attempts", type=int, default=24)
+    ask_parser.add_argument("--max-auto-revision-rounds", type=int, default=3)
+    ask_parser.add_argument("--max-input-tokens", type=int, default=None)
+    ask_parser.add_argument("--max-output-tokens", type=int, default=None)
     _add_search_context_args(ask_parser, default_enabled=True)
 
-    memory_repair_parser = subparsers.add_parser("memory-repair", help="Suggest or apply project memory repair proposals")
+    memory_repair_parser = subparsers.add_parser(
+        "memory-repair", help="Suggest or apply project memory repair proposals"
+    )
     memory_repair_subparsers = memory_repair_parser.add_subparsers(dest="memory_repair_command", required=True)
     memory_repair_suggest = memory_repair_subparsers.add_parser("suggest", help="Create a memory repair proposal")
     memory_repair_suggest.add_argument("request", help="Natural language description of the memory problem")
-    memory_repair_suggest.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    memory_repair_suggest.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     memory_repair_suggest.add_argument(
         "--provider",
         default="config",
@@ -295,7 +292,9 @@ def build_parser() -> argparse.ArgumentParser:
     memory_repair_suggest.add_argument("--quiet", action="store_true", help="Suppress normal output.")
     memory_repair_apply = memory_repair_subparsers.add_parser("apply", help="Apply a memory repair proposal explicitly")
     memory_repair_apply.add_argument("proposal", help="repair_id or path to memory/repairs/{repair_id}/proposal.json")
-    memory_repair_apply.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    memory_repair_apply.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     memory_repair_apply.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
     memory_repair_apply.add_argument("--quiet", action="store_true", help="Suppress normal output.")
 
@@ -306,7 +305,9 @@ def build_parser() -> argparse.ArgumentParser:
     setting_change_subparsers = setting_change_parser.add_subparsers(dest="setting_change_command", required=True)
     setting_change_suggest = setting_change_subparsers.add_parser("suggest", help="Create a setting change proposal")
     setting_change_suggest.add_argument("request", help="Natural language setting change request")
-    setting_change_suggest.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    setting_change_suggest.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     setting_change_suggest.add_argument(
         "--provider",
         default="config",
@@ -335,7 +336,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setting_change_answer.add_argument("clarification_id", help="clarify_... id returned by setting-change suggest")
     setting_change_answer.add_argument("--answer", required=True, help="User clarification answer")
-    setting_change_answer.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    setting_change_answer.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     setting_change_answer.add_argument(
         "--provider",
         default="config",
@@ -344,9 +347,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setting_change_answer.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
     setting_change_answer.add_argument("--quiet", action="store_true", help="Suppress normal output.")
-    setting_change_apply = setting_change_subparsers.add_parser("apply", help="Apply a setting change proposal explicitly")
+    setting_change_apply = setting_change_subparsers.add_parser(
+        "apply", help="Apply a setting change proposal explicitly"
+    )
     setting_change_apply.add_argument("proposal", help="repair_id or path to memory/repairs/{repair_id}/proposal.json")
-    setting_change_apply.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    setting_change_apply.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     setting_change_apply.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
     setting_change_apply.add_argument("--quiet", action="store_true", help="Suppress normal output.")
 
@@ -354,10 +361,14 @@ def build_parser() -> argparse.ArgumentParser:
     chapter_memory_subparsers = chapter_memory_parser.add_subparsers(dest="chapter_memory_command", required=True)
     chapter_memory_show = chapter_memory_subparsers.add_parser("show", help="Show a chapter_memory.json file")
     chapter_memory_show.add_argument("chapter_number", type=int, help="Chapter number")
-    chapter_memory_show.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    chapter_memory_show.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     chapter_memory_generate = chapter_memory_subparsers.add_parser("generate", help="Generate chapter_memory.json")
     chapter_memory_generate.add_argument("chapter_number", type=int, help="Chapter number")
-    chapter_memory_generate.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    chapter_memory_generate.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     chapter_memory_generate.add_argument(
         "--provider",
         default="config",
@@ -367,14 +378,18 @@ def build_parser() -> argparse.ArgumentParser:
     chapter_memory_generate.add_argument("--force", action="store_true", help="Overwrite existing chapter_memory.json.")
     _add_agent_runtime_args(chapter_memory_generate)
     chapter_memory_rebuild = chapter_memory_subparsers.add_parser("rebuild", help="Rebuild chapter memories")
-    chapter_memory_rebuild.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    chapter_memory_rebuild.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     chapter_memory_rebuild.add_argument(
         "--provider",
         default="config",
         choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
         help="Provider to use for structured ChapterMemory generation.",
     )
-    chapter_memory_rebuild.add_argument("--force", action="store_true", help="Overwrite existing chapter_memory.json files.")
+    chapter_memory_rebuild.add_argument(
+        "--force", action="store_true", help="Overwrite existing chapter_memory.json files."
+    )
     chapter_memory_rebuild.add_argument(
         "--missing-only",
         action="store_true",
@@ -403,7 +418,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     session_revise_outline = session_subparsers.add_parser("revise-outline", help="Revise a session outline proposal")
     session_revise_outline.add_argument("session_id", help="Session id")
-    session_revise_outline.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_revise_outline.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     session_revise_outline.add_argument("--instruction", required=True, help="Outline revision instruction.")
     session_revise_outline.add_argument(
         "--provider",
@@ -440,7 +457,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     session_revise_content = session_subparsers.add_parser("revise-content", help="Revise generated session content")
     session_revise_content.add_argument("session_id", help="Session id")
-    session_revise_content.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_revise_content.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     session_revise_content.add_argument("--instruction", default=None, help="User feedback for content revision.")
     session_revise_content.add_argument(
         "--from-audit",
@@ -456,10 +475,14 @@ def build_parser() -> argparse.ArgumentParser:
     session_revise_content.add_argument("--force", action="store_true", help="Overwrite selected revision artifacts.")
     _add_search_context_args(session_revise_content, default_enabled=True)
 
-    session_revise_audit = session_subparsers.add_parser("revise-audit", help="Correct Audit understanding and rerun audit for a rewrite event")
+    session_revise_audit = session_subparsers.add_parser(
+        "revise-audit", help="Correct Audit understanding and rerun audit for a rewrite event"
+    )
     session_revise_audit.add_argument("session_id", help="Session id")
     session_revise_audit.add_argument("event_id", help="Rewrite event id")
-    session_revise_audit.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_revise_audit.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     session_revise_audit.add_argument("--instruction", required=True, help="Correction instruction for Audit Agent.")
     session_revise_audit.add_argument(
         "--provider",
@@ -470,10 +493,14 @@ def build_parser() -> argparse.ArgumentParser:
     session_revise_audit.add_argument("--force", action="store_true", help="Overwrite audit artifacts if needed.")
     _add_search_context_args(session_revise_audit, default_enabled=True)
 
-    session_retry_rewrite = session_subparsers.add_parser("retry-rewrite", help="Retry a rewrite event from the latest audit")
+    session_retry_rewrite = session_subparsers.add_parser(
+        "retry-rewrite", help="Retry a rewrite event from the latest audit"
+    )
     session_retry_rewrite.add_argument("session_id", help="Session id")
     session_retry_rewrite.add_argument("event_id", help="Rewrite event id")
-    session_retry_rewrite.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_retry_rewrite.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     session_retry_rewrite.add_argument("--instruction", default=None, help="Optional extra rewrite instruction.")
     session_retry_rewrite.add_argument(
         "--provider",
@@ -485,10 +512,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_polish_mode_arg(session_retry_rewrite)
     _add_search_context_args(session_retry_rewrite, default_enabled=True)
 
-    session_undo_rewrite = session_subparsers.add_parser("undo-rewrite", help="Restore rejected text snapshot for a rewrite event")
+    session_undo_rewrite = session_subparsers.add_parser(
+        "undo-rewrite", help="Restore rejected text snapshot for a rewrite event"
+    )
     session_undo_rewrite.add_argument("session_id", help="Session id")
     session_undo_rewrite.add_argument("event_id", help="Rewrite event id")
-    session_undo_rewrite.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
+    session_undo_rewrite.add_argument(
+        "--path", default=".", help="Workspace directory. Defaults to the current directory."
+    )
     session_undo_rewrite.add_argument(
         "--provider",
         default="config",
@@ -516,9 +547,7 @@ def build_parser() -> argparse.ArgumentParser:
     revision_session_parser = subparsers.add_parser(
         "revision-session", help="Manage scoped revisions of accepted chapters"
     )
-    revision_session_subparsers = revision_session_parser.add_subparsers(
-        dest="revision_session_command", required=True
-    )
+    revision_session_subparsers = revision_session_parser.add_subparsers(dest="revision_session_command", required=True)
     revision_blocks = revision_session_subparsers.add_parser("blocks", help="List stable Markdown blocks")
     revision_blocks.add_argument("chapter", type=int, help="Accepted chapter number")
     revision_blocks.add_argument("--path", default=".", help="Workspace directory.")
@@ -814,6 +843,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_integration_args_recursive(parser)
     return parser
+
 
 _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "init": _cmd_init,

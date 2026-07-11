@@ -37,6 +37,30 @@ def task_definition(task_id: TaskId | str) -> TaskDefinition:
     return TASK_REGISTRY[TaskId(task_id)]
 
 
+AGENT_TASK_IDS: dict[str, TaskId] = {
+    "plot": TaskId.PLAN,
+    "planning": TaskId.PLAN,
+    "writer": TaskId.WRITE,
+    "write": TaskId.WRITE,
+    "polish": TaskId.POLISH,
+    "revision": TaskId.REVISION,
+    "audit": TaskId.AUDIT,
+    "state_update": TaskId.STATE_UPDATE,
+    "chapter_memory": TaskId.CHAPTER_MEMORY,
+    "intent_router": TaskId.INTENT_ROUTER,
+    "memory_repair": TaskId.MEMORY_REPAIR,
+    "inspiration": TaskId.INSPIRATION,
+    "style_guide": TaskId.STYLE_GUIDE,
+    "canon": TaskId.CANON,
+    "setup": TaskId.SETUP,
+}
+
+
+def task_definition_for_agent(agent_name: str) -> TaskDefinition | None:
+    task_id = AGENT_TASK_IDS.get(agent_name)
+    return TASK_REGISTRY.get(task_id) if task_id is not None else None
+
+
 def render_task_registry_markdown() -> str:
     rows = [
         "| Task | Profile | Prompt | Output | Risk |",

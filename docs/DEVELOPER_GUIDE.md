@@ -153,7 +153,11 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 
 用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能只靠硬编码关键词判断。可以保留关键词启发式作为兼容或 fallback，但 fallback 不得执行 apply、archive、accepted、state/timeline/canon 写入等高风险动作。主路径应由 orchestrator 编排层调用 `intent_router` task 输出结构化决策，并通过 schema 校验、明确错误提示和保守 fallback 保护风险动作。
 
-`novel ask` 的非 dry-run 主路径应先由 orchestrator 编排层调用 `intent_router` task 输出 `AskIntentDecision`，再根据结构化 task 执行：创建 Session、生成 memory repair proposal、导出或查看状态。自然语言中的“确认/应用 repair”只有在模型结构化决策明确为 `memory_repair_apply` 且带有 `repair_id` 时才允许执行；provider 不可用或 fallback 场景必须提示用户使用显式命令 `novel memory-repair apply <repair_id>`。
+`novel ask` 先由 orchestrator 调用 `intent_router` 输出 `AskIntentDecision`，再转换成 strict `CommandProposal`。默认只展示 command、范围、风险和 workflow budget；只读低风险 command 可自动执行，其他 command 必须由 `--confirm` 明确确认后交给 Command Bus。proposal 节点、intent-router 模型节点和确认后的 command 共用同一个 `workflow_run_id`。自然语言中的“确认/应用 repair”在 fallback 场景不会执行，必须使用显式 `novel memory-repair apply <repair_id>`。
+
+`core/budget.py` 使用 context-local `WorkflowBudgetTracker` 贯穿 intent router、Command Bus、Provider 和 Session/Revision。Provider 每次逻辑调用、HTTP 重试和已知 token usage 都会计数；自动修订每进入一轮也会计数。Creation/Revision Session 将 budget 与累计 usage 持久化，后续命令不得重置预算。超限统一返回可恢复 `budget_exceeded`，且失败 checkpoint 仍保存已消费额度。
+
+`core/workflow_runtime.py` 把公开 command 和内部模型调用记录为同一棵节点树，输出到 `runs/{workflow_run_id}/`。Creation/Revision Session 同时持久化 `workflow_run_id`，因此 outline approval、人工 review、accept 等跨 human gate 命令会继续写入同一个 run，而不是创建互不关联的日志。新增 Agent 调用必须经 Task Registry 解析 Task/Profile，并让 Provider 自动写入预算快照和 prompt hash。
 
 `session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。长任务必须写 `memory/sessions/{session_id}/progress.json`，记录阶段、章节、轮次和状态；取消只能写入 `cancel_requested`，在章节或修复轮安全边界生效，不能强行中断当前 LLM HTTP 调用。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 orchestrator 编排层调用 `intent_router` task 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“生成/提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
 

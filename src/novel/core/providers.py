@@ -7,9 +7,10 @@ import os
 from pathlib import Path
 import socket
 import time
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 from urllib import error, request
 
+from novel.core.budget import consume_model_call, consume_provider_attempt, consume_response_tokens
 from novel.core.agent_defaults import (
     PROFILE_INHERITED_PATCH_FIELDS,
     PROFILE_NAMES,
@@ -29,6 +30,8 @@ from novel.core.model_io import (
     model_io_retention_policy_from_env,
     prune_model_io_dir,
 )
+from novel.core.task_registry import task_definition_for_agent
+from novel.core.workflow_runtime import active_workflow_runtime
 from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.security import redact_secret_text
 from novel.core.timeutil import new_request_id, utc_now_iso
@@ -44,6 +47,7 @@ class ModelRequest:
     request_id: str | None = None
     agent_name: str | None = None
     prompt_version: str | None = None
+    repair_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -146,7 +150,9 @@ class ModelProvider(ABC):
 @dataclass
 class MockProvider(ModelProvider):
     fixed_text: str = ""
-    fake_response: ModelResponse | str | Mapping[str, object] | list[ModelResponse | str | Mapping[str, object]] | None = None
+    fake_response: (
+        ModelResponse | str | Mapping[str, object] | list[ModelResponse | str | Mapping[str, object]] | None
+    ) = None
     stream_chunks: list[str] | None = None
     requests: list[ModelRequest] = field(default_factory=list)
     response_index: int = 0
@@ -206,7 +212,9 @@ class MockProvider(ModelProvider):
                 raw_response=dict(fake_response),
                 token_usage=token_usage,
                 reasoning_content=reasoning if isinstance(reasoning, str) else None,
-                finish_reason=str(fake_response["finish_reason"]) if fake_response.get("finish_reason") is not None else None,
+                finish_reason=str(fake_response["finish_reason"])
+                if fake_response.get("finish_reason") is not None
+                else None,
             )
         return ModelResponse(content=self.fixed_text, raw_response=self.fixed_text)
 
@@ -229,7 +237,10 @@ class LoggingModelProvider(ModelProvider):
         started = time.monotonic()
         started_at = utc_now_iso()
         try:
-            response = self.provider.generate(request_with_id)
+            response = self._execute_model_node(
+                request_with_id,
+                lambda: self.provider.generate(request_with_id),
+            )
         except Exception as exc:
             self._write_model_io(
                 request_with_id,
@@ -267,7 +278,10 @@ class LoggingModelProvider(ModelProvider):
         started = time.monotonic()
         started_at = utc_now_iso()
         try:
-            response = self.provider.stream_response(request_with_id)
+            response = self._execute_model_node(
+                request_with_id,
+                lambda: self.provider.stream_response(request_with_id),
+            )
         except Exception as exc:
             self._write_model_io(
                 request_with_id,
@@ -295,6 +309,51 @@ class LoggingModelProvider(ModelProvider):
             response=response,
         )
         return response
+
+    def _execute_model_node(
+        self,
+        model_request: ModelRequest,
+        invoke: Callable[[], ModelResponse],
+    ) -> ModelResponse:
+        def budgeted_invoke() -> ModelResponse:
+            consume_model_call()
+            consume_provider_attempt()
+            response = invoke()
+            if response.token_usage:
+                consume_response_tokens(
+                    response.token_usage.prompt_tokens,
+                    response.token_usage.completion_tokens,
+                )
+            return response
+
+        runtime = active_workflow_runtime()
+        if runtime is None:
+            return budgeted_invoke()
+        definition = task_definition_for_agent(self.agent_name)
+        if definition is None:
+            raise RuntimeError(f"agent task is not registered: {self.agent_name}")
+        return runtime.execute_node(
+            name=f"model:{self.agent_name}",
+            node_type="model",
+            function=budgeted_invoke,
+            task_id=definition.task_id,
+            profile_id=definition.profile,
+            provider=self.provider_name,
+            model=self.model,
+            prompt_template=model_request.system_prompt,
+            rendered_prompt="\n".join(
+                value
+                for value in (
+                    model_request.system_prompt,
+                    model_request.user_prompt,
+                    model_request.context,
+                )
+                if value
+            ),
+            repair_count=model_request.repair_count,
+            input_paths=["project.yaml"],
+            output_details=lambda _: ([], [f"runs/model_io/{model_request.request_id}.json"]),
+        )
 
     def stream(self, model_request: ModelRequest) -> Iterable[str]:
         response = self.stream_response(model_request)
@@ -526,8 +585,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 base_url = configured_base_url
             elif provider_name == "openai_compatible":
                 raise MissingProviderEnvError(
-                    f"required environment variable {config.base_url_env} is not set "
-                    "for base_url_env"
+                    f"required environment variable {config.base_url_env} is not set for base_url_env"
                 )
 
         return cls(
@@ -576,8 +634,7 @@ class OpenAICompatibleProvider(ModelProvider):
             else None
         )
         use_json_object = bool(
-            model_request.json_schema_name
-            and (json_format == "json_object" or schema_payload is None)
+            model_request.json_schema_name and (json_format == "json_object" or schema_payload is None)
         )
         if model_request.json_schema_name and json_format == "json_schema_strict":
             schema_payload = strict_model_output_schema_payload(model_request.json_schema_name)
@@ -598,9 +655,7 @@ class OpenAICompatibleProvider(ModelProvider):
             payload["stream"] = True
             if self.api_provider in {"deepseek", "openai"}:
                 payload["stream_options"] = {"include_usage": True}
-        if self.temperature is not None and not (
-            self.api_provider == "deepseek" and self.thinking_type == "enabled"
-        ):
+        if self.temperature is not None and not (self.api_provider == "deepseek" and self.thinking_type == "enabled"):
             payload["temperature"] = self.temperature
         if self.max_tokens is not None:
             payload["max_tokens"] = self.max_tokens
@@ -677,6 +732,8 @@ class OpenAICompatibleProvider(ModelProvider):
         attempts = self.max_retries + 1
         last_error: ProviderError | None = None
         for attempt in range(1, attempts + 1):
+            if attempt > 1:
+                consume_provider_attempt()
             try:
                 http_request = request.Request(
                     endpoint,
@@ -689,7 +746,7 @@ class OpenAICompatibleProvider(ModelProvider):
                     method="POST",
                 )
                 with request.urlopen(http_request, timeout=self.timeout_seconds) as response:
-                    response_body = response.read().decode("utf-8")
+                    response_body = str(response.read().decode("utf-8"))
                 usage, finish_reason = _response_metadata_from_body(response_body, stream=stream)
                 self._write_call_log(
                     ProviderCallLog(
@@ -716,24 +773,30 @@ class OpenAICompatibleProvider(ModelProvider):
             except error.HTTPError as exc:
                 last_error = _http_error_from_status(self.api_provider, exc.code)
                 if not _is_retryable_http_status(exc.code) or attempt == attempts:
-                    self._log_failure(request_id, endpoint, started_at, started, attempt, stream, model_request, last_error, exc.code)
+                    self._log_failure(
+                        request_id, endpoint, started_at, started, attempt, stream, model_request, last_error, exc.code
+                    )
                     raise last_error from None
             except socket.timeout:
                 last_error = ProviderTimeoutError(f"{self.api_provider} provider request timed out")
                 if attempt == attempts:
-                    self._log_failure(request_id, endpoint, started_at, started, attempt, stream, model_request, last_error)
+                    self._log_failure(
+                        request_id, endpoint, started_at, started, attempt, stream, model_request, last_error
+                    )
                     raise last_error from None
             except error.URLError:
                 last_error = ProviderNetworkError(f"{self.api_provider} provider network request failed")
                 if attempt == attempts:
-                    self._log_failure(request_id, endpoint, started_at, started, attempt, stream, model_request, last_error)
+                    self._log_failure(
+                        request_id, endpoint, started_at, started, attempt, stream, model_request, last_error
+                    )
                     raise last_error from None
             except Exception as exc:
-                last_error = ProviderError(
-                    f"{self.api_provider} provider request failed: {exc.__class__.__name__}"
-                )
+                last_error = ProviderError(f"{self.api_provider} provider request failed: {exc.__class__.__name__}")
                 if attempt == attempts:
-                    self._log_failure(request_id, endpoint, started_at, started, attempt, stream, model_request, last_error)
+                    self._log_failure(
+                        request_id, endpoint, started_at, started, attempt, stream, model_request, last_error
+                    )
                     raise last_error from None
             time.sleep(self.retry_backoff_seconds * attempt)
         assert last_error is not None
@@ -948,9 +1011,7 @@ def _profile_name_for_task(task_name: str) -> str:
 def _required_env(env: Mapping[str, str], name: str, config_field: str) -> str:
     value = env.get(name)
     if not value:
-        raise MissingProviderEnvError(
-            f"required environment variable {name} is not set for {config_field}"
-        )
+        raise MissingProviderEnvError(f"required environment variable {name} is not set for {config_field}")
     return value
 
 
@@ -972,8 +1033,7 @@ def resolve_json_response_format(provider_name: str, configured: str) -> str:
         )
     if configured == "json_schema" and provider_name in {"deepseek", "zai"}:
         raise ProviderError(
-            f"{provider_name} provider uses JSON Output mode for structured chat completions; "
-            "use json_object or auto"
+            f"{provider_name} provider uses JSON Output mode for structured chat completions; use json_object or auto"
         )
     return configured
 
@@ -1103,12 +1163,10 @@ def _ensure_json_mode_messages(
     skeleton = model_output_schema_skeleton(schema_name)
     skeleton_text = f"\n\nExpected JSON structure skeleton:\n{skeleton}" if skeleton else ""
     updated[0]["content"] = (
-        updated[0].get("content", "")
-        + "\n\n"
+        updated[0].get("content", "") + "\n\n"
         f"{marker}: output must be a single valid JSON object for schema {schema_name}. "
         "Do not include Markdown code fences, explanations, comments, or wrapper text. "
-        "Use double-quoted JSON keys and values where JSON requires strings."
-        + skeleton_text
+        "Use double-quoted JSON keys and values where JSON requires strings." + skeleton_text
     )
     return updated
 

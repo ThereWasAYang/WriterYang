@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 
 from novel.core.contracts.artifacts import ArtifactRef, AuditBinding, StateProposalBinding
 from novel.core.contracts.common import ArtifactKind, SchemaV3Model, Sha256
+from novel.core.contracts.tracing import BudgetUsage, WorkflowBudget
 
 
 class RevisionSessionPhase(StrEnum):
@@ -22,21 +23,15 @@ class RevisionSessionPhase(StrEnum):
 
 
 REVISION_PHASE_TRANSITIONS: dict[RevisionSessionPhase, frozenset[RevisionSessionPhase]] = {
-    RevisionSessionPhase.AWAITING_PATCH: frozenset(
-        {RevisionSessionPhase.RUNNING, RevisionSessionPhase.CANCELLED}
-    ),
+    RevisionSessionPhase.AWAITING_PATCH: frozenset({RevisionSessionPhase.RUNNING, RevisionSessionPhase.CANCELLED}),
     RevisionSessionPhase.RUNNING: frozenset(
         {RevisionSessionPhase.AWAITING_REVIEW, RevisionSessionPhase.FAILED_RECOVERABLE}
     ),
-    RevisionSessionPhase.AWAITING_REVIEW: frozenset(
-        {RevisionSessionPhase.COMMITTING, RevisionSessionPhase.CANCELLED}
-    ),
+    RevisionSessionPhase.AWAITING_REVIEW: frozenset({RevisionSessionPhase.COMMITTING, RevisionSessionPhase.CANCELLED}),
     RevisionSessionPhase.COMMITTING: frozenset(
         {RevisionSessionPhase.COMMITTED, RevisionSessionPhase.FAILED_RECOVERABLE}
     ),
-    RevisionSessionPhase.FAILED_RECOVERABLE: frozenset(
-        {RevisionSessionPhase.RUNNING, RevisionSessionPhase.CANCELLED}
-    ),
+    RevisionSessionPhase.FAILED_RECOVERABLE: frozenset({RevisionSessionPhase.RUNNING, RevisionSessionPhase.CANCELLED}),
     RevisionSessionPhase.COMMITTED: frozenset({RevisionSessionPhase.ARCHIVED}),
     RevisionSessionPhase.ARCHIVED: frozenset(),
     RevisionSessionPhase.CANCELLED: frozenset(),
@@ -114,6 +109,9 @@ class RevisionSession(SchemaV3Model):
     projection_path: str | None = None
     created_at: datetime
     updated_at: datetime
+    workflow_run_id: str | None = Field(default=None, pattern=r"^run_[0-9a-f]{32}$")
+    workflow_budget: WorkflowBudget | None = None
+    budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)
 
     @model_validator(mode="after")
     def validate_phase_artifacts(self) -> RevisionSession:

@@ -13,11 +13,13 @@ from novel.core.auditing import (
     default_mock_audit_report_json,
     parse_audit_report,
 )
+from novel.core.budget import workflow_budget_scope
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, polish_chapter
-from novel.core.providers import MockProvider
+from novel.core.contracts import WorkflowBudget
+from novel.core.providers import LoggingModelProvider, MockProvider
 from novel.core.schemas import AuditReport
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -86,7 +88,9 @@ def test_audit_chapter_coerces_provider_title_audited_file_to_requested_file(tmp
 
 def test_audit_agent_question_repairs_once(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
-    provider = MockProvider(fake_response=["是否需要重点检查时间线？", default_mock_audit_report_json(1, "polished.md")])
+    provider = MockProvider(
+        fake_response=["是否需要重点检查时间线？", default_mock_audit_report_json(1, "polished.md")]
+    )
 
     result = audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
 
@@ -108,18 +112,35 @@ def test_audit_prompt_allows_unrevealed_timeline_background_without_narrative_po
 def test_audit_recall_reruns_with_requested_chapter_context(tmp_path: Path) -> None:
     root = _workspace_with_polished(tmp_path)
     first = json.loads(default_mock_audit_report_json(1, "polished.md"))
-    first["need_context"] = [
-        {"kind": "chapter_prose", "ref": "1", "reason": "核对旧车站广播原文"}
-    ]
+    first["need_context"] = [{"kind": "chapter_prose", "ref": "1", "reason": "核对旧车站广播原文"}]
     second = json.loads(default_mock_audit_report_json(1, "polished.md"))
     second["summary"] = "复审后通过"
-    provider = MockProvider(fake_response=[json.dumps(first, ensure_ascii=False), json.dumps(second, ensure_ascii=False)])
+    inner_provider = MockProvider(
+        fake_response=[json.dumps(first, ensure_ascii=False), json.dumps(second, ensure_ascii=False)]
+    )
+    provider = LoggingModelProvider(
+        provider=inner_provider,
+        agent_name="audit",
+        provider_name="mock",
+        model="mock",
+        root=root,
+    )
 
-    result = audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
+    with workflow_budget_scope(
+        WorkflowBudget(
+            max_chapters=1,
+            max_model_calls=2,
+            max_provider_attempts=2,
+            max_auto_revision_rounds=0,
+        )
+    ) as tracker:
+        result = audit_chapter(ChapterAuditOptions(root=root, chapter_number=1), provider)
 
     assert result.report.summary == "复审后通过"
-    assert len(provider.requests) == 2
-    assert "Additional recalled context" in provider.requests[1].user_prompt
+    assert tracker.snapshot().model_calls == 2
+    assert tracker.snapshot().provider_attempts == 2
+    assert len(inner_provider.requests) == 2
+    assert "Additional recalled context" in inner_provider.requests[1].user_prompt
     assert (root / "memory" / "chapters" / "001" / "audit_recall.json").is_file()
 
 
@@ -210,9 +231,7 @@ def test_audit_chapter_force_overwrites_existing(tmp_path: Path) -> None:
     audit_path = root / "memory" / "chapters" / "001" / "audit.json"
     audit_path.write_text('{"manual": true}\n', encoding="utf-8")
 
-    code, stdout, stderr = _run_cli(
-        ["audit-chapter", "1", "--path", str(root), "--provider", "mock", "--force"]
-    )
+    code, stdout, stderr = _run_cli(["audit-chapter", "1", "--path", str(root), "--provider", "mock", "--force"])
 
     assert code == 0
     assert stderr == ""
@@ -232,7 +251,9 @@ def test_audit_precheck_flags_hidden_truth_text_in_polished_body(tmp_path: Path)
     )
 
     assert result.report.overall_status == "needs_revision"
-    assert any(issue.type == "premature_reveal" and "计划揭示前暴露" in issue.description for issue in result.report.issues)
+    assert any(
+        issue.type == "premature_reveal" and "计划揭示前暴露" in issue.description for issue in result.report.issues
+    )
 
 
 def test_audit_precheck_flags_character_knows_unrevealed_hidden_truth(tmp_path: Path) -> None:
@@ -260,7 +281,9 @@ def test_audit_precheck_flags_character_knows_unrevealed_hidden_truth(tmp_path: 
     )
 
     assert result.report.overall_status == "needs_revision"
-    assert any(issue.type == "premature_reveal" and "已经知道隐藏真相" in issue.description for issue in result.report.issues)
+    assert any(
+        issue.type == "premature_reveal" and "已经知道隐藏真相" in issue.description for issue in result.report.issues
+    )
     assert result.deterministic_highest_severity == "high"
 
 
@@ -279,7 +302,10 @@ def test_audit_precheck_localizes_canon_reference_warning(tmp_path: Path) -> Non
     issue = next(item for item in result.report.issues if item.id == "audit_precheck_canon_warning_1")
     assert issue.severity == "low"
     assert issue.type == "canon_conflict"
-    assert issue.description == "隐藏真相 truth_station_overlap 的 related_entity_ids 引用了不存在的实体：taohuayuan_village"
+    assert (
+        issue.description
+        == "隐藏真相 truth_station_overlap 的 related_entity_ids 引用了不存在的实体：taohuayuan_village"
+    )
     assert issue.suggested_fix == "检查该 canon 关联关系，必要时补齐缺失 ID，或移除已经失效的引用。"
 
 
@@ -332,7 +358,9 @@ def test_audit_precheck_flags_item_holder_location_conflict(tmp_path: Path) -> N
     )
 
     assert result.report.overall_status == "needs_revision"
-    item_issue = next(issue for issue in result.report.issues if issue.id == "cons_item_holder_location_item_broken_ticket")
+    item_issue = next(
+        issue for issue in result.report.issues if issue.id == "cons_item_holder_location_item_broken_ticket"
+    )
     assert item_issue.description == "物品 item_broken_ticket 同时设置了 holder_id 和 location_id。"
     assert item_issue.suggested_fix == "只保留 holder_id 或 location_id 其中一个。"
 
@@ -343,9 +371,7 @@ def test_audit_precheck_flags_item_holder_missing_possession_mirror(tmp_path: Pa
         root / "memory" / "state" / "current_state.json",
         {
             "story_position": {"latest_chapter": 0},
-            "character_states": [
-                {"entity_id": "char_lin_che", "possessions": [], "last_updated_chapter": 0}
-            ],
+            "character_states": [{"entity_id": "char_lin_che", "possessions": [], "last_updated_chapter": 0}],
             "item_states": [
                 {
                     "entity_id": "item_broken_ticket",

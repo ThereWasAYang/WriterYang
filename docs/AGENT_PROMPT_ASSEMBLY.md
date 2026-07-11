@@ -375,7 +375,7 @@ Prompt 组装：
 - `prompts/intent_router_ask_intent_system.txt`：`novel ask` 的用户意图结构化分类。
 - `prompts/intent_router_revision_route_system.txt`：用户修订意见路由。
   - `prompts/audit_repair_route_system.txt`：Audit 阻断问题的自动修复分流。
-- 入口函数：`orchestrate()`、`plan_orchestration()`、`decide_ask_intent()`、`route_revision_request()`、`route_audit_repair()`。
+- 入口函数：`propose_ask_command()`、`decide_ask_intent()`、`route_revision_request()`、`route_audit_repair()`。
 - CLI：`novel ask`
 
 输入来源：
@@ -385,11 +385,10 @@ Prompt 组装：
 
 行为：
 
-- `decide_ask_intent()` 调用 `intent_router` task provider 输出 `AskIntentDecision`。`classify_request()` 只保留为 dry-run/mock/provider 不可用时的 fallback。
-- 关键词分类只能作为低风险 fallback。用户自然语言可能随意且包含错别字，高风险决策必须由 orchestrator 编排层调用 `intent_router` task 输出结构化 model decision，并经过 schema 校验和保守 fallback，不能只靠硬编码关键词。fallback 不得执行 memory repair apply、accept/archive、state/timeline/canon 写入等高风险动作。
-- `HANDOFF_RULES` 限制允许的 agent handoff。
-- dry-run 只输出计划，不写文件。
-- 非 dry-run 调用对应底层 service。
+- `decide_ask_intent()` 调用 `intent_router` task provider 输出 `AskIntentDecision`，`propose_ask_command()` 再把它转换为 strict `CommandProposal`；CLI 默认不执行中高风险 proposal。
+- 模型路由不可用时只允许显式、保守、低置信度 fallback：只读查询可直接提议，创作、导出和 memory repair 仅生成 proposal；apply、accept、archive、state/timeline/canon 写入不得由 fallback 执行。
+- 旧 `OrchestratorPlan`、handoff graph、`classify_request()` 和直接 service executor 已删除；确认后的 typed command 统一交给 Command Bus 和静态 workflow runtime。
+- dry-run 只输出 `CommandProposal`，不执行 command 或写 domain artifact；仍在 `runs/{workflow_run_id}/` 保存 proposal trace 和必要的模型 I/O 审计记录。
 - 用户对已生成内容提出修改意见时，`route_revision_request()` 调用 `intent_router` task provider 输出 `RevisionRouteDecision` JSON；路由只能是 `plot_replan`、`writer_rewrite`、`revision_patch`。
 - 路由输出解析或 Pydantic 校验失败时会 repair retry 一次；仍失败则保守 fallback 为 `writer_rewrite`，只有明确局部语句替换才 fallback 为 `revision_patch`。
 - route decision 会写入 session 的 `revision_route_history`，并通过 Web UI/CLI 展示。

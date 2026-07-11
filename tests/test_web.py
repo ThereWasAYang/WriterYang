@@ -3137,6 +3137,7 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
         created_at=now,
         updated_at=now,
     )
+    atomic_write_model_json(session_dir / "session.json", session)
     captured: dict[str, object] = {}
 
     def fake_revise_content(options) -> SessionResult:

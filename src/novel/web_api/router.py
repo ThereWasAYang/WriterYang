@@ -59,7 +59,7 @@ from .session import (
     _session_accept, _session_api, _session_approve_outline, _session_archive, _session_cancel,
     _session_latest_api, _session_progress_api, _session_retry_rewrite, _session_revise_audit,
     _session_revise_content, _session_revise_outline, _session_rewrite_events_api, _session_run,
-    _session_start, _session_undo_rewrite, _project_status_api, _search_api, _validate_project,
+    _session_start, _session_undo_rewrite, _project_status_api, _search_api, _validate_project_api,
 )
 from .inspection import (
     _audit_annotations, _file_tree, _list_chapters, _list_projects, _management_events,
@@ -115,7 +115,7 @@ def handle_api_request(
         log_failure(exc.status, exc.code, exc)
         return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
     except DomainError as exc:
-        status = 409 if exc.code in {"project_locked", "confirmation_required"} else 400
+        status = 409 if exc.code in {"project_locked", "confirmation_required", "workspace_exists"} else 400
         log_failure(status, exc.code, exc)
         return _failure(status, exc.code, exc.message, request_id=request_id, details=exc.details)
     except ProjectLockError as exc:
@@ -174,7 +174,7 @@ def _get_routes():
         "/api/runtime": lambda query: {"runtime": _runtime_summary()},
         "/api/projects": lambda query: {"projects": _list_projects(Path(query.get("root", ".")))},
         "/api/project/status": _project_status_api,
-        "/api/validate": lambda query: _validate_project(_root_from_query(query)),
+        "/api/validate": _validate_project_api,
         "/api/canon": lambda query: {"summary": format_canon(_root_from_query(query))},
         "/api/canon/applied-proposals": _canon_applied_proposals,
         "/api/chapters": lambda query: {"chapters": _list_chapters(_root_from_query(query))},

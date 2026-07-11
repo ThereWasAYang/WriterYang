@@ -23,13 +23,12 @@ def test_ask_creates_creation_session_and_outline(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
     code, stdout, stderr = _run_cli(
-        ["ask", "请为第1章生成章节计划", "--path", str(root), "--provider", "mock"]
+        ["ask", "请为第1章生成章节计划", "--path", str(root), "--provider", "mock", "--confirm"]
     )
 
     assert code == 0
     assert stderr == ""
-    assert "Session:" in stdout
-    assert "outline proposal generated" in stdout
+    assert "Ask status: executed" in stdout
     session_paths = list((root / "memory" / "sessions").glob("session_*/session.json"))
     assert session_paths
     session_dir = session_paths[0].parent
@@ -42,18 +41,18 @@ def test_ask_json_returns_session_id(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
     code, stdout, stderr = _run_cli(
-        ["ask", "请写第1章初稿", "--path", str(root), "--provider", "mock", "--json", "--quiet"]
+        ["ask", "请写第1章初稿", "--path", str(root), "--provider", "mock", "--confirm", "--json", "--quiet"]
     )
 
     assert code == 0
     assert stderr == ""
     payload = json.loads(stdout)
     assert payload["ok"] is True
-    assert payload["task"] == "creation_session"
-    assert payload["session_id"].startswith("session_")
+    assert payload["status"] == "executed"
+    assert payload["execution"]["session"]["session_id"].startswith("session_")
 
 
-def test_ask_dry_run_keeps_legacy_orchestrator_plan_without_writing(tmp_path: Path) -> None:
+def test_ask_dry_run_returns_command_proposal_without_writing(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
     code, stdout, stderr = _run_cli(
@@ -70,12 +69,13 @@ def test_ask_dry_run_keeps_legacy_orchestrator_plan_without_writing(tmp_path: Pa
 
     assert code == 0
     assert stderr == ""
-    assert "Dry run complete" in stdout
+    assert "Ask status: proposed" in stdout
+    assert "Risk: medium" in stdout
     assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
     assert not list((root / "runs").glob("run_*.json"))
 
 
-def test_ask_stops_when_max_steps_exceeded(tmp_path: Path) -> None:
+def test_ask_zero_model_budget_returns_clarification_without_writing(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
     code, stdout, stderr = _run_cli(
@@ -86,27 +86,32 @@ def test_ask_stops_when_max_steps_exceeded(tmp_path: Path) -> None:
             str(root),
             "--provider",
             "mock",
-            "--max-steps",
+            "--max-agent-calls",
+            "0",
+            "--max-provider-attempts",
             "0",
         ]
     )
 
-    assert code == 1
-    assert stdout == ""
-    assert "max_steps" in stderr
+    assert code == 0
+    assert stderr == ""
+    assert "Ask status: proposed" in stdout
+    assert "workflow 剩余预算不足" in stdout
     assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
 
 
-def test_ask_no_longer_writes_run_log_for_session_start(tmp_path: Path) -> None:
+def test_ask_proposal_writes_structured_workflow_trace_not_legacy_flat_log(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
-    code, _, stderr = _run_cli(
-        ["ask", "请为第1章生成章节计划", "--path", str(root), "--provider", "mock"]
-    )
+    code, _, stderr = _run_cli(["ask", "请为第1章生成章节计划", "--path", str(root), "--provider", "mock"])
 
     assert code == 0
     assert stderr == ""
     assert not list((root / "runs").glob("run_*.json"))
+    run_dirs = list((root / "runs").glob("run_*"))
+    assert len(run_dirs) == 1
+    assert (run_dirs[0] / "run.json").is_file()
+    assert (run_dirs[0] / "proposal.json").is_file()
 
 
 def test_revision_route_decision_classifies_plot_replan(tmp_path: Path) -> None:

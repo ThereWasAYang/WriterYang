@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
-from novel.core.search import SearchError, rebuild_search_index, refresh_search_index, search_index_status, search_project
+from novel.core.search import SearchError, rebuild_search_index, refresh_search_index, search_index_status
+from novel.core.command_bus import DomainError
+from novel.core.contracts import SearchCommand
 from novel.core.locking import ProjectLockError
 from novel.cli_shared import (
     _success,
     _failure,
     _command_lock,
+    _dispatch_cli_command,
 )
 
 def _cmd_index(args: argparse.Namespace) -> int:
@@ -95,48 +97,39 @@ def _cmd_index(args: argparse.Namespace) -> int:
 
 def _cmd_search(args: argparse.Namespace) -> int:
     try:
-        results = search_project(
-            Path(args.path),
-            args.query,
-            search_type=args.type,
-            limit=args.limit,
-            chapter_number=args.chapter,
-            highlight=args.highlight,
-            use_vector=args.use_vector,
-            embedding_provider_name=args.embedding_provider,
-            embedding_config_path=args.embedding_config,
+        payload = _dispatch_cli_command(
+            args,
+            Path(args.path).expanduser().resolve(),
+            SearchCommand(
+                query=args.query,
+                search_type=args.type,
+                limit=args.limit,
+                chapter_number=args.chapter,
+                highlight=args.highlight,
+                use_vector=args.use_vector,
+                embedding_provider_name=args.embedding_provider,
+                embedding_config_path=str(args.embedding_config) if args.embedding_config else None,
+            ),
         )
-    except SearchError as exc:
-        return _failure(args, str(exc), error_type="search_error")
-    if args.json:
-        print(
-            json.dumps(
-                [
-                    {
-                        "id": result.id,
-                        "type": result.type,
-                        "path": result.path,
-                        "title": result.title,
-                        "score": result.score,
-                        "matched_terms": list(result.matched_terms),
-                        "excerpt": result.excerpt,
-                        "highlighted_excerpt": result.highlighted_excerpt,
-                        "metadata": result.metadata,
-                    }
-                    for result in results
-                ],
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
-        return 0
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return _failure(args, "command result is missing results", error_type="internal_error")
     if not results:
-        print("No results.")
-        return 0
+        return _success(args, {**payload, "command": "search"}, ["No results."])
+    lines: list[str] = []
     for index, result in enumerate(results, start=1):
-        terms = ", ".join(result.matched_terms) if result.matched_terms else "none"
-        print(f"{index}. [{result.type}] {result.title}")
-        print(f"   path: {result.path}")
-        print(f"   score: {result.score}; matched_terms: {terms}")
-        print(f"   excerpt: {result.highlighted_excerpt if args.highlight else result.excerpt}")
-    return 0
+        if not isinstance(result, dict):
+            continue
+        terms_value = result.get("matched_terms")
+        terms = ", ".join(str(item) for item in terms_value) if isinstance(terms_value, list) else "none"
+        lines.extend(
+            [
+                f"{index}. [{result.get('type')}] {result.get('title')}",
+                f"   path: {result.get('path')}",
+                f"   score: {result.get('score')}; matched_terms: {terms}",
+                f"   excerpt: {result.get('highlighted_excerpt') if args.highlight else result.get('excerpt')}",
+            ]
+        )
+    return _success(args, {**payload, "command": "search"}, lines)

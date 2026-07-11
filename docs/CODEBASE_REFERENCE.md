@@ -59,6 +59,7 @@
 - `src/novel/core/agent_output.py`
 - `src/novel/core/app_logging.py`
 - `src/novel/core/artifact_store.py`
+- `src/novel/core/budget.py`
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
 - `src/novel/core/chapter_memory.py`
@@ -123,6 +124,7 @@
 - `src/novel/core/validation.py`
 - `src/novel/core/web_launcher.py`
 - `src/novel/core/workflow.py`
+- `src/novel/core/workflow_runtime.py`
 - `src/novel/core/workspace.py`
 
 ## 3. CLI 层
@@ -778,22 +780,25 @@ orchestrator 项目管家修复 proposal 包，保留 `from novel.core.memory_re
 
 ### `core/orchestrator.py`
 
-受控编排：
+结构化决策 proposer：
 
-- `OrchestratorPlan` / `OrchestratorOptions` / `OrchestratorResult` / `HandoffTraceEntry`。
-- `orchestrate()`：执行或 dry-run。
-- `decide_ask_intent()` / `parse_ask_intent_decision()`：调用 `intent_router` task provider 输出 `AskIntentDecision`，作为 `novel ask` 非 dry-run 主路径。
-- `plan_orchestration()`：根据已分类任务生成受控执行计划，主要用于 dry-run 和内部 orchestration。
-- `classify_request()`：低风险 fallback 任务分类；不能作为高风险 apply/accept/archive/state/timeline 写入的主依据。
+- `propose_ask_command()`：把自然语言意图转换为 strict `CommandProposal`，执行预算预检，但不直接调用领域 mutation service。
+- `decide_ask_intent()` / `parse_ask_intent_decision()`：调用 `intent_router` task provider 输出 `AskIntentDecision`，作为 `novel ask` 主路径。
 - `route_revision_request()`：调用 `intent_router` task provider 输出 `RevisionRouteDecision`，用于把用户修订意见分为 `plot_replan`、`writer_rewrite`、`revision_patch`。
 - `route_audit_repair()` / `parse_audit_repair_route_decision()`：调用 `intent_router` task provider 或结构化确定性规则输出 `AuditRepairRouteDecision`，用于 Audit 后自动打回分流。
 - `parse_revision_route_decision()`：解析和归一化路由 JSON；失败时由 `route_revision_request()` repair retry 一次，仍失败则保守 fallback。
 - `load_intent_router_provider()`：读取 `intent_router` task 配置，创建带 model I/O 日志的 provider。
 - `build_revision_route_user_prompt()`：组装修订路由判定 prompt。
-- `handoff_rules_text()`：可见 handoff 规则。
-- `_execute_plan()` / `_execute_task()`：调用对应 core service。
-- `_validate_handoff_trace()` / `_check_limits()`：安全限制。
-- `_write_run_log()`：写 orchestrator run log。
+- 模型不可用时的 Ask fallback 只识别显式低风险请求并降低置信度；不存在通用 keyword classifier，也不会执行高风险动作。
+
+### `core/workflow_runtime.py`
+
+静态 workflow 运行时与可观测性：
+
+- `WORKFLOW_DEFINITIONS`：声明 Creation/Revision 的稳定节点序列和 Task ID。
+- `workflow_runtime_scope()`：创建或恢复 `runs/{workflow_run_id}/run.json`；同一 Session 后续命令复用原 `workflow_run_id`。
+- `WorkflowRuntime.execute_node()`：记录 command/model node 的 parent、Task/Profile、Provider/model、prompt hash、输入输出引用、预算快照、状态和错误。
+- Provider 调用自动嵌套在当前 command node 下；Command Bus 是唯一公开命令入口。
 
 ### `core/runtime_config.py`
 
@@ -1036,6 +1041,14 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 ### `src/novel/core/command_bus.py`
 
 注册公开 typed command handler，统一 confirmation gate、项目锁、CLI/Web 结果结构与 `DomainError`。Session、Revision、Memory/Setting Change、Preview 和 Production Export 的 adapter 不再自行调用领域 mutation service。
+
+### `src/novel/core/budget.py`
+
+通过 `WorkflowBudgetTracker` 与 context variable 维护 workflow-wide 章节数、模型调用、Provider attempt、自动修订轮次和 token usage。Command Bus 会从 Creation/Revision Session 继承累计 usage；Provider 与 Session runtime 在真实消耗点记账，超限抛出 `WorkflowBudgetExceeded`。
+
+### `src/novel/core/workflow_runtime.py`
+
+持久化 `WorkflowRun` 和 `WorkflowNodeRun`。Creation/Revision Session 保存同一个 `workflow_run_id`，人工审批后的后续 command 会继续向原 trace 追加节点；每个模型节点都继承 command parent，并记录调用前后的全局预算。
 
 ### `src/novel/core/setting_change_followup.py`
 

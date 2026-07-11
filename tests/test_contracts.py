@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from novel.core.contracts import CommandProposal, DecisionRisk, WorkflowBudget
+from novel.core.contracts import CommandProposal, DecisionRisk, SessionStartCommand, WorkflowBudget
 from novel.core.schemas import ProjectConfig
 from novel.core.task_registry import TASK_REGISTRY, render_task_registry_markdown
 from novel.core.contracts import TaskId
@@ -13,12 +13,18 @@ def test_control_contracts_forbid_unknown_fields() -> None:
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         CommandProposal.model_validate(
             {
-                "command_type": "session.start",
-                "arguments": {},
+                "command": SessionStartCommand(user_intent="写第一章", chapter_range=[1]),
+                "reason": "用户请求创作",
                 "confidence": 0.9,
                 "risk": DecisionRisk.MEDIUM,
                 "estimated_model_calls": 2,
                 "requires_confirmation": True,
+                "budget": {
+                    "max_chapters": 1,
+                    "max_model_calls": 3,
+                    "max_provider_attempts": 3,
+                    "max_auto_revision_rounds": 1,
+                },
                 "unexpected": "must fail",
             }
         )

@@ -110,8 +110,8 @@ def test_ask_json_dry_run_output(tmp_path: Path) -> None:
     assert stderr == ""
     payload = json.loads(stdout)
     assert payload["ok"] is True
-    assert payload["task"] == "plan"
-    assert payload["handoff_trace"][0]["target"] == "plot"
+    assert payload["status"] == "proposed"
+    assert payload["proposal"]["command"]["type"] == "session.start"
     assert not list((root / "runs").glob("run_*.json"))
 
 

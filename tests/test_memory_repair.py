@@ -52,12 +52,13 @@ def test_ask_memory_repair_creates_proposal_without_modifying_timeline(tmp_path:
             str(root),
             "--provider",
             "mock",
+            "--confirm",
         ]
     )
 
     assert code == 0
     assert stderr == ""
-    assert "Memory repair proposal:" in stdout
+    assert "Ask status: executed" in stdout
     assert timeline_path.read_text(encoding="utf-8") == before
     proposals = list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
     assert len(proposals) == 1
@@ -134,6 +135,7 @@ def test_ask_memory_repair_apply_refuses_fallback_natural_language_apply(tmp_pat
             str(root),
             "--provider",
             "mock",
+            "--confirm",
         ]
     )
     assert code == 0
@@ -150,9 +152,10 @@ def test_ask_memory_repair_apply_refuses_fallback_natural_language_apply(tmp_pat
         ]
     )
 
-    assert apply_code == 1
-    assert stdout == ""
-    assert "memory-repair apply" in stderr
+    assert apply_code == 0
+    assert stderr == ""
+    assert "Clarification:" in stdout
+    assert "memory-repair apply" in stdout
 
 
 def test_memory_repair_apply_command_updates_timeline_and_writes_event(tmp_path: Path) -> None:
@@ -165,6 +168,7 @@ def test_memory_repair_apply_command_updates_timeline_and_writes_event(tmp_path:
             str(root),
             "--provider",
             "mock",
+            "--confirm",
         ]
     )
     assert code == 0

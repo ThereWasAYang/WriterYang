@@ -456,8 +456,8 @@ def test_cli_search_json_output(tmp_path: Path) -> None:
     assert code == 0
     assert stderr == ""
     payload = json.loads(stdout)
-    assert payload[0]["type"] == "character"
-    assert "vector_score" in payload[0]["metadata"]
+    assert payload["results"][0]["type"] == "character"
+    assert "vector_score" in payload["results"][0]["metadata"]
 
 
 def test_cli_search_supports_highlight_and_chapter_filter(tmp_path: Path) -> None:
@@ -483,8 +483,8 @@ def test_cli_search_supports_highlight_and_chapter_filter(tmp_path: Path) -> Non
     assert code == 0
     assert stderr == ""
     payload = json.loads(stdout)
-    assert payload[0]["metadata"]["chapter"] == 1
-    assert "<mark>" in payload[0]["highlighted_excerpt"]
+    assert payload["results"][0]["metadata"]["chapter"] == 1
+    assert "<mark>" in payload["results"][0]["highlighted_excerpt"]
 
 
 def _workspace_ready_for_search(tmp_path: Path) -> Path:

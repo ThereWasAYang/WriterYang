@@ -32,10 +32,9 @@ from .deps import (
     ProviderFactory,
     provider_parameter_capabilities,
     resolve_json_response_format,
-    InitOptions,
     default_style_guide_markdown,
-    init_workspace,
 )
+from novel.core.contracts import ProjectInitCommand
 
 from .common import (
     EDITABLE_PROFILE_NAMES,
@@ -63,6 +62,7 @@ from .common import (
     _current_web_endpoint,
     _split_csv,
     _relative,
+    _dispatch_web_command,
     _safe_error,
 )
 
@@ -402,18 +402,16 @@ def _init_project(data: dict[str, object]) -> dict[str, object]:
     title = _optional_string(data.get("title")) or root.name or "未命名小说"
     genre_value = data.get("genre")
     genre = _split_csv(str(genre_value)) if genre_value else None
-    result = init_workspace(
-        InitOptions(
+    payload = _dispatch_web_command(
+        {**data, "path": str(root)},
+        ProjectInitCommand(
             title=title,
-            root=root,
             language=_optional_string(data.get("language")) or "zh-CN",
-            genre=genre,
-        )
+            genre=genre or [],
+        ),
     )
     return {
-        "root": str(result.root),
-        "created_files": [str(path) for path in result.created_files],
-        "created_dirs": [str(path) for path in result.created_dirs],
+        **payload,
         "setup_required": True,
     }
 

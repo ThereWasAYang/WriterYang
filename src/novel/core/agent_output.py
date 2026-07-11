@@ -78,6 +78,7 @@ def generate_with_output_guard(
         replace(
             model_request,
             agent_name=model_request.agent_name or invocation.agent_name,
+            repair_count=model_request.repair_count + 1,
             user_prompt=build_output_contract_repair_prompt(
                 original_prompt=model_request.user_prompt,
                 invalid_output=output,
@@ -102,8 +103,7 @@ def generate_with_output_guard(
             error=second_error,
         )
         raise AgentOutputContractError(
-            "agent output violated contract after repair retry: "
-            + ", ".join(second_error.reason_codes),
+            "agent output violated contract after repair retry: " + ", ".join(second_error.reason_codes),
             reason_codes=second_error.reason_codes,
         ) from second_error
 

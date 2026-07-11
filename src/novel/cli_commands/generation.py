@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Literal
 
 from novel.core.auditing import (
     AuditError,
@@ -101,6 +102,7 @@ from novel.cli_shared import (
     _validation_payload,
 )
 
+
 def _cmd_inspire(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
@@ -152,6 +154,7 @@ def _cmd_inspire(args: argparse.Namespace) -> int:
         },
         lines,
     )
+
 
 def _cmd_canon(args: argparse.Namespace) -> int:
     root = Path(args.path)
@@ -249,6 +252,7 @@ def _cmd_canon(args: argparse.Namespace) -> int:
         return _success(args, {"command": "canon show", "output": output}, [output])
     return _failure(args, f"unknown canon command: {args.canon_command}", code=2)
 
+
 def _cmd_plan_chapter(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
@@ -313,6 +317,7 @@ def _cmd_plan_chapter(args: argparse.Namespace) -> int:
         print(f"Validation passed: {len(result.validation_report.warnings)} warning(s)")
     return 0
 
+
 def _cmd_write_chapter(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
@@ -363,6 +368,7 @@ def _cmd_write_chapter(args: argparse.Namespace) -> int:
         },
         lines,
     )
+
 
 def _cmd_polish_chapter(args: argparse.Namespace) -> int:
     root = Path(args.path)
@@ -420,6 +426,7 @@ def _cmd_polish_chapter(args: argparse.Namespace) -> int:
         lines,
     )
 
+
 def _cmd_audit_chapter(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
@@ -470,11 +477,7 @@ def _cmd_audit_chapter(args: argparse.Namespace) -> int:
         f"Audit status: {result.report.overall_status}",
         f"Issues: {len(result.report.issues)}",
         f"Deterministic issues: {len(result.deterministic_findings)}"
-        + (
-            f" (highest: {result.deterministic_highest_severity})"
-            if result.deterministic_highest_severity
-            else ""
-        ),
+        + (f" (highest: {result.deterministic_highest_severity})" if result.deterministic_highest_severity else ""),
         *_audit_issue_lines(result.report),
     ]
     return _success(
@@ -491,6 +494,7 @@ def _cmd_audit_chapter(args: argparse.Namespace) -> int:
         },
         lines,
     )
+
 
 def _cmd_revise_chapter(args: argparse.Namespace) -> int:
     root = Path(args.path)
@@ -556,7 +560,7 @@ def _cmd_revise_chapter(args: argparse.Namespace) -> int:
         *(f"warning: {warning}" for warning in result.warnings),
         f"Wrote chapter revision: {result.output_path}",
         f"Updated revision log: {result.revision_log_path}",
-        *( [f"Wrote revision loop log: {revision_loop_log_path}"] if revision_loop_log_path else [] ),
+        *([f"Wrote revision loop log: {revision_loop_log_path}"] if revision_loop_log_path else []),
     ]
     return _success(
         args,
@@ -570,6 +574,7 @@ def _cmd_revise_chapter(args: argparse.Namespace) -> int:
         },
         lines,
     )
+
 
 def _cmd_propose_state_update(args: argparse.Namespace) -> int:
     root = Path(args.path)
@@ -629,13 +634,12 @@ def _cmd_propose_state_update(args: argparse.Namespace) -> int:
         lines,
     )
 
+
 def _cmd_apply_state_update(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
         with _command_lock(args, root, "apply-state-update"):
-            result = apply_state_update(
-                StateUpdateApplyOptions(root=root, chapter_number=args.chapter_number)
-            )
+            result = apply_state_update(StateUpdateApplyOptions(root=root, chapter_number=args.chapter_number))
     except ProjectLockError as exc:
         return _failure(args, str(exc), error_type="project_locked")
     except StateUpdateError as exc:
@@ -661,6 +665,7 @@ def _cmd_apply_state_update(args: argparse.Namespace) -> int:
             f"Wrote apply log: {result.apply_log_path}",
         ],
     )
+
 
 def _cmd_accept_chapter(args: argparse.Namespace) -> int:
     root = Path(args.path)
@@ -735,9 +740,7 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
             "metadata_path": str(result.metadata_path),
             "state_path": str(result.apply_result.state_path),
             "timeline_path": str(result.apply_result.timeline_path),
-            "proposal_path": str(result.proposal_result.proposal_path)
-            if result.proposal_result
-            else None,
+            "proposal_path": str(result.proposal_result.proposal_path) if result.proposal_result else None,
             "canon_drift_proposal_path": str(result.canon_drift_proposal_path)
             if result.canon_drift_proposal_path
             else None,
@@ -748,6 +751,7 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
         },
         lines,
     )
+
 
 def _cmd_generate_chapter(args: argparse.Namespace) -> int:
     root = Path(args.path)
@@ -779,13 +783,13 @@ def _cmd_generate_chapter(args: argparse.Namespace) -> int:
                     agent_config_path=args.agent_config,
                     model_name=args.model,
                     target_words=args.target_words,
-            style_note=args.style_note,
-            polish_mode=_polish_mode_from_arg(args.polish_mode),
-            stop_after=args.stop_after,
-            use_search_context=args.use_search_context,
-            use_vector_context=_vector_context_mode_from_args(args),
-        )
-    )
+                    style_note=args.style_note,
+                    polish_mode=_polish_mode_from_arg(args.polish_mode),
+                    stop_after=args.stop_after,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
+                )
+            )
     except ProjectLockError as exc:
         return _failure(args, str(exc), error_type="project_locked")
     except WorkflowError as exc:
@@ -816,16 +820,20 @@ def _cmd_generate_chapter(args: argparse.Namespace) -> int:
         lines,
     )
 
+
 def _cmd_export(args: argparse.Namespace) -> int:
     root = Path(args.path).expanduser().resolve()
     if args.export_command not in {"markdown", "docx"}:
         return _failure(args, f"unknown export command: {args.export_command}", code=2)
+    command_type: Literal["export.markdown", "export.docx"] = (
+        "export.markdown" if args.export_command == "markdown" else "export.docx"
+    )
     try:
         payload = _dispatch_cli_command(
             args,
             root,
             ProductionExportCommand(
-                type=f"export.{args.export_command}",
+                type=command_type,
                 chapters=list(parse_chapter_selector(args.chapters)),
                 from_chapter=args.from_chapter,
                 to_chapter=args.to_chapter,
@@ -841,13 +849,17 @@ def _cmd_export(args: argparse.Namespace) -> int:
     except DomainError as exc:
         return _failure(args, exc.message, error_type=exc.code)
     label = "Markdown" if args.export_command == "markdown" else "DOCX"
+    warnings_value = payload.get("warnings")
+    warnings = warnings_value if isinstance(warnings_value, list) else []
+    chapters_value = payload.get("chapters")
+    chapters = chapters_value if isinstance(chapters_value, list) else []
     return _success(
         args,
         payload,
         [
-            *(f"warning: {warning}" for warning in payload["warnings"]),
+            *(f"warning: {warning}" for warning in warnings),
             f"Wrote {label} export: {payload['output_path']}",
             f"Updated export manifest: {payload['manifest_path']}",
-            f"Chapters: {', '.join(str(number) for number in payload['chapters'])}",
+            f"Chapters: {', '.join(str(number) for number in chapters)}",
         ],
     )

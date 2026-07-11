@@ -16,7 +16,7 @@
 
 字段级真相以 `src/novel/core/schemas.py` 中的 Pydantic model 为准；`schemas/*.schema.json` 由这些 model 导出。本文侧重说明设计意图、人类可编辑约定和重要持久化路径，避免手写字段清单与生成 schema 漂移。
 
-控制面与 inter-agent 契约以 `src/novel/core/contracts/` 为准；`artifact_ref`、`chapter_lifecycle`、`session_projection`、`acceptance_commit`、`transaction_journal`、`command_proposal` 和 `workflow_budget` 也会导出到 `schemas/`。
+控制面与 inter-agent 契约以 `src/novel/core/contracts/` 为准；`artifact_ref`、`chapter_lifecycle`、`session_projection`、`acceptance_commit`、`transaction_journal`、`command_envelope`、`command_result`、`command_proposal`、`workflow_budget`、`workflow_run` 和 `workflow_node_run` 也会导出到 `schemas/`。`CommandEnvelope` 携带 budget 与初始 usage，`CommandResult` 返回累计 `budget_usage`；Creation/Revision Session 持久化 `workflow_run_id`、budget 与累计 usage，以支持跨 human gate 续跑。
 
 ---
 
@@ -1456,6 +1456,26 @@ runs/{run_id}.json
 "failed"
 "cancelled"
 ```
+
+`AgentRunLog` 仅用于底层 `generate_chapter()` 流水线。公开 Command Bus 与 Session/Revision 使用下面的 workflow trace。
+
+### 22.1 WorkflowRun 与 WorkflowNodeRun
+
+文件：
+
+```text
+runs/{workflow_run_id}/run.json
+runs/{workflow_run_id}/nodes/{node_id}.json
+```
+
+`WorkflowRun` 记录 root command、surface、全局 `WorkflowBudget`、累计 `BudgetUsage`、有序 `node_ids` 和整体状态。`WorkflowNodeRun` 记录 command/model/deterministic 节点的 parent、Task/Profile、Provider/model、输入输出 artifact/path、prompt hash、retry/repair 次数、调用前后预算、错误与恢复命令。
+
+约束：
+
+- Creation/Revision Session 必须保存同一 `workflow_run_id`；跨人工确认的后续 command 向原 run 追加节点。
+- 模型节点必须处于触发它的 command node 之下，并通过 Task Registry 绑定 Task/Profile。
+- prompt 正文不写入 trace，只写 SHA-256；正文级模型 I/O 继续遵循独立的脱敏与访问策略。
+- 预算超限时节点和 run 必须进入明确失败状态，同时 session 保存已消费 usage checkpoint。
 
 ---
 

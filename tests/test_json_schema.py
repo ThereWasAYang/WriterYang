@@ -62,6 +62,8 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "command_envelope",
         "command_result",
         "workflow_budget",
+        "workflow_node_run",
+        "workflow_run",
         "segment_selection",
         "segment_patch",
         "revision_session",
@@ -90,14 +92,8 @@ def test_agents_schema_forbids_task_only_fields_outside_tasks() -> None:
     properties = agents_schema["properties"]
     forbidden_fields = {"reasoning", "thinking", "temperature"}
 
-    default_forbidden = {
-        item["required"][0]
-        for item in properties["default"]["not"]["anyOf"]
-    }
-    profile_forbidden = {
-        item["required"][0]
-        for item in properties["profiles"]["additionalProperties"]["not"]["anyOf"]
-    }
+    default_forbidden = {item["required"][0] for item in properties["default"]["not"]["anyOf"]}
+    profile_forbidden = {item["required"][0] for item in properties["profiles"]["additionalProperties"]["not"]["anyOf"]}
 
     assert default_forbidden == forbidden_fields
     assert profile_forbidden == forbidden_fields

@@ -7,6 +7,7 @@ from pydantic import Field
 
 from novel.core.contracts.artifacts import ArtifactRef
 from novel.core.contracts.common import SchemaV3Model, Surface
+from novel.core.contracts.tracing import BudgetUsage, WorkflowBudget, default_workflow_budget
 
 
 VectorContextMode = Literal["auto", "on", "off"]
@@ -139,6 +140,41 @@ class SettingChangeApplyCommand(SchemaV3Model):
     polish_mode: PolishMode | None = None
 
 
+class ProjectStatusCommand(SchemaV3Model):
+    type: Literal["project.status"] = "project.status"
+
+
+class ProjectInitCommand(SchemaV3Model):
+    type: Literal["project.init"] = "project.init"
+    title: str = Field(min_length=1)
+    project_id: str | None = None
+    language: str = "zh-CN"
+    genre: list[str] = Field(default_factory=list)
+
+
+class ProjectValidateCommand(SchemaV3Model):
+    type: Literal["project.validate"] = "project.validate"
+
+
+class ProjectShowCommand(SchemaV3Model):
+    type: Literal["project.show"] = "project.show"
+    target: Literal["characters", "timeline", "state", "canon"] = "canon"
+
+
+class SearchCommand(SchemaV3Model):
+    type: Literal["search"] = "search"
+    query: str = Field(min_length=1)
+    search_type: Literal[
+        "character", "location", "item", "event", "chapter", "chapter_memory", "all"
+    ] = "all"
+    limit: int = Field(default=10, ge=1, le=100)
+    chapter_number: int | None = Field(default=None, ge=1)
+    highlight: bool = False
+    use_vector: bool = False
+    embedding_provider_name: str = "config"
+    embedding_config_path: str | None = None
+
+
 PublicCommand = Annotated[
     Union[
         SessionStartCommand,
@@ -153,6 +189,11 @@ PublicCommand = Annotated[
         SettingChangeSuggestCommand,
         SettingChangeAnswerCommand,
         SettingChangeApplyCommand,
+        ProjectStatusCommand,
+        ProjectInitCommand,
+        ProjectValidateCommand,
+        ProjectShowCommand,
+        SearchCommand,
     ],
     Field(discriminator="type"),
 ]
@@ -165,6 +206,8 @@ class CommandEnvelope(SchemaV3Model):
     project_root: str = Field(min_length=1)
     command: PublicCommand
     confirmed: bool = False
+    budget: WorkflowBudget = Field(default_factory=default_workflow_budget)
+    initial_budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)
     issued_at: datetime
 
 
@@ -177,3 +220,4 @@ class CommandResult(SchemaV3Model):
     warnings: list[str] = Field(default_factory=list)
     changed_artifacts: list[ArtifactRef] = Field(default_factory=list)
     changed_paths: list[str] = Field(default_factory=list)
+    budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)

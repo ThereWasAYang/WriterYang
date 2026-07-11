@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 import uuid
 
 from pydantic import ValidationError
 
 from novel.core.artifact_store import resolve_project_path
-from novel.core.io import load_json
+from novel.core.budget import WorkflowBudgetExceeded, active_budget_tracker, workflow_budget_scope
+from novel.core.io import atomic_write_model_json, load_json
 from novel.core.contracts import (
+    BudgetUsage,
     CommandEnvelope,
     CommandResult,
     MemoryRepairApplyCommand,
@@ -16,15 +19,23 @@ from novel.core.contracts import (
     PreviewPackageCommand,
     ProductionExportCommand,
     PublicCommand,
+    ProjectShowCommand,
+    ProjectInitCommand,
+    ProjectStatusCommand,
+    ProjectValidateCommand,
     RevisionBlocksCommand,
     RevisionCommand,
+    RevisionSession,
     RevisionStartCommand,
     SessionCommand,
     SessionStartCommand,
+    SearchCommand,
     SettingChangeAnswerCommand,
     SettingChangeApplyCommand,
     SettingChangeSuggestCommand,
     Surface,
+    WorkflowBudget,
+    default_workflow_budget,
 )
 from novel.core.exporting import (
     DocxExportOptions,
@@ -36,6 +47,14 @@ from novel.core.exporting import (
     export_markdown,
 )
 from novel.core.locking import ProjectLock, ProjectLockError
+from novel.core.inspection import (
+    ProjectReadError,
+    format_canon,
+    format_characters,
+    format_state,
+    format_timeline,
+    get_project_status,
+)
 from novel.core.memory_repair import (
     MemoryRepairError,
     SettingChangeSuggestionResult,
@@ -45,6 +64,7 @@ from novel.core.memory_repair import (
     suggest_setting_change_interactive,
 )
 from novel.core.previewing import PreviewError, PreviewPackageOptions, build_preview_package
+from novel.core.search import SearchError, search_project
 from novel.core.revision_workflow import (
     RevisionActionOptions,
     RevisionRunOptions,
@@ -84,6 +104,9 @@ from novel.core.setting_change_followup import (
 )
 from novel.core.timeutil import utc_now
 from novel.core.schemas import CreationSession
+from novel.core.validation import validate_project
+from novel.core.workflow_runtime import workflow_runtime_scope
+from novel.core.workspace import InitOptions, WorkspaceExistsError, init_workspace
 
 
 class DomainError(RuntimeError):
@@ -104,8 +127,16 @@ class DomainError(RuntimeError):
 
 CommandHandler = Callable[[CommandEnvelope, Path], CommandResult]
 COMMAND_HANDLERS: dict[str, CommandHandler] = {}
-READ_ONLY_COMMANDS = {"session.show", "revision.blocks", "revision.show"}
-UNLOCKED_WRITE_COMMANDS = {"session.cancel"}
+READ_ONLY_COMMANDS = {
+    "project.status",
+    "project.validate",
+    "project.show",
+    "search",
+    "session.show",
+    "revision.blocks",
+    "revision.show",
+}
+UNLOCKED_WRITE_COMMANDS = {"project.init", "session.cancel"}
 CONFIRMATION_REQUIRED = {
     "session.accept",
     "session.archive",
@@ -124,6 +155,8 @@ def new_command_envelope(
     command: PublicCommand,
     confirmed: bool = False,
     workflow_run_id: str | None = None,
+    budget: WorkflowBudget | None = None,
+    initial_budget_usage: BudgetUsage | None = None,
 ) -> CommandEnvelope:
     return CommandEnvelope(
         command_id=f"cmd_{uuid.uuid4().hex}",
@@ -132,32 +165,72 @@ def new_command_envelope(
         project_root=str(project_root.expanduser().resolve()),
         command=command,
         confirmed=confirmed,
+        budget=budget or default_workflow_budget(),
+        initial_budget_usage=initial_budget_usage or BudgetUsage(),
         issued_at=utc_now(),
     )
 
 
 def dispatch_command(envelope: CommandEnvelope) -> CommandResult:
     root = Path(envelope.project_root).expanduser().resolve()
-    command_type = envelope.command.type
-    if command_type in CONFIRMATION_REQUIRED and not envelope.confirmed:
-        raise DomainError(
-            "confirmation_required",
-            f"command requires explicit confirmation: {command_type}",
-            recoverable=True,
-            details={"command_type": command_type},
-        )
-    handler = COMMAND_HANDLERS.get(command_type)
-    if not handler:
-        raise DomainError("unknown_command", f"no handler registered for {command_type}")
+    budget_tracker = None
+    effective_budget = envelope.budget
     try:
-        if command_type in READ_ONLY_COMMANDS or command_type in UNLOCKED_WRITE_COMMANDS:
-            return handler(envelope, root)
-        with ProjectLock(root, task=command_type):
-            return handler(envelope, root)
+        envelope = _resume_session_workflow(root, envelope)
+        command_type = envelope.command.type
+        if command_type in CONFIRMATION_REQUIRED and not envelope.confirmed:
+            raise DomainError(
+                "confirmation_required",
+                f"command requires explicit confirmation: {command_type}",
+                recoverable=True,
+                details={"command_type": command_type},
+            )
+        handler = COMMAND_HANDLERS.get(command_type)
+        if not handler:
+            raise DomainError("unknown_command", f"no handler registered for {command_type}")
+        budget, initial_usage = _effective_command_budget(root, envelope)
+        effective_budget = budget
+        with workflow_budget_scope(
+            budget,
+            initial_usage=initial_usage,
+        ) as budget_tracker:
+
+            def execute_handler() -> CommandResult:
+                _reserve_command_scope(envelope.command)
+                if command_type in READ_ONLY_COMMANDS or command_type in UNLOCKED_WRITE_COMMANDS:
+                    return handler(envelope, root)
+                with ProjectLock(root, task=command_type):
+                    return handler(envelope, root)
+
+            if (root / "project.yaml").exists():
+                with workflow_runtime_scope(
+                    root=root,
+                    workflow_run_id=envelope.workflow_run_id,
+                    command_id=envelope.command_id,
+                    surface=envelope.surface,
+                    budget=budget,
+                ) as runtime:
+                    result = runtime.execute_node(
+                        name=f"command:{command_type}",
+                        node_type="command",
+                        function=execute_handler,
+                        input_paths=["project.yaml"],
+                        output_details=lambda value: (
+                            value.changed_artifacts,
+                            value.changed_paths,
+                        ),
+                    )
+            else:
+                result = execute_handler()
+            usage = budget_tracker.snapshot()
+            result = _persist_session_budget(result, envelope.command, budget, usage)
+            return result.model_copy(update={"budget_usage": usage})
     except DomainError:
         raise
     except ProjectLockError as exc:
         raise DomainError("project_locked", str(exc), recoverable=True) from exc
+    except WorkspaceExistsError as exc:
+        raise DomainError("workspace_exists", str(exc), recoverable=True) from exc
     except CreationSessionError as exc:
         raise DomainError("session_error", str(exc), recoverable=True) from exc
     except RevisionWorkflowError as exc:
@@ -168,6 +241,24 @@ def dispatch_command(envelope: CommandEnvelope) -> CommandResult:
         raise DomainError("export_error", str(exc), recoverable=True) from exc
     except PreviewError as exc:
         raise DomainError("preview_error", str(exc), recoverable=True) from exc
+    except SearchError as exc:
+        raise DomainError("search_error", str(exc), recoverable=True) from exc
+    except ProjectReadError as exc:
+        raise DomainError("project_read_error", str(exc), recoverable=True) from exc
+    except WorkflowBudgetExceeded as exc:
+        if budget_tracker is not None:
+            _persist_failed_session_budget(
+                root,
+                envelope.command,
+                effective_budget,
+                budget_tracker.snapshot(),
+            )
+        raise DomainError(
+            "budget_exceeded",
+            str(exc),
+            recoverable=True,
+            details={"dimension": exc.dimension, "used": exc.used, "limit": exc.limit},
+        ) from exc
     except (ValidationError, ValueError) as exc:
         raise DomainError("invalid_command", str(exc), recoverable=True) from exc
 
@@ -182,7 +273,134 @@ def command_result_payload(value: CommandResult) -> dict[str, object]:
         "warnings": value.warnings,
         "changed_artifacts": [ref.model_dump(mode="json") for ref in value.changed_artifacts],
         "changed_paths": value.changed_paths,
+        "budget_usage": value.budget_usage.model_dump(mode="json"),
     }
+
+
+def _reserve_command_scope(command: PublicCommand) -> None:
+    tracker = active_budget_tracker()
+    if not tracker:
+        return
+    if isinstance(command, SessionStartCommand):
+        tracker.consume_chapters(len(command.chapter_range))
+    elif isinstance(command, RevisionStartCommand):
+        tracker.consume_chapters(1)
+    elif isinstance(command, (ProductionExportCommand, PreviewPackageCommand)) and command.chapters:
+        tracker.consume_chapters(len(set(command.chapters)))
+
+
+def _effective_command_budget(
+    root: Path,
+    envelope: CommandEnvelope,
+) -> tuple[WorkflowBudget, BudgetUsage]:
+    command = envelope.command
+    if isinstance(command, SessionCommand):
+        creation_session = show_session(root, command.session_id).session
+        if creation_session.workflow_budget is not None:
+            return creation_session.workflow_budget, creation_session.budget_usage
+    if isinstance(command, RevisionCommand):
+        revision_session = show_revision_session(root, command.revision_session_id).session
+        if revision_session.workflow_budget is not None:
+            return revision_session.workflow_budget, revision_session.budget_usage
+    return envelope.budget, envelope.initial_budget_usage
+
+
+def _resume_session_workflow(root: Path, envelope: CommandEnvelope) -> CommandEnvelope:
+    command = envelope.command
+    if isinstance(command, SessionCommand):
+        try:
+            session = show_session(root, command.session_id).session
+        except CreationSessionError:
+            return envelope
+        if session.workflow_run_id:
+            return envelope.model_copy(update={"workflow_run_id": session.workflow_run_id})
+    if isinstance(command, RevisionCommand):
+        try:
+            revision_session = show_revision_session(root, command.revision_session_id).session
+        except RevisionWorkflowError:
+            return envelope
+        if revision_session.workflow_run_id:
+            return envelope.model_copy(update={"workflow_run_id": revision_session.workflow_run_id})
+    return envelope
+
+
+def _persist_session_budget(
+    result: CommandResult,
+    command: PublicCommand,
+    budget: WorkflowBudget,
+    usage: BudgetUsage,
+) -> CommandResult:
+    if isinstance(command, (RevisionStartCommand, RevisionCommand)):
+        if isinstance(command, RevisionCommand) and command.type == "revision.show":
+            return result
+        revision_data = result.result.get("revision_session")
+        revision_path_value = result.result.get("session_path")
+        if not isinstance(revision_data, dict) or not isinstance(revision_path_value, str):
+            return result
+        revision = RevisionSession.model_validate(revision_data).model_copy(
+            update={
+                "workflow_run_id": result.workflow_run_id,
+                "workflow_budget": budget,
+                "budget_usage": usage,
+            }
+        )
+        atomic_write_model_json(Path(revision_path_value), revision)
+        payload = dict(result.result)
+        payload["revision_session"] = revision.model_dump(mode="json")
+        return result.model_copy(update={"result": payload})
+    if not isinstance(command, (SessionStartCommand, SessionCommand)):
+        return result
+    if isinstance(command, SessionCommand) and command.type in {"session.show", "session.cancel"}:
+        return result
+    session_data = result.result.get("session")
+    session_path_value = result.result.get("session_path")
+    if not isinstance(session_data, dict) or not isinstance(session_path_value, str):
+        return result
+    session = CreationSession.model_validate(session_data).model_copy(
+        update={
+            "workflow_run_id": result.workflow_run_id,
+            "workflow_budget": budget,
+            "budget_usage": usage,
+        }
+    )
+    atomic_write_model_json(Path(session_path_value), session)
+    payload = dict(result.result)
+    payload["session"] = session.model_dump(mode="json")
+    return result.model_copy(update={"result": payload})
+
+
+def _persist_failed_session_budget(
+    root: Path,
+    command: PublicCommand,
+    budget: WorkflowBudget,
+    usage: BudgetUsage,
+) -> None:
+    if isinstance(command, RevisionCommand):
+        try:
+            revision_value = show_revision_session(root, command.revision_session_id)
+            revision_session = revision_value.session.model_copy(
+                update={
+                    "workflow_budget": budget,
+                    "budget_usage": usage,
+                }
+            )
+            atomic_write_model_json(revision_value.session_path, revision_session)
+        except Exception:
+            return
+        return
+    if not isinstance(command, SessionCommand):
+        return
+    try:
+        session_value = show_session(root, command.session_id)
+        creation_session = session_value.session.model_copy(
+            update={
+                "workflow_budget": budget,
+                "budget_usage": usage,
+            }
+        )
+        atomic_write_model_json(session_value.session_path, creation_session)
+    except Exception:
+        return
 
 
 def _handler(*command_types: str) -> Callable[[CommandHandler], CommandHandler]:
@@ -192,6 +410,7 @@ def _handler(*command_types: str) -> Callable[[CommandHandler], CommandHandler]:
                 raise RuntimeError(f"duplicate command handler: {command_type}")
             COMMAND_HANDLERS[command_type] = function
         return function
+
     return register
 
 
@@ -211,6 +430,136 @@ def _result(
         next_allowed_commands=next_allowed_commands or [],
         warnings=warnings or [],
         changed_paths=changed_paths or [],
+    )
+
+
+@_handler("project.status")
+def _handle_project_status(envelope: CommandEnvelope, root: Path) -> CommandResult:
+    if not isinstance(envelope.command, ProjectStatusCommand):
+        raise DomainError("invalid_command", "project.status payload type mismatch")
+    status = get_project_status(root)
+    payload = asdict(status)
+    payload["latest_run_log"] = str(status.latest_run_log) if status.latest_run_log else None
+    return _result(envelope, result={"status": payload})
+
+
+@_handler("project.init")
+def _handle_project_init(envelope: CommandEnvelope, root: Path) -> CommandResult:
+    command = envelope.command
+    if not isinstance(command, ProjectInitCommand):
+        raise DomainError("invalid_command", "project.init payload type mismatch")
+    value = init_workspace(
+        InitOptions(
+            title=command.title,
+            root=root,
+            project_id=command.project_id,
+            language=command.language,
+            genre=command.genre,
+        )
+    )
+    return _result(
+        envelope,
+        result={
+            "root": str(value.root),
+            "created_files": [str(path) for path in value.created_files],
+            "created_dirs": [str(path) for path in value.created_dirs],
+        },
+        changed_paths=[path.relative_to(value.root).as_posix() for path in value.created_files],
+    )
+
+
+@_handler("project.validate")
+def _handle_project_validate(envelope: CommandEnvelope, root: Path) -> CommandResult:
+    if not isinstance(envelope.command, ProjectValidateCommand):
+        raise DomainError("invalid_command", "project.validate payload type mismatch")
+    report = validate_project(root)
+    return _result(
+        envelope,
+        result={
+            "root": str(report.root),
+            "valid": report.ok,
+            "error_count": len(report.errors),
+            "warning_count": len(report.warnings),
+            "messages": [
+                {
+                    "level": message.level,
+                    "path": (
+                        message.path.relative_to(report.root).as_posix()
+                        if message.path.is_relative_to(report.root)
+                        else str(message.path)
+                    ),
+                    "message": message.message,
+                }
+                for message in report.messages
+            ],
+        },
+    )
+
+
+@_handler("project.show")
+def _handle_project_show(envelope: CommandEnvelope, root: Path) -> CommandResult:
+    command = envelope.command
+    if not isinstance(command, ProjectShowCommand):
+        raise DomainError("invalid_command", "project.show payload type mismatch")
+    paths = {
+        "characters": root / "memory" / "canon" / "characters.json",
+        "timeline": root / "memory" / "state" / "timeline.json",
+        "state": root / "memory" / "state" / "current_state.json",
+        "canon": root / "memory" / "canon" / "characters.json",
+    }
+    path = paths[command.target]
+    output = {
+        "characters": format_characters,
+        "timeline": format_timeline,
+        "state": format_state,
+        "canon": format_canon,
+    }[command.target](root)
+    return _result(
+        envelope,
+        result={
+            "target": command.target,
+            "path": str(path),
+            "data": load_json(path),
+            "output": output,
+        },
+    )
+
+
+@_handler("search")
+def _handle_search(envelope: CommandEnvelope, root: Path) -> CommandResult:
+    command = envelope.command
+    if not isinstance(command, SearchCommand):
+        raise DomainError("invalid_command", "search payload type mismatch")
+    results = search_project(
+        root,
+        command.query,
+        search_type=command.search_type,
+        limit=command.limit,
+        chapter_number=command.chapter_number,
+        highlight=command.highlight,
+        use_vector=command.use_vector,
+        embedding_provider_name=command.embedding_provider_name,
+        embedding_config_path=(Path(command.embedding_config_path) if command.embedding_config_path else None),
+    )
+    return _result(
+        envelope,
+        result={
+            "query": command.query,
+            "results": [
+                {
+                    "id": item.id,
+                    "type": item.type,
+                    "path": item.path,
+                    "title": item.title,
+                    "score": item.score,
+                    "matched_terms": list(item.matched_terms),
+                    "excerpt": item.excerpt,
+                    "highlighted_excerpt": item.highlighted_excerpt,
+                    "metadata": item.metadata,
+                }
+                for item in results
+            ],
+        },
     )
 
 
@@ -308,9 +657,7 @@ def _handle_session_command(envelope: CommandEnvelope, root: Path) -> CommandRes
             },
             next_allowed_commands=["session.show"],
             changed_paths=[
-                (root / "memory" / "sessions" / command.session_id / "progress.json")
-                .relative_to(root)
-                .as_posix()
+                (root / "memory" / "sessions" / command.session_id / "progress.json").relative_to(root).as_posix()
             ],
         )
     else:

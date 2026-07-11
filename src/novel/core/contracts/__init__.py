@@ -10,6 +10,10 @@ from novel.core.contracts.commands import (
     CommandResult,
     MemoryRepairApplyCommand,
     MemoryRepairSuggestCommand,
+    ProjectShowCommand,
+    ProjectInitCommand,
+    ProjectStatusCommand,
+    ProjectValidateCommand,
     PreviewPackageCommand,
     ProductionExportCommand,
     PublicCommand,
@@ -19,6 +23,7 @@ from novel.core.contracts.commands import (
     SessionCommand,
     SessionCommandType,
     SessionStartCommand,
+    SearchCommand,
     SettingChangeAnswerCommand,
     SettingChangeApplyCommand,
     SettingChangeSuggestCommand,
@@ -58,7 +63,13 @@ from novel.core.contracts.state import (
     TransactionStatus,
     WorldSnapshotRef,
 )
-from novel.core.contracts.tracing import WorkflowBudget
+from novel.core.contracts.tracing import (
+    BudgetUsage,
+    WorkflowBudget,
+    WorkflowNodeRun,
+    WorkflowRun,
+    default_workflow_budget,
+)
 
 __all__ = [
     "ALLOWED_SESSION_TRANSITIONS",
@@ -97,9 +108,14 @@ __all__ = [
     "PreviewPackageCommand",
     "MemoryRepairSuggestCommand",
     "MemoryRepairApplyCommand",
+    "ProjectShowCommand",
+    "ProjectInitCommand",
+    "ProjectStatusCommand",
+    "ProjectValidateCommand",
     "SettingChangeSuggestCommand",
     "SettingChangeAnswerCommand",
     "SettingChangeApplyCommand",
+    "SearchCommand",
     "ensure_revision_phase_transition",
     "SessionProjection",
     "StateProposalBinding",
@@ -110,6 +126,10 @@ __all__ = [
     "TransactionJournal",
     "TransactionStatus",
     "WorkflowBudget",
+    "BudgetUsage",
+    "default_workflow_budget",
+    "WorkflowNodeRun",
+    "WorkflowRun",
     "WorldSnapshotRef",
     "validate_session_transition",
 ]

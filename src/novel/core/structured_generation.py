@@ -49,6 +49,7 @@ def generate_json_with_repair(
             provider,
             replace(
                 request,
+                repair_count=request.repair_count + 1,
                 user_prompt=_repair_user_prompt(
                     original_prompt=request.user_prompt,
                     repair_instruction=repair_prompt(content, str(first_error)),

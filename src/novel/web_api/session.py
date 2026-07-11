@@ -3,13 +3,10 @@ from __future__ import annotations
 from typing import cast
 
 from .deps import (
-    asdict,
     Path,
     localize_audit_issue_for_author,
     localize_session_rewrite_issue_for_author,
-    get_project_status,
     load_json_model,
-    search_project,
     AuditReport,
     CreationSession,
     SessionProgress,
@@ -18,17 +15,21 @@ from .deps import (
     load_session,
     load_rewrite_events,
     parse_range,
-    ValidationMessage,
-    validate_project,
 )
-from novel.core.contracts import PublicCommand, SessionCommand, SessionStartCommand
+from novel.core.contracts import (
+    ProjectStatusCommand,
+    ProjectValidateCommand,
+    PublicCommand,
+    SearchCommand,
+    SessionCommand,
+    SessionStartCommand,
+)
 from novel.core.contracts.commands import SessionCommandType
 from novel.core.command_bus import allowed_session_commands
 from novel.core.session import SessionResult
 
 from .common import (
     WebAPIError,
-    _require_workspace,
     _root_from_query,
     _root_from_body,
     _optional_string,
@@ -40,6 +41,7 @@ from .common import (
     _relative,
     _safe_error,
     _dispatch_web_command,
+    _dispatch_web_query_command,
 )
 
 from .inspection import _management_event_summary
@@ -147,29 +149,15 @@ def _session_command_payload(
     return payload
 
 
-def _validate_project(root: Path) -> dict[str, object]:
-    _require_workspace(root)
-    report = validate_project(root)
-    return {
-        "valid": report.ok,
-        "error_count": len(report.errors),
-        "warning_count": len(report.warnings),
-        "errors": [_validation_message_payload(root, message) for message in report.errors],
-        "warnings": [_validation_message_payload(root, message) for message in report.warnings],
-        "messages": [_validation_message_payload(root, message) for message in report.messages],
-    }
+def _validate_project_api(query: dict[str, str]) -> dict[str, object]:
+    return _dispatch_web_query_command(query, ProjectValidateCommand())
 
 
 def _project_status_api(query: dict[str, str]) -> dict[str, object]:
-    root = _root_from_query(query)
-    status = get_project_status(root)
-    payload = asdict(status)
-    payload["latest_run_log"] = str(status.latest_run_log) if status.latest_run_log else None
-    return {"status": payload}
+    return _dispatch_web_query_command(query, ProjectStatusCommand())
 
 
 def _search_api(query: dict[str, str]) -> dict[str, object]:
-    root = _root_from_query(query)
     search_query = _required_string(query.get("query") or query.get("q"), "query")
     search_type = _optional_string(query.get("type")) or "all"
     if search_type not in {"character", "location", "item", "event", "chapter", "chapter_memory", "all"}:
@@ -181,37 +169,20 @@ def _search_api(query: dict[str, str]) -> dict[str, object]:
     limit = _optional_int(query.get("limit")) or 10
     chapter = _optional_int(query.get("chapter"))
     use_vector = _truthy(query.get("use_vector"))
-    results = search_project(
-        root,
-        search_query,
-        search_type=search_type,  # type: ignore[arg-type]
-        limit=limit,
-        chapter_number=chapter,
-        highlight=_truthy(query.get("highlight")),
-        use_vector=use_vector,
-        embedding_provider_name=_optional_string(query.get("embedding_provider")) or "config",
+    payload = _dispatch_web_query_command(
+        query,
+        SearchCommand(
+            query=search_query,
+            search_type=search_type,  # type: ignore[arg-type]
+            limit=limit,
+            chapter_number=chapter,
+            highlight=_truthy(query.get("highlight")),
+            use_vector=use_vector,
+            embedding_provider_name=_optional_string(query.get("embedding_provider")) or "config",
+        ),
     )
-    return {
-        "query": search_query,
-        "type": search_type,
-        "chapter": chapter,
-        "limit": limit,
-        "use_vector": use_vector,
-        "results": [
-            {
-                "id": result.id,
-                "type": result.type,
-                "path": result.path,
-                "title": result.title,
-                "score": result.score,
-                "matched_terms": list(result.matched_terms),
-                "excerpt": result.excerpt,
-                "highlighted_excerpt": result.highlighted_excerpt,
-                "metadata": result.metadata,
-            }
-            for result in results
-        ],
-    }
+    payload.update({"type": search_type, "chapter": chapter, "limit": limit, "use_vector": use_vector})
+    return payload
 
 
 def _session_api(query: dict[str, str]) -> dict[str, object]:
@@ -261,14 +232,6 @@ def _session_rewrite_events_api(query: dict[str, str]) -> dict[str, object]:
     return {
         "session_id": session.session_id,
         "rewrite_events": _session_rewrite_event_summary(root, session),
-    }
-
-
-def _validation_message_payload(root: Path, message: ValidationMessage) -> dict[str, object]:
-    return {
-        "level": message.level,
-        "path": _relative(root, message.path),
-        "message": message.message,
     }
 
 

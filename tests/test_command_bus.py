@@ -68,6 +68,11 @@ def test_every_public_command_type_has_exactly_one_handler() -> None:
         "setting_change.suggest",
         "setting_change.answer",
         "setting_change.apply",
+        "project.status",
+        "project.init",
+        "project.validate",
+        "project.show",
+        "search",
     }
     assert set(COMMAND_HANDLERS) == command_types
 

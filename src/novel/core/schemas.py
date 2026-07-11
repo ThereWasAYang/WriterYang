@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from novel.core.agent_defaults import PROFILE_NAMES, TASK_ONLY_CONFIG_FIELDS, TASK_TO_PROFILE
 from novel.core.contracts.common import CURRENT_SCHEMA_VERSION, ensure_schema_version
+from novel.core.contracts.tracing import BudgetUsage, WorkflowBudget
 
 
 EntityId = str
@@ -79,10 +80,14 @@ CreationSessionStatus = Literal[
     "archived",
 ]
 CreationOutlineStatus = Literal["draft", "proposed", "approved"]
-CreationContentStatus = Literal["not_started", "generating", "needs_revision", "needs_user_review", "accepted", "archived"]
+CreationContentStatus = Literal[
+    "not_started", "generating", "needs_revision", "needs_user_review", "accepted", "archived"
+]
 RevisionRoute = Literal["plot_replan", "writer_rewrite", "revision_patch"]
 RevisionRouteRiskLevel = Literal["low", "medium", "high"]
-AskIntentTask = Literal["session_start", "memory_repair_suggest", "memory_repair_apply", "export", "status", "show", "unknown"]
+AskIntentTask = Literal[
+    "session_start", "memory_repair_suggest", "memory_repair_apply", "export", "status", "show", "unknown"
+]
 DecisionSource = Literal["model", "fallback", "mock", "deterministic"]
 AuditIssueSourceLayer = Literal["plan", "draft", "polished", "state", "timeline", "canon", "style", "unknown"]
 AuditEvidenceStrength = Literal["weak", "medium", "strong"]
@@ -782,12 +787,22 @@ class CreationSession(SchemaVersionedModel):
     created_at: datetime
     updated_at: datetime
     max_auto_revision_rounds: int = Field(default=3, ge=0)
+    workflow_run_id: str | None = Field(default=None, pattern=r"^run_[0-9a-f]{32}$")
+    workflow_budget: WorkflowBudget | None = None
+    budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)
 
     @model_validator(mode="after")
     def validate_scope_and_status(self) -> CreationSession:
         if sorted(set(self.chapter_range)) != self.chapter_range:
             raise ValueError("chapter_range 必须升序排列且去重")
-        if self.status in {"outline_approved", "generating", "needs_revision", "needs_user_review", "accepted", "archived"}:
+        if self.status in {
+            "outline_approved",
+            "generating",
+            "needs_revision",
+            "needs_user_review",
+            "accepted",
+            "archived",
+        }:
             if self.outline_status != "approved":
                 raise ValueError("approved 及之后状态的 session 必须满足 outline_status=approved")
         if self.status == "archived" and self.content_status != "archived":
@@ -1032,7 +1047,9 @@ class ContextBundle(SchemaVersionedModel):
         ]
         if not self.included:
             lines.append("  none")
-        for index, item in enumerate(sorted(self.included, key=lambda value: (-value.priority, value.type, value.id)), start=1):
+        for index, item in enumerate(
+            sorted(self.included, key=lambda value: (-value.priority, value.type, value.id)), start=1
+        ):
             lines.extend(
                 [
                     f"  {index}. [{item.type}] {item.id} ({item.source})",
@@ -1093,10 +1110,7 @@ class AuditReport(SchemaVersionedModel):
         if self.overall_status == "passed":
             severe = [issue.id for issue in self.issues if issue.severity in {"medium", "high", "critical"}]
             if severe:
-                raise ValueError(
-                    "passed audit report 不能包含 medium、high 或 critical issue："
-                    + ", ".join(severe)
-                )
+                raise ValueError("passed audit report 不能包含 medium、high 或 critical issue：" + ", ".join(severe))
         for issue in self.issues:
             if issue.type != "informational" and not issue.suggested_fix:
                 raise ValueError(f"audit issue {issue.id} 必须包含 suggested_fix")

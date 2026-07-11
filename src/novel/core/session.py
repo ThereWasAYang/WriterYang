@@ -9,6 +9,7 @@ import yaml
 
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.artifact_store import capture_working_chapter
+from novel.core.budget import consume_auto_revision_round
 from novel.core.contracts import SessionProjection
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
@@ -353,6 +354,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
             round_number = 0
             while _has_hard_issues(audit_report) and round_number < max_rounds:
                 round_number += 1
+                consume_auto_revision_round()
                 after_output_path: Path | None = None
                 _record_session_progress(
                     root,

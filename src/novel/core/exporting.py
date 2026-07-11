@@ -13,6 +13,7 @@ from docx import Document
 
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.lifecycle import LifecycleError, accepted_chapter_commit
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.schemas import ExportManifest, ExportRecord, ExportSourceChapter, ProjectConfig
 from novel.core.timeutil import utc_now_precise
@@ -30,7 +31,6 @@ class MarkdownExportOptions:
     chapters: tuple[int, ...] = ()
     from_chapter: int | None = None
     to_chapter: int | None = None
-    include_unaccepted: bool = False
     output_path: Path | None = None
     title: str | None = None
     include_toc: bool = False
@@ -45,7 +45,6 @@ class DocxExportOptions:
     chapters: tuple[int, ...] = ()
     from_chapter: int | None = None
     to_chapter: int | None = None
-    include_unaccepted: bool = False
     output_path: Path | None = None
     title: str | None = None
     force: bool = False
@@ -57,7 +56,12 @@ class ExportedChapter:
     title: str
     path: Path
     document: DraftDocument
-    accepted: bool
+    acceptance_commit_id: str
+    candidate_artifact_id: str
+    audit_artifact_id: str
+    state_proposal_artifact_id: str
+    post_state_sha256: str
+    post_timeline_sha256: str
 
 
 @dataclass(frozen=True)
@@ -160,27 +164,33 @@ def collect_export_chapters(options: MarkdownExportOptions, root: Path) -> tuple
     warnings: list[str] = []
     chapters: list[ExportedChapter] = []
     for chapter_number in selected_numbers:
-        path = root / "memory" / "chapters" / f"{chapter_number:03d}" / "polished.md"
+        chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+        path = chapter_dir / "accepted.md"
         if not path.exists():
-            warnings.append(f"chapter {chapter_number} has no polished.md; skipped")
+            warnings.append(f"chapter {chapter_number} has no accepted.md; skipped")
             continue
+        try:
+            acceptance = accepted_chapter_commit(root, chapter_number)
+        except LifecycleError as exc:
+            raise ExportError(str(exc)) from exc
         document = _read_chapter_document(path)
         metadata_number = document.metadata.get("chapter_number")
         if metadata_number != chapter_number:
             raise ExportError(
                 f"{path} chapter_number {metadata_number} does not match directory chapter {chapter_number}"
             )
-        accepted = document.metadata.get("status") == "accepted"
-        if not accepted and not options.include_unaccepted:
-            warnings.append(f"chapter {chapter_number} is not accepted; skipped")
-            continue
         chapters.append(
             ExportedChapter(
                 chapter_number=chapter_number,
                 title=str(document.metadata.get("title") or f"Chapter {chapter_number}"),
                 path=path,
                 document=document,
-                accepted=accepted,
+                acceptance_commit_id=acceptance.commit_id,
+                candidate_artifact_id=acceptance.candidate.artifact_id,
+                audit_artifact_id=acceptance.audit.artifact_id,
+                state_proposal_artifact_id=acceptance.state_proposal.artifact_id,
+                post_state_sha256=acceptance.post_state_sha256,
+                post_timeline_sha256=acceptance.post_timeline_sha256,
             )
         )
     return chapters, warnings
@@ -274,8 +284,14 @@ def update_export_manifest(
                 chapter_number=chapter.chapter_number,
                 title=chapter.title,
                 path=_rel(root, chapter.path),
-                accepted=chapter.accepted,
+                accepted=True,
                 sha256=_sha256_file(chapter.path),
+                acceptance_commit_id=chapter.acceptance_commit_id,
+                candidate_artifact_id=chapter.candidate_artifact_id,
+                audit_artifact_id=chapter.audit_artifact_id,
+                state_proposal_artifact_id=chapter.state_proposal_artifact_id,
+                post_state_sha256=chapter.post_state_sha256,
+                post_timeline_sha256=chapter.post_timeline_sha256,
             )
             for chapter in chapters
         ],
@@ -314,7 +330,6 @@ def _docx_to_markdown_options(options: DocxExportOptions) -> MarkdownExportOptio
         chapters=options.chapters,
         from_chapter=options.from_chapter,
         to_chapter=options.to_chapter,
-        include_unaccepted=options.include_unaccepted,
         output_path=options.output_path,
         title=options.title,
         force=options.force,

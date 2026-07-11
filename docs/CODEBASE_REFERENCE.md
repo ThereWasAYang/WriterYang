@@ -54,6 +54,7 @@
 - `src/novel/core/agent_defaults.py`
 - `src/novel/core/agent_output.py`
 - `src/novel/core/app_logging.py`
+- `src/novel/core/artifact_store.py`
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
 - `src/novel/core/chapter_memory.py`
@@ -71,6 +72,7 @@
 - `src/novel/core/json_extract.py`
 - `src/novel/core/json_schema.py`
 - `src/novel/core/locking.py`
+- `src/novel/core/lifecycle.py`
 - `src/novel/core/management.py`
 - `src/novel/core/memory_repair/__init__.py`
 - `src/novel/core/memory_repair/apply.py`
@@ -84,12 +86,12 @@
 - `src/novel/core/memory_repair_mock.py`
 - `src/novel/core/memory_repair_ops.py`
 - `src/novel/core/memory_repair_rules.py`
-- `src/novel/core/migration.py`
 - `src/novel/core/model_io.py`
 - `src/novel/core/orchestrator.py`
 - `src/novel/core/plan_refs.py`
 - `src/novel/core/planning.py`
 - `src/novel/core/polishing.py`
+- `src/novel/core/projection.py`
 - `src/novel/core/prompts.py`
 - `src/novel/core/provider_config.py`
 - `src/novel/core/providers.py`
@@ -103,6 +105,9 @@
 - `src/novel/core/state_change_values.py`
 - `src/novel/core/state_update.py`
 - `src/novel/core/structured_generation.py`
+- `src/novel/core/task_registry.py`
+- `src/novel/core/transactions.py`
+- `src/novel/core/world_state.py`
 - `src/novel/core/style_guide.py`
 - `src/novel/core/timeutil.py`
 - `src/novel/core/usage.py`
@@ -350,17 +355,6 @@ Core 包标记文件。当前不导出业务 API；调用方应从具体 service
 - `_scan_file()` / `_scan_config_value()`：具体检测逻辑。
 
 用于 `novel doctor` 和 CI。
-
-### `core/migration.py`
-
-schema version 迁移：
-
-- `migrate_project()`：补齐缺失 `schema_version`，拒绝更新版本项目。
-- `MigrationResult` / `MigrationError`：结果和错误。
-- `_schema_versioned_*_paths()`：列出要迁移的 YAML/JSON。
-- `_migrate_yaml()` / `_migrate_json()`：给单个 YAML/JSON 文件补齐当前 schema version。
-- `_set_schema_version()`：补齐或更新 schema version。
-- `_reject_newer_version()`：拒绝高于当前工具版本的项目文件，避免降级写坏数据。
 
 ### `core/json_schema.py`
 
@@ -920,7 +914,9 @@ Provider 用量统计：
 | `tests/test_exporting.py` | Markdown/DOCX export 和 manifest。 |
 | `tests/test_validation.py` | 全项目 validation 和一致性闭环。 |
 | `tests/test_json_schema.py` | JSON Schema 导出。 |
-| `tests/test_migration.py` | schema version 迁移。 |
+| `tests/test_artifact_store.py` | immutable artifact、path guard 和 freshness。 |
+| `tests/test_projection.py` | Session state/timeline projection 与并发 base 检查。 |
+| `tests/test_transactions.py` | journal commit、故障回滚和 crash recovery。 |
 | `tests/test_security.py` | secret scanner、env/config 安全。 |
 | `tests/test_web.py` / `test_web_e2e.py` | Web API、前端、E2E marker。 |
 | `tests/test_prompts.py` | prompt 关键约束。 |
@@ -991,3 +987,29 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 | Audit 作者文案 | `audit_localization.py` -> `auditing.py` / Web/CLI 展示 -> audit/web tests |
 | search/context | `search.py` -> Agent service use_search_context -> tests |
 | export | `exporting.py` -> CLI/Web -> manifest tests |
+
+## 16. schema v3 工作流核心（2026-07-11）
+
+### `src/novel/core/contracts/`
+
+- `common.py`：`StrictModel`、schema v3 常量、Task/Profile/Artifact 枚举。
+- `artifacts.py`：`ArtifactRef`、Audit/State Proposal binding 与 `ChapterLifecycle`。
+- `state.py`：projection checkpoint、`AcceptanceCommit` 与 transaction journal schema。
+- `sessions.py`：目标 Session phase 和合法 transition table。
+- `commands.py`、`decisions.py`、`tracing.py`：typed command、路由 proposal 和 workflow budget 契约。
+
+### `src/novel/core/artifact_store.py`
+
+创建不可变章节 artifact，执行 project-relative path guard、SHA-256 校验、working output 冻结和 `lifecycle.json` freshness 诊断。
+
+### `src/novel/core/projection.py` 与 `src/novel/core/world_state.py`
+
+初始化 Session-local state/timeline snapshot，逐章 deterministic 应用 State Proposal 并记录 checkpoint；Writer、Polish、Audit、Revision 和 State Update 可显式读取 projection，而不是提前修改 canonical memory。
+
+### `src/novel/core/transactions.py` 与 `src/novel/core/lifecycle.py`
+
+`transactions.py` 管理 PREPARED/APPLYING/COMMITTED/ROLLED_BACK journal、staging、backup 和恢复。`lifecycle.py` 在 Session 接受前完成全量 preflight，生成 pending Chapter Memory/Acceptance，并把所有章节与 canonical state/timeline 作为一个事务提交；正式导出复用同一 freshness guard。
+
+### `src/novel/core/task_registry.py`
+
+集中记录当前四个 Profile 与 Task、Prompt、输出 artifact、上下文权限和风险等级的映射，避免文档与运行时职责表继续漂移。

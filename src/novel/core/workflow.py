@@ -53,8 +53,6 @@ class GenerateChapterOptions:
     target_words: int | None = None
     style_note: str | None = None
     polish_mode: PolishMode | None = None
-    skip_polish: bool = False
-    skip_audit: bool = False
     stop_after: StopAfter | None = None
     use_search_context: bool = True
     use_vector_context: bool | VectorContextMode = "auto"
@@ -74,8 +72,6 @@ def generate_chapter(
     root = options.root.resolve()
     if options.chapter_number < 1:
         raise WorkflowError("chapter_number must be a positive integer")
-    if options.skip_audit and options.stop_after == "audit":
-        raise WorkflowError("--stop-after audit cannot be used with --skip-audit")
     polish_mode = _effective_polish_mode(root, options)
 
     loader = provider_loader or (
@@ -102,8 +98,6 @@ def generate_chapter(
             return _complete(root, run_log, run_log_path, "Stopped after write.")
 
         if polish_mode == "review_gate":
-            if options.skip_audit:
-                return _complete(root, run_log, run_log_path, "Generated draft; review gate stopped before polish and audit.")
             return _complete(root, run_log, run_log_path, "Generated draft; review gate stopped before finalization and audit.")
 
         if polish_mode == "auto":
@@ -114,9 +108,6 @@ def generate_chapter(
             _run_promote_draft_step(root, options, run_log)
             if _should_stop(options, "polish"):
                 return _complete(root, run_log, run_log_path, "Stopped after single-pass finalization.")
-
-        if options.skip_audit:
-            return _complete(root, run_log, run_log_path, "Generated polished chapter; audit was skipped.")
 
         audit_report = _run_audit_step(root, options, run_log, loader)
         if audit_report.overall_status == "passed":
@@ -205,8 +196,6 @@ def _run_plan_step(
 
 
 def _effective_polish_mode(root: Path, options: GenerateChapterOptions) -> PolishMode:
-    if options.skip_polish:
-        return "single_pass"
     if options.polish_mode:
         return normalize_polish_mode(options.polish_mode)
     project = load_yaml_model(root / "project.yaml", ProjectConfig)

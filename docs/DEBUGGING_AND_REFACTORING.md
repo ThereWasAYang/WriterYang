@@ -44,7 +44,7 @@ runs/agent_output_violations/{request_id}.json
 
 1. 找到错误 path 和 message。
 2. 对照 `schemas/*.schema.json` 或 `core/schemas.py`。
-3. 如果是旧项目缺少 `schema_version`，运行 `novel migrate --path <project>`。
+3. 如果项目不是 schema v3，重新初始化工作区并人工迁移需要保留的内容；程序不会执行历史 schema migration。
 4. 如果是模型输出不合规，查看对应 `runs/model_io/{request_id}.json`。
 5. 写一个最小 JSON fixture 测试，再修 parser/normalizer/schema。
 
@@ -53,7 +53,10 @@ runs/agent_output_violations/{request_id}.json
 - `core/schemas.py`
 - `core/validation.py`
 - `core/json_schema.py`
-- `core/migration.py`
+- `core/contracts/common.py`
+- `core/artifact_store.py`
+- `core/projection.py`
+- `core/transactions.py`
 
 ### 2.2 真实 API 输出不合规
 

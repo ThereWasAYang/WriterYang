@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "AcceptanceStatus": {
+      "enum": [
+        "committed"
+      ],
+      "title": "AcceptanceStatus",
+      "type": "string"
+    },
+    "ArtifactKind": {
+      "enum": [
+        "plan",
+        "candidate",
+        "audit",
+        "state_proposal",
+        "chapter_memory",
+        "acceptance",
+        "state",
+        "timeline"
+      ],
+      "title": "ArtifactKind",
+      "type": "string"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "artifact_id": {
+          "pattern": "^art_[0-9a-f]{32}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "path",
+        "sha256",
+        "created_at"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "commit_id": {
+      "pattern": "^accept_[0-9a-f]{32}$",
+      "title": "Commit Id",
+      "type": "string"
+    },
+    "session_id": {
+      "minLength": 1,
+      "title": "Session Id",
+      "type": "string"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "candidate": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "audit": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "state_proposal": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "chapter_memory": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "pre_state_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Pre State Sha256",
+      "type": "string"
+    },
+    "pre_timeline_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Pre Timeline Sha256",
+      "type": "string"
+    },
+    "post_state_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Post State Sha256",
+      "type": "string"
+    },
+    "post_timeline_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Post Timeline Sha256",
+      "type": "string"
+    },
+    "accepted_content_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Accepted Content Sha256",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/AcceptanceStatus",
+      "default": "committed"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "commit_id",
+    "session_id",
+    "chapter_number",
+    "candidate",
+    "audit",
+    "state_proposal",
+    "chapter_memory",
+    "pre_state_sha256",
+    "pre_timeline_sha256",
+    "post_state_sha256",
+    "post_timeline_sha256",
+    "accepted_content_sha256",
+    "created_at"
+  ],
+  "title": "AcceptanceCommit",
+  "type": "object"
+}

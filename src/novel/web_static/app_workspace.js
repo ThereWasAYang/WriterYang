@@ -38,7 +38,6 @@
     function exportPayload() {
       const payload = {
         path: projectPath(),
-        include_unaccepted: $("exportIncludeUnaccepted").checked,
         force: $("exportForce").checked,
       };
       const chapters = $("exportChapters").value.trim();
@@ -390,4 +389,3 @@
         <details style="margin-top: 12px;"><summary>完整用量 JSON</summary><pre>${escapeHtml(JSON.stringify(usage, null, 2))}</pre></details>
       `;
     }
-

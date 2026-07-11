@@ -75,11 +75,15 @@ memory/
       plan.json             # [运行时] plan-chapter/session outline approval 后生成
       plan.md               # [运行时] 面向作者阅读的章节计划
       draft.md              # [运行时] write-chapter/session run 后生成
-      polished.md           # [运行时] polish/revision 后生成，export 默认使用
+      polished.md           # [运行时] polish/revision 后生成的 working materialization
       audit.json            # [运行时] audit-chapter/session run 后生成
-      state_update_proposal.json     # [运行时] propose-state-update/session accept 前生成
-      state_update_apply_log.json    # [运行时] apply-state-update/session accept 后生成
-      chapter_memory.json            # [运行时] accept 后 best-effort 生成的章节检索记忆
+      state_update_proposal.json     # [运行时] propose-state-update/session review gate 前生成
+      lifecycle.json                 # active artifact refs 与 lineage binding
+      plans/ candidates/ audits/ state_proposals/  # immutable artifacts
+      chapter_memories/ acceptances/ # pending/committed immutable artifacts
+      accepted.md                    # transaction commit 后的正式正文物化文件
+      acceptance.json                # AcceptanceCommit
+      chapter_memory.json            # transaction commit 后激活的章节检索记忆
       revision_log.json     # [运行时] revise/edit 保存版本后生成
       metadata.json         # [运行时] accept 后记录章节状态
       context_report*.json  # [运行时] 开启检索上下文后生成
@@ -87,9 +91,12 @@ memory/
     {session_id}/plans/{NNN}/plan.json  # [运行时] start/revise-outline 阶段的草稿章节计划
     {session_id}/plans/{NNN}/plan.md    # [运行时] 草稿章节计划 Markdown
     {session_id}/progress.json        # [运行时] Web UI 长任务阶段进度和协作式取消状态
+    {session_id}/projection/          # [运行时] canonical base snapshot 与逐章 checkpoint
   archive/                  # [运行时] session archive 后生成不可原地篡改归档
 runs/
   run_*.json                # [运行时] generate/session 工作流日志
+transactions/
+  tx_*/journal.json         # [运行时] Session acceptance commit/rollback journal
   provider_calls.jsonl      # [运行时] provider 调用元数据，不含 API Key
   provider_usage.json       # [运行时] token 汇总缓存
   model_io/                 # [运行时] 完整模型 I/O，本地调试用，不提交
@@ -146,6 +153,10 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 
 `session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。长任务必须写 `memory/sessions/{session_id}/progress.json`，记录阶段、章节、轮次和状态；取消只能写入 `cancel_requested`，在章节或修复轮安全边界生效，不能强行中断当前 LLM HTTP 调用。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 orchestrator 编排层调用 `intent_router` task 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“生成/提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
 
+多章 Session 不得在运行阶段写 canonical state/timeline。`projection.py` 维护 session-local snapshot 和逐章 checkpoint；每次 State Proposal 生成后必须先由 `artifact_store.py` 冻结 lineage，再推进 projection。`session accept` 必须调用 `lifecycle.commit_creation_session()`，由 `transactions.py` 将全部章节与 canonical memory 作为一个 transaction 提交。新增代码不得恢复逐章 `accept_chapter()` 的 Session 循环。
+
+正式导出只读取 `accepted.md`，并通过 `accepted_chapter_commit()` 验证完整 lineage。front matter 的 `status: accepted` 不再是生产导出授权。
+
 Audit 打回后的人工控制有三个入口：`session revise-audit` 用用户纠正意见重新审核被打回原文；`session retry-rewrite` 基于最新 audit 再次发起打回；`session undo-rewrite` 恢复 rewrite event 的 rejected snapshot 并重跑 audit。三者都只能作用于未归档 session，且必须更新 `rewrite_events.json`、`audit_history` 和 session 状态。
 
 orchestrator 同时承担项目管家职责。自然语言 memory 修复请求必须先由 orchestrator 编排层转入 `memory_repair` task，输出结构化 `MemoryRepairDecision` 后再生成 `MemoryRepairProposal`，保存到 `memory/repairs/{repair_id}/proposal.json`，由用户确认后再 apply。Memory repair 不得用关键词硬猜目标文件和 JSON Pointer；如果缺少 ID 或定位不安全，proposal 应为空操作并提示用户补充。apply 必须限制白名单文件、使用 JSON Pointer 操作、备份目标文件、atomic write、validate，失败时写 `apply_log.json` 并尽量回滚。
@@ -154,7 +165,7 @@ Audit 自动打回也必须走结构化分流：`route_audit_repair()` 根据 `A
 
 Web UI 面向普通作者时，Session 面板必须保留完整协商链路：创建大纲、修改大纲、批准大纲、开始写作、当前任务进度、协作式取消、自动打回重写记录、Audit 复审/重试打回/撤回、按 Audit/用户意见修订、认可和归档。只读项目检查走 `/api/validate`，复用 `validate_project()`，不应在前端实现校验规则。后台状态、时间线和记忆管理变更必须写 `memory/management_events.jsonl`，Web UI 和 CLI 都要显示最近事件摘要。
 
-底层命令仍可用于调试：
+底层命令当前仍可用于调试，但不会单独建立正式导出所需的 Session acceptance lineage：
 
 ```text
 plan-chapter -> write-chapter -> finalize polished.md -> audit-chapter -> propose/apply state update -> accept-chapter

@@ -25,13 +25,12 @@ novel validate --path "$tmp_project"
 ```bash
 novel init "青灯客栈" --path ./qingdeng-inn --no-guide
 novel init "青灯客栈" --path ./qingdeng-inn
-novel migrate --path ./qingdeng-inn
 novel validate --path ./qingdeng-inn
 novel status --path ./qingdeng-inn
 novel schema export --output schemas
 ```
 
-`novel init` 会生成 `project.yaml`、`config/agents.yaml`、`config/embeddings.yaml`、`memory/`、`runs/` 和 `exports/`。真实项目建议先完成默认 API 配置；mock 流程可用 `--provider mock`。
+`novel init` 会生成 schema v3 的 `project.yaml`、配置、`memory/`、`runs/`、`transactions/` 和 `exports/`。旧 schema 工作区会被直接拒绝；不提供历史迁移命令或兼容读取分支。真实项目建议先完成默认 API 配置；mock 流程可用 `--provider mock`。
 
 ## 创作流程
 
@@ -72,6 +71,8 @@ novel session archive <session_id> --path ./qingdeng-inn
 
 Web UI 的创作工作台使用同一套 core session logic。CLI 适合自动化、调试和外部 Agent 调用。
 
+多章 Session 在接受前使用 `memory/sessions/<session_id>/projection/` 中的 state/timeline 投影。`session accept` 会在一个 transaction journal 中提交全部章节、canonical state/timeline、Chapter Memory 和 acceptance；不要用逐章接受代替多章 Session 提交。
+
 ## 设定变更和项目管家
 
 ```bash
@@ -105,7 +106,7 @@ novel usage --path ./qingdeng-inn
 novel usage --path ./qingdeng-inn --json
 ```
 
-默认只导出 accepted 章节。需要包含未认可章节时，使用对应导出命令的包含选项并仔细检查结果。
+正式导出只包含存在 fresh `acceptance.json` 的 `accepted.md`。导出时会重新计算正文、candidate、Audit、State Proposal 与 acceptance artifact 的 hash；任一 lineage 边 stale 都会拒绝导出。`--include-unaccepted` 已删除，未接受正文不能进入正式导出。
 
 ## Web UI
 

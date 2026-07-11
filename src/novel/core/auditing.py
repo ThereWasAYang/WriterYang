@@ -48,6 +48,7 @@ from novel.core.structured_generation import (
 )
 from novel.core.timeutil import utc_now, utc_now_iso
 from novel.core.validation import validate_canon
+from novel.core.world_state import resolve_world_state_paths
 
 
 AuditedFile = Literal["draft.md", "polished.md"]
@@ -78,6 +79,7 @@ class ChapterAuditOptions:
     use_search_context: bool = False
     use_vector_context: bool | VectorContextMode = "auto"
     max_recall_rounds: int | None = None
+    world_state_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -223,8 +225,9 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
     warnings: list[str] = []
     style_guide = _read_style_guide(root, warnings)
     canon = load_canon_files(root)
-    state_json = _budgeted_state_or_raw(root, project=project, chapter_number=options.chapter_number, plan=plan)
-    timeline_json = _budgeted_timeline_or_raw(root, project=project, chapter_number=options.chapter_number, plan=plan)
+    state_path, timeline_path = resolve_world_state_paths(root, options.world_state_dir)
+    state_json = _budgeted_state_or_raw(state_path, project=project, chapter_number=options.chapter_number, plan=plan)
+    timeline_json = _budgeted_timeline_or_raw(timeline_path, project=project, chapter_number=options.chapter_number, plan=plan)
     context_bundle = (
         retrieve_context_bundle(
             root,
@@ -255,8 +258,7 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
     )
 
 
-def _budgeted_state_or_raw(root: Path, *, project: ProjectConfig, chapter_number: int, plan: ChapterPlan) -> str:
-    path = root / "memory" / "state" / "current_state.json"
+def _budgeted_state_or_raw(path: Path, *, project: ProjectConfig, chapter_number: int, plan: ChapterPlan) -> str:
     try:
         state = load_json_model(path, EntityState)
         return render_state_prompt_text(state, project=project, chapter_number=chapter_number, plan=plan)
@@ -264,8 +266,7 @@ def _budgeted_state_or_raw(root: Path, *, project: ProjectConfig, chapter_number
         return _read_required_json_text(path)
 
 
-def _budgeted_timeline_or_raw(root: Path, *, project: ProjectConfig, chapter_number: int, plan: ChapterPlan) -> str:
-    path = root / "memory" / "state" / "timeline.json"
+def _budgeted_timeline_or_raw(path: Path, *, project: ProjectConfig, chapter_number: int, plan: ChapterPlan) -> str:
     try:
         timeline = load_json_model(path, TimelineFile)
         return render_timeline_prompt_text(timeline, project=project, chapter_number=chapter_number, task="audit", plan=plan)

@@ -8,13 +8,17 @@ import shutil
 import yaml
 
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
+from novel.core.artifact_store import capture_working_chapter
+from novel.core.contracts import SessionProjection
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.lifecycle import LifecycleError, commit_creation_session
 from novel.core.management import record_management_event
 from novel.core.orchestrator import route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.polishing import read_markdown_with_front_matter
+from novel.core.projection import advance_projection, initialize_projection, projection_dir
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
 from novel.core.runtime_config import normalize_polish_mode, project_polish_mode
 from novel.core.security import redact_secret_text
@@ -40,16 +44,16 @@ from novel.core.schemas import (
     SessionProgressStatus,
     PolishMode,
     ProjectConfig,
+    StateUpdateProposal,
     VectorContextMode,
 )
 from novel.core.state_update import (
-    AcceptChapterOptions,
     StateUpdateProposeOptions,
-    accept_chapter,
     load_state_update_provider,
     propose_state_update,
 )
 from novel.core.timeutil import new_request_id, utc_now, utc_timestamp
+from novel.core.transactions import TransactionError
 
 
 ProviderName = str
@@ -293,6 +297,9 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     if session.scope_type == "segments":
         return _run_segment_session(root, session, options)
 
+    projection = initialize_projection(root, session.session_id)
+    world_state_dir = projection_dir(root, session.session_id)
+
     max_rounds = options.max_auto_revision_rounds
     if max_rounds is None:
         max_rounds = session.max_auto_revision_rounds
@@ -325,6 +332,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 use_search_context=options.use_search_context,
                 use_vector_context=options.use_vector_context,
                 polish_mode=options.polish_mode,
+                world_state_dir=world_state_dir,
             )
             if generated_audit is False:
                 final_outputs.append(_rel(root, _chapter_dir(root, chapter_number) / "draft.md"))
@@ -419,6 +427,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                             use_search_context=options.use_search_context,
                             use_vector_context=options.use_vector_context,
                             polish_mode=options.polish_mode,
+                            world_state_dir=world_state_dir,
                         )
                         after_output_path = _chapter_dir(root, chapter_number) / "polished.md"
                     except _SessionCancelRequested:
@@ -454,6 +463,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                             round_number,
                             use_search_context=options.use_search_context,
                             use_vector_context=options.use_vector_context,
+                            world_state_dir=world_state_dir,
                         )
                         _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
                         revisions.append(_rel(root, revision_path))
@@ -476,6 +486,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                             force=True,
                             use_search_context=options.use_search_context,
                             use_vector_context=options.use_vector_context,
+                            world_state_dir=world_state_dir,
                         )
                     except _SessionCancelRequested:
                         raise
@@ -537,7 +548,9 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 force=options.force,
                 use_search_context=options.use_search_context,
                 use_vector_context=options.use_vector_context,
+                world_state_dir=world_state_dir,
             )
+            projection = _capture_and_advance_projection(root, session, chapter_number, projection)
             _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
 
         session = session.model_copy(
@@ -594,6 +607,8 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
     audits: list[str] = []
     final_outputs: list[str] = []
     hard_issue_chapters: list[int] = []
+    projection = initialize_projection(root, session.session_id, force=True)
+    world_state_dir = projection_dir(root, session.session_id)
     for chapter_number in session.chapter_range:
         if route.route == "plot_replan":
             output_path = _replan_and_rewrite_chapter(
@@ -626,6 +641,7 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
                     force=options.force,
                     use_search_context=options.use_search_context,
                     use_vector_context=options.use_vector_context,
+                    world_state_dir=world_state_dir,
                 ),
                 provider,
                 provider_name=options.provider_name,
@@ -642,6 +658,7 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
             force=True,
             use_search_context=options.use_search_context,
             use_vector_context=options.use_vector_context,
+            world_state_dir=world_state_dir,
         )
         audit_path = _chapter_dir(root, chapter_number) / "audit.json"
         audits.append(_rel(root, audit_path))
@@ -677,7 +694,9 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
             force=True,
             use_search_context=options.use_search_context,
             use_vector_context=options.use_vector_context,
+            world_state_dir=world_state_dir,
         )
+        projection = _capture_and_advance_projection(root, session, chapter_number, projection)
 
     session = session.model_copy(
         update={
@@ -879,20 +898,11 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
     _ensure_session_mutable(root, session)
     if session.content_status != "needs_user_review":
         raise CreationSessionError("session content must be ready for user review before acceptance")
+    try:
+        session = commit_creation_session(root, session, _session_path(root, session.session_id))
+    except (LifecycleError, TransactionError) as exc:
+        raise CreationSessionError(str(exc)) from exc
     for chapter_number in session.chapter_range:
-        provider = load_state_update_provider(root, options.provider_name, chapter_number=chapter_number)
-        accept_chapter(
-            AcceptChapterOptions(
-                root=root,
-                chapter_number=chapter_number,
-                allow_issues=False,
-                propose=True,
-                force_proposal=options.force,
-                canon_provider_name=options.provider_name,
-                chapter_memory_provider_name=options.provider_name,
-            ),
-            provider,
-        )
         record_management_event(
             root,
             "chapter_accepted",
@@ -900,15 +910,11 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
             source=session.session_id,
             target_files=[
                 f"memory/chapters/{chapter_number:03d}/metadata.json",
-                f"memory/chapters/{chapter_number:03d}/state_update_apply_log.json",
+                f"memory/chapters/{chapter_number:03d}/acceptance.json",
                 f"memory/chapters/{chapter_number:03d}/chapter_memory.json",
             ],
             status="success",
         )
-    session = session.model_copy(
-        update={"status": "accepted", "content_status": "accepted", "updated_at": utc_now()}
-    )
-    _write_session(root, session)
     return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session accepted.")
 
 
@@ -1519,6 +1525,7 @@ def _generate_chapter_content(
     use_search_context: bool,
     use_vector_context: bool | VectorContextMode,
     polish_mode: PolishMode | None = None,
+    world_state_dir: Path | None = None,
 ) -> bool:
     mode = _effective_session_polish_mode(root, polish_mode)
     instruction = _session_instruction(session)
@@ -1539,6 +1546,7 @@ def _generate_chapter_content(
             force=force,
             use_search_context=use_search_context,
             use_vector_context=use_vector_context,
+            world_state_dir=world_state_dir,
         ),
         draft_provider,
     )
@@ -1571,6 +1579,7 @@ def _generate_chapter_content(
                 force=force,
                 use_search_context=use_search_context,
                 use_vector_context=use_vector_context,
+                world_state_dir=world_state_dir,
             ),
             polish_provider,
         )
@@ -1602,6 +1611,7 @@ def _generate_chapter_content(
             force=force,
             use_search_context=use_search_context,
             use_vector_context=use_vector_context,
+            world_state_dir=world_state_dir,
         ),
         audit_provider,
     )
@@ -1651,6 +1661,7 @@ def _audit_chapter_content(
     force: bool,
     use_search_context: bool,
     use_vector_context: bool | VectorContextMode,
+    world_state_dir: Path | None = None,
 ) -> None:
     audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
     audit_chapter(
@@ -1661,6 +1672,7 @@ def _audit_chapter_content(
             force=force,
             use_search_context=use_search_context,
             use_vector_context=use_vector_context,
+            world_state_dir=world_state_dir,
         ),
         audit_provider,
     )
@@ -1701,6 +1713,7 @@ def _auto_repair_chapter(
     *,
     use_search_context: bool,
     use_vector_context: bool | VectorContextMode,
+    world_state_dir: Path | None = None,
 ) -> Path:
     issue_summary = "; ".join(
         f"{issue.severity}/{issue.type}: {issue.description}"
@@ -1721,6 +1734,7 @@ def _auto_repair_chapter(
             force=True,
             use_search_context=use_search_context,
             use_vector_context=use_vector_context,
+            world_state_dir=world_state_dir,
         ),
         provider,
         provider_name=provider_name,
@@ -1857,6 +1871,7 @@ def _propose_state(
     force: bool,
     use_search_context: bool,
     use_vector_context: bool | VectorContextMode,
+    world_state_dir: Path | None = None,
 ) -> None:
     provider = load_state_update_provider(root, provider_name, chapter_number=chapter_number)
     propose_state_update(
@@ -1867,8 +1882,34 @@ def _propose_state(
             force=force,
             use_search_context=use_search_context,
             use_vector_context=use_vector_context,
+            world_state_dir=world_state_dir,
         ),
         provider,
+    )
+
+
+def _capture_and_advance_projection(
+    root: Path,
+    session: CreationSession,
+    chapter_number: int,
+    projection: SessionProjection,
+) -> SessionProjection:
+    proposal = load_json_model(
+        _chapter_dir(root, chapter_number) / "state_update_proposal.json",
+        StateUpdateProposal,
+    )
+    lifecycle = capture_working_chapter(
+        root,
+        chapter_number,
+        base_state_sha256=projection.current_state_sha256,
+        base_timeline_sha256=projection.current_timeline_sha256,
+    )
+    proposal_ref = lifecycle.active_state_proposal.proposal if lifecycle.active_state_proposal else None
+    return advance_projection(
+        root,
+        session.session_id,
+        proposal,
+        proposal_artifact_id=proposal_ref.artifact_id if proposal_ref else None,
     )
 
 
@@ -1878,6 +1919,9 @@ def _archive_sources(root: Path, session: CreationSession) -> list[Path]:
         _session_dir(root, session.session_id) / "approved_outline.json",
         _session_dir(root, session.session_id) / "approved_outline.md",
         _rewrite_events_path(root, session.session_id),
+        projection_dir(root, session.session_id) / "projection.json",
+        projection_dir(root, session.session_id) / "current_state.json",
+        projection_dir(root, session.session_id) / "timeline.json",
     ]
     rejection_dir = _session_dir(root, session.session_id) / "rejections"
     if rejection_dir.exists():
@@ -1895,8 +1939,22 @@ def _archive_sources(root: Path, session: CreationSession) -> list[Path]:
                 chapter_dir / "state_update_apply_log.json",
                 chapter_dir / "chapter_memory.json",
                 chapter_dir / "metadata.json",
+                chapter_dir / "lifecycle.json",
+                chapter_dir / "accepted.md",
+                chapter_dir / "acceptance.json",
             ]
         )
+        for directory_name in (
+            "plans",
+            "candidates",
+            "audits",
+            "state_proposals",
+            "chapter_memories",
+            "acceptances",
+        ):
+            directory = chapter_dir / directory_name
+            if directory.exists():
+                paths.extend(sorted(path for path in directory.iterdir() if path.is_file()))
     return paths
 
 

@@ -16,8 +16,6 @@ from novel.core.inspection import (
     get_project_status,
 )
 from novel.core.json_schema import export_json_schemas
-from novel.core.locking import ProjectLockError
-from novel.core.migration import MigrationError, migrate_project
 from novel.core.setup_guide import (
     SetupGuideError,
 )
@@ -31,7 +29,6 @@ from novel.cli_shared import (
     _success,
     _failure,
     _print_json,
-    _command_lock,
     _validation_payload,
     _status_payload,
     _format_usage_summary,
@@ -128,32 +125,6 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     return 1
-
-def _cmd_migrate(args: argparse.Namespace) -> int:
-    try:
-        with _command_lock(args, Path(args.path), "migrate", enabled=not args.dry_run):
-            result = migrate_project(Path(args.path), dry_run=args.dry_run)
-    except ProjectLockError as exc:
-        return _failure(args, str(exc), error_type="project_locked")
-    except MigrationError as exc:
-        return _failure(args, str(exc), error_type="migration_error")
-    payload = {
-        "command": "migrate",
-        "root": str(result.root),
-        "changed": result.changed,
-        "from_version": result.from_version,
-        "to_version": result.to_version,
-        "updated_files": [str(path) for path in result.updated_files],
-        "dry_run": args.dry_run,
-    }
-    lines = [
-        f"Schema version: {result.from_version or 'missing'} -> {result.to_version}",
-        "Migration required." if result.changed else "Already up to date.",
-    ]
-    if result.changed:
-        action = "Would update" if args.dry_run else "Updated"
-        lines.extend(f"{action}: {path}" for path in result.updated_files)
-    return _success(args, payload, lines)
 
 def _cmd_schema(args: argparse.Namespace) -> int:
     if args.schema_command == "export":

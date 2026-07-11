@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from novel.core.agent_output import AgentInvocationContext, AgentOutputContract
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.json_extract import extract_json_object
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -197,7 +198,7 @@ def render_generated_style_guide_markdown(guide: GeneratedStyleGuide) -> str:
 def default_mock_generated_style_guide_json() -> str:
     return json.dumps(
         {
-            "schema_version": 2,
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "style_sources": ["用户提供的作家组合：以高层风格特征综合，不复刻任何具体作者"],
             "overall_style": "整体保持武侠气质、悬念推进和凝练表达，兼顾诗性意象与清晰叙事。",
             "narrative_view": "以贴近主角感知的第三人称为主，关键时刻收窄视角，保留未说破的余味。",

@@ -88,7 +88,7 @@ def _style_workspace(tmp_path: Path) -> Path:
 def _style_guide_json() -> str:
     return json.dumps(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "style_sources": ["古典武侠气质", "克制悬疑节奏"],
             "overall_style": "凝练、清晰、有留白，保留江湖气和悬念。",
             "narrative_view": "第三人称贴近主角感知。",

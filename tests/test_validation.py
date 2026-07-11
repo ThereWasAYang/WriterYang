@@ -156,7 +156,7 @@ def test_validate_project_allows_unrevealed_background_timeline_events(tmp_path:
     (root / "memory" / "state" / "timeline.json").write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "events": [
                     {
                         "id": "event_background",

@@ -309,7 +309,7 @@ Prompt 组装：
 - System prompt：`prompts/chapter_memory_system.txt`
 - Provider loader：`load_chapter_memory_provider()`
 - 入口函数：`generate_chapter_memory()`
-- 触发方式：`accept_chapter()` 在 state/timeline 应用成功并标记 accepted 后 best-effort 触发；也可用 `novel chapter-memory generate/rebuild` 或 Web UI 章节列表手动重建。`chapter_memory.strict_accept: true` 只把失败记录为 error 级管理事件和醒目 warning，不阻断已经完成的 accepted 状态。
+- Session 正式路径：在 transaction PREPARED 前，根据 candidate、passed Audit、State Proposal 和最终 projection 生成 pending deterministic Chapter Memory；commit 成功后才物化为权威 `chapter_memory.json`。低层调试命令仍可单独 generate/rebuild，但不能替代 Session acceptance lineage。
 - 输出：`memory/chapters/{NNN}/chapter_memory.json`
 
 输入来源：

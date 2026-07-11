@@ -11,7 +11,7 @@ from novel.core.agent_defaults import (
     inherited_profile_config_patch,
 )
 from novel.core.io import atomic_write_text
-from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.style_guide import default_style_guide_markdown
 from novel.core.timeutil import utc_now_iso
 
@@ -97,6 +97,7 @@ def init_workspace(options: InitOptions) -> InitResult:
         ),
         root / "memory" / "state" / "timeline.json": _json({"events": []}),
         root / "runs" / ".gitkeep": "",
+        root / "transactions" / ".gitkeep": "",
         root / "exports" / ".gitkeep": "",
     }
 
@@ -117,6 +118,7 @@ def _has_existing_workspace_data(root: Path) -> bool:
         root / "config" / "agents.yaml",
         root / "memory",
         root / "runs",
+        root / "transactions",
         root / "exports",
     ]
     return any(marker.exists() for marker in workspace_markers)

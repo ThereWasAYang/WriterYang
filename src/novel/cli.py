@@ -29,7 +29,6 @@ from novel.cli_commands.project_system import (
     _cmd_completion,
     _cmd_doctor,
     _cmd_init,
-    _cmd_migrate,
     _cmd_schema,
     _cmd_show,
     _cmd_status,
@@ -94,18 +93,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--path",
         default=".",
         help="Workspace directory to validate. Defaults to the current directory.",
-    )
-
-    migrate_parser = subparsers.add_parser("migrate", help="Migrate a novel project workspace schema")
-    migrate_parser.add_argument(
-        "--path",
-        default=".",
-        help="Workspace directory. Defaults to the current directory.",
-    )
-    migrate_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show migration actions without writing files.",
     )
 
     schema_parser = subparsers.add_parser("schema", help="Export JSON Schema files")
@@ -1086,16 +1073,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Finalization mode. Defaults to project polish.mode or single-pass.",
     )
     generate_parser.add_argument(
-        "--skip-polish",
-        action="store_true",
-        help="Compatibility alias for --polish-mode single-pass.",
-    )
-    generate_parser.add_argument(
-        "--skip-audit",
-        action="store_true",
-        help="Generate through polished.md but skip audit.json.",
-    )
-    generate_parser.add_argument(
         "--stop-after",
         choices=("plan", "write", "polish", "audit"),
         default=None,
@@ -1129,11 +1106,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Last chapter number to export.",
-    )
-    export_markdown_parser.add_argument(
-        "--include-unaccepted",
-        action="store_true",
-        help="Include chapters whose polished.md is not marked accepted.",
     )
     export_markdown_parser.add_argument(
         "--output",
@@ -1191,11 +1163,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Last chapter number to export.",
-    )
-    export_docx_parser.add_argument(
-        "--include-unaccepted",
-        action="store_true",
-        help="Include chapters whose polished.md is not marked accepted.",
     )
     export_docx_parser.add_argument(
         "--output",
@@ -1274,7 +1241,6 @@ def build_parser() -> argparse.ArgumentParser:
 _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "init": _cmd_init,
     "validate": _cmd_validate,
-    "migrate": _cmd_migrate,
     "schema": _cmd_schema,
     "completion": _cmd_completion,
     "doctor": _cmd_doctor,

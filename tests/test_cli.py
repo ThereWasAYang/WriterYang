@@ -146,7 +146,7 @@ def test_show_timeline_cli_formats_unrevealed_background_events(tmp_path: Path) 
     timeline_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "events": [
                     {
                         "id": "event_background",

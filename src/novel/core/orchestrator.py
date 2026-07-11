@@ -1187,7 +1187,7 @@ def _execute_task(root: Path, options: OrchestratorOptions, plan: OrchestratorPl
         return [_rel(root, state_update_result.proposal_path)]
     if plan.task == "export_markdown":
         export_result = export_markdown(
-            MarkdownExportOptions(root=root, include_unaccepted=True, force=options.force)
+            MarkdownExportOptions(root=root, force=options.force)
         )
         return [_rel(root, export_result.output_path), _rel(root, export_result.manifest_path)]
     if plan.task == "memory_repair":

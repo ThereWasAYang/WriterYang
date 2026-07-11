@@ -6,11 +6,20 @@ from io import StringIO
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import uuid
 
 import yaml
 
 from novel.cli_shared import _resolve_web_port
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.artifact_store import ArtifactStore, combined_sha256, write_lifecycle
+from novel.core.contracts import (
+    AcceptanceCommit,
+    ArtifactKind,
+    AuditBinding,
+    ChapterLifecycle,
+    StateProposalBinding,
+)
 from novel.core.io import atomic_write_model_json, load_json_model, load_yaml
 from novel.core.planning import default_mock_chapter_plan_json
 from novel.core.provider_config import resolve_agent_config
@@ -25,6 +34,7 @@ from novel.core.schemas import (
     TimelineFile,
 )
 from novel.core.session import SessionResult
+from novel.core.timeutil import utc_now
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import _locked_write, handle_api_request
 import novel.web_server as web_server
@@ -579,7 +589,7 @@ def test_api_state_timeline_labels_unrevealed_background_events(tmp_path: Path) 
     timeline_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "events": [
                     {
                         "id": "event_background",
@@ -2715,7 +2725,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="usagePanel"' in html
     assert 'id="exportDocx"' in html
     assert 'id="exportChapters"' in html
-    assert 'id="exportIncludeUnaccepted"' in html
+    assert 'id="exportIncludeUnaccepted"' not in html
     assert 'id="providerConfig"' in html
     assert "config-layout" in html
     assert "provider-config-grid" in html
@@ -3633,7 +3643,103 @@ def _workspace_with_accepted_chapter_memory_sources(tmp_path: Path, chapter_numb
             f"第 {chapter_number} 章正文。雨声更深，旧车站像在夜里醒来。\n",
             encoding="utf-8",
         )
+        _write_test_acceptance_lineage(root, chapter_number, chapter_dir)
     return root
+
+
+def _write_test_acceptance_lineage(root: Path, chapter_number: int, chapter_dir: Path) -> None:
+    store = ArtifactStore(root)
+    plan = store.create_from_file(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.PLAN,
+        source=chapter_dir / "plan.json",
+    )
+    candidate_content = (chapter_dir / "polished.md").read_bytes()
+    candidate = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.CANDIDATE,
+        content=candidate_content,
+        suffix=".md",
+    )
+    audit_content = json.dumps(
+        {
+            "schema_version": 3,
+            "chapter_number": chapter_number,
+            "audited_file": "polished.md",
+            "overall_status": "passed",
+            "summary": "通过。",
+            "issues": [],
+            "created_at": "2026-05-23T00:00:00Z",
+        },
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf-8") + b"\n"
+    audit = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.AUDIT,
+        content=audit_content,
+        suffix=".json",
+    )
+    proposal = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.STATE_PROPOSAL,
+        content=b"{}\n",
+        suffix=".json",
+    )
+    memory = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.CHAPTER_MEMORY,
+        content=b"{}\n",
+        suffix=".json",
+    )
+    snapshot_hash = "0" * 64
+    acceptance = AcceptanceCommit(
+        commit_id=f"accept_{uuid.uuid4().hex}",
+        session_id="session_20260523_000000_000001",
+        chapter_number=chapter_number,
+        candidate=candidate,
+        audit=audit,
+        state_proposal=proposal,
+        chapter_memory=memory,
+        pre_state_sha256=snapshot_hash,
+        pre_timeline_sha256=snapshot_hash,
+        post_state_sha256=snapshot_hash,
+        post_timeline_sha256=snapshot_hash,
+        accepted_content_sha256=candidate.sha256,
+        created_at=utc_now(),
+    )
+    acceptance_content = (acceptance.model_dump_json(indent=2) + "\n").encode("utf-8")
+    acceptance_ref = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.ACCEPTANCE,
+        content=acceptance_content,
+        suffix=".json",
+    )
+    write_lifecycle(
+        root,
+        ChapterLifecycle(
+            chapter_number=chapter_number,
+            active_plan=plan,
+            active_candidate=candidate,
+            active_audit=AuditBinding(
+                audit=audit,
+                candidate=candidate,
+                context_snapshot_hash=combined_sha256(snapshot_hash, snapshot_hash, candidate.sha256),
+                policy_version="test",
+            ),
+            active_state_proposal=StateProposalBinding(
+                proposal=proposal,
+                candidate=candidate,
+                audit=audit,
+                base_state_sha256=snapshot_hash,
+                base_timeline_sha256=snapshot_hash,
+            ),
+            active_acceptance=acceptance_ref,
+            updated_at=utc_now(),
+        ),
+    )
+    (chapter_dir / "accepted.md").write_bytes(candidate_content)
+    (chapter_dir / "acceptance.json").write_bytes(acceptance_content)
 
 
 def _write_hidden_truth_regression_context(root: Path) -> None:

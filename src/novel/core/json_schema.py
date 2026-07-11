@@ -9,6 +9,15 @@ from typing import Type
 from pydantic import BaseModel
 
 from novel.core.io import atomic_write_json, backup_if_exists
+from novel.core.contracts import (
+    AcceptanceCommit,
+    ArtifactRef,
+    ChapterLifecycle,
+    CommandProposal,
+    SessionProjection,
+    TransactionJournal,
+    WorkflowBudget,
+)
 from novel.core.schemas import (
     AgentRunLog,
     AgentsConfig,
@@ -62,6 +71,13 @@ class SchemaDefinition:
 
 
 SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
+    SchemaDefinition("artifact_ref", ArtifactRef, "immutable artifact reference"),
+    SchemaDefinition("chapter_lifecycle", ChapterLifecycle, "memory/chapters/{chapter}/lifecycle.json"),
+    SchemaDefinition("session_projection", SessionProjection, "memory/sessions/{session_id}/projection/projection.json"),
+    SchemaDefinition("acceptance_commit", AcceptanceCommit, "memory/chapters/{chapter}/acceptance.json"),
+    SchemaDefinition("transaction_journal", TransactionJournal, "transactions/{transaction_id}/journal.json"),
+    SchemaDefinition("command_proposal", CommandProposal, "structured ask command proposal"),
+    SchemaDefinition("workflow_budget", WorkflowBudget, "workflow-wide model/provider budget"),
     SchemaDefinition("project", ProjectConfig, "project.yaml"),
     SchemaDefinition("agents", AgentsConfig, "config/agents.yaml"),
     SchemaDefinition("embeddings", EmbeddingsConfig, "config/embeddings.yaml"),

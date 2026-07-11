@@ -67,13 +67,14 @@ novel init "青灯客栈" --path ./qingdeng-inn --no-guide
 novel inspire "雨夜客栈里，一盏青灯照出二十年前失踪剑客的影子。" --path ./qingdeng-inn --provider mock --overwrite
 novel canon suggest --path ./qingdeng-inn --provider mock --output ./qingdeng-canon.json
 novel canon apply ./qingdeng-canon.json --path ./qingdeng-inn
-novel plan-chapter 1 --path ./qingdeng-inn --provider mock
-novel write-chapter 1 --path ./qingdeng-inn --provider mock
-novel polish-chapter 1 --path ./qingdeng-inn --provider mock
-novel audit-chapter 1 --path ./qingdeng-inn --provider mock
-novel accept-chapter 1 --path ./qingdeng-inn
+novel session start --path ./qingdeng-inn --chapters 1 --intent "写第一章" --provider mock
+novel session approve-outline <session_id> --path ./qingdeng-inn
+novel session run <session_id> --path ./qingdeng-inn --provider mock
+novel session accept <session_id> --path ./qingdeng-inn
 novel export markdown --path ./qingdeng-inn --force
 ```
+
+当前工作区 schema 为 v3。旧 schema 项目会被直接拒绝，不提供 migrate 命令。正式导出只读取带有效 `acceptance.json` 和 artifact lineage 的 `accepted.md`；未接受内容不能进入正式导出。
 
 命令参考见 [CLI 命令参考](docs/CLI_COMMANDS.md)，Web UI 图文流程见 [Web UI 小白图文使用指南](docs/WEB_UI_USER_GUIDE.md)。
 

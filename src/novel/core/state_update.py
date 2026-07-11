@@ -25,7 +25,7 @@ from novel.core.context_budget import render_state_prompt_text, render_timeline_
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
-from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -56,6 +56,7 @@ from novel.core.structured_generation import (
 )
 from novel.core.timeutil import new_request_id, utc_now, utc_now_iso
 from novel.core.validation import validate_canon
+from novel.core.world_state import resolve_world_state_paths
 
 
 class StateUpdateError(RuntimeError):
@@ -71,6 +72,7 @@ class StateUpdateProposeOptions:
     allow_unresolved_audit: bool = False
     use_search_context: bool = False
     use_vector_context: bool | VectorContextMode = "auto"
+    world_state_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -158,6 +160,7 @@ def propose_state_update(
         instruction=options.instruction,
         use_search_context=options.use_search_context,
         use_vector_context=options.use_vector_context,
+        world_state_dir=options.world_state_dir,
     )
     _ensure_audit_allows_progress(context.audit, allow_issues=options.allow_unresolved_audit)
 
@@ -448,6 +451,7 @@ def load_state_update_context(
     instruction: str | None = None,
     use_search_context: bool = False,
     use_vector_context: bool | VectorContextMode = "auto",
+    world_state_dir: Path | None = None,
 ) -> StateUpdateContext:
     chapter_dir = _chapter_dir(root, chapter_number)
     plan_path = chapter_dir / "plan.json"
@@ -463,8 +467,9 @@ def load_state_update_context(
     canon = load_canon_files(root)
     plan = load_json_model(plan_path, ChapterPlan)
     project = load_yaml_model(root / "project.yaml", ProjectConfig)
-    state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
-    timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    state_path, timeline_path = resolve_world_state_paths(root, world_state_dir)
+    state = load_json_model(state_path, EntityState)
+    timeline = load_json_model(timeline_path, TimelineFile)
     context_bundle = (
         retrieve_context_bundle(
             root,
@@ -1008,41 +1013,50 @@ def _repair_prompt(
 
 
 def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
-    return json.dumps(
-        {
-            "chapter_number": chapter_number,
-            "state_changes": [
+    state_changes: list[dict[str, object]] = []
+    event_state_change_ids: list[str] = []
+    if chapter_number == 1:
+        state_changes.extend(
+            [
                 {
-                    "id": f"change_{chapter_number:03d}_001",
-                    "chapter": chapter_number,
+                    "id": "change_001_001",
+                    "chapter": 1,
                     "entity_id": "char_lin_che",
                     "field": "possessions",
                     "old_value": [],
                     "new_value": ["item_broken_ticket"],
                     "reason": "林澈在旧车站拾起破损车票。",
-                    "source": f"memory/chapters/{chapter_number:03d}/polished.md",
+                    "source": "memory/chapters/001/polished.md",
                 },
                 {
-                    "id": f"change_{chapter_number:03d}_002",
-                    "chapter": chapter_number,
+                    "id": "change_001_002",
+                    "chapter": 1,
                     "entity_id": "item_broken_ticket",
                     "field": "holder_id",
                     "old_value": None,
                     "new_value": "char_lin_che",
                     "reason": "破损车票由林澈收起。",
-                    "source": f"memory/chapters/{chapter_number:03d}/polished.md",
+                    "source": "memory/chapters/001/polished.md",
                 },
-                {
-                    "id": f"change_{chapter_number:03d}_003",
-                    "chapter": chapter_number,
-                    "entity_id": "story_position",
-                    "field": "latest_chapter",
-                    "old_value": chapter_number - 1,
-                    "new_value": chapter_number,
-                    "reason": "第本章已完成并通过审核。",
-                    "source": f"memory/chapters/{chapter_number:03d}/audit.json",
-                },
-            ],
+            ]
+        )
+        event_state_change_ids = ["change_001_001", "change_001_002"]
+    state_changes.append(
+        {
+            "id": f"change_{chapter_number:03d}_003",
+            "chapter": chapter_number,
+            "entity_id": "story_position",
+            "field": "latest_chapter",
+            "old_value": chapter_number - 1,
+            "new_value": chapter_number,
+            "reason": "本章已完成并通过审核。",
+            "source": f"memory/chapters/{chapter_number:03d}/audit.json",
+        }
+    )
+    return json.dumps(
+        {
+            "chapter_number": chapter_number,
+            "state_changes": state_changes,
             "timeline_events": [
                 {
                     "id": f"event_{chapter_number:03d}_001",
@@ -1064,10 +1078,7 @@ def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
                     "reader_visible": True,
                     "causes": [],
                     "effects": ["林澈开始调查旧车站异常", "破损车票由林澈持有"],
-                    "state_change_ids": [
-                        f"change_{chapter_number:03d}_001",
-                        f"change_{chapter_number:03d}_002",
-                    ],
+                    "state_change_ids": event_state_change_ids,
                     "tags": ["章节事件", "线索"],
                 }
             ],

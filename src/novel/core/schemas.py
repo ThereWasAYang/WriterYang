@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from novel.core.agent_defaults import PROFILE_NAMES, TASK_ONLY_CONFIG_FIELDS, TASK_TO_PROFILE
+from novel.core.contracts.common import CURRENT_SCHEMA_VERSION, ensure_schema_version
 
 
 EntityId = str
@@ -100,7 +101,12 @@ class FlexibleModel(BaseModel):
 
 
 class SchemaVersionedModel(FlexibleModel):
-    schema_version: int = Field(default=2, ge=1)
+    schema_version: int = Field(default=CURRENT_SCHEMA_VERSION)
+
+    @field_validator("schema_version")
+    @classmethod
+    def require_current_schema_version(cls, value: int) -> int:
+        return ensure_schema_version(value)
 
 
 class TargetLength(FlexibleModel):
@@ -898,6 +904,12 @@ class ExportSourceChapter(FlexibleModel):
     path: str = Field(min_length=1)
     accepted: bool
     sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    acceptance_commit_id: str = Field(min_length=1)
+    candidate_artifact_id: str = Field(min_length=1)
+    audit_artifact_id: str = Field(min_length=1)
+    state_proposal_artifact_id: str = Field(min_length=1)
+    post_state_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    post_timeline_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class ExportRecord(FlexibleModel):

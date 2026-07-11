@@ -15,7 +15,7 @@ from novel.core.chapter_memory import render_chapter_memory_prompt_text
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
-from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.prompts import load_prompt_template, prompt_template_version

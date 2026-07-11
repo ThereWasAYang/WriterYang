@@ -4,8 +4,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import json
 from pathlib import Path
+import pytest
 
-from novel.cli import main
+from novel.cli import build_parser, main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.schemas import AgentRunLog
 from novel.core.workspace import InitOptions, init_workspace
@@ -89,45 +90,10 @@ def test_generate_chapter_stop_after_write_generates_plan_and_draft(tmp_path: Pa
     assert [step.agent for step in _latest_run_log(root).steps] == ["plot_agent", "writer_agent"]
 
 
-def test_generate_chapter_skip_polish_is_single_pass_alias(tmp_path: Path) -> None:
-    root = _workspace_ready_for_generation(tmp_path)
-
-    code, stdout, stderr = _run_cli(
-        ["generate-chapter", "1", "--path", str(root), "--provider", "mock", "--skip-polish"]
-    )
-
-    assert code == 0
-    assert stderr == ""
-    chapter_dir = root / "memory" / "chapters" / "001"
-    assert (chapter_dir / "draft.md").is_file()
-    assert (chapter_dir / "polished.md").is_file()
-    assert (chapter_dir / "audit.json").is_file()
-    assert "polish_skipped: true" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
-    assert [step.agent for step in _latest_run_log(root).steps] == [
-        "plot_agent",
-        "writer_agent",
-        "writer_agent",
-        "audit_agent",
-    ]
-
-
-def test_generate_chapter_skip_audit_does_not_generate_audit(tmp_path: Path) -> None:
-    root = _workspace_ready_for_generation(tmp_path)
-
-    code, stdout, stderr = _run_cli(
-        ["generate-chapter", "1", "--path", str(root), "--provider", "mock", "--skip-audit"]
-    )
-
-    assert code == 0
-    assert stderr == ""
-    chapter_dir = root / "memory" / "chapters" / "001"
-    assert (chapter_dir / "polished.md").is_file()
-    assert not (chapter_dir / "audit.json").exists()
-    assert [step.agent for step in _latest_run_log(root).steps] == [
-        "plot_agent",
-        "writer_agent",
-        "writer_agent",
-    ]
+@pytest.mark.parametrize("flag", ["--skip-polish", "--skip-audit"])
+def test_generate_chapter_rejects_removed_bypass_flags(flag: str) -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["generate-chapter", "1", flag])
 
 
 def test_generate_chapter_run_log_contains_inputs_outputs_and_timestamps(tmp_path: Path) -> None:

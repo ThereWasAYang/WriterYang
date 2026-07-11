@@ -58,8 +58,7 @@
       "additionalProperties": true,
       "properties": {
         "schema_version": {
-          "default": 2,
-          "minimum": 1,
+          "default": 3,
           "title": "Schema Version",
           "type": "integer"
         },
@@ -191,8 +190,7 @@
   "additionalProperties": true,
   "properties": {
     "schema_version": {
-      "default": 2,
-      "minimum": 1,
+      "default": 3,
       "title": "Schema Version",
       "type": "integer"
     },

@@ -15,7 +15,7 @@ from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
-from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -34,6 +34,7 @@ from novel.core.schemas import (
 )
 from novel.core.style_guide import DEFAULT_STYLE_GUIDANCE
 from novel.core.timeutil import new_request_id, utc_now, utc_now_iso
+from novel.core.world_state import resolve_world_state_paths
 
 
 RevisionTarget = Literal["draft", "polished"]
@@ -55,6 +56,7 @@ class ChapterRevisionOptions:
     save_as_version: bool = True
     use_search_context: bool = False
     use_vector_context: bool | VectorContextMode = "auto"
+    world_state_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -258,6 +260,7 @@ def load_revision_context(
         if options.use_search_context
         else None
     )
+    state_path, timeline_path = resolve_world_state_paths(root, options.world_state_dir)
     return (
         RevisionContext(
             project=load_yaml_model(root / "project.yaml", ProjectConfig),
@@ -267,8 +270,8 @@ def load_revision_context(
             audit=audit,
             style_guide=style_guide,
             canon_summary=format_canon_summary(canon),
-            state=load_json_model(root / "memory" / "state" / "current_state.json", EntityState),
-            timeline=load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile),
+            state=load_json_model(state_path, EntityState),
+            timeline=load_json_model(timeline_path, TimelineFile),
             search_context=context_bundle.render_for_prompt() if context_bundle else "",
             context_bundle=context_bundle,
         ),

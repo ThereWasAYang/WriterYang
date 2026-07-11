@@ -53,6 +53,13 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "creation_archive",
         "run_log",
         "export_manifest",
+        "artifact_ref",
+        "chapter_lifecycle",
+        "session_projection",
+        "acceptance_commit",
+        "transaction_journal",
+        "command_proposal",
+        "workflow_budget",
     }
 
     assert set(payloads) == expected

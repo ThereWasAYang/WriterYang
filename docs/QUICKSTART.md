@@ -128,7 +128,7 @@ novel accept-chapter 1 --path ./qingdeng-inn --allow-issues
 ## 7. 导出 Markdown
 
 ```bash
-novel export markdown --path ./qingdeng-inn --include-unaccepted --toc --force
+novel export markdown --path ./qingdeng-inn --toc --force
 ```
 
 默认导出到 `exports/novel.md`，同时更新 `exports/export_manifest.json`。

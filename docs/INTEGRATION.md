@@ -26,7 +26,6 @@ novel status --project ./rain-station --json --quiet
 ```bash
 novel init "雨夜旧车站" --project ./rain-station --json --quiet
 novel validate --project ./rain-station --json --quiet
-novel migrate --project ./rain-station --json --quiet
 novel schema export --project ./rain-station --output ./schemas --json --quiet
 novel status --project ./rain-station --json --quiet
 novel usage --project ./rain-station --json --quiet
@@ -63,8 +62,8 @@ novel accept-chapter 1 --project ./rain-station --json --quiet
 novel chapter-memory show 1 --project ./rain-station --json --quiet
 novel chapter-memory generate 1 --project ./rain-station --provider config --force --json --quiet
 novel chapter-memory rebuild --project ./rain-station --provider config --missing-only --json --quiet
-novel export markdown --project ./rain-station --include-unaccepted --json --quiet
-novel export docx --project ./rain-station --include-unaccepted --json --quiet
+novel export markdown --project ./rain-station --json --quiet
+novel export docx --project ./rain-station --json --quiet
 novel ask "请为第1章生成章节计划" --project ./rain-station --provider config --json --quiet
 novel ask "第2章 event_x 其实是回忆，不是当前行动" --project ./rain-station --json --quiet
 novel ask "确认应用 repair_20260530_010101_000001" --project ./rain-station --json --quiet
@@ -101,7 +100,7 @@ Web API 也提供同等修复入口：`POST /api/chapter-memory/generate` 生成
 
 - `GET /api/projects?root=<dir>`：列出 `root` 自身或其一级子目录中的 WriterYang 项目。
 - `GET /api/session?path=<project>&session_id=<id>`：读取 session、progress、audit summary、rewrite events 和后台管理事件。
-- `POST /api/generate-chapter`：调用与 CLI `generate-chapter` 相同的 core workflow；请求体使用 `path`、`chapter_number`、`provider`、`instruction`、`force`、`target_words`、`style_note`、`polish_mode`、`skip_polish`、`skip_audit`、`stop_after`、`use_search_context`、`vector_context`。
+- `POST /api/generate-chapter`：调用与 CLI `generate-chapter` 相同的 core workflow；请求体使用 `path`、`chapter_number`、`provider`、`instruction`、`force`、`target_words`、`style_note`、`polish_mode`、`stop_after`、`use_search_context`、`vector_context`。`skip_polish` 和 `skip_audit` 已删除。
 - `POST /api/setup/open-web`：只返回建议打开的本地 Web URL 和 `opened=false`，不会替调用方打开浏览器。
 
 这些接口和普通 Web UI 一样不会返回真实 API Key。长时间运行的创作任务仍建议优先使用 Session API，以便获得 progress、取消和自动修订状态。

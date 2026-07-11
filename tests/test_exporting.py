@@ -5,11 +5,22 @@ import hashlib
 from io import StringIO
 import json
 from pathlib import Path
+import uuid
 
 from docx import Document
+import pytest
 
-from novel.cli import main
+from novel.cli import build_parser, main
+from novel.core.artifact_store import ArtifactStore, combined_sha256, write_lifecycle
+from novel.core.contracts import (
+    AcceptanceCommit,
+    ArtifactKind,
+    AuditBinding,
+    ChapterLifecycle,
+    StateProposalBinding,
+)
 from novel.core.schemas import ExportManifest
+from novel.core.timeutil import utc_now
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -46,23 +57,14 @@ def test_export_markdown_skips_unaccepted_by_default(tmp_path: Path) -> None:
 
     assert code == 0
     assert stderr == ""
-    assert "warning: chapter 3 is not accepted; skipped" in stdout
+    assert "warning: chapter 3 has no accepted.md; skipped" in stdout
     output = (root / "exports" / "novel.md").read_text(encoding="utf-8")
     assert "第三章正文" not in output
 
 
-def test_export_markdown_include_unaccepted(tmp_path: Path) -> None:
-    root = _workspace_with_chapters(tmp_path)
-
-    code, stdout, stderr = _run_cli(
-        ["export", "markdown", "--path", str(root), "--include-unaccepted"]
-    )
-
-    assert code == 0
-    assert stderr == ""
-    output = (root / "exports" / "novel.md").read_text(encoding="utf-8")
-    assert "## 第三章 未验收章节" in output
-    assert "第三章正文" in output
+def test_export_cli_rejects_removed_include_unaccepted_flag() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["export", "markdown", "--include-unaccepted"])
 
 
 def test_export_markdown_chapters_selector(tmp_path: Path) -> None:
@@ -85,7 +87,7 @@ def test_export_markdown_from_to_selector(tmp_path: Path) -> None:
     root = _workspace_with_chapters(tmp_path)
 
     code, stdout, stderr = _run_cli(
-        ["export", "markdown", "--path", str(root), "--from", "2", "--to", "3", "--include-unaccepted"]
+        ["export", "markdown", "--path", str(root), "--from", "2", "--to", "3"]
     )
 
     assert code == 0
@@ -93,7 +95,7 @@ def test_export_markdown_from_to_selector(tmp_path: Path) -> None:
     output = (root / "exports" / "novel.md").read_text(encoding="utf-8")
     assert "第一章正文" not in output
     assert "第二章正文" in output
-    assert "第三章正文" in output
+    assert "第三章正文" not in output
 
 
 def test_export_markdown_refuses_to_overwrite_existing_by_default(tmp_path: Path) -> None:
@@ -144,6 +146,18 @@ def test_export_markdown_updates_manifest(tmp_path: Path) -> None:
     assert first_detail.chapter_number == 1
     assert first_detail.accepted is True
     assert first_detail.sha256 == hashlib.sha256(first_path.read_bytes()).hexdigest()
+
+
+def test_export_rejects_accepted_content_changed_after_commit(tmp_path: Path) -> None:
+    root = _workspace_with_chapters(tmp_path)
+    accepted = root / "memory" / "chapters" / "001" / "accepted.md"
+    accepted.write_text(accepted.read_text(encoding="utf-8") + "\n手工篡改。\n", encoding="utf-8")
+
+    code, stdout, stderr = _run_cli(["export", "markdown", "--path", str(root)])
+
+    assert code == 1
+    assert stdout == ""
+    assert "accepted.md is stale" in stderr
 
 
 def test_export_markdown_can_include_toc_volume_and_arabic_chapter_numbers(tmp_path: Path) -> None:
@@ -221,23 +235,14 @@ def test_export_docx_skips_unaccepted_by_default(tmp_path: Path) -> None:
 
     assert code == 0
     assert stderr == ""
-    assert "warning: chapter 3 is not accepted; skipped" in stdout
+    assert "warning: chapter 3 has no accepted.md; skipped" in stdout
     text = _docx_text(root / "exports" / "novel.docx")
     assert "第三章正文" not in text
 
 
-def test_export_docx_include_unaccepted(tmp_path: Path) -> None:
-    root = _workspace_with_chapters(tmp_path)
-
-    code, stdout, stderr = _run_cli(
-        ["export", "docx", "--path", str(root), "--include-unaccepted"]
-    )
-
-    assert code == 0
-    assert stderr == ""
-    text = _docx_text(root / "exports" / "novel.docx")
-    assert "第三章 未验收章节" in text
-    assert "第三章正文" in text
+def test_export_docx_cli_rejects_removed_include_unaccepted_flag() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["export", "docx", "--include-unaccepted"])
 
 
 def test_export_docx_refuses_to_overwrite_existing_by_default(tmp_path: Path) -> None:
@@ -301,7 +306,7 @@ def _workspace_with_chapters(tmp_path: Path) -> Path:
 def _write_polished(root: Path, chapter_number: int, title: str, status: str, body: str) -> None:
     chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
     chapter_dir.mkdir(parents=True, exist_ok=True)
-    chapter_dir.joinpath("polished.md").write_text(
+    content = (
         "---\n"
         f"chapter_number: {chapter_number}\n"
         f"title: {json.dumps(title, ensure_ascii=False)}\n"
@@ -311,9 +316,105 @@ def _write_polished(root: Path, chapter_number: int, title: str, status: str, bo
         "created_at: 2026-05-23T00:00:00Z\n"
         "---\n\n"
         f"# 第{chapter_number}章 {title}\n\n"
-        f"{body}\n",
-        encoding="utf-8",
+        f"{body}\n"
     )
+    markdown = content
+    chapter_dir.joinpath("polished.md").write_text(markdown, encoding="utf-8")
+    if status != "accepted":
+        return
+    store = ArtifactStore(root)
+    plan = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.PLAN,
+        content=b"{}\n",
+        suffix=".json",
+    )
+    candidate = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.CANDIDATE,
+        content=markdown.encode("utf-8"),
+        suffix=".md",
+    )
+    audit_content = json.dumps(
+        {
+            "schema_version": 3,
+            "chapter_number": chapter_number,
+            "audited_file": "polished.md",
+            "overall_status": "passed",
+            "summary": "通过。",
+            "issues": [],
+            "created_at": "2026-05-23T00:00:00Z",
+        },
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf-8") + b"\n"
+    audit = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.AUDIT,
+        content=audit_content,
+        suffix=".json",
+    )
+    proposal = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.STATE_PROPOSAL,
+        content=b"{}\n",
+        suffix=".json",
+    )
+    memory = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.CHAPTER_MEMORY,
+        content=b"{}\n",
+        suffix=".json",
+    )
+    snapshot_hash = "0" * 64
+    acceptance = AcceptanceCommit(
+        commit_id=f"accept_{uuid.uuid4().hex}",
+        session_id="session_20260523_000000_000001",
+        chapter_number=chapter_number,
+        candidate=candidate,
+        audit=audit,
+        state_proposal=proposal,
+        chapter_memory=memory,
+        pre_state_sha256=snapshot_hash,
+        pre_timeline_sha256=snapshot_hash,
+        post_state_sha256=snapshot_hash,
+        post_timeline_sha256=snapshot_hash,
+        accepted_content_sha256=candidate.sha256,
+        created_at=utc_now(),
+    )
+    acceptance_bytes = (acceptance.model_dump_json(indent=2) + "\n").encode("utf-8")
+    acceptance_ref = store.create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.ACCEPTANCE,
+        content=acceptance_bytes,
+        suffix=".json",
+    )
+    context_hash = combined_sha256(snapshot_hash, snapshot_hash, candidate.sha256)
+    write_lifecycle(
+        root,
+        ChapterLifecycle(
+            chapter_number=chapter_number,
+            active_plan=plan,
+            active_candidate=candidate,
+            active_audit=AuditBinding(
+                audit=audit,
+                candidate=candidate,
+                context_snapshot_hash=context_hash,
+                policy_version="test",
+            ),
+            active_state_proposal=StateProposalBinding(
+                proposal=proposal,
+                candidate=candidate,
+                audit=audit,
+                base_state_sha256=snapshot_hash,
+                base_timeline_sha256=snapshot_hash,
+            ),
+            active_acceptance=acceptance_ref,
+            updated_at=utc_now(),
+        ),
+    )
+    (chapter_dir / "accepted.md").write_bytes(markdown.encode("utf-8"))
+    (chapter_dir / "acceptance.json").write_bytes(acceptance_bytes)
 
 
 def _docx_text(path: Path) -> str:

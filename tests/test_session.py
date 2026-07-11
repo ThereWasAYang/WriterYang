@@ -7,11 +7,13 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.artifact_store import load_lifecycle
 from novel.core.io import atomic_write_model_json, load_json_model
 from novel.core.schemas import (
     AuditReport,
     CreationArchiveManifest,
     CreationSession,
+    EntityState,
     RevisionRouteDecision,
     SessionRewriteEvent,
     SessionRewriteEvents,
@@ -29,6 +31,8 @@ from novel.core.session import (
     request_session_cancel,
 )
 from novel.core import session as session_module
+from novel.core import transactions as transaction_module
+from novel.core.projection import load_projection
 from novel.core.workspace import InitOptions, init_workspace
 import pytest
 
@@ -319,6 +323,86 @@ def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
     }
 
 
+def test_multi_chapter_session_uses_projection_and_commits_atomically(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(
+        ["session", "start", "连续写第1至2章", "--path", str(root), "--chapters", "1,2", "--provider", "mock"]
+    )
+    session = _latest_session(root)
+    assert _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])[0] == 0
+    assert _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])[0] == 0
+
+    canonical = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
+    projection = load_projection(root, session.session_id)
+    chapter_two = load_lifecycle(root, 2)
+
+    assert canonical.story_position.latest_chapter == 0
+    assert projection.checkpoints[-1].chapter_number == 2
+    assert chapter_two is not None and chapter_two.active_state_proposal is not None
+    assert chapter_two.active_state_proposal.base_state_sha256 == projection.checkpoints[-1].before_state_sha256
+
+    assert _run_cli(["session", "accept", session.session_id, "--path", str(root), "--provider", "mock"])[0] == 0
+    committed = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
+    assert committed.story_position.latest_chapter == 2
+    for chapter_number in (1, 2):
+        chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+        assert (chapter_dir / "accepted.md").is_file()
+        assert (chapter_dir / "acceptance.json").is_file()
+
+
+def test_multi_chapter_acceptance_rolls_back_every_chapter_on_late_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "连续写两章", "--path", str(root), "--chapters", "1,2", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
+    state_path = root / "memory" / "state" / "current_state.json"
+    timeline_path = root / "memory" / "state" / "timeline.json"
+    before_state = state_path.read_bytes()
+    before_timeline = timeline_path.read_bytes()
+    original_write = transaction_module.atomic_write_bytes
+    failed = False
+
+    def fail_chapter_two_acceptance(path: Path, content: bytes) -> None:
+        nonlocal failed
+        if path.resolve() == (root / "memory" / "chapters" / "002" / "accepted.md").resolve() and not failed:
+            failed = True
+            raise OSError("injected late commit failure")
+        original_write(path, content)
+
+    monkeypatch.setattr(transaction_module, "atomic_write_bytes", fail_chapter_two_acceptance)
+
+    with pytest.raises(CreationSessionError, match="rolled back"):
+        session_module.accept_session(SessionActionOptions(root=root, session_id=session.session_id))
+
+    assert state_path.read_bytes() == before_state
+    assert timeline_path.read_bytes() == before_timeline
+    for chapter_number in (1, 2):
+        chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
+        assert not (chapter_dir / "accepted.md").exists()
+        assert not (chapter_dir / "acceptance.json").exists()
+    stored = load_json_model(root / "memory" / "sessions" / session.session_id / "session.json", CreationSession)
+    assert stored.status == "needs_user_review"
+
+
+def test_session_accept_rejects_working_content_changed_after_review(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第一章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
+    polished = root / "memory" / "chapters" / "001" / "polished.md"
+    polished.write_text(polished.read_text(encoding="utf-8") + "\n审阅后手工改动。\n", encoding="utf-8")
+
+    with pytest.raises(CreationSessionError, match="no longer matches reviewed artifact"):
+        session_module.accept_session(SessionActionOptions(root=root, session_id=session.session_id))
+
+    assert not (root / "memory" / "chapters" / "001" / "accepted.md").exists()
+
+
 def test_find_latest_active_session_prefers_generated_content_over_newer_outline(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
     _run_cli(
@@ -448,6 +532,7 @@ def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, mo
     monkeypatch.setattr(session_module, "_auto_repair_chapter", fake_repair)
     monkeypatch.setattr(session_module, "_audit_chapter_content", lambda *args, **kwargs: None)
     monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection)
 
     result = session_module.run_session(
         SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock", max_auto_revision_rounds=1)
@@ -515,6 +600,7 @@ def test_session_auto_replan_records_rewrite_event(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(session_module, "_should_replan_chapter", lambda *args: True)
     monkeypatch.setattr(session_module, "_auto_replan_chapter", lambda *args, **kwargs: None)
     monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection)
 
     result = session_module.run_session(
         SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock", max_auto_revision_rounds=1)
@@ -764,6 +850,7 @@ def test_session_revise_content_routes_writer_rewrite(tmp_path: Path, monkeypatc
         ),
     )
     monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection)
 
     result = session_module.revise_content(
         SessionInstructionOptions(
@@ -825,6 +912,7 @@ def test_session_revise_content_routes_plot_replan(tmp_path: Path, monkeypatch) 
         ),
     )
     monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection)
 
     result = session_module.revise_content(
         SessionInstructionOptions(

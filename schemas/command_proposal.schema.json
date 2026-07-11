@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "DecisionRisk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "DecisionRisk",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "command_type": {
+      "minLength": 1,
+      "title": "Command Type",
+      "type": "string"
+    },
+    "arguments": {
+      "additionalProperties": true,
+      "title": "Arguments",
+      "type": "object"
+    },
+    "confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "risk": {
+      "$ref": "#/$defs/DecisionRisk"
+    },
+    "estimated_model_calls": {
+      "minimum": 0,
+      "title": "Estimated Model Calls",
+      "type": "integer"
+    },
+    "requires_confirmation": {
+      "title": "Requires Confirmation",
+      "type": "boolean"
+    },
+    "clarification_question": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Clarification Question"
+    }
+  },
+  "required": [
+    "command_type",
+    "confidence",
+    "risk",
+    "estimated_model_calls",
+    "requires_confirmation"
+  ],
+  "title": "CommandProposal",
+  "type": "object"
+}

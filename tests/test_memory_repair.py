@@ -823,7 +823,7 @@ def test_setting_change_apply_rejects_existing_bad_character_role_proposal(tmp_p
     assert apply_log["backups"] == []
 
 
-def test_memory_repair_apply_rolls_back_all_touched_files_after_project_validation_failure(tmp_path: Path) -> None:
+def test_memory_repair_preflight_rejects_invalid_schema_before_writing_files(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
     characters_path = root / "memory" / "canon" / "characters.json"
     world_path = root / "memory" / "canon" / "world.json"
@@ -872,17 +872,16 @@ def test_memory_repair_apply_rolls_back_all_touched_files_after_project_validati
     with pytest.raises(MemoryRepairError) as excinfo:
         apply_memory_repair(root, proposal_path)
 
-    assert "validation errors" in str(excinfo.value)
+    assert "schema preflight" in str(excinfo.value)
     assert characters_path.read_text(encoding="utf-8") == before_characters
     assert world_path.read_text(encoding="utf-8") == before_world
     apply_log = json.loads((repair_dir / "apply_log.json").read_text(encoding="utf-8"))
-    assert apply_log["status"] == "rolled_back"
-    assert apply_log["target_files"] == ["memory/canon/characters.json", "memory/canon/world.json"]
-    assert len(apply_log["backups"]) == 2
-    assert all((root / backup).is_file() for backup in apply_log["backups"])
+    assert apply_log["status"] == "failed"
+    assert apply_log["target_files"] == []
+    assert apply_log["backups"] == []
     app_log = root / "runs" / "app.log"
     assert app_log.is_file()
-    assert "memory_repair_apply_rolled_back" in app_log.read_text(encoding="utf-8")
+    assert "memory_repair_apply_failed" in app_log.read_text(encoding="utf-8")
 
 
 def test_memory_repair_apply_missing_allowed_file_does_not_create_residue(tmp_path: Path) -> None:
@@ -1564,7 +1563,7 @@ def test_setting_change_gender_tag_operation_is_normalized_to_gender_field(tmp_p
     assert characters.characters[0].gender == "男"
 
 
-def test_apply_old_setting_change_gender_tag_proposal_normalizes_on_apply(tmp_path: Path) -> None:
+def test_apply_setting_change_gender_tag_proposal_normalizes_on_apply(tmp_path: Path) -> None:
     root = _workspace_with_character(tmp_path, "char_lin_che", "林澈")
     repair_dir = root / "memory" / "repairs" / "repair_20260620_010101_000001"
     repair_dir.mkdir(parents=True)
@@ -1572,7 +1571,7 @@ def test_apply_old_setting_change_gender_tag_proposal_normalizes_on_apply(tmp_pa
     proposal_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "repair_id": "repair_20260620_010101_000001",
                 "change_kind": "setting_change",
                 "user_request": "明确林澈是女性",

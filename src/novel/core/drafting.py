@@ -20,6 +20,7 @@ from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.style_guide import DEFAULT_STYLE_GUIDANCE
 from novel.core.timeutil import utc_now_iso
+from novel.core.world_state import resolve_world_state_paths
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -43,6 +44,7 @@ class ChapterDraftingOptions:
     style_note: str | None = None
     use_search_context: bool = False
     use_vector_context: bool | VectorContextMode = "auto"
+    world_state_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -81,8 +83,9 @@ def write_chapter_draft(
     inspiration_md = _read_required_text(root / "memory" / "inspiration.md", "memory/inspiration.md")
     inspiration_json = _read_optional_text(root / "memory" / "inspiration.json")
     canon = load_canon_files(root)
-    state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
-    timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    state_path, timeline_path = resolve_world_state_paths(root, options.world_state_dir)
+    state = load_json_model(state_path, EntityState)
+    timeline = load_json_model(timeline_path, TimelineFile)
     context_bundle = (
         retrieve_context_bundle(
             root,

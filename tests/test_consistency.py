@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from novel.core.consistency import check_chapter_consistency, check_project_consistency
-from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.workspace import InitOptions, init_workspace
 
 

@@ -13,7 +13,7 @@ from novel.core.chapter_memory import validate_chapter_memory
 from novel.core.consistency import ConsistencyResult, check_canon_consistency, check_project_consistency
 from novel.core.env import load_project_env
 from novel.core.io import load_json_model, load_yaml_model
-from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.schemas import (
     AgentConfig,
     AgentConfigPatch,
@@ -240,6 +240,9 @@ def _load_optional_yaml(path: Path, model_type: type, report: ValidationReport):
 
 def _add_validation_error(report: ValidationReport, path: Path, exc: ValidationError) -> None:
     for error in exc.errors():
+        if tuple(error["loc"]) == ("schema_version",):
+            report.error(path, f"不支持的 schema_version：{error.get('input')}")
+            continue
         loc = ".".join(str(part) for part in error["loc"])
         suffix = f"：{loc}" if loc else ""
         report.error(path, f"{_pydantic_error_message(error)}{suffix}")

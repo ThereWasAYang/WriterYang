@@ -110,7 +110,6 @@ def test_readme_core_commands_match_cli() -> None:
     for command in (
         "novel init",
         "novel validate",
-        "novel migrate",
         "novel schema export",
         "novel status",
         "novel inspire",
@@ -136,7 +135,6 @@ def test_readme_core_commands_match_cli() -> None:
     for parser_command in (
         "init",
         "validate",
-        "migrate",
         "schema",
         "status",
         "inspire",

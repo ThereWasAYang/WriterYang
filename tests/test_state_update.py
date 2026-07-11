@@ -16,7 +16,7 @@ from novel.core.polishing import ChapterPolishingOptions, polish_chapter
 from novel.core.providers import MockProvider
 from novel.core.schemas import ChapterMetadata, EntityState, StateUpdateApplyLog, StateUpdateProposal, TimelineFile
 from novel.core import state_update as state_update_module
-from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.state_update import (
     AcceptChapterOptions,
     StateUpdateApplyOptions,
@@ -331,7 +331,7 @@ def test_apply_state_update_fails_on_item_holder_location_conflict(tmp_path: Pat
 
 def test_parse_state_update_proposal_normalizes_common_field_aliases() -> None:
     data = json.loads(default_mock_state_update_proposal_json(1))
-    data["schema_version"] = 1
+    data["schema_version"] = CURRENT_SCHEMA_VERSION
     data["state_changes"][0]["field"] = "location"
     data["state_changes"][0]["new_value"] = "loc_old_station"
     data["state_changes"][1]["old_value"] = "none"

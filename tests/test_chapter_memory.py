@@ -22,7 +22,7 @@ from novel.core.chapter_memory import (
     validate_chapter_memory,
 )
 from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
-from novel.core.migration import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, polish_chapter
 from novel.core.providers import MockProvider
@@ -98,11 +98,11 @@ def test_chapter_memory_provider_failure_uses_deterministic_fallback(tmp_path: P
     assert "chapter_memory_failed" not in events
 
 
-def test_parse_chapter_memory_overwrites_stale_schema_version(tmp_path: Path) -> None:
+def test_parse_chapter_memory_accepts_current_schema_version(tmp_path: Path) -> None:
     root = _workspace_with_accepted_memory(tmp_path)
     context = load_chapter_memory_context(root, 1)
     payload = json.loads(default_mock_chapter_memory_json(1))
-    payload["schema_version"] = 1
+    payload["schema_version"] = CURRENT_SCHEMA_VERSION
 
     memory = parse_chapter_memory(json.dumps(payload, ensure_ascii=False), context)
 

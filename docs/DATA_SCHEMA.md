@@ -16,6 +16,8 @@
 
 字段级真相以 `src/novel/core/schemas.py` 中的 Pydantic model 为准；`schemas/*.schema.json` 由这些 model 导出。本文侧重说明设计意图、人类可编辑约定和重要持久化路径，避免手写字段清单与生成 schema 漂移。
 
+控制面与 inter-agent 契约以 `src/novel/core/contracts/` 为准；`artifact_ref`、`chapter_lifecycle`、`session_projection`、`acceptance_commit`、`transaction_journal`、`command_proposal` 和 `workflow_budget` 也会导出到 `schemas/`。
+
 ---
 
 ## 2. 设计原则
@@ -119,6 +121,8 @@ Timeline event、audit report、run log 和 chapter record 通常应保持追加
 
 ## 3. 项目文件布局
 
+所有 schema-versioned 文件使用 `schema_version: 3`。loader 对其他版本返回 `unsupported_project_schema`；不存在自动升级或兼容读取。
+
 推荐项目布局：
 
 ```text
@@ -148,15 +152,27 @@ novel-project/
 
     chapters/
       001/
+        lifecycle.json
         plan.json
         plan.md
         draft.md
-        draft.v2.md
         polished.md
-        polished.v2.md
         audit.json
         state_update_proposal.json
-        state_update_apply_log.json
+        plans/
+          plan_art_<id>.json
+        candidates/
+          candidate_art_<id>.md
+        audits/
+          audit_art_<id>.json
+        state_proposals/
+          state_proposal_art_<id>.json
+        chapter_memories/
+          chapter_memory_art_<id>.json
+        acceptances/
+          acceptance_art_<id>.json
+        accepted.md
+        acceptance.json
         chapter_memory.json
         revision_log.json
       002/
@@ -169,19 +185,23 @@ novel-project/
   runs/
     run_*.json
 
+  transactions/
+    tx_<id>/
+      journal.json
+      staged/
+      backups/
+
   exports/
     novel.md
     novel.docx
     export_manifest.json
 ```
 
-生成文件可能在对应 workflow step 执行前不存在。
-`memory/search_index.json` 是可生成、可重建的文件。`polished.v2.md`
-这类带版本的章节文件由 revision workflow 创建，用于避免静默覆盖旧稿。
-已接受章节会在 `polished.md` front matter 中标记 `status: accepted` 和
-`accepted_at`。已接受章节也可以包含 `chapter_memory.json`。它是供后续
+生成文件可能在对应 workflow step 执行前不存在。固定名称的 `plan.json`、`polished.md`、`audit.json` 和 `state_update_proposal.json` 是任务执行期间的 working materialization；Session 到达审阅门后会将其冻结到不可变 artifact 目录，并在 `lifecycle.json` 中记录绑定关系。
+
+`accepted.md` 是正式接受正文的可读物化文件，`acceptance.json` 是权威提交证明；不能通过手工修改 front matter 将 `polished.md` 变成可正式导出的章节。`chapter_memory.json` 是供后续
 Plot/Writer prompt 使用的结构化检索指南，不是权威事实来源；事实校验应以
-canon、current_state、timeline 和已接受的 `polished.md` 为准。
+canon、current_state、timeline 和带有效 acceptance 的 `accepted.md` 为准。
 
 ---
 

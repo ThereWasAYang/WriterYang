@@ -10,6 +10,7 @@ from novel.core.json_extract import strip_code_fence
 from novel.core.providers import ModelProvider, ModelRequest, ModelResponse, ProviderOutputTruncatedError
 from novel.core.security import redact_secret_text
 from novel.core.timeutil import new_request_id, utc_now_iso
+from novel.core.workflow_runtime import active_trace_metadata
 
 
 InteractionMode = Literal["internal_task", "user_facing"]
@@ -27,11 +28,14 @@ class AgentOutputContractError(RuntimeError):
 @dataclass(frozen=True)
 class AgentInvocationContext:
     agent_name: str
-    caller: str = "cli"
     interaction_mode: InteractionMode = "internal_task"
     task: str | None = None
     chapter_number: int | None = None
     session_id: str | None = None
+    surface: str | None = None
+    workflow_run_id: str | None = None
+    parent_request_id: str | None = None
+    node_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,7 +58,17 @@ def generate_with_output_guard(
     contract: AgentOutputContract,
     stream: bool = False,
 ) -> str:
-    request = _request_with_id(replace(model_request, agent_name=model_request.agent_name or invocation.agent_name))
+    invocation = _resolve_invocation_trace(invocation)
+    request = _request_with_id(
+        replace(
+            model_request,
+            agent_name=model_request.agent_name or invocation.agent_name,
+            workflow_run_id=model_request.workflow_run_id or invocation.workflow_run_id,
+            surface=model_request.surface or invocation.surface,
+            session_id=model_request.session_id or invocation.session_id,
+            parent_request_id=model_request.parent_request_id or invocation.parent_request_id,
+        )
+    )
     response = _call_provider(provider, request, stream=stream)
     _raise_if_truncated(response, request=request, invocation=invocation, contract=contract)
     output = response.content
@@ -78,6 +92,10 @@ def generate_with_output_guard(
         replace(
             model_request,
             agent_name=model_request.agent_name or invocation.agent_name,
+            workflow_run_id=model_request.workflow_run_id or invocation.workflow_run_id,
+            surface=model_request.surface or invocation.surface,
+            session_id=model_request.session_id or invocation.session_id,
+            parent_request_id=model_request.parent_request_id or invocation.parent_request_id,
             repair_count=model_request.repair_count + 1,
             user_prompt=build_output_contract_repair_prompt(
                 original_prompt=model_request.user_prompt,
@@ -184,7 +202,10 @@ def write_agent_output_violation_log(
         "schema_version": "1.0",
         "request_id": request_id,
         "agent_name": invocation.agent_name,
-        "caller": invocation.caller,
+        "surface": invocation.surface,
+        "workflow_run_id": invocation.workflow_run_id,
+        "parent_request_id": invocation.parent_request_id,
+        "node_id": invocation.node_id,
         "interaction_mode": invocation.interaction_mode,
         "task": invocation.task,
         "chapter_number": invocation.chapter_number,
@@ -226,6 +247,18 @@ def _raise_if_truncated(
 
 def _request_with_id(request: ModelRequest) -> ModelRequest:
     return request if request.request_id else replace(request, request_id=new_request_id("agent"))
+
+
+def _resolve_invocation_trace(invocation: AgentInvocationContext) -> AgentInvocationContext:
+    trace = active_trace_metadata()
+    return replace(
+        invocation,
+        surface=invocation.surface or (trace.surface.value if trace.surface else None),
+        workflow_run_id=invocation.workflow_run_id or trace.workflow_run_id,
+        session_id=invocation.session_id or trace.session_id,
+        parent_request_id=invocation.parent_request_id or trace.request_id,
+        node_id=invocation.node_id or trace.node_id,
+    )
 
 
 def _looks_like_json_payload(text: str) -> bool:

@@ -155,11 +155,15 @@ def new_command_envelope(
     command: PublicCommand,
     confirmed: bool = False,
     workflow_run_id: str | None = None,
+    request_id: str | None = None,
+    parent_request_id: str | None = None,
     budget: WorkflowBudget | None = None,
     initial_budget_usage: BudgetUsage | None = None,
 ) -> CommandEnvelope:
     return CommandEnvelope(
         command_id=f"cmd_{uuid.uuid4().hex}",
+        request_id=request_id or f"req_{uuid.uuid4().hex}",
+        parent_request_id=parent_request_id,
         workflow_run_id=workflow_run_id or f"run_{uuid.uuid4().hex}",
         surface=surface,
         project_root=str(project_root.expanduser().resolve()),
@@ -199,7 +203,12 @@ def dispatch_command(envelope: CommandEnvelope) -> CommandResult:
                 _reserve_command_scope(envelope.command)
                 if command_type in READ_ONLY_COMMANDS or command_type in UNLOCKED_WRITE_COMMANDS:
                     return handler(envelope, root)
-                with ProjectLock(root, task=command_type):
+                with ProjectLock(
+                    root,
+                    task=command_type,
+                    workflow_run_id=envelope.workflow_run_id,
+                    command_id=envelope.command_id,
+                ):
                     return handler(envelope, root)
 
             if (root / "project.yaml").exists():
@@ -209,11 +218,15 @@ def dispatch_command(envelope: CommandEnvelope) -> CommandResult:
                     command_id=envelope.command_id,
                     surface=envelope.surface,
                     budget=budget,
+                    request_id=envelope.request_id,
+                    parent_request_id=envelope.parent_request_id,
+                    session_id=_command_session_id(envelope.command),
                 ) as runtime:
                     result = runtime.execute_node(
                         name=f"command:{command_type}",
                         node_type="command",
                         function=execute_handler,
+                        request_id=envelope.request_id,
                         input_paths=["project.yaml"],
                         output_details=lambda value: (
                             value.changed_artifacts,
@@ -267,6 +280,7 @@ def command_result_payload(value: CommandResult) -> dict[str, object]:
     return {
         **value.result,
         "command_id": value.command_id,
+        "request_id": value.request_id,
         "workflow_run_id": value.workflow_run_id,
         "command_type": value.command_type,
         "next_allowed_commands": value.next_allowed_commands,
@@ -424,6 +438,7 @@ def _result(
 ) -> CommandResult:
     return CommandResult(
         command_id=envelope.command_id,
+        request_id=envelope.request_id,
         workflow_run_id=envelope.workflow_run_id,
         command_type=envelope.command.type,
         result=result,
@@ -431,6 +446,14 @@ def _result(
         warnings=warnings or [],
         changed_paths=changed_paths or [],
     )
+
+
+def _command_session_id(command: PublicCommand) -> str | None:
+    if isinstance(command, SessionCommand):
+        return command.session_id
+    if isinstance(command, RevisionCommand):
+        return command.revision_session_id
+    return None
 
 
 @_handler("project.status")

@@ -10,7 +10,6 @@ from .deps import (
     drop_legacy_profile_default_patch,
     inherited_profile_config_patch,
     profile_inherited_patch_fields,
-    latest_chapter_version_path,
     atomic_write_text,
     atomic_write_yaml,
     backup_if_exists,
@@ -35,6 +34,8 @@ from .deps import (
     default_style_guide_markdown,
 )
 from novel.core.contracts import ProjectInitCommand
+from novel.core.artifact_store import ArtifactStore
+from novel.core.contracts import ArtifactKind
 
 from .common import (
     EDITABLE_PROFILE_NAMES,
@@ -43,7 +44,6 @@ from .common import (
     WebAPIError,
     _sanitize_config,
     _is_allowed_chapter_version_name,
-    _next_version_path,
     _new_revision_id,
     _append_web_revision_log,
     _is_archived_chapter,
@@ -133,7 +133,7 @@ def _save_chapter_file(data: dict[str, object]) -> dict[str, object]:
     if not content.strip():
         raise WebAPIError("invalid_request", "content must not be empty", status=400)
     chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
-    source_name = str(data.get("source_file") or latest_chapter_version_path(chapter_dir, target).name)
+    source_name = str(data.get("source_file") or f"{target}.md")
     if not _is_allowed_chapter_version_name(source_name, target):
         raise WebAPIError("forbidden_file", "source_file is not an editable chapter version", status=403)
     source_path = chapter_dir / source_name
@@ -146,14 +146,19 @@ def _save_chapter_file(data: dict[str, object]) -> dict[str, object]:
             status=409,
         )
 
-    output_path = _next_version_path(chapter_dir, target)
-    atomic_write_text(output_path, content.rstrip() + "\n")
+    output_ref = ArtifactStore(root).create(
+        chapter_number=chapter_number,
+        kind=ArtifactKind.CANDIDATE,
+        content=(content.rstrip() + "\n").encode("utf-8"),
+        suffix=".md",
+    )
+    output_path = root / output_ref.path
     record = RevisionRecord(
         id=_new_revision_id(),
         chapter_number=chapter_number,
         target=target,  # type: ignore[arg-type]
         source_file=source_name,
-        output_file=output_path.name,
+        output_file=output_ref.path,
         instruction=_optional_string(data.get("instruction")) or "Web editor save as version",
         from_audit=False,
         audit_file="audit.json" if (chapter_dir / "audit.json").exists() else None,

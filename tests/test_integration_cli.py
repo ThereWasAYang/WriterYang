@@ -112,7 +112,7 @@ def test_ask_json_dry_run_output(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["status"] == "proposed"
     assert payload["proposal"]["command"]["type"] == "session.start"
-    assert not list((root / "runs").glob("run_*.json"))
+    assert not list((root / "runs").glob("*.json"))
 
 
 def test_canon_show_contract_alias_outputs_json(tmp_path: Path) -> None:

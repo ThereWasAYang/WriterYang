@@ -54,6 +54,7 @@ from novel.core.state_update import (
 )
 from novel.core.timeutil import new_request_id, utc_now, utc_timestamp
 from novel.core.transactions import TransactionError
+from novel.core.workflow_runtime import bind_active_session_id
 
 
 ProviderName = str
@@ -168,6 +169,7 @@ def start_session(options: SessionStartOptions) -> SessionResult:
     root = options.root.resolve()
     _validate_chapters(options.chapter_range)
     session_id = _new_session_id()
+    bind_active_session_id(session_id)
     session = CreationSession(
         session_id=session_id,
         chapter_range=list(options.chapter_range),

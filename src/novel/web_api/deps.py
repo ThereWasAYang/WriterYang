@@ -50,11 +50,6 @@ from novel.core.chapter_memory import (
     generate_chapter_memory,
     load_chapter_memory_provider,
 )
-from novel.core.chapter_versions import (
-    is_allowed_chapter_version_name,
-    latest_chapter_version_path,
-    next_chapter_version_path,
-)
 from novel.core.env import load_project_env
 from novel.core.exporting import DocxExportOptions, MarkdownExportOptions, export_docx, export_markdown, parse_chapter_selector
 from novel.core.inspiration import InspirationOptions, load_inspiration_provider, run_inspiration_agent
@@ -133,7 +128,6 @@ from novel.core.providers import (
 )
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
-from novel.core.workflow import GenerateChapterOptions, ProviderName, generate_chapter
 from novel.core.workspace import (
     InitOptions,
     WorkspaceExistsError,
@@ -187,9 +181,6 @@ __all__ = [
     "chapter_memory_path",
     "generate_chapter_memory",
     "load_chapter_memory_provider",
-    "is_allowed_chapter_version_name",
-    "latest_chapter_version_path",
-    "next_chapter_version_path",
     "load_project_env",
     "DocxExportOptions",
     "MarkdownExportOptions",
@@ -279,9 +270,6 @@ __all__ = [
     "summarize_provider_usage",
     "ValidationMessage",
     "validate_project",
-    "GenerateChapterOptions",
-    "ProviderName",
-    "generate_chapter",
     "InitOptions",
     "WorkspaceExistsError",
     "default_style_guide_markdown",

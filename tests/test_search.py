@@ -35,7 +35,6 @@ from novel.core.session import (
     start_session,
 )
 from novel.core.schemas import ContextBundle
-from novel.core.workflow import GenerateChapterOptions, generate_chapter
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -488,12 +487,15 @@ def test_use_search_context_does_not_break_planning_prompt(tmp_path: Path) -> No
     assert "Context bundle" in provider.requests[0].user_prompt
 
 
-def test_generate_chapter_uses_search_context_by_default(tmp_path: Path) -> None:
+def test_creation_session_uses_search_context_by_default(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
+    started = start_session(
+        SessionStartOptions(root=root, user_intent="写第1章", chapter_range=(1,), provider_name="mock")
+    )
+    approve_outline(SessionActionOptions(root=root, session_id=started.session.session_id))
+    result = run_session(SessionRunOptions(root=root, session_id=started.session.session_id, provider_name="mock"))
 
-    result = generate_chapter(GenerateChapterOptions(root=root, chapter_number=1, provider_name="mock"))
-
-    assert result.run_log.status == "completed"
+    assert result.session.content_status == "needs_user_review"
     reports = list((root / "memory" / "chapters" / "001").glob("context_report*.json"))
     assert reports
 

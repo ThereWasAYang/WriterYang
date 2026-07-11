@@ -101,7 +101,7 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
             page.wait_for_function("() => document.querySelector('#chapterEditorText')?.value?.includes('原始正文')")
             page.fill("#chapterEditorText", page.locator("#chapterEditorText").input_value() + "\n新增一行。")
             page.click("#saveEditorVersion")
-            page.wait_for_function("() => document.querySelector('#editorSavedPath')?.textContent?.includes('polished.v2.md')")
+            page.wait_for_function("() => document.querySelector('#editorSavedPath')?.textContent?.includes('/candidates/candidate_art_')")
 
             page.click("button[data-tab='auditLocate']")
             page.click("#loadAuditAnnotations")

@@ -295,14 +295,12 @@ def _generate_chapter_plan_with_repair(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="plot",
-                caller="cli",
                 interaction_mode="internal_task",
                 task="plan_chapter",
                 chapter_number=chapter_number,
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="plot",
-                caller="cli",
                 interaction_mode="internal_task",
                 task="plan_chapter_repair",
                 chapter_number=chapter_number,

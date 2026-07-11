@@ -102,7 +102,7 @@ runs/agent_output_violations/{request_id}.json
    - deterministic precheck：通常是文件、引用、状态闭环问题，先修数据或 service。
    - model audit：通常是语义/风格/动机问题，可能要调 prompt 或走 revision。
 5. 如果 session 自动修复后仍失败，先看 `memory/sessions/{session_id}/rewrite_events.json`：确认第几轮被打回、触发的 blocking issue、系统执行了修正文还是重写大纲，以及 `rejections/` 中的被打回原文快照。
-6. 再检查 `revision_log.json` 中的 `polished.vN.md` 是否已提升为当前 `polished.md`，重审后的 `audit.json` 是否仍有 medium/high/critical，以及是否因为计划层问题触发了重新 planning。
+6. 再检查 `revision_log.json` 记录的 immutable candidate 是否与本轮提升到 `polished.md` 的 artifact 一致，重审后的 `audit.json` 是否仍有 blocker，以及是否因为计划层问题触发了重新 planning。
 7. 如果用户认为 Audit 理解错了，先走 `session revise-audit <session_id> <event_id> --instruction ...` 或 Web UI 的“纠正 Audit 理解并重新审核”，不要手改 `audit.json`。复审后再 `session retry-rewrite`，或用 `session undo-rewrite` 恢复 rejected snapshot。
 8. 如果 Web UI 停在 `needs_revision`，优先看“自动打回重写记录”和被打回原文；如果打回理由合理，再走“按 Audit 修订内容”。修订后应看到新的版本稿、更新后的 `polished.md`、新的 audit 和新的 `state_update_proposal.json`。
 9. 如果问题根源是 timeline/state/canon 写错，让 orchestrator 项目管家生成 memory repair proposal；确认 `memory/repairs/{repair_id}/proposal.md` 和 diff 后再 apply。apply 失败时先看 `apply_log.json`、`management_events.jsonl` 和 `runs/app.log`；`app.log` 只记录脱敏摘要，模型完整输入输出仍看 `runs/model_io/`。
@@ -200,10 +200,12 @@ runs/agent_output_violations/{request_id}.json
 
 | 文件 | 用途 |
 | --- | --- |
-| `runs/run_*.json` | workflow/orchestrator run log，记录步骤、输入输出、错误。 |
+| `runs/{workflow_run_id}/run.json` | 一次用户 workflow 的 request/session/surface、预算、node 和 decision 索引。 |
+| `runs/{workflow_run_id}/nodes/{node_id}.json` | command/model/deterministic 节点、parent、Task/Profile、hash、retry 和 artifact。 |
+| `runs/{workflow_run_id}/decisions/{decision_id}.json` | Ask、Revision Route、Audit Repair Route 等结构化决策。 |
 | `runs/provider_calls.jsonl` | provider 调用轻量日志：provider、model、耗时、状态、token。 |
 | `runs/provider_usage.json` | 根据 provider_calls 增量刷新的累计用量；日志被截断时会自动重算。 |
-| `runs/model_io/{request_id}.json` | 完整模型输入输出，含 prompt、context、payload、raw response；默认受保留上限管理。 |
+| `runs/model_io/{request_id}.json` | 默认只含 trace metadata、内容 hash、token 和状态；显式 full capture 才含 prompt、context、payload、response。 |
 | `runs/model_io/index.jsonl` | model_io 索引，会随保留策略裁剪。 |
 | `runs/agent_output_violations/{request_id}.json` | Agent 输出契约违规，例如内部 Agent 反问。 |
 | `memory/chapters/{NNN}/context_report*.json` | 检索上下文报告，说明 included/excluded/context visibility。 |
@@ -214,8 +216,8 @@ runs/agent_output_violations/{request_id}.json
 - 不写 HTTP headers。
 - 不写 Authorization。
 - 不写真实 API Key 或 env value。
-- 但会包含小说正文、用户指令和 hidden truth。不要提交 `runs/`。
-- `runs/model_io/` 默认保留最近 500 份、总体积约 200MB；可用 `WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 调整，用 `WRITERYANG_MODEL_IO_MODE=metadata` 改为只保留轻量元数据。
+- 默认 metadata 模式不包含小说正文、用户指令或 hidden truth，但 trace/decision 仍是本地项目运行资料，不要提交 `runs/`。
+- `runs/model_io/` 默认保留最近 500 份、总体积约 200MB；可用 `WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 调整。只有显式设置 `WRITERYANG_MODEL_IO_MODE=full` 才保存完整内容，开启时必须把正文和隐藏设定落盘视为明确隐私选择。
 - Web POST 请求体默认限制为 32MB；可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整。调大前先确认本机内存和调用入口可信。
 
 ## 4. 重构前 checklist

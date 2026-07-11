@@ -427,7 +427,7 @@
               <h2>Revision Diff</h2>
               <div class="row">
                 <input id="diffLeft" placeholder="memory/chapters/001/polished.md">
-                <input id="diffRight" placeholder="memory/chapters/001/polished.v2.md">
+                <input id="diffRight" placeholder="memory/chapters/001/candidates/candidate_art_….md">
                 <button id="loadDiff">查看 Diff</button>
               </div>
               <pre id="diffViewer" style="margin-top: 10px;">选择两个工作区文件后查看 unified diff。</pre>
@@ -442,9 +442,9 @@
                   <option value="draft">draft.md</option>
                   <option value="polished">polished.md</option>
                 </select>
-                <input id="editorSource" placeholder="draft.md 或 polished.v2.md">
+                <input id="editorSource" placeholder="draft.md 或 polished.md">
                 <button id="loadEditorFile">加载</button>
-                <button id="saveEditorVersion" class="primary">保存新版本</button>
+                <button id="saveEditorVersion" class="primary">保存不可变候选稿</button>
               </div>
               <div class="row" style="margin: 8px 0;">
                 <span id="editorDirty" class="badge">未加载</span>

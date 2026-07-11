@@ -23,11 +23,11 @@ from novel.core.contracts import (
     SegmentSelection,
     TransactionJournal,
     WorkflowBudget,
+    WorkflowDecision,
     WorkflowNodeRun,
     WorkflowRun,
 )
 from novel.core.schemas import (
-    AgentRunLog,
     AgentsConfig,
     AskIntentDecision,
     AuditReport,
@@ -91,6 +91,7 @@ SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
     SchemaDefinition("command_result", CommandResult, "normalized public command result"),
     SchemaDefinition("workflow_budget", WorkflowBudget, "workflow-wide model/provider budget"),
     SchemaDefinition("workflow_node_run", WorkflowNodeRun, "runs/{workflow_run_id}/nodes/node_*.json"),
+    SchemaDefinition("workflow_decision", WorkflowDecision, "runs/{workflow_run_id}/decisions/decision_*.json"),
     SchemaDefinition("workflow_run", WorkflowRun, "runs/{workflow_run_id}/run.json"),
     SchemaDefinition("preview_manifest", PreviewManifest, "exports/previews/{preview_id}/manifest.json"),
     SchemaDefinition("segment_selection", SegmentSelection, "stable Markdown block selection"),
@@ -154,7 +155,6 @@ SCHEMA_DEFINITIONS: tuple[SchemaDefinition, ...] = (
     SchemaDefinition("memory_repair_apply_log", MemoryRepairApplyLog, "memory/repairs/{repair_id}/apply_log.json"),
     SchemaDefinition("management_event", ManagementEvent, "memory/management_events.jsonl line"),
     SchemaDefinition("creation_archive", CreationArchiveManifest, "memory/archive/{session_id}/manifest.json"),
-    SchemaDefinition("run_log", AgentRunLog, "runs/run_*.json"),
     SchemaDefinition("export_manifest", ExportManifest, "exports/export_manifest.json"),
 )
 

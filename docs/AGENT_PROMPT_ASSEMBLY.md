@@ -40,7 +40,7 @@ Provider 解析时先读取 `config/agents.yaml` 顶层 `default` API，再按 `
 
 - 系统 prompt 通过 `core/prompts.py::load_prompt_template()` 解析 `{{partial:name}}`，共享片段放在 `src/novel/prompts/partials/`；ContextBundle 说明统一称为“系统检索出的长期记忆参考”，不假设 FTS 和 embedding 一定同时存在。
 - `core/prompts.py` 维护聚合 `PROMPT_VERSION` 和逐模板 `PROMPT_VERSIONS`；修改单个 prompt 时必须更新对应模板版本。使用模板的 Agent 请求会把单模板版本写入 `ModelRequest.prompt_version` 和 `runs/model_io/{request_id}.json`。
-- `--vector-context auto|on|off` 控制语义召回；`auto` 只在真实 embedding provider 配置完整且环境变量齐全时启用，失败会回退 FTS 并写入 ContextBundle warning。旧 `--use-vector-context` 是 `on` 的兼容别名。
+- `--vector-context auto|on|off` 控制语义召回；`auto` 只在真实 embedding provider 配置完整且环境变量齐全时启用，失败会回退 FTS 并写入 ContextBundle warning。
 - 检索 query 会拼接章节号、用户 instruction、ChapterPlan 的 goal/summary/must_include/scenes 等稳定信息。
 - ChapterPlan 明确引用的 `timeline_event_ids` 会最高优先级进入 ContextBundle；此外，检索层会按结构化 focus entity ID 召回关键历史/记忆类 timeline event，不用自然语言关键词猜事件 ID。
 - state/timeline 默认完整进入 prompt。`project.yaml.context_budget.enabled` 当前默认为 `false`，原因是现有预算策略过小，远小于模型上下文窗口，容易限制模型能力；后续计划实现动态上下文预算系统后再重新开启裁剪。当手动开启预算时，会先走 `core/context_budget.py`：focus 实体和近 N 章保留全量，远期内容折叠成 digest。
@@ -343,7 +343,7 @@ Prompt 组装：
 - 入口函数：`revise_chapter()`
 - 适用范围：低风险局部表达补丁。剧情结构变化应回到 Plot；人物刻画、铺垫、节奏、风格等写作实现问题应回到 Writer/Polish。
 - 输出：
-  - `draft.vN.md` 或 `polished.vN.md`
+  - `memory/chapters/{NNN}/candidates/candidate_{artifact_id}.md`
   - `revision_log.json`
 
 输入来源：
@@ -365,7 +365,7 @@ Prompt 组装：
 输出处理：
 
 - Markdown contract：`revised chapter Markdown body`。
-- 默认保存为新版本，不覆盖原稿；Session 流程会把通过修订产生的 `polished.vN.md` 提升为当前 `polished.md` 后重审。
+- 默认保存为 immutable candidate artifact，不覆盖原稿；Session 流程只会把当前修订调用返回的精确 artifact 提升为 `polished.md`，随后重审并刷新 lifecycle。
 - `_append_revision_log()` 记录版本来源、instruction、audit issue ids、provider。
 
 ## 11. Orchestrator
@@ -421,7 +421,7 @@ Prompt 组装：
 1. `start_session()` 创建 session，并调用 Plot Agent 为章节范围生成 outline proposal。
 2. `revise_outline()` 把用户意见合并进 intent，重新生成 outline proposal。
 3. `approve_outline()` 复制 proposal 为 approved outline。
-4. `run_session()` 默认调用 Writer，把 `draft.md` 提升为 `polished.md` 后 Audit；配置 `polish.mode=auto` 或前端开启“自动润色”时才运行 Polish Agent。medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先修订并提升 `polished.vN.md` 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
+4. `run_session()` 默认调用 Writer，把 `draft.md` 提升为 `polished.md` 后 Audit；配置 `polish.mode=auto` 或前端开启“自动润色”时才运行 Polish Agent。medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先冻结为 immutable candidate，再提升该精确 artifact 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
 5. `revise_audit()` 用用户纠正意见重新审核被打回原文，写入 `audit_revision_history`。
 6. `retry_rewrite()` 基于最新 audit 再次执行正文修订或重写计划；`undo_rewrite()` 恢复被打回快照并重审。
 7. `revise_content()` 处理作者反馈或 audit issue。用户反馈先由 orchestrator 编排层调用 `intent_router` task 判定：剧情级修改重写 plan 并重新 writer/polish/audit；写作实现级修改保留 plan、重写 draft/polished/audit；局部表达修改才调用 Revision Agent 生成版本稿并提升当前稿。audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
@@ -468,8 +468,8 @@ Audit 模型只接收一个明确的 audited candidate，不再同时注入 draf
 真实模型输出异常时看：
 
 1. `runs/model_io/index.jsonl` 找 request_id。
-2. 打开 `runs/model_io/{request_id}.json` 看 `prompt_version`、system prompt、user prompt、context、payload、response。
+2. 默认打开 `runs/model_io/{request_id}.json` 查看 `prompt_version`、workflow/node/session、各段 SHA-256、token、finish reason 和错误；再沿 `runs/{workflow_run_id}/nodes/` 与 `decisions/` 还原触发链。
 3. 如果被输出守卫拦截，看 `runs/agent_output_violations/{request_id}.json`。
 4. 如果 provider 失败，看 `runs/provider_calls.jsonl`。
 
-这些日志会包含小说正文、隐藏设定和用户指令。不要提交到 Git。
+默认 metadata 日志不包含小说正文、隐藏设定和用户指令。只有排障时显式设置 `WRITERYANG_MODEL_IO_MODE=full` 才会保存完整内容；full capture 是隐私敏感操作，且任何 `runs/` 内容都不要提交到 Git。

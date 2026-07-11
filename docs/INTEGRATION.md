@@ -145,7 +145,6 @@ Web API 也提供同等修复入口：`POST /api/chapter-memory/generate` 生成
 - `drafting_error`
 - `export_error`
 - `inspiration_error`
-- `migration_error`
 - `memory_repair_error`
 - `orchestrator_error`
 - `planning_error`
@@ -178,7 +177,7 @@ Web API 也提供同等修复入口：`POST /api/chapter-memory/generate` 生成
 - `1`：命令失败、校验失败、文件缺失、输入非法或 provider 错误。
 - `2`：`argparse` 参数解析错误。
 
-写入类命令遇到同一项目已有 `.writeryang.lock` 时会返回 `project_locked`。只读命令不受锁影响。
+写入类命令遇到同一项目已有 `.writeryang.lock` 时会返回 `project_locked`。锁记录 PID、process start time、host、workflow/command 和 heartbeat；长任务持续刷新 heartbeat，只有进程消失、process identity 不匹配或 heartbeat 超时才会回收。自动回收会追加 `runs/lock_events.jsonl`。只读命令不受锁影响。
 
 大多数命令级错误在 `--json` 模式下会以结构化 JSON 写到 stdout。参数解析错误发生在命令分发前，仍由 `argparse` 输出。
 

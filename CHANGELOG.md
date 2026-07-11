@@ -3,6 +3,11 @@
 ## 0.1.1 - 未发布
 
 - 以破坏性 schema v3 重建 Agent workflow 基础：Strict Contracts、Task Registry、immutable Artifact lineage、Creation Session state/timeline projection、transaction journal、全 Session 原子 acceptance 和 artifact-aware production export。
+- 公开 CLI/Web/Ask 领域 workflow 统一进入 Typed Command Bus；Ask 改为 proposal-first，Creation/Revision 使用 workflow-wide budget 并跨 human gate 续写同一 trace。
+- Search 改为 authority/lifecycle allowlist，Prompt 使用 untrusted workspace delimiter；hidden truth 只能由已批准 `RevealAuthorization` 精确放行，Audit 自动修复要求强证据与可执行 source layer。
+- Run/Node/Decision trace 统一记录 request、parent request、session、surface、Task/Profile、prompt/policy hash、budget、retry 与 artifact lineage；Provider call 和 Model I/O 使用相同关联字段。
+- Project lock 增加 lock id、PID、process start time、host、workflow/command 和 heartbeat；stale lock 回收会写本地审计事件，不再仅按锁创建时间判断。
+- 删除 flat `AgentRunLog`、端到端低层 generation pipeline、`chapter_versions.py`、编号正文版本和 revision loop 兼容轨；Creation 全文修订与 Web 编辑器改为 immutable candidate artifact。
 - 新增独立 `revision-session` Segment Patch Workflow：稳定 Markdown block selection、structured `SegmentPatch`、范围外逐字节不变校验、重新 Audit/State Proposal/Chapter Memory，以及 transaction acceptance；删除 Creation Session 的 `scope_type`、`segment_range`、`--segments` 和旧 segment 执行分支。
 - 新增独立 `preview package`：可打包 working draft/polished candidate，固定写入 `exports/previews/` 并标记 `production_eligible=false`，不读取或更新正式 `export_manifest.json`。
 - 推广初期平台口径收敛为 macOS / Linux；Windows 适配暂缓，相关入口脚本保留为后续验收基础但不作为当前支持平台。
@@ -13,7 +18,7 @@
 - 拆分后的 `web_api` 与 `memory_repair` 模块恢复显式 import、静态 `__all__`、ruff 和 mypy 覆盖，避免拆分过渡期的星号导入和整包类型豁免长期化。
 - `memory_repair` 的 timeline backstory 自动修复只接受严格整数章节值；`bool`、非整数 `float` 和带 `+` 前缀的字符串不再被折算成章节号，而是交由 schema/preflight 校验处理。
 - 安装器支持 Python 3.11-3.13，推荐 3.12；conda 环境使用 `python>=3.11,<3.14`。
-- `runs/model_io/` 默认保留最近 500 份完整日志，并限制总体积约 200MB；`WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 可调整上限，`WRITERYANG_MODEL_IO_MODE=metadata` 可省略 prompt、正文和 raw response。
+- `runs/model_io/` 默认只保存 metadata、内容 SHA-256、token 和 trace 关联；`WRITERYANG_MODEL_IO_MODE=full` 才显式保存 prompt、正文和 raw response。默认保留最近 500 份、总体积约 200MB。
 - `runs/provider_usage.json` 改为根据新增 provider log 增量刷新；日志截断或替换时自动全量重算。
 - Web server 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整，并校验 `/api/*` 请求的本机 Host / Origin；GET API 读面也会拒绝非本机来源。
 - `novel.web_api` 包级出口移除无消费方的 `revise_content` / `revise_outline` 转口；内部 Web API 模块和 CLI 仍使用 core session 修订函数。
@@ -31,14 +36,14 @@
 - Prompt 模板从代码中抽出到 `src/novel/prompts/`，增加关键约束测试。
 - Canon apply 增加 proposal 内部和跨类型 ID 冲突检查。
 - Audit precheck 增加 plan 关键词和 hidden truth 直出检测。
-- `revise-chapter` 增加受控 revision loop：多轮修订必须显式 `--confirm-loop`，并写入 loop run log。
+- 已认可正文修订统一使用 `revision-session`；Creation 内部 Revision Task 每次只生成一个 immutable candidate 并立即回到 Audit gate。
 - 搜索索引增强：增加中文 n-gram 分词、字段权重、章节过滤、结果高亮、SQLite FTS5 和本地 hash embedding 向量表。
 - 增加真实 embedding provider 抽象和适配：`local_hash`、阿里 DashScope `text-embedding-v4`、智谱 `embedding-3`，并为 `index rebuild` / `search --use-vector` 接入可配置 embedding。
 - 明确中文长篇小说默认工作流，新增新手快速开始、memory 手动编辑说明和模型配置最佳实践文档。
 - `.gitignore` 纳入版本控制，默认忽略 `.env*`、缓存、构建产物、`runs/`、本地 agent 协作文档和私密项目规划文档。
 - CI 扩展为 pytest、build、secret scan、ruff lint、阻断式 mypy type check、Web E2E 和 CLI 入口检查。
 - `cli.py` 顶层命令分发重构为同文件 handler 表，并收口 mypy 类型错误到 0。
-- Web UI 增加项目搜索、schema 迁移入口和用量统计页；搜索默认使用 FTS，只有显式启用语义检索才调用 embedding。
+- Web UI 增加项目搜索、schema 和用量统计页；搜索默认使用 FTS，只有显式启用语义检索才调用 embedding。
 - `core/usage.py` 增加按 Agent 的 provider 调用和 token 汇总。
 - `core/consistency.py` 增加直接单元测试，覆盖 hidden truth、角色知识链、物品状态、双轨 timeline 和 accepted 闭环。
 - 新增 GitHub Release workflow，tag `v*` 时构建 sdist/wheel 并上传到 GitHub Release。

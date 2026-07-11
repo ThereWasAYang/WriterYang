@@ -28,11 +28,12 @@ from novel.core.json_schema import (
 )
 from novel.core.model_io import (
     compact_model_io_payload,
+    content_sha256,
     model_io_retention_policy_from_env,
     prune_model_io_dir,
 )
 from novel.core.task_registry import prompt_registry_entry, task_definition_for_agent
-from novel.core.workflow_runtime import active_workflow_runtime
+from novel.core.workflow_runtime import active_trace_metadata, active_workflow_runtime
 from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.security import redact_secret_text
 from novel.core.timeutil import new_request_id, utc_now_iso
@@ -49,6 +50,10 @@ class ModelRequest:
     agent_name: str | None = None
     prompt_version: str | None = None
     repair_count: int = 0
+    workflow_run_id: str | None = None
+    surface: str | None = None
+    session_id: str | None = None
+    parent_request_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +134,11 @@ class ProviderCallLog:
     completion_tokens: int | None = None
     total_tokens: int | None = None
     model_io_path: str | None = None
+    workflow_run_id: str | None = None
+    surface: str | None = None
+    session_id: str | None = None
+    parent_request_id: str | None = None
+    node_id: str | None = None
 
 
 class ModelProvider(ABC):
@@ -230,11 +240,11 @@ class LoggingModelProvider(ModelProvider):
 
     def generate(self, model_request: ModelRequest) -> ModelResponse:
         request_id = model_request.request_id or new_request_id("provider")
-        request_with_id = replace(
+        request_with_id = _request_with_active_trace(replace(
             model_request,
             request_id=request_id,
             agent_name=model_request.agent_name or self.agent_name,
-        )
+        ))
         started = time.monotonic()
         started_at = utc_now_iso()
         try:
@@ -271,11 +281,11 @@ class LoggingModelProvider(ModelProvider):
 
     def stream_response(self, model_request: ModelRequest) -> ModelResponse:
         request_id = model_request.request_id or new_request_id("provider")
-        request_with_id = replace(
+        request_with_id = _request_with_active_trace(replace(
             model_request,
             request_id=request_id,
             agent_name=model_request.agent_name or self.agent_name,
-        )
+        ))
         started = time.monotonic()
         started_at = utc_now_iso()
         try:
@@ -354,6 +364,7 @@ class LoggingModelProvider(ModelProvider):
                 if value
             ),
             repair_count=model_request.repair_count,
+            request_id=model_request.request_id,
             input_paths=["project.yaml"],
             output_details=lambda _: ([], [f"runs/model_io/{model_request.request_id}.json"]),
         )
@@ -382,6 +393,8 @@ class LoggingModelProvider(ModelProvider):
     ) -> None:
         model_io_dir = self.root / "runs" / "model_io"
         model_io_path = model_io_dir / f"{request_id}.json"
+        runtime = active_workflow_runtime()
+        model_node_id = runtime.last_completed_node_id if runtime else active_trace_metadata().node_id
         secret_values = self._secret_values()
         try:
             payload = _redact_data(self.provider.debug_payload(model_request, stream=stream), secret_values)
@@ -391,6 +404,11 @@ class LoggingModelProvider(ModelProvider):
             "schema_version": "1.0",
             "request_id": request_id,
             "agent_name": self.agent_name,
+            "workflow_run_id": model_request.workflow_run_id,
+            "surface": model_request.surface,
+            "session_id": model_request.session_id,
+            "parent_request_id": model_request.parent_request_id,
+            "node_id": model_node_id,
             "provider": self.provider_name,
             "model": self.model,
             "started_at": started_at,
@@ -407,8 +425,14 @@ class LoggingModelProvider(ModelProvider):
                 "context": _redact_text(model_request.context, secret_values),
                 "prompt_version": model_request.prompt_version,
                 "payload": payload,
+                "hashes": {
+                    "system_prompt_sha256": content_sha256(model_request.system_prompt),
+                    "user_prompt_sha256": content_sha256(model_request.user_prompt),
+                    "context_sha256": content_sha256(model_request.context),
+                    "payload_sha256": content_sha256(payload),
+                },
             },
-            "response": _response_payload(response, secret_values),
+            "response": _response_payload_with_hashes(response, secret_values),
             "error": error_payload,
             "token_usage": _token_usage_payload(response.token_usage if response else None),
             "provider_call_log_path": "runs/provider_calls.jsonl",
@@ -422,6 +446,11 @@ class LoggingModelProvider(ModelProvider):
             {
                 "request_id": request_id,
                 "agent_name": self.agent_name,
+                "workflow_run_id": model_request.workflow_run_id,
+                "surface": model_request.surface,
+                "session_id": model_request.session_id,
+                "parent_request_id": model_request.parent_request_id,
+                "node_id": model_node_id,
                 "provider": self.provider_name,
                 "model": self.model,
                 "started_at": started_at,
@@ -841,7 +870,16 @@ class OpenAICompatibleProvider(ModelProvider):
     def _write_call_log(self, entry: ProviderCallLog) -> None:
         if not self.log_path:
             return
-        append_jsonl(self.log_path, entry.__dict__)
+        trace = active_trace_metadata()
+        traced_entry = replace(
+            entry,
+            workflow_run_id=entry.workflow_run_id or trace.workflow_run_id,
+            surface=entry.surface or (trace.surface.value if trace.surface else None),
+            session_id=entry.session_id or trace.session_id,
+            parent_request_id=entry.parent_request_id or trace.request_id,
+            node_id=entry.node_id or trace.node_id,
+        )
+        append_jsonl(self.log_path, traced_entry.__dict__)
         try:
             refresh_provider_usage_summary_for_log(self.log_path)
         except Exception:
@@ -1045,6 +1083,17 @@ def _duration_ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
 
 
+def _request_with_active_trace(model_request: ModelRequest) -> ModelRequest:
+    trace = active_trace_metadata()
+    return replace(
+        model_request,
+        workflow_run_id=model_request.workflow_run_id or trace.workflow_run_id,
+        surface=model_request.surface or (trace.surface.value if trace.surface else None),
+        session_id=model_request.session_id or trace.session_id,
+        parent_request_id=model_request.parent_request_id or trace.request_id,
+    )
+
+
 def _safe_endpoint(endpoint: str) -> str:
     return endpoint.split("?", 1)[0]
 
@@ -1058,6 +1107,21 @@ def _response_payload(response: ModelResponse | None, secret_values: tuple[str, 
         "finish_reason": response.finish_reason,
         "raw_response": _redact_data(response.raw_response, secret_values),
     }
+
+
+def _response_payload_with_hashes(
+    response: ModelResponse | None,
+    secret_values: tuple[str, ...],
+) -> dict[str, object] | None:
+    payload = _response_payload(response, secret_values)
+    if payload is None:
+        return None
+    payload["hashes"] = {
+        "content_sha256": content_sha256(response.content if response else None),
+        "reasoning_content_sha256": content_sha256(response.reasoning_content if response else None),
+        "raw_response_sha256": content_sha256(response.raw_response if response else None),
+    }
+    return payload
 
 
 def _token_usage_payload(token_usage: TokenUsage | None) -> dict[str, int | None] | None:

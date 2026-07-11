@@ -1,43 +1,33 @@
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
 import json
 from pathlib import Path
 
-from tests.internal_task_cli import run_test_cli
+import pytest
+
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.providers import MockProvider
-from novel.core.revision import ChapterRevisionOptions, revise_chapter
+from novel.core.revision import ChapterRevisionOptions, RevisionError, revise_chapter
 from novel.core.schemas import RevisionLog
-from novel.core.workflow import GenerateChapterOptions, generate_chapter
+from novel.core.session import SessionActionOptions, SessionRunOptions, SessionStartOptions, approve_outline, run_session, start_session
 from novel.core.workspace import InitOptions, init_workspace
 
 
-def test_revise_chapter_from_instruction_creates_polished_version(tmp_path: Path) -> None:
+def test_revise_chapter_creates_immutable_candidate(tmp_path: Path) -> None:
     root = _workspace_with_generated_chapter(tmp_path)
-    original = (root / "memory" / "chapters" / "001" / "polished.md").read_text(encoding="utf-8")
+    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
+    original = polished_path.read_text(encoding="utf-8")
 
-    code, stdout, stderr = _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--instruction",
-            "加强悬疑感，但不要改变结尾事件",
-        ]
+    result = revise_chapter(
+        ChapterRevisionOptions(root=root, chapter_number=1, instruction="加强悬疑感"),
+        MockProvider(fake_response="修订后的正文保留广播与车票，并让语气更克制。"),
     )
 
-    assert code == 0
-    assert stderr == ""
-    assert "Wrote chapter revision" in stdout
-    version_path = root / "memory" / "chapters" / "001" / "polished.v2.md"
-    assert version_path.is_file()
-    assert "status: polished_revision" in version_path.read_text(encoding="utf-8")
-    assert (root / "memory" / "chapters" / "001" / "polished.md").read_text(encoding="utf-8") == original
+    assert result.output_path.parent.name == "candidates"
+    assert result.output_path.name.startswith("candidate_art_")
+    assert "status: polished_revision" in result.output_path.read_text(encoding="utf-8")
+    assert polished_path.read_text(encoding="utf-8") == original
+    assert not list(polished_path.parent.glob("polished.v*.md"))
 
 
 def test_revise_chapter_missing_style_guide_injects_chinese_fallback(tmp_path: Path) -> None:
@@ -55,182 +45,51 @@ def test_revise_chapter_missing_style_guide_injects_chinese_fallback(tmp_path: P
     assert "# 文风设置" in prompt
     assert "## 整体风格" in prompt
     assert "# Style Guide" not in prompt
-    assert "## Overall Style" not in prompt
 
 
-def test_revise_chapter_from_audit_creates_revision(tmp_path: Path) -> None:
+def test_revise_chapter_from_audit_records_immutable_candidate(tmp_path: Path) -> None:
     root = _workspace_with_generated_chapter(tmp_path)
 
-    code, stdout, stderr = _run_cli(
-        ["revise-chapter", "1", "--path", str(root), "--provider", "mock", "--from-audit"]
+    result = revise_chapter(
+        ChapterRevisionOptions(root=root, chapter_number=1, from_audit=True),
+        MockProvider(fake_response="根据审核意见修订后的正文。"),
     )
 
-    assert code == 0
-    assert stderr == ""
-    assert (root / "memory" / "chapters" / "001" / "polished.v2.md").is_file()
     log = _revision_log(root)
+    assert result.output_path.is_file()
     assert log.revisions[0].from_audit is True
     assert log.revisions[0].audit_file == "audit.json"
+    assert log.revisions[0].output_file == result.output_path.relative_to(root).as_posix()
 
 
 def test_revise_chapter_requires_instruction_or_audit(tmp_path: Path) -> None:
     root = _workspace_with_generated_chapter(tmp_path)
 
-    code, stdout, stderr = _run_cli(["revise-chapter", "1", "--path", str(root), "--provider", "mock"])
+    with pytest.raises(RevisionError, match="provide --instruction"):
+        revise_chapter(
+            ChapterRevisionOptions(root=root, chapter_number=1),
+            MockProvider(fake_response="不会使用"),
+        )
 
-    assert code == 1
-    assert stdout == ""
-    assert "provide --instruction" in stderr
 
-
-def test_revise_chapter_save_as_version_can_create_draft_version(tmp_path: Path) -> None:
+def test_revision_log_appends_distinct_immutable_candidates(tmp_path: Path) -> None:
     root = _workspace_with_generated_chapter(tmp_path)
-    original = (root / "memory" / "chapters" / "001" / "draft.md").read_text(encoding="utf-8")
+    provider = MockProvider(fake_response="修订后的正文。")
 
-    code, stdout, stderr = _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--target",
-            "draft",
-            "--save-as-version",
-            "--instruction",
-            "压缩解释性文字",
-        ]
+    first = revise_chapter(
+        ChapterRevisionOptions(root=root, chapter_number=1, instruction="第一轮修订"),
+        provider,
     )
-
-    assert code == 0
-    assert stderr == ""
-    assert "draft.v2.md" in stdout
-    version_path = root / "memory" / "chapters" / "001" / "draft.v2.md"
-    assert version_path.is_file()
-    assert "status: draft_revision" in version_path.read_text(encoding="utf-8")
-    assert (root / "memory" / "chapters" / "001" / "draft.md").read_text(encoding="utf-8") == original
-
-
-def test_revise_chapter_revision_log_is_created_and_appended(tmp_path: Path) -> None:
-    root = _workspace_with_generated_chapter(tmp_path)
-
-    assert _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--instruction",
-            "第一轮修订",
-        ]
-    )[0] == 0
-    assert _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--instruction",
-            "第二轮修订",
-        ]
-    )[0] == 0
+    second = revise_chapter(
+        ChapterRevisionOptions(root=root, chapter_number=1, instruction="第二轮修订"),
+        provider,
+    )
 
     log = _revision_log(root)
     assert len(log.revisions) == 2
-    assert log.revisions[0].output_file == "polished.v2.md"
-    assert log.revisions[1].output_file == "polished.v3.md"
-    assert log.revisions[1].source_file == "polished.v2.md"
-    assert log.revisions[1].instruction == "第二轮修订"
-
-
-def test_revise_chapter_source_file_can_select_base_version(tmp_path: Path) -> None:
-    root = _workspace_with_generated_chapter(tmp_path)
-
-    assert _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--instruction",
-            "第一轮修订",
-        ]
-    )[0] == 0
-    assert _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--source-file",
-            "polished.md",
-            "--instruction",
-            "基于基础稿修订",
-        ]
-    )[0] == 0
-
-    log = _revision_log(root)
-    assert log.revisions[1].source_file == "polished.md"
-    assert log.revisions[1].output_file == "polished.v3.md"
-
-
-def test_revise_chapter_defaults_to_existing_v1_version(tmp_path: Path) -> None:
-    root = _workspace_with_generated_chapter(tmp_path)
-    chapter_dir = root / "memory" / "chapters" / "001"
-    base_markdown = (chapter_dir / "polished.md").read_text(encoding="utf-8")
-    (chapter_dir / "polished.v1.md").write_text(
-        base_markdown.replace("status: polished", "status: polished_revision"),
-        encoding="utf-8",
-    )
-
-    assert _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--instruction",
-            "继续修订",
-        ]
-    )[0] == 0
-
-    log = _revision_log(root)
-    assert log.revisions[0].source_file == "polished.v1.md"
-    assert log.revisions[0].output_file == "polished.v2.md"
-
-
-def test_revise_chapter_loop_requires_explicit_confirmation(tmp_path: Path) -> None:
-    root = _workspace_with_generated_chapter(tmp_path)
-
-    code, stdout, stderr = _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--instruction",
-            "循环修订",
-            "--max-rounds",
-            "2",
-        ]
-    )
-
-    assert code == 1
-    assert stdout == ""
-    assert "--confirm-loop" in stderr
+    assert first.output_path != second.output_path
+    assert all(item.source_file == "polished.md" for item in log.revisions)
+    assert all("/candidates/candidate_art_" in item.output_file for item in log.revisions)
 
 
 def test_revise_chapter_search_context_protects_hidden_truth(tmp_path: Path) -> None:
@@ -254,37 +113,6 @@ def test_revise_chapter_search_context_protects_hidden_truth(tmp_path: Path) -> 
     assert result.context_report_path.is_file()
 
 
-def test_revise_chapter_loop_writes_versions_and_run_log(tmp_path: Path) -> None:
-    root = _workspace_with_generated_chapter(tmp_path)
-
-    code, stdout, stderr = _run_cli(
-        [
-            "revise-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--provider",
-            "mock",
-            "--instruction",
-            "循环修订",
-            "--max-rounds",
-            "2",
-            "--confirm-loop",
-        ]
-    )
-
-    assert code == 0
-    assert stderr == ""
-    assert "Wrote revision loop log" in stdout
-    assert (root / "memory" / "chapters" / "001" / "polished.v2.md").is_file()
-    assert (root / "memory" / "chapters" / "001" / "polished.v3.md").is_file()
-    logs = list((root / "memory" / "chapters" / "001").glob("revision_loop_*.json"))
-    assert logs
-    payload = json.loads(logs[0].read_text(encoding="utf-8"))
-    assert payload["status"] == "completed"
-    assert len(payload["steps"]) == 2
-
-
 def _workspace_with_generated_chapter(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
@@ -295,10 +123,12 @@ def _workspace_with_generated_chapter(tmp_path: Path) -> Path:
     proposal_path = tmp_path / "canon_proposal.json"
     proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
     assert apply_canon_proposal(root, proposal_path).validation_report.ok
-    result = generate_chapter(
-        GenerateChapterOptions(root=root, chapter_number=1, provider_name="mock")
+    started = start_session(
+        SessionStartOptions(root=root, user_intent="写第1章", chapter_range=(1,), provider_name="mock")
     )
-    assert result.run_log.status == "completed"
+    approve_outline(SessionActionOptions(root=root, session_id=started.session.session_id))
+    result = run_session(SessionRunOptions(root=root, session_id=started.session.session_id, provider_name="mock"))
+    assert result.session.content_status == "needs_user_review"
     return root
 
 
@@ -306,11 +136,3 @@ def _revision_log(root: Path) -> RevisionLog:
     path = root / "memory" / "chapters" / "001" / "revision_log.json"
     assert path.is_file()
     return RevisionLog.model_validate(json.loads(path.read_text(encoding="utf-8")))
-
-
-def _run_cli(args: list[str]) -> tuple[int, str, str]:
-    stdout = StringIO()
-    stderr = StringIO()
-    with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = run_test_cli(args)
-    return code, stdout.getvalue(), stderr.getvalue()

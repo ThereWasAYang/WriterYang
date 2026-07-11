@@ -83,6 +83,7 @@ from novel.core.transactions import (
     prepare_transaction,
     recover_incomplete_transactions,
 )
+from novel.core.workflow_runtime import bind_active_session_id
 
 
 class RevisionWorkflowError(RuntimeError):
@@ -158,6 +159,7 @@ def start_revision_session(options: RevisionStartOptions) -> RevisionSessionResu
         raise RevisionWorkflowError(str(exc)) from exc
     now = utc_now()
     revision_session_id = _new_revision_session_id()
+    bind_active_session_id(revision_session_id)
     session = RevisionSession(
         revision_session_id=revision_session_id,
         chapter_number=options.chapter_number,
@@ -560,14 +562,12 @@ def generate_segment_patch(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="revision",
-                caller="internal",
                 interaction_mode="internal_task",
                 task="segment_patch",
                 chapter_number=session.chapter_number,
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="revision",
-                caller="internal",
                 interaction_mode="internal_task",
                 task="segment_patch_repair",
                 chapter_number=session.chapter_number,

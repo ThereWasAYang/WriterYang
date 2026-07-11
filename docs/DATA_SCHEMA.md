@@ -16,7 +16,7 @@
 
 字段级真相以 `src/novel/core/schemas.py` 中的 Pydantic model 为准；`schemas/*.schema.json` 由这些 model 导出。本文侧重说明设计意图、人类可编辑约定和重要持久化路径，避免手写字段清单与生成 schema 漂移。
 
-控制面与 inter-agent 契约以 `src/novel/core/contracts/` 为准；`artifact_ref`、`chapter_lifecycle`、`session_projection`、`acceptance_commit`、`transaction_journal`、`command_envelope`、`command_result`、`command_proposal`、`workflow_budget`、`workflow_run` 和 `workflow_node_run` 也会导出到 `schemas/`。`CommandEnvelope` 携带 budget 与初始 usage，`CommandResult` 返回累计 `budget_usage`；Creation/Revision Session 持久化 `workflow_run_id`、budget 与累计 usage，以支持跨 human gate 续跑。
+控制面与 inter-agent 契约以 `src/novel/core/contracts/` 为准；`artifact_ref`、`chapter_lifecycle`、`session_projection`、`acceptance_commit`、`transaction_journal`、`command_envelope`、`command_result`、`command_proposal`、`workflow_budget`、`workflow_run`、`workflow_node_run` 和 `workflow_decision` 也会导出到 `schemas/`。`CommandEnvelope` 携带 request/parent request、budget 与初始 usage，`CommandResult` 返回 request 和累计 `budget_usage`；Creation/Revision Session 持久化 `workflow_run_id`、budget 与累计 usage，以支持跨 human gate 续跑。
 
 ---
 
@@ -183,7 +183,10 @@ novel-project/
         audit.json
 
   runs/
-    run_*.json
+    run_<uuid>/
+      run.json
+      nodes/node_<uuid>.json
+      decisions/decision_<uuid>.json
 
   transactions/
     tx_<id>/
@@ -1404,99 +1407,26 @@ summary、剧情节拍、角色知识变化、state change、timeline event ID�
 
 ---
 
-## 22. AgentRunLog
-
-文件：
-
-```text
-runs/{run_id}.json
-```
-
-用途：
-
-记录一次 generation run 中发生的事情。
-
-示例：
-
-```json
-{
-  "run_id": "run_20260522_001",
-  "task": "generate_chapter",
-  "chapter_number": 6,
-  "started_at": "2026-05-22T00:00:00Z",
-  "ended_at": "2026-05-22T00:03:12Z",
-  "status": "completed",
-  "steps": [
-    {
-      "step_id": "step_001",
-      "agent": "plot_agent",
-      "input_files": [
-        "memory/canon/characters.json",
-        "memory/state/current_state.json"
-      ],
-      "output_files": [
-        "memory/chapters/006/plan.json"
-      ],
-      "status": "completed"
-    },
-    {
-      "step_id": "step_002",
-      "agent": "writer_agent",
-      "input_files": [
-        "memory/chapters/006/plan.json"
-      ],
-      "output_files": [
-        "memory/chapters/006/draft.md"
-      ],
-      "status": "completed"
-    }
-  ],
-  "errors": []
-}
-```
-
-必填字段：
-
-- `run_id`
-- `task`
-- `started_at`
-- `status`
-- `steps`
-
-推荐字段：
-
-- `chapter_number`
-- `ended_at`
-- `errors`
-
-允许的 status 值：
-
-```json
-"pending"
-"running"
-"completed"
-"failed"
-"cancelled"
-```
-
-`AgentRunLog` 仅用于底层 `generate_chapter()` 流水线。公开 Command Bus 与 Session/Revision 使用下面的 workflow trace。
-
-### 22.1 WorkflowRun 与 WorkflowNodeRun
+## 22. WorkflowRun、WorkflowNodeRun 与 WorkflowDecision
 
 文件：
 
 ```text
 runs/{workflow_run_id}/run.json
 runs/{workflow_run_id}/nodes/{node_id}.json
+runs/{workflow_run_id}/decisions/{decision_id}.json
 ```
 
-`WorkflowRun` 记录 root command、surface、全局 `WorkflowBudget`、累计 `BudgetUsage`、有序 `node_ids` 和整体状态。`WorkflowNodeRun` 记录 command/model/deterministic 节点的 parent、Task/Profile、Provider/model、输入输出 artifact/path、template/rendered prompt hash、`prompt_policy_hash`、retry/repair 次数、调用前后预算、错误与恢复命令。
+`WorkflowRun` 是唯一运行级事实源，记录 root command/request、surface、全局 `WorkflowBudget`、累计 `BudgetUsage`、有序 `request_ids` / `session_ids` / `node_ids` / `decision_ids` 和整体状态。`WorkflowNodeRun` 记录 command/model/deterministic 节点的 parent node/request、request/session/surface、Task/Profile、Provider/model、输入输出 artifact/path、template/rendered prompt hash、`prompt_policy_hash`、retry/repair 次数、调用前后预算、错误与恢复命令。
+
+`WorkflowDecision` 记录 Ask Intent、Command Proposal、Revision Route 和 Audit Repair Route 等结构化决策，包含 `decision_id`、workflow/request/session/surface、parent node/request、Task、完整 typed payload 与 `payload_sha256`。它不替代 Model I/O；它保存的是通过 schema 校验后真正影响 workflow 的决策结果。
 
 约束：
 
 - Creation/Revision Session 必须保存同一 `workflow_run_id`；跨人工确认的后续 command 向原 run 追加节点。
 - 模型节点必须处于触发它的 command node 之下，并通过 Task Registry 绑定 Task/Profile。
-- prompt 正文不写入 trace，只写 SHA-256；正文级模型 I/O 继续遵循独立的脱敏与访问策略。
+- Provider call 与 Model I/O 必须携带相同 workflow/node/session/parent request metadata，能从任一 request id 回溯触发链。
+- prompt 正文不写入 trace，只写 SHA-256；Model I/O 默认 metadata 模式同样只保存内容 hash，只有显式 `WRITERYANG_MODEL_IO_MODE=full` 才写完整内容。
 - 预算超限时节点和 run 必须进入明确失败状态，同时 session 保存已消费 usage checkpoint。
 
 ---

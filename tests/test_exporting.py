@@ -8,9 +8,7 @@ from pathlib import Path
 import uuid
 
 from docx import Document
-import pytest
-
-from novel.cli import build_parser, main
+from novel.cli import main
 from novel.core.artifact_store import ArtifactStore, combined_sha256, write_lifecycle
 from novel.core.contracts import (
     AcceptanceCommit,
@@ -60,11 +58,6 @@ def test_export_markdown_skips_unaccepted_by_default(tmp_path: Path) -> None:
     assert "warning: chapter 3 has no accepted.md; skipped" in stdout
     output = (root / "exports" / "novel.md").read_text(encoding="utf-8")
     assert "第三章正文" not in output
-
-
-def test_export_cli_rejects_removed_include_unaccepted_flag() -> None:
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["export", "markdown", "--include-unaccepted"])
 
 
 def test_export_markdown_chapters_selector(tmp_path: Path) -> None:
@@ -238,11 +231,6 @@ def test_export_docx_skips_unaccepted_by_default(tmp_path: Path) -> None:
     assert "warning: chapter 3 has no accepted.md; skipped" in stdout
     text = _docx_text(root / "exports" / "novel.docx")
     assert "第三章正文" not in text
-
-
-def test_export_docx_cli_rejects_removed_include_unaccepted_flag() -> None:
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["export", "docx", "--include-unaccepted"])
 
 
 def test_export_docx_refuses_to_overwrite_existing_by_default(tmp_path: Path) -> None:

@@ -48,6 +48,9 @@ class WorkflowNodeRun(SchemaV3Model):
     node_type: Literal["command", "model", "deterministic"]
     name: str = Field(min_length=1)
     parent_node_id: str | None = Field(default=None, pattern=r"^node_[0-9a-f]{32}$")
+    request_id: str | None = Field(default=None, min_length=1)
+    parent_request_id: str | None = Field(default=None, min_length=1)
+    session_id: str | None = Field(default=None, min_length=1)
     command_id: str | None = Field(default=None, pattern=r"^cmd_[0-9a-f]{32}$")
     surface: Surface
     task_id: TaskId | None = None
@@ -72,13 +75,32 @@ class WorkflowNodeRun(SchemaV3Model):
     recovery_command: str | None = None
 
 
+class WorkflowDecision(SchemaV3Model):
+    decision_id: str = Field(pattern=r"^decision_[0-9a-f]{32}$")
+    workflow_run_id: str = Field(pattern=r"^run_[0-9a-f]{32}$")
+    name: str = Field(min_length=1)
+    task_id: TaskId | None = None
+    surface: Surface
+    request_id: str = Field(min_length=1)
+    parent_request_id: str | None = Field(default=None, min_length=1)
+    parent_node_id: str | None = Field(default=None, pattern=r"^node_[0-9a-f]{32}$")
+    session_id: str | None = Field(default=None, min_length=1)
+    payload: dict[str, object]
+    payload_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+
+
 class WorkflowRun(SchemaV3Model):
     workflow_run_id: str = Field(pattern=r"^run_[0-9a-f]{32}$")
     root_command_id: str = Field(pattern=r"^cmd_[0-9a-f]{32}$")
+    root_request_id: str = Field(min_length=1)
     surface: Surface
     budget: WorkflowBudget
     budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)
     node_ids: list[str] = Field(default_factory=list)
+    decision_ids: list[str] = Field(default_factory=list)
+    request_ids: list[str] = Field(default_factory=list)
+    session_ids: list[str] = Field(default_factory=list)
     status: Literal["running", "completed", "failed", "cancelled", "awaiting_user"]
     started_at: datetime
     updated_at: datetime

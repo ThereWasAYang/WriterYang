@@ -97,13 +97,17 @@ memory/
     {revision_session_id}/projection/ # [运行时] revision commit 前 state/timeline 投影
   archive/                  # [运行时] session archive 后生成不可原地篡改归档
 runs/
-  run_*.json                # [运行时] generate/session 工作流日志
-transactions/
-  tx_*/journal.json         # [运行时] Session acceptance commit/rollback journal
+  {workflow_run_id}/
+    run.json                # [运行时] workflow、request、session、surface 与预算
+    nodes/{node_id}.json    # [运行时] command/model/deterministic 节点
+    decisions/{decision_id}.json # [运行时] 结构化路由决策
   provider_calls.jsonl      # [运行时] provider 调用元数据，不含 API Key
   provider_usage.json       # [运行时] token 汇总缓存
-  model_io/                 # [运行时] 完整模型 I/O，本地调试用，不提交
+  model_io/                 # [运行时] 默认 metadata + hash；full capture 需显式开启
   agent_output_violations/  # [运行时] 输出契约违规日志
+  lock_events.jsonl         # [运行时] stale lock 自动回收审计记录
+transactions/
+  tx_*/journal.json         # [运行时] Session acceptance commit/rollback journal
 exports/
   novel.md                  # [运行时] export markdown 后生成
   previews/{preview_id}/    # [运行时] 非正式 working candidate 预览包；不更新 production manifest
@@ -117,7 +121,7 @@ exports/
 
 - 作者可编辑记忆：`memory/inspiration.md`、`memory/style_guide.md`、canon/state/timeline JSON。
 - Agent 产物：plan/draft/polished/audit/state proposal/revision log/context report。
-- 调试与统计：`runs/` 下的 run log、provider log、完整模型 I/O、输出守卫日志。
+- 调试与统计：`runs/` 下的统一 run/node/decision trace、provider log、默认 metadata Model I/O、锁事件和输出守卫日志。
 
 记忆分层：
 
@@ -159,7 +163,7 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 
 `core/workflow_runtime.py` 把公开 command 和内部模型调用记录为同一棵节点树，输出到 `runs/{workflow_run_id}/`。Creation/Revision Session 同时持久化 `workflow_run_id`，因此 outline approval、人工 review、accept 等跨 human gate 命令会继续写入同一个 run，而不是创建互不关联的日志。新增 Agent 调用必须经 Task Registry 解析 Task/Profile，并让 Provider 自动写入预算快照和 prompt hash。
 
-`session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。长任务必须写 `memory/sessions/{session_id}/progress.json`，记录阶段、章节、轮次和状态；取消只能写入 `cancel_requested`，在章节或修复轮安全边界生效，不能强行中断当前 LLM HTTP 调用。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 orchestrator 编排层调用 `intent_router` task 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“生成/提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
+`session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 immutable candidate artifact，经受控提升为当前 `polished.md` 后重跑 audit；连续失败或结构化证据明确指向章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。长任务必须写 `memory/sessions/{session_id}/progress.json`，记录阶段、章节、轮次和状态；取消只能写入 `cancel_requested`，在章节或修复轮安全边界生效，不能强行中断当前 LLM HTTP 调用。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 orchestrator 编排层调用 `intent_router` task 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“冻结 candidate -> 提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成无 lineage 的孤立文件。
 
 多章 Session 不得在运行阶段写 canonical state/timeline。`projection.py` 维护 session-local snapshot 和逐章 checkpoint；每次 State Proposal 生成后必须先由 `artifact_store.py` 冻结 lineage，再推进 projection。`session accept` 必须调用 `lifecycle.commit_creation_session()`，由 `transactions.py` 将全部章节与 canonical memory 作为一个 transaction 提交。新增代码不得恢复逐章 `accept_chapter()` 的 Session 循环。
 
@@ -332,7 +336,7 @@ Agent provider 创建走 `core/provider_config.py::create_agent_provider()`，�
 
 - `runs/provider_calls.jsonl`：轻量调用元数据。
 - `runs/provider_usage.json`：累计 token 用量。
-- `runs/model_io/{request_id}.json`：完整 prompt、payload、response。
+- `runs/model_io/{request_id}.json`：默认 trace metadata、内容 hash、token 和错误；显式 full capture 才包含 prompt、payload、response。
 - `runs/agent_output_violations/{request_id}.json`：输出契约违规。
 
 这些日志包含创作内容和隐藏设定，只用于本地 debug，不应提交。
@@ -347,7 +351,7 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 - current_state / timeline；大项目会先预算化，focus 实体和近章保留全量，远期内容折叠为 digest。
 - 当前章节 plan / draft / polished / audit。
 - 用户 instruction / input 文件内容。
-- 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展、结构化 timeline focus recall、关键词/SQLite FTS；`--vector-context auto` 只在真实 embedding 配置完整时启用语义召回，`--vector-context on` 强制尝试，旧 `--use-vector-context` 是兼容别名。
+- 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展、结构化 timeline focus recall、关键词/SQLite FTS；`--vector-context auto` 只在真实 embedding 配置完整时启用语义召回，`--vector-context on` 强制尝试。
 - 可选 ChapterMemory context。它只作为压缩上下文和检索导航，不能替代 canon、current_state、timeline 或 accepted `polished.md`。
 
 所有来自 workspace 的 title、plan、正文、canon/state/timeline、检索结果、历史模型输出和摘要都必须用 `render_untrusted_workspace_data()` 包裹。不得把项目文件中的文字当成 Task、权限、route 或输出格式指令；`ModelRequest.context` 也会在 Provider adapter 统一加 delimiter。

@@ -85,7 +85,7 @@ def test_generate_json_with_repair_raises_after_failed_retry(tmp_path: Path) -> 
 
 
 def _invocation(task: str) -> AgentInvocationContext:
-    return AgentInvocationContext(agent_name="test", caller="test", interaction_mode="internal_task", task=task)
+    return AgentInvocationContext(agent_name="test", interaction_mode="internal_task", task=task, surface="test")
 
 
 def _contract() -> AgentOutputContract:

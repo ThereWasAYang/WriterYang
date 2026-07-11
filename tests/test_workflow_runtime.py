@@ -10,6 +10,7 @@ from novel.core.contracts import (
     SessionStartCommand,
     Surface,
     WorkflowNodeRun,
+    WorkflowDecision,
     WorkflowRun,
     default_workflow_budget,
 )
@@ -61,8 +62,12 @@ def test_command_and_model_nodes_share_trace_and_parentage(tmp_path: Path) -> No
     command = next(node for node in nodes if node.node_type == "command")
     model = next(node for node in nodes if node.node_type == "model")
     assert run.status == "completed"
+    assert run.root_request_id == result.request_id
+    assert result.request_id in run.request_ids
     assert set(run.node_ids) == {node.node_id for node in nodes}
     assert model.parent_node_id == command.node_id
+    assert model.parent_request_id == result.request_id
+    assert model.session_id == str(result.result["session"]["session_id"])  # type: ignore[index]
     assert model.task_id == "plan"
     assert model.profile_id == "architect"
     assert model.provider == "mock"
@@ -75,6 +80,12 @@ def test_command_and_model_nodes_share_trace_and_parentage(tmp_path: Path) -> No
     assert model.input_paths == ["project.yaml"]
     assert model.output_paths[0].startswith("runs/model_io/")
     assert (root / model.output_paths[0]).is_file()
+    model_io = json.loads((root / model.output_paths[0]).read_text(encoding="utf-8"))
+    assert model_io["workflow_run_id"] == result.workflow_run_id
+    assert model_io["surface"] == "cli"
+    assert model_io["session_id"] == model.session_id
+    assert model_io["parent_request_id"] == result.request_id
+    assert model_io["node_id"] == model.node_id
     assert model.budget_after.model_calls == 1
     assert command.input_paths == ["project.yaml"]
     assert command.output_paths
@@ -112,6 +123,11 @@ def test_session_commands_resume_same_workflow_trace_across_human_gate(tmp_path:
     ]
     assert command_names == ["command:session.start", "command:session.approve_outline"]
     assert run.root_command_id == started.command_id
+    assert run.root_request_id == started.request_id
+    assert run.request_ids == [started.request_id, approved.request_id]
+    assert run.session_ids == [session_id]
+    approved_command = next(node for node in nodes if node.command_id == approved.command_id)
+    assert approved_command.parent_request_id == started.request_id
 
 
 def test_ask_intent_model_is_nested_in_proposal_trace(tmp_path: Path) -> None:
@@ -148,6 +164,13 @@ def test_ask_intent_model_is_nested_in_proposal_trace(tmp_path: Path) -> None:
     model_node = next(node for node in nodes.values() if node.node_type == "model")
     assert model_node.parent_node_id == proposal_node.node_id
     assert model_node.task_id == "intent_router"
+    decisions = [
+        load_json_model(path, WorkflowDecision)
+        for path in (run_dir / "decisions").glob("decision_*.json")
+    ]
+    assert {decision.name for decision in decisions} == {"ask_intent", "command_proposal"}
+    assert set(run.decision_ids) == {decision.decision_id for decision in decisions}
+    assert all(decision.request_id == proposed.request_id for decision in decisions)
     assert model_node.profile_id == "clerk"
     assert proposed.budget_usage.model_calls == 1
     assert run.budget_usage.model_calls == 1

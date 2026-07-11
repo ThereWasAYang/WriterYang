@@ -502,13 +502,11 @@ def _generate_canon_proposal_with_repair(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="canon",
-                caller="cli",
                 interaction_mode="internal_task",
                 task="canon_suggest",
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="canon",
-                caller="cli",
                 interaction_mode="internal_task",
                 task="canon_suggest_repair",
             ),

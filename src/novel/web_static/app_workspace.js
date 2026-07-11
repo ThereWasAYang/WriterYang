@@ -288,18 +288,18 @@
       try {
         const data = await apiGet("/api/runs", { path: projectPath() });
         const runRows = (data.run_logs || []).map((run) => `
-          <tr><td>${escapeHtml(run.run_id || "")}</td><td>${escapeHtml(run.task || "")}</td><td>${escapeHtml(run.status || "")}</td><td>${escapeHtml(run.started_at || "")}</td><td>${escapeHtml(run.path || "")}</td></tr>
+          <tr><td>${escapeHtml(run.workflow_run_id || "")}</td><td>${escapeHtml(run.surface || "")}</td><td>${escapeHtml((run.session_ids || []).join(", "))}</td><td>${escapeHtml(run.node_count ?? 0)}</td><td>${escapeHtml(run.decision_count ?? 0)}</td><td>${escapeHtml(run.status || "")}</td><td>${escapeHtml(run.started_at || "")}</td></tr>
         `).join("");
         const callRows = (data.provider_calls || []).map((call) => `
-          <tr><td>${escapeHtml(call.provider || "")}</td><td>${escapeHtml(call.model || "")}</td><td>${escapeHtml(call.status || "")}</td><td>${escapeHtml(call.started_at || "")}</td><td>${escapeHtml(call.error_type || "")}</td><td>${escapeHtml(call.model_io_path || "")}</td></tr>
+          <tr><td>${escapeHtml(call.provider || "")}</td><td>${escapeHtml(call.model || "")}</td><td>${escapeHtml(call.workflow_run_id || "")}</td><td>${escapeHtml(call.node_id || "")}</td><td>${escapeHtml(call.status || "")}</td><td>${escapeHtml(call.error_type || "")}</td></tr>
         `).join("");
         const ioRows = (data.model_io_logs || []).map((log) => `
-          <tr><td>${escapeHtml(log.agent_name || "")}</td><td>${escapeHtml(log.provider || "")}</td><td>${escapeHtml(log.model || "")}</td><td>${escapeHtml(log.status || "")}</td><td>${escapeHtml(log.started_at || "")}</td><td>${escapeHtml(log.model_io_path || "")}</td></tr>
+          <tr><td>${escapeHtml(log.agent_name || "")}</td><td>${escapeHtml(log.workflow_run_id || "")}</td><td>${escapeHtml(log.session_id || "")}</td><td>${escapeHtml(log.node_id || "")}</td><td>${escapeHtml(log.status || "")}</td><td>${escapeHtml(log.model_io_path || "")}</td></tr>
         `).join("");
         $("runLogPanel").innerHTML = `
-          <h3>Run logs</h3><table><thead><tr><th>run_id</th><th>task</th><th>status</th><th>started_at</th><th>path</th></tr></thead><tbody>${runRows || "<tr><td colspan='5'>无</td></tr>"}</tbody></table>
-          <h3 style="margin-top: 16px;">Provider calls</h3><table><thead><tr><th>provider</th><th>model</th><th>status</th><th>started_at</th><th>error</th><th>model_io</th></tr></thead><tbody>${callRows || "<tr><td colspan='6'>无</td></tr>"}</tbody></table>
-          <h3 style="margin-top: 16px;">Model I/O</h3><table><thead><tr><th>agent</th><th>provider</th><th>model</th><th>status</th><th>started_at</th><th>path</th></tr></thead><tbody>${ioRows || "<tr><td colspan='6'>无</td></tr>"}</tbody></table>
+          <h3>Workflow runs</h3><table><thead><tr><th>workflow_run_id</th><th>surface</th><th>sessions</th><th>nodes</th><th>decisions</th><th>status</th><th>started_at</th></tr></thead><tbody>${runRows || "<tr><td colspan='7'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Provider calls</h3><table><thead><tr><th>provider</th><th>model</th><th>workflow</th><th>node</th><th>status</th><th>error</th></tr></thead><tbody>${callRows || "<tr><td colspan='6'>无</td></tr>"}</tbody></table>
+          <h3 style="margin-top: 16px;">Model I/O</h3><table><thead><tr><th>agent</th><th>workflow</th><th>session</th><th>node</th><th>status</th><th>path</th></tr></thead><tbody>${ioRows || "<tr><td colspan='6'>无</td></tr>"}</tbody></table>
         `;
       } catch (error) {
         setMessage(error.message, true);

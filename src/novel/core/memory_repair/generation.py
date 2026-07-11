@@ -103,13 +103,11 @@ def generate_memory_change_clarification_decision(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="memory_repair",
-                caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_change_clarification",
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="memory_repair",
-                caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_change_clarification_repair",
             ),
@@ -191,13 +189,11 @@ def generate_memory_change_batch_plan(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="memory_repair",
-                caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_change_batch_plan",
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="memory_repair",
-                caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_change_batch_plan_repair",
             ),
@@ -322,13 +318,11 @@ def generate_memory_repair_decision(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="memory_repair",
-                caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_repair_decision",
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="memory_repair",
-                caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_repair_decision_repair",
             ),
@@ -400,7 +394,6 @@ def _repair_memory_repair_decision_target_schema(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="memory_repair",
-                caller="memory_repair",
                 interaction_mode="internal_task",
                 task="memory_repair_target_schema_repair",
             ),

@@ -933,14 +933,12 @@ def _generate_state_update_proposal_with_repair(
             root=options.root,
             invocation=AgentInvocationContext(
                 agent_name="state_update",
-                caller="cli",
                 interaction_mode="internal_task",
                 task="propose_state_update",
                 chapter_number=options.chapter_number,
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="state_update",
-                caller="cli",
                 interaction_mode="internal_task",
                 task="propose_state_update_repair",
                 chapter_number=options.chapter_number,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,7 +21,7 @@ DEFAULT_MODEL_IO_MAX_BYTES = 200 * 1024 * 1024
 class ModelIORetentionPolicy:
     max_files: int | None = DEFAULT_MODEL_IO_MAX_FILES
     max_bytes: int | None = DEFAULT_MODEL_IO_MAX_BYTES
-    mode: str = "full"
+    mode: str = "metadata"
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ def compact_model_io_payload(payload: dict[str, object]) -> dict[str, object]:
             "user_prompt": "[omitted by WRITERYANG_MODEL_IO_MODE=metadata]",
             "context": "[omitted by WRITERYANG_MODEL_IO_MODE=metadata]",
             "prompt_version": request.get("prompt_version"),
+            "hashes": request.get("hashes"),
             "payload": "[omitted by WRITERYANG_MODEL_IO_MODE=metadata]",
         }
     response = payload.get("response")
@@ -61,6 +63,7 @@ def compact_model_io_payload(payload: dict[str, object]) -> dict[str, object]:
             "raw_response": "[omitted by WRITERYANG_MODEL_IO_MODE=metadata]"
             if response.get("raw_response") is not None
             else None,
+            "hashes": response.get("hashes"),
         }
     return compacted
 
@@ -101,8 +104,15 @@ def _optional_positive_int(raw: str | None, default: int) -> int | None:
 
 
 def _model_io_mode(raw: str | None) -> str:
-    mode = (raw or "full").strip().lower()
-    return mode if mode in {"full", "metadata"} else "full"
+    mode = (raw or "metadata").strip().lower()
+    return mode if mode in {"full", "metadata"} else "metadata"
+
+
+def content_sha256(value: object | None) -> str | None:
+    if value is None:
+        return None
+    serialized = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _read_index_entries(index_path: Path) -> list[dict[str, object]]:

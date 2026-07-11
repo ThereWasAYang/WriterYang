@@ -109,7 +109,7 @@ Timeline 记录故事世界中已经确定存在的事件，包括尚未正文�
 - 手动改 `draft.md` 或 `polished.md` 后，保留 YAML front matter。
 - 不要让 `chapter_number` 与目录编号不一致。
 - 改正文后通过 `revision-session run` 重新 Audit。
-- 如果要保留旧稿，优先复制为 `draft.v2.md` 或 `polished.v2.md`，不要直接覆盖。
+- 不要自行创建编号版本文件。未接受工作稿由 Session 冻结为 `candidates/candidate_{artifact_id}.md`；已认可章节必须通过 `revision-session` 创建范围受控的 immutable candidate。
 
 ## 推荐人工编辑流程
 

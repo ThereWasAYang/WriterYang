@@ -72,7 +72,7 @@ def test_ask_dry_run_returns_command_proposal_without_writing(tmp_path: Path) ->
     assert "Ask status: proposed" in stdout
     assert "Risk: medium" in stdout
     assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
-    assert not list((root / "runs").glob("run_*.json"))
+    assert not list((root / "runs").glob("*.json"))
 
 
 def test_ask_zero_model_budget_returns_clarification_without_writing(tmp_path: Path) -> None:
@@ -107,7 +107,7 @@ def test_ask_proposal_writes_structured_workflow_trace_not_legacy_flat_log(tmp_p
 
     assert code == 0
     assert stderr == ""
-    assert not list((root / "runs").glob("run_*.json"))
+    assert not list((root / "runs").glob("*.json"))
     run_dirs = list((root / "runs").glob("run_*"))
     assert len(run_dirs) == 1
     assert (run_dirs[0] / "run.json").is_file()

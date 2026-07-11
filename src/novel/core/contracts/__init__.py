@@ -66,6 +66,7 @@ from novel.core.contracts.state import (
 from novel.core.contracts.tracing import (
     BudgetUsage,
     WorkflowBudget,
+    WorkflowDecision,
     WorkflowNodeRun,
     WorkflowRun,
     default_workflow_budget,
@@ -126,6 +127,7 @@ __all__ = [
     "TransactionJournal",
     "TransactionStatus",
     "WorkflowBudget",
+    "WorkflowDecision",
     "BudgetUsage",
     "default_workflow_budget",
     "WorkflowNodeRun",

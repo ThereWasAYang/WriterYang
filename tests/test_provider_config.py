@@ -421,33 +421,6 @@ def test_cli_model_override_dry_run(tmp_path: Path) -> None:
     assert "thinking: disabled" in stdout
 
 
-def test_generate_chapter_dry_run_shows_per_step_profile_models(tmp_path: Path) -> None:
-    root = tmp_path / "workspace"
-    init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    config_path = _profiles_config(tmp_path)
-
-    code, stdout, stderr = _run_cli(
-        [
-            "generate-chapter",
-            "1",
-            "--path",
-            str(root),
-            "--agent-config",
-            str(config_path),
-            "--dry-run-provider",
-        ]
-    )
-
-    assert code == 0
-    assert stderr == ""
-    assert "task: plot" in stdout
-    assert "model: architect-model" in stdout
-    assert "task: writer" in stdout
-    assert "model: scribe-model" in stdout
-    assert "task: polish" in stdout
-    assert "task: audit" in stdout
-
-
 def test_provider_descriptor_does_not_include_real_api_key(tmp_path: Path) -> None:
     descriptor = describe_agent_provider(_profiles_config(tmp_path), "writer")
 
@@ -500,7 +473,8 @@ def test_create_agent_provider_wraps_mock_with_model_io_logging(tmp_path: Path) 
     assert len(logs) == 1
     text = logs[0].read_text(encoding="utf-8")
     assert '"agent_name": "writer"' in text
-    assert "章节正文" in text
+    assert "章节正文" not in text
+    assert '"content_sha256"' in text
 
 
 def provider_request():

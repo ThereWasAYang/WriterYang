@@ -26,6 +26,7 @@ from novel.core.contracts import (
     PublicCommand,
     SessionStartCommand,
     Surface,
+    TaskId,
     WorkflowBudget,
 )
 from novel.core.context_policy import render_untrusted_workspace_data
@@ -53,7 +54,7 @@ from novel.core.structured_generation import (
     JsonRepairExhaustedError,
     generate_json_with_repair,
 )
-from novel.core.workflow_runtime import workflow_runtime_scope
+from novel.core.workflow_runtime import record_workflow_decision, workflow_runtime_scope
 
 
 class OrchestratorError(RuntimeError):
@@ -66,6 +67,7 @@ class AskCommandProposalResult:
     workflow_run_id: str
     budget_usage: BudgetUsage
     intent: AskIntentDecision
+    request_id: str
 
 
 def propose_ask_command(
@@ -81,6 +83,7 @@ def propose_ask_command(
 ) -> AskCommandProposalResult:
     workflow_run_id = f"run_{uuid.uuid4().hex}"
     proposal_command_id = f"cmd_{uuid.uuid4().hex}"
+    request_id = f"req_{uuid.uuid4().hex}"
     try:
         with workflow_budget_scope(budget) as tracker:
 
@@ -90,6 +93,11 @@ def propose_ask_command(
                     request,
                     provider_name=provider_name,
                     provider=intent_provider,
+                )
+                record_workflow_decision(
+                    name="ask_intent",
+                    task_id=TaskId.INTENT_ROUTER,
+                    payload=intent.model_dump(mode="json"),
                 )
                 command = _ask_intent_command(
                     intent,
@@ -120,6 +128,11 @@ def propose_ask_command(
                     budget=budget,
                 )
                 atomic_write_model_json(root / "runs" / workflow_run_id / "proposal.json", proposal)
+                record_workflow_decision(
+                    name="command_proposal",
+                    task_id=TaskId.INTENT_ROUTER,
+                    payload=proposal.model_dump(mode="json"),
+                )
                 return intent, proposal
 
             if (root / "project.yaml").is_file():
@@ -129,6 +142,7 @@ def propose_ask_command(
                     command_id=proposal_command_id,
                     surface=Surface.ASK,
                     budget=budget,
+                    request_id=request_id,
                 ) as runtime:
                     intent, proposal = runtime.execute_node(
                         name="proposal:ask",
@@ -147,6 +161,7 @@ def propose_ask_command(
         workflow_run_id=workflow_run_id,
         budget_usage=usage,
         intent=intent,
+        request_id=request_id,
     )
 
 
@@ -247,13 +262,11 @@ def decide_ask_intent(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="intent_router",
-                caller="orchestrator",
                 interaction_mode="internal_task",
                 task="ask_intent",
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="intent_router",
-                caller="orchestrator",
                 interaction_mode="internal_task",
                 task="ask_intent_repair",
             ),
@@ -464,7 +477,7 @@ def route_revision_request(
     if not chapters:
         chapters = [1]
     if provider is None and provider_name.lower() == "mock":
-        return _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
+        return _trace_revision_decision(_fallback_revision_route_decision(instruction, chapter_numbers=chapters))
     route_provider = provider or load_intent_router_provider(root, provider_name)
     user_prompt = build_revision_route_user_prompt(
         instruction,
@@ -491,13 +504,11 @@ def route_revision_request(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="intent_router",
-                caller="orchestrator",
                 interaction_mode="internal_task",
                 task="revision_route",
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="intent_router",
-                caller="orchestrator",
                 interaction_mode="internal_task",
                 task="revision_route_repair",
             ),
@@ -512,15 +523,17 @@ def route_revision_request(
                 error=error,
             ),
         )
-        return decision
+        return _trace_revision_decision(decision)
     except AgentOutputContractError:
         fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
-        return fallback.model_copy(
-            update={"reason": f"provider route contract failed; fallback used. {fallback.reason}"}
+        return _trace_revision_decision(
+            fallback.model_copy(update={"reason": f"provider route contract failed; fallback used. {fallback.reason}"})
         )
     except JsonRepairExhaustedError:
         fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
-        return fallback.model_copy(update={"reason": f"provider route parse failed; fallback used. {fallback.reason}"})
+        return _trace_revision_decision(
+            fallback.model_copy(update={"reason": f"provider route parse failed; fallback used. {fallback.reason}"})
+        )
 
 
 def _intent_router_uses_mock(root: Path, provider_name: str) -> bool:
@@ -543,17 +556,17 @@ def route_audit_repair(
 ) -> AuditRepairRouteDecision:
     blocking = [issue for issue in audit_report.issues if issue.severity in {"medium", "high", "critical"}]
     if not blocking:
-        return AuditRepairRouteDecision(
+        return _trace_audit_decision(AuditRepairRouteDecision(
             route="manual_review",
             reason="audit has no blocking issues",
             chapter_number=audit_report.chapter_number,
             issue_ids=[],
             risk_level="low",
             source="deterministic",
-        )
+        ))
     manual_blockers = manual_review_blockers(audit_report)
     if manual_blockers:
-        return AuditRepairRouteDecision(
+        return _trace_audit_decision(AuditRepairRouteDecision(
             route="manual_review",
             reason="automatic repair denied by audit policy: "
             + "; ".join(f"{item.issue_id}: {item.reason}" for item in manual_blockers),
@@ -561,10 +574,10 @@ def route_audit_repair(
             issue_ids=[item.issue_id for item in manual_blockers],
             risk_level="medium",
             source="deterministic",
-        )
+        ))
     deterministic = _deterministic_audit_repair_route(audit_report)
     if provider is None and provider_name.lower() == "mock":
-        return deterministic
+        return _trace_audit_decision(deterministic)
     route_provider = provider or load_intent_router_provider(root, provider_name)
     user_prompt = build_audit_repair_route_user_prompt(
         audit_report,
@@ -590,14 +603,12 @@ def route_audit_repair(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="intent_router",
-                caller="session",
                 interaction_mode="internal_task",
                 task="audit_repair_route",
                 chapter_number=audit_report.chapter_number,
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="intent_router",
-                caller="session",
                 interaction_mode="internal_task",
                 task="audit_repair_route_repair",
                 chapter_number=audit_report.chapter_number,
@@ -610,7 +621,7 @@ def route_audit_repair(
             ),
         )
         if decision.route != deterministic.route:
-            return AuditRepairRouteDecision(
+            return _trace_audit_decision(AuditRepairRouteDecision(
                 route="manual_review",
                 reason=(
                     "provider route conflicts with deterministic audit policy: "
@@ -621,14 +632,34 @@ def route_audit_repair(
                 source_layer=deterministic.source_layer,
                 risk_level="high",
                 source="deterministic",
-            )
-        return decision
+            ))
+        return _trace_audit_decision(decision)
     except AgentOutputContractError:
-        return deterministic.model_copy(
-            update={"reason": f"provider audit route contract failed; {deterministic.reason}"}
+        return _trace_audit_decision(
+            deterministic.model_copy(update={"reason": f"provider audit route contract failed; {deterministic.reason}"})
         )
     except JsonRepairExhaustedError:
-        return deterministic.model_copy(update={"reason": f"provider audit route parse failed; {deterministic.reason}"})
+        return _trace_audit_decision(
+            deterministic.model_copy(update={"reason": f"provider audit route parse failed; {deterministic.reason}"})
+        )
+
+
+def _trace_revision_decision(decision: RevisionRouteDecision) -> RevisionRouteDecision:
+    record_workflow_decision(
+        name="revision_route",
+        task_id=TaskId.INTENT_ROUTER,
+        payload=decision.model_dump(mode="json"),
+    )
+    return decision
+
+
+def _trace_audit_decision(decision: AuditRepairRouteDecision) -> AuditRepairRouteDecision:
+    record_workflow_decision(
+        name="audit_repair_route",
+        task_id=TaskId.INTENT_ROUTER,
+        payload=decision.model_dump(mode="json"),
+    )
+    return decision
 
 
 def build_audit_repair_route_user_prompt(

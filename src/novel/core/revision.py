@@ -10,24 +10,18 @@ from novel.core.agent_output import (
     AgentOutputContract,
     generate_with_output_guard,
 )
-from novel.core.chapter_versions import (
-    is_allowed_chapter_version_name,
-    latest_chapter_version_path,
-    next_chapter_version_path,
-)
+from novel.core.artifact_store import ArtifactStore
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.context_policy import render_untrusted_workspace_data
+from novel.core.contracts import ArtifactKind
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import (
-    atomic_write_json,
     atomic_write_model_json,
-    atomic_write_text,
     backup_if_exists,
     load_json_model,
     load_yaml_model,
 )
-from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -63,9 +57,7 @@ class ChapterRevisionOptions:
     instruction: str | None = None
     from_audit: bool = False
     target: RevisionTarget = "polished"
-    source_file: str | None = None
     force: bool = False
-    save_as_version: bool = True
     use_search_context: bool = False
     use_vector_context: bool | VectorContextMode = "auto"
     world_state_dir: Path | None = None
@@ -79,19 +71,6 @@ class ChapterRevisionResult:
     revised_markdown: str
     warnings: tuple[str, ...] = ()
     context_report_path: Path | None = None
-
-
-@dataclass(frozen=True)
-class RevisionLoopOptions:
-    base_options: ChapterRevisionOptions
-    max_rounds: int = 1
-    confirm_loop: bool = False
-
-
-@dataclass(frozen=True)
-class RevisionLoopResult:
-    results: tuple[ChapterRevisionResult, ...]
-    run_log_path: Path
 
 
 @dataclass(frozen=True)
@@ -147,7 +126,6 @@ def revise_chapter(
         root=root,
         invocation=AgentInvocationContext(
             agent_name="revision",
-            caller="cli",
             interaction_mode="internal_task",
             task="revise_chapter",
             chapter_number=options.chapter_number,
@@ -162,8 +140,6 @@ def revise_chapter(
         raise RevisionError("revision provider returned empty content")
 
     chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
-    output_path = _revision_output_path(chapter_dir, options.target, options.save_as_version)
-    _refuse_existing(output_path, options.force)
     revision_id = _new_revision_id()
     title = str(context.source_document.metadata.get("title") or context.plan.title)
     revised_markdown = render_revised_markdown(
@@ -175,16 +151,20 @@ def revise_chapter(
         body=body,
         created_at=utc_now_iso(),
     )
-    if options.force:
-        backup_if_exists(output_path, reason="force")
-    atomic_write_text(output_path, revised_markdown)
+    output_ref = ArtifactStore(root).create(
+        chapter_number=options.chapter_number,
+        kind=ArtifactKind.CANDIDATE,
+        content=revised_markdown.encode("utf-8"),
+        suffix=".md",
+    )
+    output_path = root / output_ref.path
 
     record = RevisionRecord(
         id=revision_id,
         chapter_number=options.chapter_number,
         target=options.target,
         source_file=context.source_file,
-        output_file=output_path.name,
+        output_file=output_ref.path,
         instruction=_clean_optional(options.instruction),
         from_audit=options.from_audit,
         audit_file="audit.json" if context.audit else None,
@@ -207,42 +187,12 @@ def revise_chapter(
     )
 
 
-def revise_chapter_loop(
-    options: RevisionLoopOptions,
-    provider: ModelProvider,
-    *,
-    provider_name: str | None = None,
-) -> RevisionLoopResult:
-    if options.max_rounds < 1:
-        raise RevisionError("max_rounds must be at least 1")
-    if options.max_rounds > 1 and not options.confirm_loop:
-        raise RevisionError("revision loop with more than one round requires --confirm-loop")
-    results: list[ChapterRevisionResult] = []
-    current_options = options.base_options
-    for round_number in range(1, options.max_rounds + 1):
-        result = revise_chapter(current_options, provider, provider_name=provider_name)
-        results.append(result)
-        current_options = ChapterRevisionOptions(
-            root=current_options.root,
-            chapter_number=current_options.chapter_number,
-            instruction=_loop_instruction(current_options.instruction, round_number),
-            from_audit=current_options.from_audit,
-            target=current_options.target,
-            force=current_options.force,
-            save_as_version=True,
-            use_search_context=current_options.use_search_context,
-            use_vector_context=current_options.use_vector_context,
-        )
-    run_log_path = _write_revision_loop_log(options.base_options.root, options.base_options.chapter_number, results)
-    return RevisionLoopResult(results=tuple(results), run_log_path=run_log_path)
-
-
 def load_revision_context(
     root: Path,
     options: ChapterRevisionOptions,
 ) -> tuple[RevisionContext, list[str]]:
     chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
-    source_file = _resolve_revision_source_file(chapter_dir, options)
+    source_file = f"{options.target}.md"
     source_path = chapter_dir / source_file
     plan_path = chapter_dir / "plan.json"
     audit_path = chapter_dir / "audit.json"
@@ -415,22 +365,6 @@ def default_mock_revised_body(target: RevisionTarget = "polished") -> str:
     )
 
 
-def _revision_output_path(chapter_dir: Path, target: RevisionTarget, save_as_version: bool) -> Path:
-    if not save_as_version:
-        return chapter_dir / f"{target}.md"
-    return next_chapter_version_path(chapter_dir, target)
-
-
-def _resolve_revision_source_file(chapter_dir: Path, options: ChapterRevisionOptions) -> str:
-    if options.source_file:
-        if not is_allowed_chapter_version_name(options.source_file, options.target):
-            raise RevisionError(
-                f"source_file must be {options.target}.md or {options.target}.vN.md, got {options.source_file}"
-            )
-        return options.source_file
-    return latest_chapter_version_path(chapter_dir, options.target).name
-
-
 def _append_revision_log(path: Path, chapter_number: int, record: RevisionRecord) -> None:
     if path.exists():
         log = load_json_model(path, RevisionLog)
@@ -445,54 +379,12 @@ def _append_revision_log(path: Path, chapter_number: int, record: RevisionRecord
     atomic_write_model_json(path, updated)
 
 
-def _loop_instruction(instruction: str | None, round_number: int) -> str:
-    base = _clean_optional(instruction) or "继续根据上一轮结果做保守修订。"
-    return f"{base}\n\nRevision Loop round {round_number + 1}: 只修复上一轮仍可能存在的问题，不要扩大改动范围。"
-
-
-def _write_revision_loop_log(
-    root: Path,
-    chapter_number: int,
-    results: list[ChapterRevisionResult],
-) -> Path:
-    chapter_dir = root.resolve() / "memory" / "chapters" / f"{chapter_number:03d}"
-    run_id = new_request_id("revision_loop")
-    path = chapter_dir / f"{run_id}.json"
-    payload = {
-        "schema_version": CURRENT_SCHEMA_VERSION,
-        "run_id": run_id,
-        "task": "revision_loop",
-        "chapter_number": chapter_number,
-        "started_at": results[0].record.created_at.isoformat().replace("+00:00", "Z") if results else utc_now_iso(),
-        "ended_at": utc_now_iso(),
-        "status": "completed",
-        "max_rounds": len(results),
-        "steps": [
-            {
-                "round": index,
-                "revision_id": result.record.id,
-                "output_file": result.output_path.name,
-                "revision_log": str(result.revision_log_path),
-            }
-            for index, result in enumerate(results, start=1)
-        ],
-        "errors": [],
-    }
-    atomic_write_json(path, payload)
-    return path
-
-
 def _read_style_guide(root: Path, warnings: list[str]) -> str:
     path = root / "memory" / "style_guide.md"
     if path.exists():
         return path.read_text(encoding="utf-8")
     warnings.append("memory/style_guide.md is missing; using default style guidance")
     return DEFAULT_STYLE_GUIDANCE
-
-
-def _refuse_existing(path: Path, force: bool) -> None:
-    if path.exists() and not force:
-        raise RevisionError(f"{path} already exists; use --force to overwrite it")
 
 
 def _clean_revised_body(content: str) -> str:

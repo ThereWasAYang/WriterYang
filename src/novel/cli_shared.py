@@ -44,7 +44,6 @@ ERROR_CODES = {
     "drafting_error": "Chapter drafting failed.",
     "export_error": "Export operation failed.",
     "inspiration_error": "Inspiration generation failed.",
-    "migration_error": "Schema migration failed.",
     "orchestrator_error": "Orchestrator request failed.",
     "memory_repair_error": "Memory repair proposal or apply failed.",
     "chapter_memory_error": "Chapter memory generation or loading failed.",
@@ -111,11 +110,6 @@ def _add_search_context_args(parser: argparse.ArgumentParser, *, default_enabled
         default="auto",
         help="Embedding semantic context mode for agent memory retrieval. Defaults to auto.",
     )
-    parser.add_argument(
-        "--use-vector-context",
-        action="store_true",
-        help="Compatibility alias for --vector-context on.",
-    )
 
 def _add_polish_mode_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -126,8 +120,6 @@ def _add_polish_mode_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 def _vector_context_mode_from_args(args: argparse.Namespace) -> VectorContextMode:
-    if getattr(args, "use_vector_context", False):
-        return "on"
     value = str(getattr(args, "vector_context", "auto") or "auto")
     if value in {"auto", "on", "off"}:
         return cast(VectorContextMode, value)

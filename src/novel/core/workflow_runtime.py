@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 import hashlib
+import json
 from pathlib import Path
 from typing import TypeVar
 import uuid
@@ -17,6 +18,7 @@ from novel.core.contracts import (
     Surface,
     TaskId,
     WorkflowBudget,
+    WorkflowDecision,
     WorkflowNodeRun,
     WorkflowRun,
 )
@@ -77,7 +79,11 @@ class WorkflowRuntime:
     surface: Surface
     budget: WorkflowBudget
     run: WorkflowRun
+    request_id: str
+    parent_request_id: str | None = None
+    session_id: str | None = None
     parent_stack: list[str] = field(default_factory=list)
+    last_completed_node_id: str | None = None
 
     @property
     def run_dir(self) -> Path:
@@ -96,6 +102,7 @@ class WorkflowRuntime:
         prompt_template: str | None = None,
         prompt_policy_hash: str | None = None,
         rendered_prompt: str | None = None,
+        request_id: str | None = None,
         repair_count: int = 0,
         input_artifacts: list[ArtifactRef] | None = None,
         input_paths: list[str] | None = None,
@@ -108,6 +115,9 @@ class WorkflowRuntime:
             node_type=node_type,  # type: ignore[arg-type]
             name=name,
             parent_node_id=self.parent_stack[-1] if self.parent_stack else None,
+            request_id=request_id or self.request_id,
+            parent_request_id=self.request_id if self.parent_stack else self.parent_request_id,
+            session_id=self.session_id,
             command_id=self.command_id,
             surface=self.surface,
             task_id=task_id,
@@ -141,6 +151,7 @@ class WorkflowRuntime:
                 }
             )
             self._write_node(completed)
+            self.last_completed_node_id = completed.node_id
             return value
         except Exception as exc:
             after = _budget_usage()
@@ -154,9 +165,45 @@ class WorkflowRuntime:
                 }
             )
             self._write_node(failed)
+            self.last_completed_node_id = failed.node_id
             raise
         finally:
             self.parent_stack.pop()
+
+    def bind_session_id(self, session_id: str) -> None:
+        self.session_id = session_id
+        if session_id not in self.run.session_ids:
+            self.run = self.run.model_copy(update={"session_ids": [*self.run.session_ids, session_id]})
+            self._write_run("running")
+
+    def record_decision(
+        self,
+        *,
+        name: str,
+        payload: dict[str, object],
+        task_id: TaskId | None = None,
+    ) -> WorkflowDecision:
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+        decision = WorkflowDecision(
+            decision_id=f"decision_{uuid.uuid4().hex}",
+            workflow_run_id=self.workflow_run_id,
+            name=name,
+            task_id=task_id,
+            surface=self.surface,
+            request_id=self.request_id,
+            parent_request_id=self.request_id if self.parent_stack else self.parent_request_id,
+            parent_node_id=self.parent_stack[-1] if self.parent_stack else self.last_completed_node_id,
+            session_id=self.session_id,
+            payload=payload,
+            payload_sha256=hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+            created_at=utc_now(),
+        )
+        decisions_dir = self.run_dir / "decisions"
+        decisions_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_model_json(decisions_dir / f"{decision.decision_id}.json", decision)
+        self.run = self.run.model_copy(update={"decision_ids": [*self.run.decision_ids, decision.decision_id]})
+        self._write_run("running")
+        return decision
 
     def _write_node(self, node: WorkflowNodeRun) -> None:
         self.run_dir.joinpath("nodes").mkdir(parents=True, exist_ok=True)
@@ -193,24 +240,53 @@ def workflow_runtime_scope(
     command_id: str,
     surface: Surface,
     budget: WorkflowBudget,
+    request_id: str,
+    parent_request_id: str | None = None,
+    session_id: str | None = None,
 ) -> Iterator[WorkflowRuntime]:
     run_path = root / "runs" / workflow_run_id / "run.json"
     now = utc_now()
     if run_path.exists():
-        run = load_json_model(run_path, WorkflowRun).model_copy(
-            update={"status": "running", "updated_at": now, "ended_at": None}
+        existing = load_json_model(run_path, WorkflowRun)
+        effective_parent_request_id = parent_request_id or existing.root_request_id
+        request_ids = existing.request_ids if request_id in existing.request_ids else [*existing.request_ids, request_id]
+        session_ids = existing.session_ids
+        if session_id and session_id not in session_ids:
+            session_ids = [*session_ids, session_id]
+        run = existing.model_copy(
+            update={
+                "status": "running",
+                "request_ids": request_ids,
+                "session_ids": session_ids,
+                "updated_at": now,
+                "ended_at": None,
+            }
         )
     else:
+        effective_parent_request_id = parent_request_id
         run = WorkflowRun(
             workflow_run_id=workflow_run_id,
             root_command_id=command_id,
+            root_request_id=request_id,
             surface=surface,
             budget=budget,
+            request_ids=[request_id],
+            session_ids=[session_id] if session_id else [],
             status="running",
             started_at=now,
             updated_at=now,
         )
-    runtime = WorkflowRuntime(root, workflow_run_id, command_id, surface, budget, run)
+    runtime = WorkflowRuntime(
+        root,
+        workflow_run_id,
+        command_id,
+        surface,
+        budget,
+        run,
+        request_id,
+        effective_parent_request_id,
+        session_id,
+    )
     token: Token[WorkflowRuntime | None] = _ACTIVE_RUNTIME.set(runtime)
     try:
         yield runtime
@@ -225,6 +301,48 @@ def workflow_runtime_scope(
 
 def active_workflow_runtime() -> WorkflowRuntime | None:
     return _ACTIVE_RUNTIME.get()
+
+
+@dataclass(frozen=True)
+class WorkflowTraceMetadata:
+    workflow_run_id: str | None = None
+    surface: Surface | None = None
+    request_id: str | None = None
+    parent_request_id: str | None = None
+    session_id: str | None = None
+    node_id: str | None = None
+
+
+def active_trace_metadata() -> WorkflowTraceMetadata:
+    runtime = active_workflow_runtime()
+    if runtime is None:
+        return WorkflowTraceMetadata()
+    return WorkflowTraceMetadata(
+        workflow_run_id=runtime.workflow_run_id,
+        surface=runtime.surface,
+        request_id=runtime.request_id,
+        parent_request_id=runtime.parent_request_id,
+        session_id=runtime.session_id,
+        node_id=runtime.parent_stack[-1] if runtime.parent_stack else runtime.last_completed_node_id,
+    )
+
+
+def bind_active_session_id(session_id: str) -> None:
+    runtime = active_workflow_runtime()
+    if runtime is not None:
+        runtime.bind_session_id(session_id)
+
+
+def record_workflow_decision(
+    *,
+    name: str,
+    payload: dict[str, object],
+    task_id: TaskId | None = None,
+) -> WorkflowDecision | None:
+    runtime = active_workflow_runtime()
+    if runtime is None:
+        return None
+    return runtime.record_decision(name=name, payload=payload, task_id=task_id)
 
 
 def execute_runtime_node(**kwargs: object) -> object:

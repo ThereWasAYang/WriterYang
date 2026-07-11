@@ -121,7 +121,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 当前任务进度 / 取消当前 Session 任务 | 显示长任务阶段、章节、轮次、已用时和最近事件。 | 只有 Session 写作运行中才显示取消按钮；取消会在当前章节或修复轮结束后生效，不会立刻中断当前 LLM 请求。 |
 | 最近操作 | 记录最近完成或失败的按钮操作。 | 用来回看顶部消息一闪而过时的结果。 |
 | 章节对照 | 同时显示 `plan.json`、`draft.md`、`polished.md`、`audit.json`。 | 点“加载对照”；多章 Session 会出现章节选择器，可在不同章节之间切换。开始写作或内容修订后会自动切到这里并加载当前章节。 |
-| 章节编辑器 | 可保存编辑 `draft.md` 或 `polished.md`。 | 加载后编辑，点“保存新版本”或按 `Ctrl/Cmd+S`；会写 `draft.v2.md` / `polished.v2.md`，不覆盖原稿。有未保存修改时离开页面会提示。 |
+| 章节编辑器 | 可保存编辑 `draft.md` 或 `polished.md`。 | 加载后编辑，点“保存不可变候选稿”或按 `Ctrl/Cmd+S`；会写入 `candidates/candidate_{artifact_id}.md`，不覆盖原稿。有未保存修改时离开页面会提示。 |
 | Audit 定位 | 把 audit issue 的 evidence quote 定位到正文。 | 选择 draft 或 polished，点“加载定位”，点击 issue 跳转到匹配位置。 |
 | Revision Diff | 查看两个版本文件的 unified diff。 | 填入两个相对路径后点“查看 Diff”。 |
 
@@ -323,11 +323,11 @@ issue 等级：
 常用区域：
 
 - “章节对照”：同时看 plan、draft、polished、audit。
-- “章节编辑器”：可加载 `draft.md` 或 `polished.md`，保存时会创建 `draft.v2.md` / `polished.v2.md` 这类版本文件。
+- “章节编辑器”：可加载 `draft.md` 或 `polished.md`，保存时会创建带 SHA-256 lineage 的 immutable candidate artifact。
 - “Audit 定位”：点击 issue 后定位到正文中的证据片段。
 - “Revision Diff”：对比两个版本文件。
 
-注意：Web 编辑器默认保存新版本，不会直接覆盖旧稿。已归档内容默认只读。
+注意：Web 编辑器默认保存 immutable candidate，不会直接覆盖工作稿。candidate 不是 accepted 内容；已归档内容默认只读，修改 accepted 章节必须走 Revision Session。
 
 ![章节编辑器](assets/web-ui-guide/chapter_editor.png)
 

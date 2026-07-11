@@ -109,6 +109,7 @@ def test_cli_and_web_adapters_return_same_domain_result(tmp_path: Path) -> None:
 
     for payload in (cli_payload, web_payload):
         payload.pop("command_id")
+        payload.pop("request_id")
         payload.pop("workflow_run_id")
     assert cli_payload == web_payload
 

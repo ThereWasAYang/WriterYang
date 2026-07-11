@@ -888,28 +888,6 @@ class RevisionRouteRecord(FlexibleModel):
     decision: RevisionRouteDecision
 
 
-class AgentRunStep(FlexibleModel):
-    step_id: str = Field(min_length=1)
-    agent: str = Field(min_length=1)
-    input_files: list[str] = Field(default_factory=list)
-    output_files: list[str] = Field(default_factory=list)
-    status: Literal["pending", "running", "completed", "failed", "cancelled"]
-    error: str | None = None
-
-
-class AgentRunLog(SchemaVersionedModel):
-    run_id: str = Field(min_length=1, pattern=r"^run_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
-    task: str = Field(min_length=1)
-    chapter_number: int | None = Field(default=None, ge=1)
-    started_at: datetime
-    ended_at: datetime | None = None
-    status: Literal["pending", "running", "completed", "failed", "cancelled"]
-    steps: list[AgentRunStep] = Field(default_factory=list)
-    input_files: list[str] = Field(default_factory=list)
-    output_files: list[str] = Field(default_factory=list)
-    errors: list[str] = Field(default_factory=list)
-
-
 class ExportSourceChapter(FlexibleModel):
     chapter_number: int = Field(ge=1)
     title: str = Field(min_length=1)

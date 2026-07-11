@@ -495,7 +495,6 @@ def _generate_model_chapter_memory(provider: ModelProvider, context: ChapterMemo
         root=context.root,
         invocation=AgentInvocationContext(
             agent_name="chapter_memory",
-            caller="cli",
             interaction_mode="internal_task",
             task="generate_chapter_memory",
             chapter_number=context.chapter_number,

@@ -83,13 +83,11 @@ def generate_style_guide(
         root=root,
         invocation=AgentInvocationContext(
             agent_name="style_guide",
-            caller="web",
             interaction_mode="internal_task",
             task="generate_style_guide",
         ),
         repair_invocation=AgentInvocationContext(
             agent_name="style_guide",
-            caller="web",
             interaction_mode="internal_task",
             task="generate_style_guide_repair",
         ),

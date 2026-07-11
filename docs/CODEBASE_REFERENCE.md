@@ -64,7 +64,6 @@
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
 - `src/novel/core/chapter_memory.py`
-- `src/novel/core/chapter_versions.py`
 - `src/novel/core/command_bus.py`
 - `src/novel/core/consistency.py`
 - `src/novel/core/context_budget.py`
@@ -125,7 +124,6 @@
 - `src/novel/core/usage.py`
 - `src/novel/core/validation.py`
 - `src/novel/core/web_launcher.py`
-- `src/novel/core/workflow.py`
 - `src/novel/core/workflow_runtime.py`
 - `src/novel/core/workspace.py`
 
@@ -319,7 +317,7 @@ Core 包标记文件。当前不导出业务 API；调用方应从具体 service
 - state/timeline：`EntityState`、`CharacterState`、`ItemState`、`LocationState`、`TimelineEvent`、`TimelineNarrativePosition`、`TimelineStoryPosition`、`TimelineFile`。`narrative_position` 表示正文呈现顺序，`story_position` 表示故事世界顺序。
 - chapter：`ChapterPlan`、`ChapterScene`、`RequiredContext`、`ChapterMetadata`。
 - audit：`AuditReport`、`AuditIssue`、`AuditEvidence`。
-- workflow/session/export：`AgentRunLog`、`AgentRunStep`、`CreationSession`、`CreationOutline`、`CreationArchiveManifest`、`ExportSourceChapter`、`ExportRecord`、`ExportManifest`。
+- workflow/session/export：`CreationSession`、`CreationOutline`、`CreationArchiveManifest`、`ExportSourceChapter`、`ExportRecord`、`ExportManifest`；运行 trace 使用 `contracts.WorkflowRun` / `WorkflowNodeRun` / `WorkflowDecision`。
 - revision/context：`RevisionLog`、`RevisionRecord`、`ContextBundle`、`ContextItem`、`ContextExclusion`。
 - state update：`StateUpdateProposal`、`StateChange`、`StateUpdateApplyLog`。
 - session/memory management：`SessionProgress`、`SessionProgressEvent`、`SessionRewriteEvent`、`SessionRewriteEvents`、`MemoryRepairProposal`、`MemoryRepairOperation`、`MemoryRepairApplyLog`、`ManagementEvent`。
@@ -350,10 +348,12 @@ Core 包标记文件。当前不导出业务 API；调用方应从具体 service
 项目锁：
 
 - `ProjectLock`：上下文管理器，创建 `.writeryang.lock`，退出释放。
-- `ProjectLockInfo`：锁文件内容，包含 pid、task、created_at。
+- `ProjectLockInfo`：锁文件内容，包含 lock id、PID、process start time、host、task、workflow/command、created_at 与 heartbeat_at。
 - `ProjectLockError`：锁冲突错误。
 - `read_project_lock()`：读取当前锁。
-- `_pid_exists()` / `_parse_timestamp()` 等 helper：判断陈旧锁。
+- heartbeat thread：长任务按间隔安全刷新当前 lock id 的 `heartbeat_at`。
+- `_pid_exists()` / `_process_start_time()` / `_parse_timestamp()`：联合判断 process identity 与 heartbeat；不再按 created_at 年龄单独回收。
+- stale lock 回收会写 `runs/lock_events.jsonl`，保留原因和旧锁摘要。
 
 写命令和 Web 写 API 必须加锁；只读命令不加锁。
 
@@ -392,7 +392,7 @@ JSON Schema 导出：
 - `ModelResponse`：模型内容、原始响应、token、reasoning。
 - `ModelProvider`：抽象接口。
 - `MockProvider`：测试 provider，支持响应序列和 stream chunks。
-- `LoggingModelProvider`：包裹 provider，写 model_io 日志；request 段记录 `prompt_version`，stream 原始响应只保留 chunk 数、finish chunk 和 usage chunk。写入后调用 model_io 保留策略，默认裁剪旧日志。
+- `LoggingModelProvider`：包裹 provider，写 model_io 日志；request 段记录 `prompt_version`、内容 hash 与 workflow/node/session/parent request metadata。默认不保存 prompt、正文、reasoning 和 raw response；full capture 显式开启时，stream 原始响应也只保留 chunk 数、finish chunk 和 usage chunk。写入后调用保留策略裁剪旧日志。
 - `OpenAICompatibleProvider`：OpenAI Chat Completions 兼容实现。
 - `ProviderFactory`：根据 `AgentConfig` 创建 provider。
 - `ProviderError` 及子类：env、HTTP、auth、rate limit、timeout、network、response 错误。
@@ -411,7 +411,8 @@ JSON Schema 导出：
 Model I/O 生命周期：
 
 - `model_io_retention_policy_from_env()`：读取 `WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 和 `WRITERYANG_MODEL_IO_MODE`。
-- `compact_model_io_payload()`：metadata 模式下省略 prompt、正文和 raw response。
+- `compact_model_io_payload()`：默认 metadata 模式下省略 prompt、正文、reasoning 和 raw response，但保留各段 SHA-256；`WRITERYANG_MODEL_IO_MODE=full` 是显式隐私选择。
+- `content_sha256()`：对文本或稳定 JSON 序列化计算诊断 hash。
 - `prune_model_io_dir()`：按最近条数和总体积裁剪旧 `runs/model_io/*.json`，并同步重写 `index.jsonl`。
 
 ### `core/provider_config.py`
@@ -507,7 +508,7 @@ Embedding provider：
 
 - `log_app_warning()`：写入项目 `runs/app.log`，每行一个脱敏 JSON object。
 - 只记录安全摘要，例如 `event`、`request_id`、workflow、status/code、repair_id、相对路径和截断错误；不写 prompt、response、章节正文或完整用户输入。
-- Web API 异常、memory repair fallback/preflight/rollback 等模型外失败路径应调用它。完整模型输入输出仍只在 `runs/model_io/`。
+- Web API 异常、memory repair fallback/preflight/rollback 等模型外失败路径应调用它。模型调用 metadata 仍只在 `runs/model_io/`；完整内容只有用户显式启用 full capture 时才存在。
 
 ## 8. 写作业务模块
 
@@ -676,14 +677,6 @@ Audit 作者可读文案适配：
 - `build_state_update_user_prompt()` / `parse_state_update_proposal()`。
 - `_generate_state_update_proposal_with_repair()`：输出守卫 + schema repair。
 
-### `core/chapter_versions.py`
-
-章节正文版本文件工具：
-
-- `latest_chapter_version_path()`：选择 `draft.vN.md` / `polished.vN.md` 中最新版本，找不到时回退基础文件。
-- `next_chapter_version_path()`：生成下一版 `draft.vN.md` / `polished.vN.md` 输出路径。
-- `is_allowed_chapter_version_name()`：校验 Web/CLI 可编辑的章节版本文件名。
-
 ### `core/chapter_memory.py`
 
 已接受章节的结构化检索记忆：
@@ -700,13 +693,11 @@ Audit 作者可读文案适配：
 
 修订：
 
-- `ChapterRevisionOptions` / `ChapterRevisionResult` / `RevisionLoopOptions` / `RevisionLoopResult` / `RevisionContext`。
-- `revise_chapter()`：根据 instruction 或 audit 生成版本文件。
-- `revise_chapter_loop()`：受最大轮数和人工确认限制的循环修订。
-- `load_revision_context()`：加载 plan、source markdown、audit、style、canon、state、timeline；默认 source markdown 使用最新 `draft.vN.md` / `polished.vN.md`，也支持显式 source file。
+- `ChapterRevisionOptions` / `ChapterRevisionResult` / `RevisionContext`。
+- `revise_chapter()`：根据 instruction 或 audit 从当前 `draft.md` / `polished.md` 生成 immutable candidate artifact，不覆盖 source。
+- `load_revision_context()`：加载 plan、当前 source markdown、audit、style、canon、state、timeline。
 - `build_revision_user_prompt()` / `render_revised_markdown()`。
-- `_revision_output_path()`：选择 `draft.vN.md` 或 `polished.vN.md`。
-- `_append_revision_log()`：更新 revision_log。
+- `_append_revision_log()`：记录 source、candidate artifact path、instruction 与 audit refs。
 
 ### `core/session.py`
 
@@ -730,8 +721,8 @@ Audit 作者可读文案适配：
 - `load_session_progress()` / `request_session_cancel()`：读取 `memory/sessions/{session_id}/progress.json`，或写入 `cancel_requested`；取消不会强行中断当前 LLM HTTP 调用。
 - `load_rewrite_events()`：读取 `memory/sessions/{session_id}/rewrite_events.json`。
 - `_generate_chapter_content()`：单章 writer/polish/audit 调度。
-- `_auto_repair_chapter()`：正文层 medium/high/critical 自动修复，生成 `polished.vN.md`。
-- `_promote_revision_to_polished()`：把修订版本提升为当前 `polished.md` 后再重跑 audit。
+- `_auto_repair_chapter()`：正文层可自动修复 issue 生成 immutable candidate artifact。
+- `_promote_revision_to_polished()`：只把本轮返回的精确 candidate 提升为当前 `polished.md`，随后重跑 audit。
 - `_auto_replan_chapter()` / `_should_replan_chapter()`：连续修复仍失败或结构化证据明确指向计划层问题时回退 Plot Agent 重写本章计划；`_should_replan_chapter()` 只检查 `source_layer=plan` 或 `evidence.source=plan.json`，不扫描 issue 文本。
 - `_start_rewrite_event()` / `_update_rewrite_event()`：自动打回前保存原文快照、记录打回原因，并在复审后更新 completed/unresolved/failed 状态。
 - `_has_hard_issues()`：判定阻断 issue。
@@ -769,17 +760,6 @@ orchestrator 项目管家修复 proposal 包，保留 `from novel.core.memory_re
 - `core/memory_repair_mock.py`：仅用于 mock/config fixture 的启发式测试路径，不作为真实业务推断路径。
 - `core/memory_repair_ops.py`：JSON Pointer patch 执行器和备份恢复工具。
 
-### `core/workflow.py`
-
-底层端到端章节流水线：
-
-- `GenerateChapterOptions` / `GenerateChapterResult` / `WorkflowError`。
-- `generate_chapter()`：依次 plan/write/polish/audit，写 run log。
-- `_run_plan_step()` / `_run_write_step()` / `_run_polish_step()` / `_run_audit_step()`：各步骤封装。
-- `_resume_existing_step()`：从已有 artifact 继续。
-- `_new_run_log()` / `_write_run_log()` / `_fail_run()` / `_complete()`：run log 生命周期。
-- `_load_provider_for_step()`：按 step 选择 agent provider。
-
 ### `core/orchestrator.py`
 
 结构化决策 proposer：
@@ -799,7 +779,10 @@ orchestrator 项目管家修复 proposal 包，保留 `from novel.core.memory_re
 
 - `WORKFLOW_DEFINITIONS`：声明 Creation/Revision 的稳定节点序列和 Task ID。
 - `workflow_runtime_scope()`：创建或恢复 `runs/{workflow_run_id}/run.json`；同一 Session 后续命令复用原 `workflow_run_id`。
-- `WorkflowRuntime.execute_node()`：记录 command/model node 的 parent、Task/Profile、Provider/model、prompt hash、输入输出引用、预算快照、状态和错误。
+- `WorkflowRuntime.execute_node()`：记录 command/model/deterministic node 的 parent node/request、surface、session、Task/Profile、Provider/model、prompt/policy hash、输入输出引用、预算快照、重试、状态和错误。
+- `WorkflowRuntime.record_decision()` / `record_workflow_decision()`：把 Ask、Revision Route 与 Audit Repair Route 的结构化决定写入 `decisions/`，并在 run 中登记 `decision_ids`。
+- `active_trace_metadata()`：向 Agent output guard、Provider call 和 Model I/O 传播 workflow/node/session/request metadata。
+- `bind_active_session_id()`：Session 创建后把新 ID 绑定到当前 run；跨 human gate 命令由 Command Bus 恢复绑定。
 - Provider 调用自动嵌套在当前 command node 下；Command Bus 是唯一公开命令入口。
 
 ### `core/runtime_config.py`

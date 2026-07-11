@@ -151,7 +151,6 @@ def polish_chapter(
                 root=root,
                 invocation=AgentInvocationContext(
                     agent_name="polish",
-                    caller="cli",
                     interaction_mode="internal_task",
                     task="polish_chapter",
                     chapter_number=options.chapter_number,

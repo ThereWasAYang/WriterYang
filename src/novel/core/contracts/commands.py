@@ -201,6 +201,8 @@ PublicCommand = Annotated[
 
 class CommandEnvelope(SchemaV3Model):
     command_id: str = Field(pattern=r"^cmd_[0-9a-f]{32}$")
+    request_id: str = Field(pattern=r"^req_[0-9a-f]{32}$")
+    parent_request_id: str | None = Field(default=None, min_length=1)
     workflow_run_id: str = Field(pattern=r"^run_[0-9a-f]{32}$")
     surface: Surface
     project_root: str = Field(min_length=1)
@@ -213,6 +215,7 @@ class CommandEnvelope(SchemaV3Model):
 
 class CommandResult(SchemaV3Model):
     command_id: str = Field(pattern=r"^cmd_[0-9a-f]{32}$")
+    request_id: str = Field(pattern=r"^req_[0-9a-f]{32}$")
     workflow_run_id: str = Field(pattern=r"^run_[0-9a-f]{32}$")
     command_type: str = Field(min_length=1)
     result: dict[str, object] = Field(default_factory=dict)

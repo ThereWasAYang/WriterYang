@@ -561,11 +561,13 @@ def test_logging_provider_writes_mock_model_io(tmp_path) -> None:
     assert data["provider"] == "mock"
     assert data["model"] == "mock-model"
     assert data["status"] == "success"
-    assert data["request"]["system_prompt"] == "system text"
-    assert data["request"]["user_prompt"] == "user text"
-    assert data["request"]["context"] == "context text"
-    assert data["request"]["payload"]["provider"] == "mock"
-    assert data["response"]["content"] == "mock output"
+    assert data["request"]["system_prompt"].startswith("[omitted")
+    assert data["request"]["user_prompt"].startswith("[omitted")
+    assert data["request"]["context"].startswith("[omitted")
+    assert data["request"]["payload"].startswith("[omitted")
+    assert data["request"]["hashes"]["system_prompt_sha256"]
+    assert data["response"]["content"].startswith("[omitted")
+    assert data["response"]["hashes"]["content_sha256"]
     assert data["token_usage"]["total_tokens"] == 5
     index = (tmp_path / "runs" / "model_io" / "index.jsonl").read_text(encoding="utf-8")
     assert "runs/model_io/" in index
@@ -575,6 +577,7 @@ def test_logging_provider_links_openai_call_log_to_model_io(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
+    monkeypatch.setenv("WRITERYANG_MODEL_IO_MODE", "full")
     secret = "secret-test-key"
     inner = OpenAICompatibleProvider(
         model="test-model",
@@ -672,7 +675,8 @@ def test_logging_provider_writes_failed_model_io_without_api_key(
     assert "Authorization" not in text
 
 
-def test_logging_provider_records_stream_output(tmp_path) -> None:
+def test_logging_provider_records_stream_output(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("WRITERYANG_MODEL_IO_MODE", "full")
     provider = LoggingModelProvider(
         provider=MockProvider(stream_chunks=["hello", " world"]),
         agent_name="writer",
@@ -739,6 +743,8 @@ def test_logging_provider_metadata_mode_omits_full_prompt_and_response(
     assert "完整正文" not in text
     assert data["request"]["system_prompt"].startswith("[omitted")
     assert data["response"]["content"].startswith("[omitted")
+    assert data["request"]["hashes"]["system_prompt_sha256"]
+    assert data["response"]["hashes"]["content_sha256"]
 
 
 def test_provider_stream_parses_sse_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -782,6 +788,7 @@ def test_logging_provider_records_stream_usage_finish_reason_and_agent(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
+    monkeypatch.setenv("WRITERYANG_MODEL_IO_MODE", "full")
     inner = OpenAICompatibleProvider(
         model="test-model",
         api_key="secret-test-key",

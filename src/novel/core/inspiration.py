@@ -86,7 +86,6 @@ def run_inspiration_agent(
         root=root,
         invocation=AgentInvocationContext(
             agent_name="inspiration",
-            caller="cli",
             interaction_mode="internal_task",
             task="inspire",
         ),

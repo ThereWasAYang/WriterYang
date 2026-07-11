@@ -19,8 +19,6 @@ from .deps import (
     PROFILE_NAMES,
     TASK_ONLY_CONFIG_FIELDS,
     TASK_TO_PROFILE,
-    is_allowed_chapter_version_name,
-    next_chapter_version_path,
     load_project_env,
     atomic_write_model_json,
     backup_if_exists,
@@ -37,8 +35,9 @@ from .deps import (
     VectorContextMode,
     MemoryChangeStage,
     redact_secret_text,
-    ProviderName,
 )
+
+ProviderName = str
 
 
 APIResponse = tuple[int, dict[str, object]]
@@ -231,11 +230,7 @@ def _compact_text(value: str) -> str:
 
 
 def _is_allowed_chapter_version_name(file_name: str, target: str) -> bool:
-    return is_allowed_chapter_version_name(file_name, target)
-
-
-def _next_version_path(chapter_dir: Path, target: str) -> Path:
-    return next_chapter_version_path(chapter_dir, target)
+    return file_name == f"{target}.md"
 
 
 def _new_revision_id() -> str:
@@ -599,7 +594,6 @@ __all__ = [
     "_locate_quote",
     "_compact_text",
     "_is_allowed_chapter_version_name",
-    "_next_version_path",
     "_new_revision_id",
     "_append_web_revision_log",
     "_is_archived_chapter",

@@ -99,7 +99,7 @@ def _runs_summary(root: Path) -> dict[str, object]:
     runs_dir = root / "runs"
     run_logs: list[dict[str, object]] = []
     if runs_dir.exists():
-        for path in sorted(runs_dir.glob("*.json"), reverse=True):
+        for path in sorted(runs_dir.glob("run_*/run.json"), reverse=True):
             try:
                 data = load_json(path)
             except Exception:
@@ -107,13 +107,18 @@ def _runs_summary(root: Path) -> dict[str, object]:
             run_logs.append(
                 {
                     "path": _relative(root, path),
-                    "run_id": data.get("run_id") if isinstance(data, dict) else None,
-                    "task": data.get("task") if isinstance(data, dict) else None,
-                    "chapter_number": data.get("chapter_number") if isinstance(data, dict) else None,
+                    "workflow_run_id": data.get("workflow_run_id") if isinstance(data, dict) else None,
+                    "root_command_id": data.get("root_command_id") if isinstance(data, dict) else None,
+                    "root_request_id": data.get("root_request_id") if isinstance(data, dict) else None,
+                    "surface": data.get("surface") if isinstance(data, dict) else None,
+                    "request_ids": data.get("request_ids", []) if isinstance(data, dict) else [],
+                    "session_ids": data.get("session_ids", []) if isinstance(data, dict) else [],
+                    "node_count": len(data.get("node_ids", [])) if isinstance(data, dict) and isinstance(data.get("node_ids"), list) else 0,
+                    "decision_count": len(data.get("decision_ids", [])) if isinstance(data, dict) and isinstance(data.get("decision_ids"), list) else 0,
                     "status": data.get("status") if isinstance(data, dict) else None,
                     "started_at": data.get("started_at") if isinstance(data, dict) else None,
                     "ended_at": data.get("ended_at") if isinstance(data, dict) else None,
-                    "error_count": len(data.get("errors", [])) if isinstance(data, dict) and isinstance(data.get("errors"), list) else 0,
+                    "budget_usage": data.get("budget_usage", {}) if isinstance(data, dict) else {},
                 }
             )
     provider_calls = _provider_call_summary(runs_dir / "provider_calls.jsonl")
@@ -556,6 +561,11 @@ def _provider_call_summary(path: Path) -> list[dict[str, object]]:
                     "error_type": data.get("error_type"),
                     "http_status": data.get("http_status"),
                     "model_io_path": data.get("model_io_path"),
+                    "workflow_run_id": data.get("workflow_run_id"),
+                    "surface": data.get("surface"),
+                    "session_id": data.get("session_id"),
+                    "parent_request_id": data.get("parent_request_id"),
+                    "node_id": data.get("node_id"),
                 }
             )
     return calls
@@ -714,6 +724,11 @@ def _model_io_summary(path: Path) -> list[dict[str, object]]:
                     "stream": data.get("stream"),
                     "json_schema_name": data.get("json_schema_name"),
                     "model_io_path": data.get("model_io_path"),
+                    "workflow_run_id": data.get("workflow_run_id"),
+                    "surface": data.get("surface"),
+                    "session_id": data.get("session_id"),
+                    "parent_request_id": data.get("parent_request_id"),
+                    "node_id": data.get("node_id"),
                 }
             )
     return logs

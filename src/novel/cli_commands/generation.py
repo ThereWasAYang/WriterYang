@@ -50,15 +50,6 @@ from novel.core.polishing import (
     read_polishing_instruction,
     resolve_edit_mode,
 )
-from novel.core.revision import (
-    ChapterRevisionOptions,
-    RevisionError,
-    RevisionLoopOptions,
-    load_revision_provider,
-    read_revision_instruction,
-    revise_chapter,
-    revise_chapter_loop,
-)
 from novel.core.state_update import (
     AcceptChapterOptions,
     StateUpdateApplyOptions,
@@ -81,15 +72,8 @@ from novel.core.inspection import (
 )
 from novel.core.locking import ProjectLockError
 from novel.core.validation import validate_canon
-from novel.core.workflow import (
-    GenerateChapterOptions,
-    WorkflowError,
-    generate_chapter,
-    read_workflow_instruction,
-)
 from novel.cli_shared import (
     _vector_context_mode_from_args,
-    _polish_mode_from_arg,
     _audit_issue_lines,
     _print_dry_run_provider,
     _wants_json,
@@ -496,86 +480,6 @@ def _cmd_audit_chapter(args: argparse.Namespace) -> int:
     )
 
 
-def _cmd_revise_chapter(args: argparse.Namespace) -> int:
-    root = Path(args.path)
-    try:
-        if args.dry_run_provider:
-            _print_dry_run_provider(
-                root,
-                args.agent_config,
-                args.provider,
-                args.model,
-                ("revision",),
-            )
-            return 0
-        instruction = read_revision_instruction(args.instruction, args.input)
-        provider = load_revision_provider(
-            root,
-            args.provider,
-            target=args.target,
-            agent_config_path=args.agent_config,
-            model_name=args.model,
-        )
-        base_options = ChapterRevisionOptions(
-            root=root,
-            chapter_number=args.chapter_number,
-            instruction=instruction,
-            from_audit=args.from_audit,
-            target=args.target,
-            source_file=args.source_file,
-            force=args.force,
-            save_as_version=args.save_as_version,
-            use_search_context=args.use_search_context,
-            use_vector_context=_vector_context_mode_from_args(args),
-        )
-        if args.max_rounds > 1:
-            with _command_lock(args, root, "revise-chapter"):
-                loop_result = revise_chapter_loop(
-                    RevisionLoopOptions(
-                        base_options=base_options,
-                        max_rounds=args.max_rounds,
-                        confirm_loop=args.confirm_loop,
-                    ),
-                    provider,
-                    provider_name=args.provider,
-                )
-                result = loop_result.results[-1]
-                revision_loop_log_path = loop_result.run_log_path
-        else:
-            with _command_lock(args, root, "revise-chapter"):
-                result = revise_chapter(
-                    base_options,
-                    provider,
-                    provider_name=args.provider,
-                )
-                revision_loop_log_path = None
-    except ProjectLockError as exc:
-        return _failure(args, str(exc), error_type="project_locked")
-    except RevisionError as exc:
-        return _failure(args, str(exc), error_type="revision_error")
-    except Exception as exc:
-        return _failure(args, f"chapter revision failed: {exc}", error_type="revision_error")
-
-    lines = [
-        *(f"warning: {warning}" for warning in result.warnings),
-        f"Wrote chapter revision: {result.output_path}",
-        f"Updated revision log: {result.revision_log_path}",
-        *([f"Wrote revision loop log: {revision_loop_log_path}"] if revision_loop_log_path else []),
-    ]
-    return _success(
-        args,
-        {
-            "command": "revise-chapter",
-            "output_path": str(result.output_path),
-            "revision_log_path": str(result.revision_log_path),
-            "revision_loop_log_path": str(revision_loop_log_path) if revision_loop_log_path else None,
-            "revision_id": result.record.id,
-            "warnings": list(result.warnings),
-        },
-        lines,
-    )
-
-
 def _cmd_propose_state_update(args: argparse.Namespace) -> int:
     root = Path(args.path)
     try:
@@ -748,74 +652,6 @@ def _cmd_accept_chapter(args: argparse.Namespace) -> int:
             if result.chapter_memory_result
             else None,
             "warnings": list(result.warnings),
-        },
-        lines,
-    )
-
-
-def _cmd_generate_chapter(args: argparse.Namespace) -> int:
-    root = Path(args.path)
-    try:
-        if args.dry_run_provider:
-            _print_dry_run_provider(
-                root,
-                args.agent_config,
-                args.provider,
-                args.model,
-                (
-                    "plot",
-                    "writer",
-                    "polish",
-                    "audit",
-                ),
-            )
-            return 0
-        instruction = read_workflow_instruction(args.instruction, args.input)
-        with _command_lock(args, root, "generate-chapter"):
-            result = generate_chapter(
-                GenerateChapterOptions(
-                    root=root,
-                    chapter_number=args.chapter_number,
-                    instruction=instruction,
-                    force=args.force,
-                    resume=args.resume,
-                    provider_name=args.provider,
-                    agent_config_path=args.agent_config,
-                    model_name=args.model,
-                    target_words=args.target_words,
-                    style_note=args.style_note,
-                    polish_mode=_polish_mode_from_arg(args.polish_mode),
-                    stop_after=args.stop_after,
-                    use_search_context=args.use_search_context,
-                    use_vector_context=_vector_context_mode_from_args(args),
-                )
-            )
-    except ProjectLockError as exc:
-        return _failure(args, str(exc), error_type="project_locked")
-    except WorkflowError as exc:
-        return _failure(args, str(exc), error_type="workflow_error")
-    except Exception as exc:
-        return _failure(args, f"chapter generation failed: {exc}", error_type="workflow_error")
-
-    lines = [result.message, f"Run log: {result.run_log_path}"]
-    lines.extend(f"{step.step_id} {step.agent}: {step.status}" for step in result.run_log.steps)
-    return _success(
-        args,
-        {
-            "command": "generate-chapter",
-            "message": result.message,
-            "run_log_path": str(result.run_log_path),
-            "status": result.run_log.status,
-            "steps": [
-                {
-                    "step_id": step.step_id,
-                    "agent": step.agent,
-                    "status": step.status,
-                    "output_files": step.output_files,
-                    "error": step.error,
-                }
-                for step in result.run_log.steps
-            ],
         },
         lines,
     )

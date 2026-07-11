@@ -7,11 +7,9 @@ from novel.cli_commands.generation import (
     _cmd_accept_chapter,
     _cmd_apply_state_update,
     _cmd_audit_chapter,
-    _cmd_generate_chapter,
     _cmd_plan_chapter,
     _cmd_polish_chapter,
     _cmd_propose_state_update,
-    _cmd_revise_chapter,
     _cmd_write_chapter,
 )
 from novel.cli_shared import (
@@ -28,11 +26,9 @@ _INTERNAL_HANDLERS = {
     "write-chapter": _cmd_write_chapter,
     "polish-chapter": _cmd_polish_chapter,
     "audit-chapter": _cmd_audit_chapter,
-    "revise-chapter": _cmd_revise_chapter,
     "propose-state-update": _cmd_propose_state_update,
     "apply-state-update": _cmd_apply_state_update,
     "accept-chapter": _cmd_accept_chapter,
-    "generate-chapter": _cmd_generate_chapter,
 }
 
 
@@ -88,11 +84,6 @@ def run_internal_task_command(argv: list[str]) -> int:
         default="auto",
         help="Embedding semantic context mode for agent memory retrieval. Defaults to auto.",
     )
-    plan_parser.add_argument(
-        "--use-vector-context",
-        action="store_true",
-        help="Compatibility alias for --vector-context on.",
-    )
 
     write_parser = subparsers.add_parser("write-chapter", help="Generate a chapter draft")
     write_parser.add_argument("chapter_number", type=int, help="Positive chapter number")
@@ -145,11 +136,6 @@ def run_internal_task_command(argv: list[str]) -> int:
         choices=("auto", "on", "off"),
         default="auto",
         help="Embedding semantic context mode for agent memory retrieval. Defaults to auto.",
-    )
-    write_parser.add_argument(
-        "--use-vector-context",
-        action="store_true",
-        help="Compatibility alias for --vector-context on.",
     )
 
     polish_parser = subparsers.add_parser("polish-chapter", help="Polish a chapter draft")
@@ -264,80 +250,10 @@ def run_internal_task_command(argv: list[str]) -> int:
         help="Embedding semantic context mode for agent memory retrieval. Defaults to auto.",
     )
     audit_parser.add_argument(
-        "--use-vector-context",
-        action="store_true",
-        help="Compatibility alias for --vector-context on.",
-    )
-    audit_parser.add_argument(
         "--no-audit-recall",
         action="store_true",
         help="Disable bounded audit context recall for this run.",
     )
-
-    revise_parser = subparsers.add_parser("revise-chapter", help="Revise a chapter from instructions or audit")
-    revise_parser.add_argument("chapter_number", type=int, help="Positive chapter number")
-    revise_parser.add_argument(
-        "--path",
-        default=".",
-        help="Workspace directory. Defaults to the current directory.",
-    )
-    revise_parser.add_argument(
-        "--instruction",
-        default=None,
-        help="Extra revision instruction for this chapter.",
-    )
-    revise_parser.add_argument(
-        "--input",
-        type=Path,
-        default=None,
-        help="Read extra revision instruction from a file.",
-    )
-    revise_parser.add_argument(
-        "--from-audit",
-        action="store_true",
-        help="Use audit.json issues as the main revision target.",
-    )
-    revise_parser.add_argument(
-        "--target",
-        default="polished",
-        choices=("draft", "polished"),
-        help="Source and output version family to revise. Defaults to polished.",
-    )
-    revise_parser.add_argument(
-        "--source-file",
-        default=None,
-        help="Specific source version to revise, such as polished.md or polished.v2.md. Defaults to the latest version.",
-    )
-    revise_parser.add_argument(
-        "--provider",
-        default="config",
-        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
-        help="Provider to use. Defaults to writer/polish agent config based on target.",
-    )
-    _add_agent_runtime_args(revise_parser)
-    revise_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite the selected revision version file if it already exists.",
-    )
-    revise_parser.add_argument(
-        "--save-as-version",
-        action="store_true",
-        default=True,
-        help="Save as draft.vN.md or polished.vN.md. This is the default.",
-    )
-    revise_parser.add_argument(
-        "--max-rounds",
-        type=int,
-        default=1,
-        help="Maximum revision loop rounds. Defaults to 1.",
-    )
-    revise_parser.add_argument(
-        "--confirm-loop",
-        action="store_true",
-        help="Explicitly allow more than one revision round.",
-    )
-    _add_search_context_args(revise_parser)
 
     propose_state_parser = subparsers.add_parser(
         "propose-state-update",
@@ -434,70 +350,6 @@ def run_internal_task_command(argv: list[str]) -> int:
         help="Overwrite existing state_update_proposal.json when used with --propose.",
     )
     _add_search_context_args(accept_parser, default_enabled=True)
-
-    generate_parser = subparsers.add_parser(
-        "generate-chapter",
-        help="Run the chapter generation pipeline",
-    )
-    generate_parser.add_argument("chapter_number", type=int, help="Positive chapter number")
-    generate_parser.add_argument(
-        "--path",
-        default=".",
-        help="Workspace directory. Defaults to the current directory.",
-    )
-    generate_parser.add_argument(
-        "--instruction",
-        default=None,
-        help="Extra instruction shared by planning, writing, polishing, and audit.",
-    )
-    generate_parser.add_argument(
-        "--input",
-        type=Path,
-        default=None,
-        help="Read extra instruction from a file.",
-    )
-    generate_parser.add_argument(
-        "--provider",
-        default="config",
-        choices=("config", "mock", "openai", "openai_compatible", "deepseek", "zai"),
-        help="Provider to use for each pipeline step.",
-    )
-    _add_agent_runtime_args(generate_parser)
-    generate_parser.add_argument(
-        "--target-words",
-        type=int,
-        default=None,
-        help="Optional target word count for writing.",
-    )
-    generate_parser.add_argument(
-        "--style-note",
-        default=None,
-        help="Temporary style guidance for writing and polishing.",
-    )
-    generate_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite files generated by pipeline steps.",
-    )
-    generate_parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Reuse already generated step outputs and continue the pipeline.",
-    )
-    generate_parser.add_argument(
-        "--polish-mode",
-        choices=("single-pass", "auto", "review-gate"),
-        default=None,
-        help="Finalization mode. Defaults to project polish.mode or single-pass.",
-    )
-    generate_parser.add_argument(
-        "--stop-after",
-        choices=("plan", "write", "polish", "audit"),
-        default=None,
-        help="Stop after the selected pipeline step.",
-    )
-    _add_search_context_args(generate_parser, default_enabled=True)
-
 
     _add_integration_args_recursive(parser)
     args = parser.parse_args(argv)

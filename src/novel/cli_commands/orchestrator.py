@@ -56,6 +56,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
                     command=command,
                     confirmed=args.confirm,
                     workflow_run_id=proposed.workflow_run_id,
+                    parent_request_id=proposed.request_id,
                     budget=budget,
                     initial_budget_usage=proposed.budget_usage,
                 )

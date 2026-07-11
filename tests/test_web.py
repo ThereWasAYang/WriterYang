@@ -37,7 +37,6 @@ from novel.core.session import SessionResult
 from novel.core.timeutil import utc_now
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import _locked_write, handle_api_request
-from tests.internal_task_cli import run_internal_task_command
 import novel.web_server as web_server
 from novel.web_server import WebServerError, index_html, run_web_server, static_asset_bytes
 
@@ -562,7 +561,23 @@ def test_api_provider_config_warns_without_default(tmp_path: Path) -> None:
 
 def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
-    assert run_internal_task_command(["generate-chapter", "1", "--path", str(root), "--provider", "mock"]) == 0
+    start_status, start_payload = handle_api_request(
+        "POST",
+        "/api/session/start",
+        "",
+        json.dumps({"path": str(root), "intent": "写第1章", "chapters": "1", "provider": "mock"}),
+    )
+    assert start_status == 200
+    session_id = start_payload["data"]["session"]["session_id"]  # type: ignore[index]
+    assert handle_api_request(
+        "POST", "/api/session/approve-outline", "", json.dumps({"path": str(root), "session_id": session_id})
+    )[0] == 200
+    assert handle_api_request(
+        "POST",
+        "/api/session/run",
+        "",
+        json.dumps({"path": str(root), "session_id": session_id, "provider": "mock"}),
+    )[0] == 200
 
     runs_status, runs_payload = handle_api_request("GET", "/api/runs", f"path={root}", None)
     state_status, state_payload = handle_api_request("GET", "/api/state-timeline", f"path={root}", None)
@@ -714,12 +729,12 @@ def test_api_diff_endpoint_returns_unified_diff(tmp_path: Path) -> None:
     chapter_dir = root / "memory" / "chapters" / "001"
     chapter_dir.mkdir(parents=True)
     (chapter_dir / "polished.md").write_text("旧文本\n", encoding="utf-8")
-    (chapter_dir / "polished.v2.md").write_text("新文本\n", encoding="utf-8")
+    (chapter_dir / "candidate-preview.md").write_text("新文本\n", encoding="utf-8")
 
     status, payload = handle_api_request(
         "GET",
         "/api/diff",
-        f"path={root}&left=memory/chapters/001/polished.md&right=memory/chapters/001/polished.v2.md",
+        f"path={root}&left=memory/chapters/001/polished.md&right=memory/chapters/001/candidate-preview.md",
         None,
     )
 
@@ -728,7 +743,7 @@ def test_api_diff_endpoint_returns_unified_diff(tmp_path: Path) -> None:
     assert "+新文本" in payload["data"]["diff"]  # type: ignore[index]
 
 
-def test_api_save_chapter_file_creates_version_and_revision_log(tmp_path: Path) -> None:
+def test_api_save_chapter_file_creates_immutable_candidate_and_revision_log(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     _write_chapter_file(root, "polished.md", "原始正文")
 
@@ -748,16 +763,17 @@ def test_api_save_chapter_file_creates_version_and_revision_log(tmp_path: Path) 
     )
 
     assert status == 200
-    assert payload["data"]["relative_path"] == "memory/chapters/001/polished.v2.md"  # type: ignore[index]
-    assert (root / "memory" / "chapters" / "001" / "polished.v2.md").is_file()
+    relative_path = payload["data"]["relative_path"]  # type: ignore[index]
+    assert isinstance(relative_path, str)
+    assert relative_path.startswith("memory/chapters/001/candidates/candidate_art_")
+    assert (root / relative_path).is_file()
     log = json.loads((root / "memory" / "chapters" / "001" / "revision_log.json").read_text(encoding="utf-8"))
     assert log["revisions"][0]["provider"] == "web_editor"
 
 
-def test_api_save_chapter_file_defaults_to_latest_version_source(tmp_path: Path) -> None:
+def test_api_save_chapter_file_defaults_to_working_source(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     _write_chapter_file(root, "polished.md", "原始正文")
-    _write_chapter_file(root, "polished.v2.md", "第二版正文")
 
     status, payload = handle_api_request(
         "POST",
@@ -774,9 +790,11 @@ def test_api_save_chapter_file_defaults_to_latest_version_source(tmp_path: Path)
     )
 
     assert status == 200
-    assert payload["data"]["relative_path"] == "memory/chapters/001/polished.v3.md"  # type: ignore[index]
+    relative_path = payload["data"]["relative_path"]  # type: ignore[index]
+    assert isinstance(relative_path, str)
+    assert relative_path.startswith("memory/chapters/001/candidates/candidate_art_")
     log = json.loads((root / "memory" / "chapters" / "001" / "revision_log.json").read_text(encoding="utf-8"))
-    assert log["revisions"][0]["source_file"] == "polished.v2.md"
+    assert log["revisions"][0]["source_file"] == "polished.md"
 
 
 def test_api_save_accepted_chapter_does_not_overwrite_base_file(tmp_path: Path) -> None:
@@ -801,7 +819,9 @@ def test_api_save_accepted_chapter_does_not_overwrite_base_file(tmp_path: Path) 
 
     assert status == 200
     assert polished_path.read_text(encoding="utf-8") == original
-    assert payload["data"]["relative_path"] == "memory/chapters/001/polished.v2.md"  # type: ignore[index]
+    relative_path = payload["data"]["relative_path"]  # type: ignore[index]
+    assert isinstance(relative_path, str)
+    assert relative_path.startswith("memory/chapters/001/candidates/candidate_art_")
 
 
 def test_api_audit_annotations_locate_evidence_quote(tmp_path: Path) -> None:

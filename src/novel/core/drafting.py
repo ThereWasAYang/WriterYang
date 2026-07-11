@@ -135,7 +135,6 @@ def write_chapter_draft(
                 root=root,
                 invocation=AgentInvocationContext(
                     agent_name="writer",
-                    caller="cli",
                     interaction_mode="internal_task",
                     task="write_chapter",
                     chapter_number=options.chapter_number,

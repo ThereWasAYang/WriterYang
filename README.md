@@ -120,9 +120,9 @@ Provider 适配与 Agent logic 分离。`deepseek`、`zai` 和 OpenAI-compatible
 
 ## 日志与用量
 
-Provider 调用元数据写入 `runs/provider_calls.jsonl`，不记录真实 API Key。完整模型输入输出写入 `runs/model_io/{request_id}.json`，并追加摘要到 `runs/model_io/index.jsonl`。
+一次用户操作的统一 trace 写入 `runs/{workflow_run_id}/`：`run.json` 记录 request/session/surface 与预算，`nodes/` 记录 command/model/deterministic 节点，`decisions/` 记录结构化路由决策。Provider 调用元数据写入 `runs/provider_calls.jsonl`，Model I/O 摘要写入 `runs/model_io/{request_id}.json`；它们都携带 workflow、node、session 和 parent request 关联字段，且不记录真实 API Key。
 
-`runs/model_io/` 默认保留最近 500 份完整日志，并限制总体积约 200MB；写入新日志后会 best-effort 清理更旧的 model I/O 文件并同步裁剪 `index.jsonl`。可用 `WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 调整；设为 `0` 表示关闭对应上限。若只需要轻量排障，可设置 `WRITERYANG_MODEL_IO_MODE=metadata`，此时 prompt、正文和 raw response 会被省略。
+`runs/model_io/` 默认使用 `metadata` 模式：不落盘 prompt、正文、hidden truth、reasoning 和 raw response，但保留稳定 SHA-256、token、finish reason 与 trace metadata。只有显式设置 `WRITERYANG_MODEL_IO_MODE=full` 才会保存完整内容；这会把正文和未公开设定写入本地日志，启用前应确认隐私风险。默认保留最近 500 份、总体积约 200MB，可用 `WRITERYANG_MODEL_IO_MAX_FILES`、`WRITERYANG_MODEL_IO_MAX_BYTES` 调整；设为 `0` 表示关闭对应上限。
 
 用量统计会增量刷新 `runs/provider_usage.json`：
 

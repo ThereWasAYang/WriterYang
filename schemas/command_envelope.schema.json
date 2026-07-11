@@ -1090,6 +1090,24 @@
       "title": "Command Id",
       "type": "string"
     },
+    "request_id": {
+      "pattern": "^req_[0-9a-f]{32}$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "parent_request_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Request Id"
+    },
     "workflow_run_id": {
       "pattern": "^run_[0-9a-f]{32}$",
       "title": "Workflow Run Id",
@@ -1213,6 +1231,7 @@
   },
   "required": [
     "command_id",
+    "request_id",
     "workflow_run_id",
     "surface",
     "project_root",

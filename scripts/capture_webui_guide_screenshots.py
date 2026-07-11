@@ -46,7 +46,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     project = (
         Path(args.project).expanduser().resolve()
         if args.project
-        else Path(tempfile.mkdtemp(prefix="writeryang-webui-guide-")) / "guide_project"
+        else Path(tempfile.mkdtemp(prefix="writeryang-webui-guide-")) / "图文指南示例"
     )
     port = args.port or (8765 if args.dry_run else _free_port())
     url = f"http://127.0.0.1:{port}"
@@ -110,12 +110,14 @@ def _run_playwright(url: str, project: Path, output: Path) -> None:
         page.goto(url)
         page.wait_for_selector("#projectPath")
         page.fill("#projectPath", str(project))
-        page.fill("#projectTitle", "图文指南示例")
+        page.fill("#projectParentPath", str(project.parent))
+        page.fill("#projectTitle", project.name)
         page.fill("#projectGenre", "武侠, 悬疑")
         page.screenshot(path=str(output / "overview.png"), full_page=True)
 
         page.click("#initProject")
-        page.wait_for_function("() => document.querySelector('#message')?.textContent?.includes('初始化项目')")
+        page.wait_for_function("() => !document.querySelector('#setupGuidePanel')?.classList.contains('hidden')")
+        page.wait_for_function("() => document.querySelector('#initProject') && !document.querySelector('#initProject').disabled")
         page.locator("#setupGuidePanel").screenshot(path=str(output / "project_setup.png"))
 
         page.click('[data-page="workbenchPage"]')
@@ -163,7 +165,9 @@ def _run_playwright(url: str, project: Path, output: Path) -> None:
 
         page.click('[data-page="logsPage"]')
         _show_tab(page, "runLogs")
-        page.wait_for_function("() => document.querySelector('#runLogPanel')?.textContent?.includes('guide_run')")
+        page.wait_for_function(
+            "() => document.querySelector('#runLogPanel')?.textContent?.includes('run_11111111111111111111111111111111')"
+        )
         page.locator("#runLogs").screenshot(path=str(output / "run_logs.png"))
 
         page.click('[data-page="configPage"]')
@@ -187,7 +191,7 @@ def _seed_guide_files(project: Path) -> None:
     _write_json(
         chapter_dir / "plan.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "chapter_number": 1,
             "title": "雨夜山城",
             "goal": "让主角进入山城，并建立旧案疑云。",
@@ -216,14 +220,16 @@ def _seed_guide_files(project: Path) -> None:
     )
     (chapter_dir / "draft.md").write_text(_chapter_markdown("draft", now), encoding="utf-8")
     (chapter_dir / "polished.md").write_text(_chapter_markdown("polished", now), encoding="utf-8")
-    (chapter_dir / "polished.v2.md").write_text(
-        _chapter_markdown("polished", now).replace("旧钟在雨里敲了三下", "旧钟在雨里低低响了三下"),
+    candidate_dir = project / "artifacts" / "chapter" / "001" / "candidate" / "candidate_guide"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "content.md").write_text(
+        _chapter_markdown("candidate", now).replace("旧钟在雨里敲了三下", "旧钟在雨里低低响了三下"),
         encoding="utf-8",
     )
     _write_json(
         chapter_dir / "audit.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "chapter_number": 1,
             "audited_file": "polished.md",
             "overall_status": "needs_revision",
@@ -275,7 +281,7 @@ def _seed_canon_state_timeline(project: Path) -> None:
     _write_json(
         canon / "characters.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "characters": [
                 {
                     "id": "lin_shen",
@@ -289,7 +295,7 @@ def _seed_canon_state_timeline(project: Path) -> None:
     _write_json(
         canon / "locations.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "locations": [
                 {
                     "id": "old_clock_tower",
@@ -303,7 +309,7 @@ def _seed_canon_state_timeline(project: Path) -> None:
     _write_json(
         canon / "items.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "items": [
                 {
                     "id": "broken_bell_token",
@@ -317,7 +323,7 @@ def _seed_canon_state_timeline(project: Path) -> None:
     _write_json(
         state_dir / "current_state.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "story_position": {"latest_chapter": 1, "in_story_time": "雨夜", "summary": "主角刚进入山城。"},
             "character_states": [
                 {
@@ -355,13 +361,10 @@ def _seed_canon_state_timeline(project: Path) -> None:
     _write_json(
         state_dir / "timeline.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "events": [
                 {
                     "id": "event_old_bell",
-                    "chapter": 1,
-                    "scene": 1,
-                    "in_story_time": "雨夜",
                     "summary": "旧钟楼在无人敲击时响了三下。",
                     "reader_visible": True,
                     "narrative_position": {"chapter": 1, "scene": 1, "sequence": 1},
@@ -382,7 +385,7 @@ def _seed_session(project: Path, now: str) -> None:
     _write_json(
         session_dir / "session.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "session_id": GUIDE_SESSION_ID,
             "scope_type": "chapters",
             "chapter_range": [1],
@@ -406,7 +409,7 @@ def _seed_session(project: Path, now: str) -> None:
     _write_json(
         session_dir / "rewrite_events.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "events": [
                 {
                     "event_id": "rewrite_guide_round_1",
@@ -444,22 +447,122 @@ def _seed_runs(project: Path, now: str) -> None:
     runs = project / "runs"
     model_io = runs / "model_io"
     model_io.mkdir(parents=True, exist_ok=True)
+    workflow_run_id = "run_11111111111111111111111111111111"
+    command_id = "cmd_22222222222222222222222222222222"
+    node_id = "node_33333333333333333333333333333333"
+    decision_id = "decision_44444444444444444444444444444444"
+    run_dir = runs / workflow_run_id
     _write_json(
-        runs / "run_guide.json",
+        run_dir / "run.json",
         {
-            "run_id": "guide_run",
-            "task": "session_run",
-            "chapter_number": 1,
-            "status": "failed",
+            "schema_version": 3,
+            "workflow_run_id": workflow_run_id,
+            "root_command_id": command_id,
+            "root_request_id": "guide_request_root",
+            "surface": "web",
+            "budget": {
+                "max_chapters": 20,
+                "max_model_calls": 100,
+                "max_provider_attempts": 300,
+                "max_auto_revision_rounds": 10,
+                "max_input_tokens": None,
+                "max_output_tokens": None,
+            },
+            "budget_usage": {
+                "chapters": 1,
+                "model_calls": 1,
+                "provider_attempts": 1,
+                "auto_revision_rounds": 0,
+                "input_tokens": 420,
+                "output_tokens": 860,
+            },
+            "node_ids": [node_id],
+            "decision_ids": [decision_id],
+            "request_ids": ["guide_request_root", "guide_request_1"],
+            "session_ids": [GUIDE_SESSION_ID],
+            "status": "completed",
+            "started_at": now,
+            "updated_at": now,
+            "ended_at": now,
+        },
+    )
+    _write_json(
+        run_dir / "nodes" / f"{node_id}.json",
+        {
+            "schema_version": 3,
+            "node_id": node_id,
+            "workflow_run_id": workflow_run_id,
+            "node_type": "model",
+            "name": "writer",
+            "parent_node_id": None,
+            "request_id": "guide_request_1",
+            "parent_request_id": "guide_request_root",
+            "session_id": GUIDE_SESSION_ID,
+            "command_id": command_id,
+            "surface": "web",
+            "task_id": "write",
+            "profile_id": "creative",
+            "provider": "mock",
+            "model": "mock-model",
+            "input_artifacts": [],
+            "output_artifacts": [],
+            "input_paths": ["memory/chapters/001/plan.json"],
+            "output_paths": ["memory/chapters/001/draft.md"],
+            "prompt_template_hash": "a" * 64,
+            "prompt_policy_hash": "b" * 64,
+            "rendered_prompt_hash": "c" * 64,
+            "retry_count": 0,
+            "repair_count": 0,
+            "budget_before": {
+                "chapters": 0,
+                "model_calls": 0,
+                "provider_attempts": 0,
+                "auto_revision_rounds": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+            },
+            "budget_after": {
+                "chapters": 1,
+                "model_calls": 1,
+                "provider_attempts": 1,
+                "auto_revision_rounds": 0,
+                "input_tokens": 420,
+                "output_tokens": 860,
+            },
+            "status": "completed",
             "started_at": now,
             "ended_at": now,
-            "errors": ["示例：Audit 发现中等级别连续性问题。"],
+            "error": None,
+            "recovery_command": None,
+        },
+    )
+    _write_json(
+        run_dir / "decisions" / f"{decision_id}.json",
+        {
+            "schema_version": 3,
+            "decision_id": decision_id,
+            "workflow_run_id": workflow_run_id,
+            "name": "command_proposal",
+            "task_id": "write",
+            "surface": "web",
+            "request_id": "guide_request_root",
+            "parent_request_id": None,
+            "parent_node_id": node_id,
+            "session_id": GUIDE_SESSION_ID,
+            "payload": {"command_type": "session_run", "chapter_number": 1},
+            "payload_sha256": "d" * 64,
+            "created_at": now,
         },
     )
     (runs / "provider_calls.jsonl").write_text(
         json.dumps(
             {
                 "request_id": "guide_request_1",
+                "parent_request_id": "guide_request_root",
+                "workflow_run_id": workflow_run_id,
+                "node_id": node_id,
+                "session_id": GUIDE_SESSION_ID,
+                "surface": "web",
                 "agent_name": "writer",
                 "provider": "mock",
                 "model": "mock-model",
@@ -476,6 +579,11 @@ def _seed_runs(project: Path, now: str) -> None:
         json.dumps(
             {
                 "request_id": "guide_request_1",
+                "parent_request_id": "guide_request_root",
+                "workflow_run_id": workflow_run_id,
+                "node_id": node_id,
+                "session_id": GUIDE_SESSION_ID,
+                "surface": "web",
                 "agent_name": "writer",
                 "provider": "mock",
                 "model": "mock-model",

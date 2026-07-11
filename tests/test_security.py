@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import socket
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from novel.core.io import atomic_write_text, backup_file
-from novel.core.locking import ProjectLock, ProjectLockError
+from novel.core import locking as locking_module
+from novel.core.locking import ProjectLock, ProjectLockError, read_project_lock
 from novel.core import security as security_module
 from novel.core.security import redact_secret_text, scan_security, validate_env_example, validate_secret_config_file
 from novel.core.workspace import InitOptions, init_workspace
@@ -109,13 +112,61 @@ def test_project_lock_blocks_second_writer(tmp_path: Path) -> None:
     root = tmp_path / "project"
     init_workspace(InitOptions(title="锁测试", root=root))
 
-    with ProjectLock(root, task="first"):
+    with ProjectLock(root, task="first", workflow_run_id="run_" + "1" * 32, command_id="cmd_" + "2" * 32):
+        info = read_project_lock(root)
+        assert info.heartbeat_at
+        assert info.host == socket.gethostname()
+        assert info.process_start_time
+        assert info.workflow_run_id == "run_" + "1" * 32
+        assert info.command_id == "cmd_" + "2" * 32
         with pytest.raises(ProjectLockError) as exc_info:
             with ProjectLock(root, task="second"):
                 pass
 
     assert "project is locked" in str(exc_info.value)
     assert not (root / ".writeryang.lock").exists()
+
+
+def test_project_lock_heartbeat_keeps_long_live_process_lock(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    init_workspace(InitOptions(title="长任务锁测试", root=root))
+
+    with ProjectLock(
+        root,
+        task="long-running",
+        stale_after=timedelta(milliseconds=250),
+        heartbeat_interval_seconds=0.05,
+    ):
+        first = read_project_lock(root).heartbeat_at
+        time.sleep(0.35)
+        second = read_project_lock(root).heartbeat_at
+        assert first != second
+        with pytest.raises(ProjectLockError):
+            ProjectLock(root, task="contender", stale_after=timedelta(milliseconds=250)).acquire()
+
+
+def test_project_lock_does_not_reclaim_from_created_at_age_alone(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    init_workspace(InitOptions(title="进程身份锁测试", root=root))
+    lock_path = root / ".writeryang.lock"
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    lock_path.write_text(
+        json.dumps(
+            {
+                "lock_id": "lock_existing",
+                "pid": os.getpid(),
+                "host": socket.gethostname(),
+                "process_start_time": locking_module._process_start_time(os.getpid()),
+                "task": "live",
+                "created_at": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat().replace("+00:00", "Z"),
+                "heartbeat_at": now,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProjectLockError):
+        ProjectLock(root, task="contender", stale_after=timedelta(hours=1)).acquire()
 
 
 def test_project_lock_clears_stale_lock(tmp_path: Path) -> None:

@@ -39,7 +39,6 @@ from novel.core.schemas import (
     MemoryChangeClarificationSession,
     MemoryRepairProposal,
     ProjectConfig,
-    AgentRunLog,
     ExportManifest,
     RevisionLog,
     StateUpdateApplyLog,
@@ -797,10 +796,6 @@ def _validate_optional_chapter_json(
 
 
 def _validate_run_and_export_outputs(report: ValidationReport, root: Path) -> None:
-    runs_dir = root / "runs"
-    if runs_dir.exists():
-        for run_path in sorted(runs_dir.glob("run_*.json")):
-            _validate_optional_chapter_json(report, run_path, AgentRunLog)
     export_manifest_path = root / "exports" / "export_manifest.json"
     _validate_optional_chapter_json(report, export_manifest_path, ExportManifest)
 

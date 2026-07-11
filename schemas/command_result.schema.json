@@ -118,6 +118,11 @@
       "title": "Command Id",
       "type": "string"
     },
+    "request_id": {
+      "pattern": "^req_[0-9a-f]{32}$",
+      "title": "Request Id",
+      "type": "string"
+    },
     "workflow_run_id": {
       "pattern": "^run_[0-9a-f]{32}$",
       "title": "Workflow Run Id",
@@ -167,6 +172,7 @@
   },
   "required": [
     "command_id",
+    "request_id",
     "workflow_run_id",
     "command_type"
   ],

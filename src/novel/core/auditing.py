@@ -649,14 +649,12 @@ def _generate_audit_report_with_repair(
             root=root,
             invocation=AgentInvocationContext(
                 agent_name="audit",
-                caller="cli",
                 interaction_mode="internal_task",
                 task="audit_chapter",
                 chapter_number=context.plan.chapter_number,
             ),
             repair_invocation=AgentInvocationContext(
                 agent_name="audit",
-                caller="cli",
                 interaction_mode="internal_task",
                 task="audit_chapter_repair",
                 chapter_number=context.plan.chapter_number,

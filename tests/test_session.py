@@ -514,7 +514,8 @@ def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, mo
         )
 
     def fake_repair(*args: object, **kwargs: object) -> Path:
-        path = chapter_dir / "polished.v2.md"
+        path = chapter_dir / "candidates" / ("candidate_art_" + "1" * 32 + ".md")
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             "---\nchapter_number: 1\ntitle: 测试\nstatus: polished_revision\nbased_on: polished.md\nrevision_id: revision_test\n---\n\n修订后正文\n",
             encoding="utf-8",
@@ -537,7 +538,7 @@ def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, mo
     assert result.session.status == "needs_user_review"
     assert "修订后正文" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
     assert "status: polished\n" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
-    assert result.session.revision_history[-1].endswith("polished.v2.md")
+    assert "/candidates/candidate_art_" in result.session.revision_history[-1]
     events = load_rewrite_events(root, session.session_id)
     assert len(events) == 1
     assert events[0].action == "revision_rewrite"
@@ -658,7 +659,8 @@ def test_session_unresolved_auto_repair_marks_rewrite_event_unresolved(tmp_path:
         )
 
     def fake_repair(*args: object, **kwargs: object) -> Path:
-        path = chapter_dir / "polished.v2.md"
+        path = chapter_dir / "candidates" / ("candidate_art_" + "2" * 32 + ".md")
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             "---\nchapter_number: 1\ntitle: 测试\nstatus: polished_revision\nbased_on: polished.md\n---\n\n仍有冲突的修订\n",
             encoding="utf-8",
@@ -756,7 +758,7 @@ def test_session_revise_content_can_use_low_audit_issues_when_user_chooses(tmp_p
     assert revised.status == "needs_user_review"
     assert revised.content_status == "needs_user_review"
     assert revised.final_output_paths[-1].endswith("polished.md")
-    assert revised.revision_history[-1].endswith("polished.v2.md")
+    assert "/candidates/candidate_art_" in revised.revision_history[-1]
     assert (root / "memory" / "chapters" / "001" / "polished.md").is_file()
     assert (root / "memory" / "chapters" / "001" / "state_update_proposal.json").is_file()
 
@@ -808,7 +810,7 @@ def test_session_revise_content_keeps_needs_revision_when_reaudit_blocks(tmp_pat
     assert result.session.status == "needs_revision"
     assert result.session.content_status == "needs_revision"
     assert result.session.final_output_paths[-1].endswith("polished.md")
-    assert result.session.revision_history[-1].endswith("polished.v2.md")
+    assert "/candidates/candidate_art_" in result.session.revision_history[-1]
 
 
 def test_session_revise_content_routes_writer_rewrite(tmp_path: Path, monkeypatch) -> None:

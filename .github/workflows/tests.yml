@@ -23,6 +23,8 @@ jobs:
         run: ruff check .
       - name: Type check
         run: mypy src scripts
+      - name: Strict core type check
+        run: mypy --strict src/novel/core/contracts src/novel/core/workflow_runtime.py src/novel/core/artifact_store.py src/novel/core/transactions.py
       - name: Run tests without real APIs or browser E2E
         run: pytest -m "not real_api and not web_e2e" -q
       - name: Run secret scanner

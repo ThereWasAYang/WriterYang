@@ -7,7 +7,7 @@
 ## 0. schema v3 破坏性变化
 
 - 只接受 schema v3 工作区；不发布 migration 工具。
-- 核对 CLI/Web 不再暴露 `include_unaccepted`、`skip_audit` 或 `skip_polish`。
+- 核对 CLI/Web 不再暴露绕过 Acceptance、Audit 或 Polish policy 的历史参数。
 - 用至少两章的 mock Session 验证 projection checkpoint、全 Session transaction acceptance 和 production export lineage。
 - 修改一个已接受 candidate/`accepted.md` 字节，确认正式导出会拒绝 stale 内容。
 - 检查 `transactions/` 中不存在未恢复的 PREPARED/APPLYING journal。

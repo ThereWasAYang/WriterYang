@@ -140,6 +140,11 @@
       "title": "Root Command Id",
       "type": "string"
     },
+    "root_request_id": {
+      "minLength": 1,
+      "title": "Root Request Id",
+      "type": "string"
+    },
     "surface": {
       "$ref": "#/$defs/Surface"
     },
@@ -154,6 +159,27 @@
         "type": "string"
       },
       "title": "Node Ids",
+      "type": "array"
+    },
+    "decision_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Decision Ids",
+      "type": "array"
+    },
+    "request_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Request Ids",
+      "type": "array"
+    },
+    "session_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Session Ids",
       "type": "array"
     },
     "status": {
@@ -194,6 +220,7 @@
   "required": [
     "workflow_run_id",
     "root_command_id",
+    "root_request_id",
     "surface",
     "budget",
     "status",

@@ -620,6 +620,7 @@
     $("rebuildChapterMemory").addEventListener("click", rebuildChapterMemory);
     $("exportMarkdown").addEventListener("click", () => runExport("/api/export/markdown", "导出 Markdown"));
     $("exportDocx").addEventListener("click", () => runExport("/api/export/docx", "导出 DOCX"));
+    $("previewPackage").addEventListener("click", runPreviewPackage);
     $("sessionStart").addEventListener("click", () => {
       $("sessionId").value = "";
       renderOutlinePreviewPlaceholder("正在创建新的 Session 大纲，完成后会显示在这里。");

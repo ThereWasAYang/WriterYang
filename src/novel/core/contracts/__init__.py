@@ -31,6 +31,7 @@ from novel.core.contracts.revisions import (
     SegmentSelection,
     ensure_revision_phase_transition,
 )
+from novel.core.contracts.previews import PreviewManifest, PreviewSourceChapter
 from novel.core.contracts.state import (
     AcceptanceCommit,
     ProjectionCheckpoint,
@@ -57,6 +58,8 @@ __all__ = [
     "CommandProposal",
     "DecisionRisk",
     "ProfileId",
+    "PreviewManifest",
+    "PreviewSourceChapter",
     "MarkdownBlockKind",
     "ProjectionCheckpoint",
     "SessionPhase",

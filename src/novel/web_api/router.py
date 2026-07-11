@@ -23,6 +23,7 @@ from .deps import (
     WorkspaceExistsError,
 )
 from novel.core.revision_workflow import RevisionWorkflowError
+from novel.core.previewing import PreviewError
 
 from .common import (
     APIResponse,
@@ -72,6 +73,7 @@ from .revision_session import (
     _revision_show_api,
     _revision_start,
 )
+from .preview import _preview_package
 
 def handle_api_request(
     method: str,
@@ -151,6 +153,9 @@ def handle_api_request(
     except RevisionWorkflowError as exc:
         log_failure(400, "revision_error", exc)
         return _failure(400, "revision_error", str(exc), request_id=request_id)
+    except PreviewError as exc:
+        log_failure(400, "preview_error", exc)
+        return _failure(400, "preview_error", str(exc), request_id=request_id)
     except ValueError as exc:
         log_failure(400, "invalid_request", exc)
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
@@ -245,6 +250,7 @@ def _post_routes() -> dict[str, PostRoute]:
         "/api/audit-chapter": ("web audit-chapter", _audit_chapter, True),
         "/api/export/markdown": ("web export markdown", _export_markdown, True),
         "/api/export/docx": ("web export docx", _export_docx, True),
+        "/api/preview/package": ("web preview package", _preview_package, True),
         "/api/generate-chapter": ("web generate-chapter", _generate_chapter, True),
         "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, True),
         "/api/style-guide": ("web style guide save", _save_style_guide, True),

@@ -120,6 +120,15 @@ novel usage --path ./qingdeng-inn --json
 
 正式导出只包含存在 fresh `acceptance.json` 的 `accepted.md`。导出时会重新计算正文、candidate、Audit、State Proposal 与 acceptance artifact 的 hash；任一 lineage 边 stale 都会拒绝导出。`--include-unaccepted` 已删除，未接受正文不能进入正式导出。
 
+未接受 working candidate 使用独立 Preview Package：
+
+```bash
+novel preview package --path ./qingdeng-inn --chapters 1,2 --source polished
+novel preview package --path ./qingdeng-inn --from 1 --to 3 --source draft
+```
+
+Preview 固定输出到 `exports/previews/<preview_id>/preview.md` 与 `manifest.json`，manifest 明确包含 `package_kind=preview`、`production_eligible=false`。该命令不会读取、创建或更新 `exports/export_manifest.json`。
+
 ## Web UI
 
 ```bash

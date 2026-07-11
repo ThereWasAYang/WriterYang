@@ -7,7 +7,7 @@
 > 文档性质：目标架构、破坏性重构策略、编码任务、测试矩阵与验收标准。
 > 本文只制定计划，不实施任何业务代码或配置修改。
 
-> 实施进度（2026-07-11）：前两个开发里程碑已落地 Strict Contracts、schema v3、migration 删除、Task Registry、Artifact Store/freshness、Creation Session projection、transaction journal、全 Session 原子 acceptance、artifact-aware Markdown/DOCX production export，以及阶段 4 的独立 Segment Patch Workflow。Creation Session 的 `scope_type`、`segment_range` 和旧 `_run_segment_session` 已删除；Revision Task 现在输出 structured `SegmentPatch`，并对同一 candidate 重跑 Audit、State Proposal、pending Chapter Memory 和 transaction acceptance。阶段 6–9 的 Command Bus、Orchestrator/Budget、Context Authority、可观测性与锁改造尚未完成；本文后续章节仍作为目标规划。
+> 实施进度（2026-07-11）：Strict Contracts、schema v3、migration 删除、Task Registry、Artifact Store/freshness、Creation Session projection、transaction journal、全 Session 原子 acceptance、artifact-aware Markdown/DOCX production export、独立 Segment Patch Workflow，以及阶段 5 的 Preview Package 已落地。Preview 固定写入 `exports/previews/` 且不修改 production manifest；Creation Session 的 `scope_type`、`segment_range` 和旧 `_run_segment_session` 已删除。阶段 6–9 的 Command Bus、Orchestrator/Budget、Context Authority、可观测性与锁改造尚未完成；本文后续章节仍作为目标规划。
 
 ## 一、规划结论
 

@@ -1597,6 +1597,15 @@ memory/chapters/{NNN}/candidates/candidate_art_{id}.md
 
 字段级结构见 `schemas/segment_selection.schema.json`、`schemas/segment_patch.schema.json` 和 `schemas/revision_session.schema.json`。
 
+### 25.2 Preview Package
+
+```text
+exports/previews/{preview_id}/preview.md
+exports/previews/{preview_id}/manifest.json
+```
+
+`PreviewManifest` 记录 source kind、各章 working path/hash、可选 artifact ref、内容 hash，并固定 `package_kind=preview`、`production_eligible=false`。Preview 目录与 Production Export manifest 完全分离，字段结构见 `schemas/preview_manifest.schema.json`。
+
 ---
 
 ## 26. 设定变更 / 记忆修复持久化产物

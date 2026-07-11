@@ -71,12 +71,15 @@ novel session start "写第一章" --path ./qingdeng-inn --chapters 1 --provider
 novel session approve-outline <session_id> --path ./qingdeng-inn
 novel session run <session_id> --path ./qingdeng-inn --provider mock
 novel session accept <session_id> --path ./qingdeng-inn
+novel preview package --path ./qingdeng-inn --chapters 1 --source polished
 novel export markdown --path ./qingdeng-inn --force
 ```
 
 当前工作区 schema 为 v3。旧 schema 项目会被直接拒绝，不提供 migrate 命令。正式导出只读取带有效 `acceptance.json` 和 artifact lineage 的 `accepted.md`；未接受内容不能进入正式导出。
 
 已认可章节的局部修订使用独立 `revision-session`：先用 `blocks` 查看稳定 Markdown block，再 `start` 冻结范围、`run` 生成并审核 structured patch、`accept` 事务性提交。Creation Session 不再提供 `--segments` 入口。
+
+尚未认可的 working candidate 只能通过 `preview package` 输出到 `exports/previews/`。Preview 明确标记为非正式内容，不会创建或更新 Production Export manifest。
 
 命令参考见 [CLI 命令参考](docs/CLI_COMMANDS.md)，Web UI 图文流程见 [Web UI 小白图文使用指南](docs/WEB_UI_USER_GUIDE.md)。
 

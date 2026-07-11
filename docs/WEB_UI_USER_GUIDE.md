@@ -97,6 +97,7 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 项目初始引导 | 配置默认 API、可选 embedding 和下次启动器端口。 | 初始化后自动出现；依次测试并保存默认 API、embedding、启动器端口。 |
 | 下一步 | 显示当前推荐操作。 | 根据项目检查和 Session 状态提示批准大纲、开始写作、修订或归档。 |
 | 导出 Markdown / DOCX | 导出带有效 acceptance lineage 的章节。 | 可填写章节列表、章节范围、标题和输出路径；只能导出已认可且 hash 未失效的 `accepted.md`，可选择覆盖已有导出文件。 |
+| 生成非正式 Preview Package | 打包尚未认可的 working draft/polished。 | 选择正文来源后生成；固定写入 `exports/previews/`，不会更新正式导出 manifest，也不能用于发布。 |
 
 ### 创作工作台
 

@@ -106,6 +106,7 @@ transactions/
   agent_output_violations/  # [运行时] 输出契约违规日志
 exports/
   novel.md                  # [运行时] export markdown 后生成
+  previews/{preview_id}/    # [运行时] 非正式 working candidate 预览包；不更新 production manifest
   novel.docx                # [运行时] export docx 后生成
   export_manifest.json      # [运行时] export 后记录源章节 hash 和导出记录
 ```
@@ -161,6 +162,8 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 已认可章节局部修改必须走 `revision_workflow.py`，不能重新引入 Creation Session `segment_range`。Revision Agent 输出 `SegmentPatch`，不得输出整章并自行决定修改范围；`markdown_blocks.py` 的 deterministic applier 是范围授权事实源。当前 guard 只允许修订最新 accepted chapter，避免遗漏后续章节 rebase。接受必须复用 `transactions.py`，并让 candidate、Audit、State Proposal、Chapter Memory、Acceptance Commit 指向同一 SHA-256。
 
 正式导出只读取 `accepted.md`，并通过 `accepted_chapter_commit()` 验证完整 lineage。front matter 的 `status: accepted` 不再是生产导出授权。
+
+未接受正文不得通过 Production Export。需要交付中间稿时调用 `previewing.build_preview_package()`；Preview 只写 `exports/previews/`，manifest 必须保持 `production_eligible=false`，不得复用或更新 `exports/export_manifest.json`。
 
 Audit 打回后的人工控制有三个入口：`session revise-audit` 用用户纠正意见重新审核被打回原文；`session retry-rewrite` 基于最新 audit 再次发起打回；`session undo-rewrite` 恢复 rewrite event 的 rejected snapshot 并重跑 audit。三者都只能作用于未归档 session，且必须更新 `rewrite_events.json`、`audit_history` 和 session 状态。
 

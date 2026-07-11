@@ -104,6 +104,13 @@
             <button id="exportMarkdown">导出 Markdown</button>
             <button id="exportDocx">导出 DOCX</button>
           </div>
+          <label for="previewSource">预览正文来源</label>
+          <select id="previewSource">
+            <option value="polished" selected>working polished.md</option>
+            <option value="draft">working draft.md</option>
+          </select>
+          <button id="previewPackage" style="width: 100%; margin-top: 8px;">生成非正式 Preview Package</button>
+          <p class="page-note">Preview 固定写入 exports/previews/，不会更新正式 export manifest。</p>
         </div>
 
         <div class="panel">

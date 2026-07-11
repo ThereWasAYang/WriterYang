@@ -25,6 +25,7 @@ from novel.cli_commands.memory import (
     _cmd_setting_change,
 )
 from novel.cli_commands.orchestrator import _cmd_ask
+from novel.cli_commands.preview import _cmd_preview
 from novel.cli_commands.project_system import (
     _cmd_completion,
     _cmd_doctor,
@@ -1170,6 +1171,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Workspace directory. Defaults to the current directory.",
     )
+
     export_docx_parser.add_argument(
         "--chapters",
         default=None,
@@ -1205,6 +1207,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite existing output DOCX.",
     )
+
+    preview_parser = subparsers.add_parser("preview", help="Build non-production preview packages")
+    preview_subparsers = preview_parser.add_subparsers(dest="preview_command", required=True)
+    preview_package = preview_subparsers.add_parser("package", help="Package working chapter candidates")
+    preview_package.add_argument("--path", default=".", help="Workspace directory.")
+    preview_package.add_argument("--chapters", default=None, help="Comma-separated chapter numbers.")
+    preview_package.add_argument("--from", dest="from_chapter", type=int, default=None, help="First chapter.")
+    preview_package.add_argument("--to", dest="to_chapter", type=int, default=None, help="Last chapter.")
+    preview_package.add_argument("--source", choices=("draft", "polished"), default="polished")
+    preview_package.add_argument("--title", default=None, help="Optional preview title.")
 
     web_parser = subparsers.add_parser("web", help="Run the local Web UI")
     web_parser.add_argument(
@@ -1292,6 +1304,7 @@ _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "accept-chapter": _cmd_accept_chapter,
     "generate-chapter": _cmd_generate_chapter,
     "export": _cmd_export,
+    "preview": _cmd_preview,
     "web": _cmd_web,
     "web-launch": _cmd_web_launch,
 }

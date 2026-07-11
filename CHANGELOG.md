@@ -4,6 +4,7 @@
 
 - 以破坏性 schema v3 重建 Agent workflow 基础：Strict Contracts、Task Registry、immutable Artifact lineage、Creation Session state/timeline projection、transaction journal、全 Session 原子 acceptance 和 artifact-aware production export。
 - 新增独立 `revision-session` Segment Patch Workflow：稳定 Markdown block selection、structured `SegmentPatch`、范围外逐字节不变校验、重新 Audit/State Proposal/Chapter Memory，以及 transaction acceptance；删除 Creation Session 的 `scope_type`、`segment_range`、`--segments` 和旧 segment 执行分支。
+- 新增独立 `preview package`：可打包 working draft/polished candidate，固定写入 `exports/previews/` 并标记 `production_eligible=false`，不读取或更新正式 `export_manifest.json`。
 - 推广初期平台口径收敛为 macOS / Linux；Windows 适配暂缓，相关入口脚本保留为后续验收基础但不作为当前支持平台。
 - README 瘦身为项目入口索引，新增 `docs/CLI_COMMANDS.md` 承接详细 CLI 命令参考。
 - Web API 从单文件拆为 `src/novel/web_api/` 包，按 router、common、generation、config、memory、session、revision_session、inspection 分域组织。

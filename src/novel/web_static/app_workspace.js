@@ -62,6 +62,18 @@
       });
     }
 
+    async function runPreviewPackage() {
+      return withBusy("生成 Preview Package", async () => {
+        const payload = exportPayload();
+        delete payload.output;
+        delete payload.force;
+        payload.source = $("previewSource").value;
+        const data = await apiPost("/api/preview/package", payload);
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        setMessage(actionMessage("生成 Preview Package", data));
+      });
+    }
+
     async function viewFile() {
       try {
         const data = await apiGet("/api/chapter-file", {

@@ -63,6 +63,7 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "segment_selection",
         "segment_patch",
         "revision_session",
+        "preview_manifest",
     }
 
     assert set(payloads) == expected

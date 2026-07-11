@@ -36,6 +36,7 @@
 - `src/novel/cli_commands/generation.py`
 - `src/novel/cli_commands/memory.py`
 - `src/novel/cli_commands/orchestrator.py`
+- `src/novel/cli_commands/preview.py`
 - `src/novel/cli_commands/project_system.py`
 - `src/novel/cli_commands/search.py`
 - `src/novel/cli_commands/session.py`
@@ -48,6 +49,7 @@
 - `src/novel/web_api/generation.py`
 - `src/novel/web_api/inspection.py`
 - `src/novel/web_api/memory.py`
+- `src/novel/web_api/preview.py`
 - `src/novel/web_api/router.py`
 - `src/novel/web_api/session.py`
 - `src/novel/web_api/revision_session.py`
@@ -94,6 +96,7 @@
 - `src/novel/core/planning.py`
 - `src/novel/core/polishing.py`
 - `src/novel/core/projection.py`
+- `src/novel/core/previewing.py`
 - `src/novel/core/prompts.py`
 - `src/novel/core/provider_config.py`
 - `src/novel/core/providers.py`
@@ -1023,3 +1026,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 ### `src/novel/core/markdown_blocks.py` 与 `src/novel/core/revision_workflow.py`
 
 `markdown_blocks.py` 解析 front matter 之外的 Markdown block，生成稳定 selection hash，并在合成 patch 时验证 source、selected、prefix、suffix 与范围外字节。`revision_workflow.py` 管理 accepted candidate selection、Revision Agent structured patch、candidate freeze、Audit、revision-mode State Proposal、projection、pending Chapter Memory 和 transaction acceptance。Creation Session 不再保存 `scope_type`/`segment_range`，也没有 segment 执行分支。
+
+### `src/novel/core/previewing.py`
+
+构建非正式 Preview Package。只读取指定 working `draft.md`/`polished.md`，固定写入 `exports/previews/{preview_id}/`，并生成 strict `PreviewManifest`。该 service 不调用 production lifecycle guard，也绝不更新 `exports/export_manifest.json`。

@@ -9,22 +9,22 @@ PROMPT_VERSION = "2026-07-11"
 
 PROMPT_VERSIONS: dict[str, str] = {
     "audit_repair_route_system": "2026-06-20",
-    "audit_system": "2026-06-05",
-    "canon_system": "2026-06-05",
+    "audit_system": "2026-07-11",
+    "canon_system": "2026-07-11",
     "chapter_memory_system": "2026-06-05",
-    "inspiration_system": "2026-06-05",
+    "inspiration_system": "2026-07-11",
     "memory_change_clarification_system": "2026-06-05",
     "memory_change_batch_plan_system": "2026-06-07",
     "memory_repair_system": "2026-05-31",
     "intent_router_ask_intent_system": "2026-06-19",
     "intent_router_revision_route_system": "2026-06-19",
-    "planning_system": "2026-06-05",
-    "polish_system": "2026-06-05",
-    "revision_system": "2026-06-05",
+    "planning_system": "2026-07-11",
+    "polish_system": "2026-07-11",
+    "revision_system": "2026-07-11",
     "segment_revision_system": "2026-07-11",
-    "state_update_system": "2026-06-05",
+    "state_update_system": "2026-07-11",
     "style_guide_system": "2026-06-19",
-    "writer_system": "2026-06-05",
+    "writer_system": "2026-07-11",
 }
 
 _PARTIAL_PATTERN = re.compile(r"\{\{partial:([a-z0-9_]+)\}\}")
@@ -50,10 +50,7 @@ def _resolve_prompt_partials(text: str, *, seen: frozenset[str] = frozenset()) -
             chain = " -> ".join((*seen, partial_name))
             raise ValueError(f"recursive prompt partial include: {chain}")
         partial_text = (
-            files("novel.prompts")
-            .joinpath("partials", f"{partial_name}.txt")
-            .read_text(encoding="utf-8")
-            .strip()
+            files("novel.prompts").joinpath("partials", f"{partial_name}.txt").read_text(encoding="utf-8").strip()
         )
         return _resolve_prompt_partials(partial_text, seen=seen | {partial_name})
 

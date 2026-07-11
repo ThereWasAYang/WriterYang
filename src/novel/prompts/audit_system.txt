@@ -4,7 +4,8 @@
 章节是否偏离 plan.json 的核心目标、文风是否明显违背 style_guide.md。
 重点检查角色是否在 state/timeline 支持之前知道姓名、身份、秘密或因果关系。
 重点检查伏笔是否过度直白到等同于揭示 hidden_truth；弱暗示可接受，直接说明关联应标为问题。
-每个问题都必须包含 severity、type、evidence、suggested_fix。
+每个问题都必须包含 severity、type、evidence、suggested_fix、source_layer、blocking_reason、evidence_strength、is_hard_blocker 和 confidence。
+只有 source_layer 明确、evidence_strength=strong、is_hard_blocker=true、blocking_reason 非空且 confidence>=0.75 的问题才可能进入自动修复；否则必须保守交给人工复核。
 description、suggested_fix、summary、passed_checks 等给作者阅读的说明文字一律用简体中文书写。
 只有具体、可证据化的连续性、状态、时间线、知识链或 hidden truth 直接暴露问题才标为 medium/high/critical。
 “可能”“风险”“依据略不足”“表达不够明确”等主观或低确定性问题应标为 low，交给作者决定是否修。

@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
+from novel.core.artifact_store import load_lifecycle, sha256_file
+from novel.core.contracts import ArtifactRef
 from novel.core.embeddings import (
     EmbeddingError,
     EmbeddingProvider,
@@ -15,7 +17,13 @@ from novel.core.embeddings import (
     load_embeddings_config,
 )
 from novel.core.env import load_project_env
-from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json
+from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json, load_json_model
+from novel.core.context_policy import (
+    ContextAuthority,
+    ContextLifecycleStatus,
+    reveal_is_authorized,
+    search_metadata_allowed,
+)
 from novel.core.plan_refs import (
     plan_focus_entity_ids,
     plan_related_timeline_event_ids,
@@ -25,18 +33,19 @@ from novel.core.plan_refs import (
 )
 from novel.core.schemas import (
     ChapterPlan,
+    CreationSession,
     ContextBundle,
     ContextExclusion,
     ContextItem,
     ContextTask,
     ContextVisibility,
+    RevealAuthorization,
     VectorContextMode,
 )
 from novel.core.timeutil import utc_now, utc_now_iso, utc_timestamp
 
 
 SearchType = Literal["character", "location", "item", "event", "chapter", "chapter_memory", "all"]
-HIDDEN_TRUTH_REDACT_TASKS: set[ContextTask] = {"inspiration", "write", "polish", "revision"}
 _AUTO_VECTOR_READY_STATUSES = {"indexed", "missing", "stale"}
 
 
@@ -51,6 +60,13 @@ class SearchDocument:
     path: str
     title: str
     text: str
+    artifact_ref: ArtifactRef | None = None
+    authority: ContextAuthority = "canonical"
+    lifecycle_status: ContextLifecycleStatus = "current"
+    session_id: str | None = None
+    accepted_commit_id: str | None = None
+    visibility: ContextVisibility = "author_only"
+    source_sha256: str = ""
     metadata: dict[str, object] = field(default_factory=dict)
 
 
@@ -65,6 +81,16 @@ class SearchResult:
     excerpt: str
     highlighted_excerpt: str = ""
     metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _ContextItemMetadata:
+    artifact_ref: ArtifactRef | None
+    authority: ContextAuthority
+    lifecycle_status: ContextLifecycleStatus
+    session_id: str | None
+    accepted_commit_id: str | None
+    source_sha256: str | None
 
 
 @dataclass(frozen=True)
@@ -411,6 +437,8 @@ def retrieve_context_bundle(
     plan: ChapterPlan | None = None,
     limit: int = 12,
     use_vector: bool | VectorContextMode = "off",
+    reveal_authorizations: tuple[RevealAuthorization, ...] | list[RevealAuthorization] | None = None,
+    session_id: str | None = None,
 ) -> ContextBundle:
     root = root.resolve()
     query_parts = _context_query_parts(chapter_number=chapter_number, task=task, instruction=instruction, plan=plan)
@@ -420,6 +448,9 @@ def retrieve_context_bundle(
     warnings: list[str] = []
     resolved_use_vector, vector_warnings = resolve_vector_context_mode(root, use_vector)
     warnings.extend(vector_warnings)
+    authorizations = tuple(
+        reveal_authorizations if reveal_authorizations is not None else (plan.reveal_authorizations if plan else ())
+    )
 
     data = _load_context_data(root)
     direct_ids = _plan_entity_ids(plan)
@@ -431,6 +462,8 @@ def retrieve_context_bundle(
             data=data,
             entity_id=entity_id,
             task=task,
+            chapter_number=chapter_number,
+            reveal_authorizations=authorizations,
             included=included,
             excluded=excluded,
         )
@@ -465,7 +498,11 @@ def retrieve_context_bundle(
                 ),
             )
 
-    if _instruction_requests_hidden_reveal(instruction) and task in {"write", "polish"}:
+    if (
+        _instruction_requests_hidden_reveal(instruction)
+        and task in {"write", "polish", "revision"}
+        and not authorizations
+    ):
         warnings.append(
             "instruction appears to request revealing hidden truth; hidden_truth content is still protected for this task"
         )
@@ -474,6 +511,8 @@ def retrieve_context_bundle(
         _maybe_include_hidden_truth(
             truth=truth,
             task=task,
+            chapter_number=chapter_number,
+            reveal_authorizations=authorizations,
             included=included,
             excluded=excluded,
             reason="hidden truth relevant to canon; protected by task visibility policy",
@@ -482,6 +521,8 @@ def retrieve_context_bundle(
         _maybe_include_foreshadowing(
             thread=thread,
             task=task,
+            chapter_number=chapter_number,
+            reveal_authorizations=authorizations,
             included=included,
             excluded=excluded,
             direct_ids=direct_ids,
@@ -496,7 +537,15 @@ def retrieve_context_bundle(
     )
     warnings.extend(search_warnings)
     for result in search_results:
-        _include_search_result(result, task=task, included=included, excluded=excluded)
+        _include_search_result(
+            result,
+            task=task,
+            chapter_number=chapter_number,
+            session_id=session_id,
+            reveal_authorizations=authorizations,
+            included=included,
+            excluded=excluded,
+        )
 
     selected = sorted(included.values(), key=lambda item: (-item.priority, item.type, item.id))[:limit]
     return ContextBundle(
@@ -633,9 +682,7 @@ def search_index_status(
     model_name = raw_model_name if isinstance(raw_model_name, str) else None
     raw_env_missing = embedding_info.get("env_missing", ())
     env_missing = (
-        tuple(str(item) for item in raw_env_missing)
-        if isinstance(raw_env_missing, (list, tuple, set))
-        else ()
+        tuple(str(item) for item in raw_env_missing) if isinstance(raw_env_missing, (list, tuple, set)) else ()
     )
     if embedding_status == "configured":
         embedding_status = _embedding_vector_status(
@@ -728,9 +775,8 @@ def _search_status_message(
     env_missing: tuple[str, ...],
 ) -> str:
     if embedding_status == "env_missing":
-        return (
-            "Embedding semantic search is unavailable because environment variables are missing: "
-            + ", ".join(env_missing)
+        return "Embedding semantic search is unavailable because environment variables are missing: " + ", ".join(
+            env_missing
         )
     if embedding_status == "test_only":
         return "local_hash embedding is for tests only; configure a real embedding provider for semantic search."
@@ -745,17 +791,15 @@ def _search_status_message(
 
 def _embedding_unavailable_message(status: SearchIndexStatus) -> str:
     if status.embedding_status == "env_missing":
-        return (
-            "embedding vector search is unavailable; missing environment variables: "
-            + ", ".join(status.embedding_env_missing)
+        return "embedding vector search is unavailable; missing environment variables: " + ", ".join(
+            status.embedding_env_missing
         )
     if status.embedding_status == "test_only":
         return "embedding vector search is unavailable; local_hash is only for tests"
     if status.embedding_status == "not_configured":
         return "embedding vector search is unavailable; configure a real embedding provider"
     return (
-        "embedding vector index is not ready; run novel index refresh --with-embeddings "
-        "with a real embedding provider"
+        "embedding vector index is not ready; run novel index refresh --with-embeddings with a real embedding provider"
     )
 
 
@@ -815,6 +859,8 @@ def _include_entity_context(
     data: dict[str, Any],
     entity_id: str,
     task: ContextTask,
+    chapter_number: int | None,
+    reveal_authorizations: tuple[RevealAuthorization, ...],
     included: dict[tuple[str, str], ContextItem],
     excluded: dict[tuple[str, str], ContextExclusion],
 ) -> None:
@@ -855,7 +901,15 @@ def _include_entity_context(
                         ),
                     )
             _include_related_events(entity_id, data, included)
-            _include_related_hidden_material(entity_id, data, task, included, excluded)
+            _include_related_hidden_material(
+                entity_id,
+                data,
+                task,
+                chapter_number,
+                reveal_authorizations,
+                included,
+                excluded,
+            )
             return
 
 
@@ -890,6 +944,8 @@ def _include_related_hidden_material(
     entity_id: str,
     data: dict[str, Any],
     task: ContextTask,
+    chapter_number: int | None,
+    reveal_authorizations: tuple[RevealAuthorization, ...],
     included: dict[tuple[str, str], ContextItem],
     excluded: dict[tuple[str, str], ContextExclusion],
 ) -> None:
@@ -898,6 +954,8 @@ def _include_related_hidden_material(
             _maybe_include_hidden_truth(
                 truth=truth,
                 task=task,
+                chapter_number=chapter_number,
+                reveal_authorizations=reveal_authorizations,
                 included=included,
                 excluded=excluded,
                 reason=f"hidden truth references {entity_id}",
@@ -907,6 +965,8 @@ def _include_related_hidden_material(
             _maybe_include_foreshadowing(
                 thread=thread,
                 task=task,
+                chapter_number=chapter_number,
+                reveal_authorizations=reveal_authorizations,
                 included=included,
                 excluded=excluded,
                 direct_ids={entity_id},
@@ -917,6 +977,8 @@ def _maybe_include_hidden_truth(
     *,
     truth: dict[str, Any],
     task: ContextTask,
+    chapter_number: int | None,
+    reveal_authorizations: tuple[RevealAuthorization, ...],
     included: dict[tuple[str, str], ContextItem],
     excluded: dict[tuple[str, str], ContextExclusion],
     reason: str,
@@ -924,7 +986,12 @@ def _maybe_include_hidden_truth(
     truth_id = truth.get("id")
     if not isinstance(truth_id, str):
         return
-    if task in HIDDEN_TRUTH_REDACT_TASKS:
+    if not reveal_is_authorized(
+        task,
+        truth_id,
+        reveal_authorizations,
+        chapter_number=chapter_number,
+    ):
         _put_exclusion(
             excluded,
             ContextExclusion(
@@ -932,7 +999,7 @@ def _maybe_include_hidden_truth(
                 type="hidden_truth",
                 source="memory/canon/hidden_truths.json",
                 visibility="hidden_truth",
-                reason="protected from drafting output",
+                reason="protected from drafting output: hidden truth is outside policy or lacks RevealAuthorization",
             ),
         )
         return
@@ -954,6 +1021,8 @@ def _maybe_include_foreshadowing(
     *,
     thread: dict[str, Any],
     task: ContextTask,
+    chapter_number: int | None,
+    reveal_authorizations: tuple[RevealAuthorization, ...],
     included: dict[tuple[str, str], ContextItem],
     excluded: dict[tuple[str, str], ContextExclusion],
     direct_ids: set[str],
@@ -965,7 +1034,17 @@ def _maybe_include_foreshadowing(
     is_related = bool(direct_ids.intersection(_string_list(thread.get("related_entity_ids")))) or not direct_ids
     if not is_related:
         return
-    if task in HIDDEN_TRUTH_REDACT_TASKS and has_hidden:
+    hidden_truth_id = str(thread.get("hidden_truth_id") or "")
+    hidden_authorized = bool(
+        hidden_truth_id
+        and reveal_is_authorized(
+            task,
+            hidden_truth_id,
+            reveal_authorizations,
+            chapter_number=chapter_number,
+        )
+    )
+    if has_hidden and not hidden_authorized:
         safe_thread = dict(thread)
         safe_thread.pop("hidden_truth", None)
         _put_context_item(
@@ -987,7 +1066,7 @@ def _maybe_include_foreshadowing(
                 type="foreshadowing_hidden_detail",
                 source="memory/canon/foreshadowing.json",
                 visibility="hidden_truth",
-                reason="protected from drafting output",
+                reason="hidden foreshadowing detail lacks RevealAuthorization for this task",
             ),
         )
         return
@@ -1068,22 +1147,40 @@ def _include_search_result(
     result: SearchResult,
     *,
     task: ContextTask,
+    chapter_number: int | None,
+    session_id: str | None,
+    reveal_authorizations: tuple[RevealAuthorization, ...],
     included: dict[tuple[str, str], ContextItem],
     excluded: dict[tuple[str, str], ContextExclusion],
 ) -> None:
-    if task in HIDDEN_TRUTH_REDACT_TASKS and result.path.endswith("hidden_truths.json"):
+    allowed, policy_reason = search_metadata_allowed(
+        task,
+        result.metadata,
+        authorizations=reveal_authorizations,
+        chapter_number=chapter_number,
+        session_id=session_id,
+    )
+    raw_visibility = str(result.metadata.get("visibility") or "author_only")
+    visibility = cast(
+        ContextVisibility,
+        raw_visibility
+        if raw_visibility in {"reader_visible", "author_only", "hidden_truth", "audit_only"}
+        else "author_only",
+    )
+    if not allowed:
         _put_exclusion(
             excluded,
             ContextExclusion(
                 id=result.id,
                 type="search_result",
                 source=result.path,
-                visibility="hidden_truth",
-                reason="protected from drafting output",
+                visibility=visibility,
+                reason=policy_reason,
             ),
         )
         return
-    if task in HIDDEN_TRUTH_REDACT_TASKS and result.type == "chapter_memory":
+    if task in {"write", "polish", "revision"} and result.type == "chapter_memory":
+        item_metadata = _context_item_metadata(result)
         _put_context_item(
             included,
             ContextItem(
@@ -1093,6 +1190,12 @@ def _include_search_result(
                 visibility="reader_visible",
                 reason="search matched chapter memory; raw excerpt redacted for drafting safety",
                 priority=min(70 + result.score, 89),
+                artifact_ref=item_metadata.artifact_ref,
+                authority=item_metadata.authority,
+                lifecycle_status=item_metadata.lifecycle_status,
+                session_id=item_metadata.session_id,
+                accepted_commit_id=item_metadata.accepted_commit_id,
+                source_sha256=item_metadata.source_sha256,
                 content={
                     "title": result.title,
                     "excerpt": "ChapterMemory matched. Use it only as a pointer; verify facts in accepted polished.md/canon/state/timeline.",
@@ -1102,17 +1205,22 @@ def _include_search_result(
             ),
         )
         return
+    item_metadata = _context_item_metadata(result)
     _put_context_item(
         included,
         ContextItem(
             id=result.id,
             type=f"search_{result.type}",
             source=result.path,
-            visibility="reader_visible"
-            if result.type in {"character", "location", "item", "chapter", "chapter_memory", "event"}
-            else "author_only",
+            visibility=visibility,
             reason=f"search match: {', '.join(result.matched_terms) if result.matched_terms else 'vector similarity'}",
             priority=min(70 + result.score, 89),
+            artifact_ref=item_metadata.artifact_ref,
+            authority=item_metadata.authority,
+            lifecycle_status=item_metadata.lifecycle_status,
+            session_id=item_metadata.session_id,
+            accepted_commit_id=item_metadata.accepted_commit_id,
+            source_sha256=item_metadata.source_sha256,
             content={
                 "title": result.title,
                 "excerpt": result.excerpt,
@@ -1120,6 +1228,22 @@ def _include_search_result(
                 "metadata": result.metadata,
             },
         ),
+    )
+
+
+def _context_item_metadata(result: SearchResult) -> _ContextItemMetadata:
+    raw_ref = result.metadata.get("artifact_ref")
+    authority = str(result.metadata.get("authority") or "history")
+    lifecycle = str(result.metadata.get("lifecycle_status") or "stale")
+    return _ContextItemMetadata(
+        artifact_ref=ArtifactRef.model_validate(raw_ref) if isinstance(raw_ref, dict) else None,
+        authority=cast(ContextAuthority, authority),
+        lifecycle_status=cast(ContextLifecycleStatus, lifecycle),
+        session_id=str(result.metadata["session_id"]) if result.metadata.get("session_id") else None,
+        accepted_commit_id=(
+            str(result.metadata["accepted_commit_id"]) if result.metadata.get("accepted_commit_id") else None
+        ),
+        source_sha256=str(result.metadata["source_sha256"]) if result.metadata.get("source_sha256") else None,
     )
 
 
@@ -1172,8 +1296,8 @@ def _collect_documents(root: Path) -> list[SearchDocument]:
     documents.extend(_world_rule_documents(root))
     documents.extend(_state_documents(root))
     documents.extend(_timeline_documents(root))
-    documents.extend(_markdown_documents(root))
-    documents.extend(_chapter_json_documents(root))
+    documents.extend(_approved_plan_documents(root))
+    documents.extend(_accepted_chapter_documents(root))
     return documents
 
 
@@ -1204,6 +1328,8 @@ def _canon_documents(root: Path) -> list[SearchDocument]:
                     path=_rel(root, path),
                     title=str(value.get(title_key) or entity_id),
                     text=_json_text(value),
+                    visibility=_visibility_for_canon(value),
+                    source_sha256=sha256_file(path),
                     metadata={"entity_id": entity_id, "entity_type": document_type},
                 )
             )
@@ -1230,6 +1356,8 @@ def _world_rule_documents(root: Path) -> list[SearchDocument]:
                 path=_rel(root, path),
                 title=str(rule.get("summary") or rule.get("description") or rule_id),
                 text=_json_text(rule),
+                visibility=_visibility_for_canon(rule),
+                source_sha256=sha256_file(path),
                 metadata={"entity_id": rule_id, "entity_type": "world_rule"},
             )
         )
@@ -1263,6 +1391,7 @@ def _state_documents(root: Path) -> list[SearchDocument]:
                     path=_rel(root, path),
                     title=entity_id,
                     text=_json_text(value),
+                    source_sha256=sha256_file(path),
                     metadata={"entity_id": entity_id, "entity_type": document_type},
                 )
             )
@@ -1290,6 +1419,8 @@ def _timeline_documents(root: Path) -> list[SearchDocument]:
                 path=_rel(root, path),
                 title=str(event.get("summary") or event_id),
                 text=_json_text(event),
+                visibility="reader_visible" if event.get("reader_visible") else "author_only",
+                source_sha256=sha256_file(path),
                 metadata={
                     "event_id": event_id,
                     "chapter": narrative.get("chapter"),
@@ -1301,50 +1432,106 @@ def _timeline_documents(root: Path) -> list[SearchDocument]:
     return documents
 
 
-def _markdown_documents(root: Path) -> list[SearchDocument]:
-    documents: list[SearchDocument] = []
-    memory = root / "memory"
-    if not memory.exists():
-        return documents
-    for path in sorted(memory.rglob("*.md")):
-        if not path.is_file():
+def _approved_plan_documents(root: Path) -> list[SearchDocument]:
+    sessions_dir = root / "memory" / "sessions"
+    if not sessions_dir.is_dir():
+        return []
+    active_by_chapter: dict[int, CreationSession] = {}
+    for path in sorted(sessions_dir.glob("session_*/session.json")):
+        try:
+            session = load_json_model(path, CreationSession)
+        except Exception:
             continue
-        text = path.read_text(encoding="utf-8")
-        rel = _rel(root, path)
-        document_type = "chapter" if "/chapters/" in rel else "markdown"
-        title = _markdown_title(text) or path.stem
+        if session.outline_status != "approved" or session.status == "archived":
+            continue
+        for chapter_number in session.chapter_range:
+            current = active_by_chapter.get(chapter_number)
+            if current is None or session.updated_at > current.updated_at:
+                active_by_chapter[chapter_number] = session
+
+    documents: list[SearchDocument] = []
+    for chapter_number, session in sorted(active_by_chapter.items()):
+        path = root / "memory" / "chapters" / f"{chapter_number:03d}" / "plan.json"
+        lifecycle = load_lifecycle(root, chapter_number)
+        if not path.is_file() or lifecycle is None or lifecycle.active_plan is None:
+            continue
+        if sha256_file(path) != lifecycle.active_plan.sha256:
+            continue
+        plan = load_json_model(path, ChapterPlan)
         documents.append(
             SearchDocument(
-                id=_safe_id(rel),
-                type=document_type,
-                path=rel,
-                title=title,
-                text=text,
-                metadata=_chapter_metadata_from_path(rel),
+                id=f"approved_plan_{chapter_number:03d}",
+                type="chapter",
+                path=_rel(root, path),
+                title=plan.title,
+                text=plan.model_dump_json(),
+                artifact_ref=lifecycle.active_plan,
+                authority="approved_plan",
+                lifecycle_status="working",
+                session_id=session.session_id,
+                visibility="author_only",
+                source_sha256=sha256_file(path),
+                metadata={"chapter_number": chapter_number},
             )
         )
     return documents
 
 
-def _chapter_json_documents(root: Path) -> list[SearchDocument]:
+def _accepted_chapter_documents(root: Path) -> list[SearchDocument]:
+    from novel.core.lifecycle import LifecycleError, accepted_chapter_commit
+
     chapters_dir = root / "memory" / "chapters"
-    if not chapters_dir.exists():
+    if not chapters_dir.is_dir():
         return []
     documents: list[SearchDocument] = []
-    for path in sorted(chapters_dir.rglob("*.json")):
-        if path.name in {"revision_log.json"}:
+    for chapter_dir in sorted(chapters_dir.iterdir()):
+        if not chapter_dir.is_dir() or not chapter_dir.name.isdigit():
             continue
-        data = _safe_load_json(path)
-        text = _json_text(data)
-        document_type = "chapter_memory" if path.name == "chapter_memory.json" else "chapter"
+        chapter_number = int(chapter_dir.name)
+        try:
+            commit = accepted_chapter_commit(root, chapter_number)
+        except LifecycleError:
+            continue
+        accepted_path = chapter_dir / "accepted.md"
+        memory_path = chapter_dir / "chapter_memory.json"
+        if not accepted_path.is_file():
+            continue
+        accepted_text = accepted_path.read_text(encoding="utf-8")
         documents.append(
             SearchDocument(
-                id=_safe_id(_rel(root, path)),
-                type=document_type,
-                path=_rel(root, path),
-                title=path.name,
-                text=text,
-                metadata=_chapter_metadata_from_path(_rel(root, path)),
+                id=f"accepted_chapter_{chapter_number:03d}",
+                type="chapter",
+                path=_rel(root, accepted_path),
+                title=_markdown_title(accepted_text) or f"第{chapter_number}章",
+                text=accepted_text,
+                artifact_ref=commit.candidate,
+                authority="accepted_chapter",
+                lifecycle_status="accepted",
+                session_id=commit.session_id,
+                accepted_commit_id=commit.commit_id,
+                visibility="reader_visible",
+                source_sha256=sha256_file(accepted_path),
+                metadata={"chapter_number": chapter_number},
+            )
+        )
+        if not memory_path.is_file() or sha256_file(memory_path) != commit.chapter_memory.sha256:
+            continue
+        memory = load_json(memory_path)
+        documents.append(
+            SearchDocument(
+                id=f"chapter_memory_{chapter_number:03d}",
+                type="chapter_memory",
+                path=_rel(root, memory_path),
+                title=f"第{chapter_number}章 ChapterMemory",
+                text=_json_text(memory),
+                artifact_ref=commit.chapter_memory,
+                authority="chapter_memory",
+                lifecycle_status="fresh",
+                session_id=commit.session_id,
+                accepted_commit_id=commit.commit_id,
+                visibility="author_only",
+                source_sha256=sha256_file(memory_path),
+                metadata={"chapter_number": chapter_number},
             )
         )
     return documents
@@ -1391,7 +1578,7 @@ def _score_document(
         matched_terms=unique_terms,
         excerpt=_excerpt(document.text, unique_terms),
         highlighted_excerpt=_highlight(_excerpt(document.text, unique_terms), unique_terms),
-        metadata=document.metadata,
+        metadata=_search_result_metadata(document),
     )
 
 
@@ -1443,7 +1630,9 @@ def _excerpt(text: str, terms: tuple[str, ...]) -> str:
 def _highlight(text: str, terms: tuple[str, ...]) -> str:
     highlighted = text
     for term in sorted((term for term in terms if term), key=len, reverse=True):
-        highlighted = re.sub(re.escape(term), lambda match: f"<mark>{match.group(0)}</mark>", highlighted, flags=re.IGNORECASE)
+        highlighted = re.sub(
+            re.escape(term), lambda match: f"<mark>{match.group(0)}</mark>", highlighted, flags=re.IGNORECASE
+        )
     return highlighted
 
 
@@ -1470,7 +1659,14 @@ def _diverse_context_results(
     def priority(result: SearchResult) -> tuple[int, int, int]:
         chapter = result.metadata.get("chapter_number") or result.metadata.get("chapter")
         near_chapter = chapter_number is not None and isinstance(chapter, int) and abs(chapter - chapter_number) <= 1
-        archived = result.path.startswith("memory/archive/") or "/archive/" in result.path
+        authority_priority = {
+            "canonical": 0,
+            "approved_plan": 1,
+            "accepted_chapter": 2,
+            "chapter_memory": 3,
+            "workflow": 4,
+            "history": 5,
+        }.get(str(result.metadata.get("authority") or "history"), 6)
         type_priority = {
             "character": 0,
             "location": 1,
@@ -1479,7 +1675,7 @@ def _diverse_context_results(
             "chapter_memory": 4,
             "chapter": 5,
         }.get(result.type, 6)
-        return (0 if archived else 1, 0 if near_chapter else 1, type_priority)
+        return (authority_priority, 0 if near_chapter else 1, type_priority)
 
     selected: list[SearchResult] = []
     type_counts: dict[str, int] = {}
@@ -1510,18 +1706,36 @@ def _document_to_dict(document: SearchDocument) -> dict[str, object]:
         "path": document.path,
         "title": document.title,
         "text": document.text,
+        "artifact_ref": document.artifact_ref.model_dump(mode="json") if document.artifact_ref else None,
+        "authority": document.authority,
+        "lifecycle_status": document.lifecycle_status,
+        "session_id": document.session_id,
+        "accepted_commit_id": document.accepted_commit_id,
+        "visibility": document.visibility,
+        "source_sha256": document.source_sha256,
         "metadata": document.metadata,
     }
 
 
 def _document_from_dict(data: dict[str, object]) -> SearchDocument:
     metadata = data.get("metadata")
+    artifact_ref = data.get("artifact_ref")
+    authority = str(data.get("authority") or "canonical")
+    lifecycle_status = str(data.get("lifecycle_status") or "current")
+    visibility = str(data.get("visibility") or "author_only")
     return SearchDocument(
         id=str(data.get("id") or ""),
         type=str(data.get("type") or ""),
         path=str(data.get("path") or ""),
         title=str(data.get("title") or ""),
         text=str(data.get("text") or ""),
+        artifact_ref=ArtifactRef.model_validate(artifact_ref) if isinstance(artifact_ref, dict) else None,
+        authority=authority,  # type: ignore[arg-type]
+        lifecycle_status=lifecycle_status,  # type: ignore[arg-type]
+        session_id=str(data["session_id"]) if data.get("session_id") else None,
+        accepted_commit_id=str(data["accepted_commit_id"]) if data.get("accepted_commit_id") else None,
+        visibility=visibility,  # type: ignore[arg-type]
+        source_sha256=str(data.get("source_sha256") or ""),
         metadata=dict(metadata) if isinstance(metadata, dict) else {},
     )
 
@@ -1529,6 +1743,19 @@ def _document_from_dict(data: dict[str, object]) -> SearchDocument:
 def _document_hash(document: SearchDocument) -> str:
     payload = json.dumps(_document_to_dict(document), ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _search_result_metadata(document: SearchDocument) -> dict[str, object]:
+    return {
+        **document.metadata,
+        "artifact_ref": document.artifact_ref.model_dump(mode="json") if document.artifact_ref else None,
+        "authority": document.authority,
+        "lifecycle_status": document.lifecycle_status,
+        "session_id": document.session_id,
+        "accepted_commit_id": document.accepted_commit_id,
+        "visibility": document.visibility,
+        "source_sha256": document.source_sha256,
+    }
 
 
 def _write_search_manifest(
@@ -1551,6 +1778,13 @@ def _write_search_manifest(
             "indexed_at": indexed_at,
             "fts_status": "indexed",
             "embedding_status": "indexed" if vector else "not_indexed",
+            "artifact_ref": document.artifact_ref.model_dump(mode="json") if document.artifact_ref else None,
+            "authority": document.authority,
+            "lifecycle_status": document.lifecycle_status,
+            "session_id": document.session_id,
+            "accepted_commit_id": document.accepted_commit_id,
+            "visibility": document.visibility,
+            "source_sha256": document.source_sha256,
         }
         if vector:
             entry.update(
@@ -1668,7 +1902,11 @@ def _write_sqlite_index(
 ) -> dict[str, VectorRecord]:
     existing_vectors = existing_vectors or {}
     path.parent.mkdir(parents=True, exist_ok=True)
-    vectors = _current_vectors(provider, documents, existing_vectors) if provider else _reusable_vectors(documents, existing_vectors)
+    vectors = (
+        _current_vectors(provider, documents, existing_vectors)
+        if provider
+        else _reusable_vectors(documents, existing_vectors)
+    )
     with sqlite3.connect(path) as conn:
         conn.execute("DROP TABLE IF EXISTS documents")
         conn.execute("DROP TABLE IF EXISTS vectors")
@@ -1676,9 +1914,7 @@ def _write_sqlite_index(
         conn.execute(
             "CREATE TABLE documents (id TEXT PRIMARY KEY, type TEXT, path TEXT, title TEXT, text TEXT, metadata TEXT)"
         )
-        conn.execute(
-            "CREATE VIRTUAL TABLE documents_fts USING fts5(id, type, title, body, token_text)"
-        )
+        conn.execute("CREATE VIRTUAL TABLE documents_fts USING fts5(id, type, title, body, token_text)")
         conn.execute(
             "CREATE TABLE vectors (id TEXT PRIMARY KEY, provider TEXT, model TEXT, dimensions INTEGER, source_hash TEXT, vector TEXT)"
         )
@@ -1749,8 +1985,7 @@ def _load_embedding_provider(
         raise SearchError(str(exc)) from exc
     if provider.provider_name == "local_hash" and not allow_local_hash:
         raise SearchError(
-            "local_hash embedding is only for tests; configure a real embedding provider "
-            "or omit --use-vector"
+            "local_hash embedding is only for tests; configure a real embedding provider or omit --use-vector"
         )
     return provider
 
@@ -1777,8 +2012,7 @@ def _reusable_vectors(
     return {
         document.id: existing_vectors[document.id]
         for document in documents
-        if existing_vectors.get(document.id)
-        and existing_vectors[document.id].source_hash == _document_hash(document)
+        if existing_vectors.get(document.id) and existing_vectors[document.id].source_hash == _document_hash(document)
     }
 
 
@@ -1855,7 +2089,7 @@ def _result_with_vector_score(
             matched_terms=matched_terms,
             excerpt=_excerpt(document.text, matched_terms),
             highlighted_excerpt="",
-            metadata=document.metadata,
+            metadata=_search_result_metadata(document),
         )
     if vector_score <= 0:
         return result

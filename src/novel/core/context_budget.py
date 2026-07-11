@@ -19,10 +19,14 @@ from novel.core.schemas import (
     TimelineEvent,
     TimelineFile,
 )
-from novel.core.search import HIDDEN_TRUTH_REDACT_TASKS
-
 
 _KEY_EVENT_ROLES = KEY_TIMELINE_EVENT_ROLES
+_PRIVATE_TIMELINE_DIGEST_REDACT_TASKS: set[ContextTask] = {
+    "inspiration",
+    "write",
+    "polish",
+    "revision",
+}
 
 
 @dataclass(frozen=True)
@@ -137,16 +141,11 @@ def select_state_view(
     if not config.enabled:
         return StateView(state.model_dump_json(indent=2), "", 0)
     recent_min = max(0, chapter_number - config.recent_window_chapters)
-    all_entries = [
-        ("character", item.entity_id, item.last_updated_chapter, item)
-        for item in state.character_states
-    ] + [
-        ("item", item.entity_id, item.last_updated_chapter, item)
-        for item in state.item_states
-    ] + [
-        ("location", item.entity_id, item.last_updated_chapter, item)
-        for item in state.location_states
-    ]
+    all_entries = (
+        [("character", item.entity_id, item.last_updated_chapter, item) for item in state.character_states]
+        + [("item", item.entity_id, item.last_updated_chapter, item) for item in state.item_states]
+        + [("location", item.entity_id, item.last_updated_chapter, item) for item in state.location_states]
+    )
     mandatory = [entry for entry in all_entries if entry[1] in focus_ids]
     optional = [entry for entry in all_entries if entry[1] not in focus_ids and entry[2] >= recent_min]
     remaining_slots = max(config.max_full_state_entities - len(mandatory), 0)
@@ -200,7 +199,9 @@ def _timeline_optional_priority(event: TimelineEvent, *, chapter_number: int) ->
 
 
 def _timeline_digest(events: list[TimelineEvent], *, task: ContextTask, digest_dropped: bool) -> str:
-    visible_events = [event for event in events if event.reader_visible or task not in HIDDEN_TRUTH_REDACT_TASKS]
+    visible_events = [
+        event for event in events if event.reader_visible or task not in _PRIVATE_TIMELINE_DIGEST_REDACT_TASKS
+    ]
     if not visible_events:
         return "No reader-visible folded timeline events for this task."
     lines: list[str] = []
@@ -217,7 +218,9 @@ def _timeline_digest(events: list[TimelineEvent], *, task: ContextTask, digest_d
             suffix = f" (+{len(summaries) - len(shown)} more)"
         lines.append(f"- 背景（未在正文揭示）: {'; '.join(shown) if shown else 'summary unavailable'}{suffix}")
     anchored_events = [event for event in visible_events if event.narrative_position is not None]
-    sorted_events = sorted(anchored_events, key=lambda event: event.narrative_position.chapter if event.narrative_position else 0)
+    sorted_events = sorted(
+        anchored_events, key=lambda event: event.narrative_position.chapter if event.narrative_position else 0
+    )
     for chapter, grouped in groupby(
         sorted_events,
         key=lambda event: event.narrative_position.chapter if event.narrative_position else 0,

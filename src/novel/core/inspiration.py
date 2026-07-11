@@ -11,6 +11,7 @@ from novel.core.agent_output import (
     AgentOutputContract,
     generate_with_output_guard,
 )
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_text, backup_if_exists, load_yaml_model
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
@@ -107,7 +108,9 @@ def run_inspiration_agent(
             brief.model_dump_json(indent=2) + "\n",
             options.overwrite,
         )
-    context_report_path = write_context_report(root, context_bundle, force=options.overwrite) if context_bundle else None
+    context_report_path = (
+        write_context_report(root, context_bundle, force=options.overwrite) if context_bundle else None
+    )
 
     return InspirationResult(
         markdown_path=markdown_path,
@@ -150,11 +153,13 @@ def build_inspiration_system_prompt() -> str:
 
 
 def build_inspiration_user_prompt(project: ProjectConfig, source_text: str, *, search_context: str = "") -> str:
+    project_text = json.dumps(
+        {"title": project.title, "language": project.language, "genre": project.genre},
+        ensure_ascii=False,
+    )
     return (
-        f"项目标题：{project.title}\n"
-        f"语言：{project.language}\n"
-        f"类型：{', '.join(project.genre)}\n\n"
-        f"{search_context}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
+        f"{render_untrusted_workspace_data('search_context', search_context)}\n"
         "用户原始灵感：\n"
         f"{source_text}\n\n"
         "请生成一份 Markdown 弱总纲，必须包含这些小节：\n"

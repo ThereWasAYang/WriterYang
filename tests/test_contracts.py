@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from novel.core.contracts import CommandProposal, DecisionRisk, SessionStartCommand, WorkflowBudget
+from novel.core.context_policy import CONTEXT_POLICIES
 from novel.core.schemas import ProjectConfig
-from novel.core.task_registry import TASK_REGISTRY, render_task_registry_markdown
+from novel.core.task_registry import (
+    TASK_REGISTRY,
+    prompt_registry_entry,
+    render_profile_registry_markdown,
+    render_task_registry_markdown,
+)
 from novel.core.contracts import TaskId
 
 
@@ -61,3 +69,24 @@ def test_task_registry_covers_every_task_and_renders_mapping() -> None:
     assert "`write` | `scribe`" in table
     assert "`audit` | `architect`" in table
     assert "`state_update` | `clerk`" in table
+
+
+def test_prompt_registry_hashes_template_and_policy() -> None:
+    entry = prompt_registry_entry(TaskId.WRITE)
+    assert len(entry.template_hash) == 64
+    assert len(entry.policy_hash) == 64
+    assert entry.context_policy_id == "writer_reveal_guard"
+    assert entry.prompt_policy_id == "drafting_direct_output"
+
+
+def test_context_policy_ids_match_task_registry() -> None:
+    for task_name, policy in CONTEXT_POLICIES.items():
+        assert TASK_REGISTRY[TaskId(task_name)].context_policy_id == policy.policy_id
+
+
+def test_readme_profile_table_is_generated_from_runtime_registry() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    rendered = readme.split("<!-- TASK_REGISTRY_PROFILES:START -->\n", 1)[1].split(
+        "<!-- TASK_REGISTRY_PROFILES:END -->", 1
+    )[0]
+    assert rendered == render_profile_registry_markdown()

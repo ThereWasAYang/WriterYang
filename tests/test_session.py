@@ -82,14 +82,10 @@ def test_session_start_requires_chapter_creation_scope(tmp_path: Path) -> None:
 
 def test_session_run_requires_approved_outline(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
-    _run_cli(
-        ["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"]
-    )
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
     session = _latest_session(root)
 
-    code, stdout, stderr = _run_cli(
-        ["session", "run", session.session_id, "--path", str(root), "--provider", "mock"]
-    )
+    code, stdout, stderr = _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
 
     assert code == 1
     assert stdout == ""
@@ -193,9 +189,7 @@ def test_session_approve_outline_force_rolls_back_overwritten_plan_and_cleans_ba
     monkeypatch.setattr(session_module, "atomic_write_text", flaky_atomic_write_text)
 
     with pytest.raises(CreationSessionError, match="outline approval failed"):
-        session_module.approve_outline(
-            SessionActionOptions(root=root, session_id=session.session_id, force=True)
-        )
+        session_module.approve_outline(SessionActionOptions(root=root, session_id=session.session_id, force=True))
 
     session_dir = root / "memory" / "sessions" / session.session_id
     assert (chapter_dir / "plan.json").read_text(encoding="utf-8") == original_plan_json
@@ -301,7 +295,9 @@ def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
     assert archive_stderr == ""
     archived = load_json_model(root / "memory" / "sessions" / session.session_id / "session.json", CreationSession)
     assert archived.status == "archived"
-    manifest = load_json_model(root / "memory" / "archive" / session.session_id / "manifest.json", CreationArchiveManifest)
+    manifest = load_json_model(
+        root / "memory" / "archive" / session.session_id / "manifest.json", CreationArchiveManifest
+    )
     assert manifest.entries
     assert all(len(entry.sha256) == 64 for entry in manifest.entries)
     assert load_rewrite_events(root, session.session_id) == []
@@ -322,9 +318,7 @@ def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
 
 def test_multi_chapter_session_uses_projection_and_commits_atomically(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
-    _run_cli(
-        ["session", "start", "连续写第1至2章", "--path", str(root), "--chapters", "1,2", "--provider", "mock"]
-    )
+    _run_cli(["session", "start", "连续写第1至2章", "--path", str(root), "--chapters", "1,2", "--provider", "mock"])
     session = _latest_session(root)
     assert _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])[0] == 0
     assert _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])[0] == 0
@@ -408,9 +402,7 @@ def test_find_latest_active_session_prefers_generated_content_over_newer_outline
     generated_session = _latest_session(root)
     assert _run_cli(["session", "approve-outline", generated_session.session_id, "--path", str(root)])[0] == 0
     assert _run_cli(["session", "run", generated_session.session_id, "--path", str(root), "--provider", "mock"])[0] == 0
-    _run_cli(
-        ["session", "start", "重做第1章大纲", "--path", str(root), "--chapters", "1", "--provider", "mock"]
-    )
+    _run_cli(["session", "start", "重做第1章大纲", "--path", str(root), "--chapters", "1", "--provider", "mock"])
     outline_session = _latest_session(root)
     corrupt_session_dir = root / "memory" / "sessions" / "session_99991231_235959_999999"
     corrupt_session_dir.mkdir(parents=True)
@@ -491,6 +483,11 @@ def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, mo
                     "description": "正文实现偏离计划。",
                     "evidence": [{"source": "polished.md", "quote": "旧正文"}],
                     "suggested_fix": "修订正文。",
+                    "source_layer": "polished",
+                    "blocking_reason": "正文明确偏离已批准计划",
+                    "evidence_strength": "strong",
+                    "is_hard_blocker": True,
+                    "confidence": 0.95,
                 }
             ],
             "created_at": "2026-05-22T00:00:00Z",
@@ -529,7 +526,9 @@ def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, mo
     monkeypatch.setattr(session_module, "_auto_repair_chapter", fake_repair)
     monkeypatch.setattr(session_module, "_audit_chapter_content", lambda *args, **kwargs: None)
     monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
-    monkeypatch.setattr(session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection)
+    monkeypatch.setattr(
+        session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection
+    )
 
     result = session_module.run_session(
         SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock", max_auto_revision_rounds=1)
@@ -567,6 +566,11 @@ def test_session_auto_replan_records_rewrite_event(tmp_path: Path, monkeypatch) 
                     "description": "大纲导致隐藏真相过早暴露。",
                     "evidence": [{"source": "plan.json", "quote": "隐藏真相"}],
                     "suggested_fix": "重写大纲并弱化伏笔。",
+                    "source_layer": "plan",
+                    "blocking_reason": "已批准计划直接安排过早揭示",
+                    "evidence_strength": "strong",
+                    "is_hard_blocker": True,
+                    "confidence": 0.96,
                 }
             ],
             "created_at": "2026-05-22T00:00:00Z",
@@ -597,7 +601,9 @@ def test_session_auto_replan_records_rewrite_event(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(session_module, "_should_replan_chapter", lambda *args: True)
     monkeypatch.setattr(session_module, "_auto_replan_chapter", lambda *args, **kwargs: None)
     monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
-    monkeypatch.setattr(session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection)
+    monkeypatch.setattr(
+        session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection
+    )
 
     result = session_module.run_session(
         SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock", max_auto_revision_rounds=1)
@@ -631,6 +637,11 @@ def test_session_unresolved_auto_repair_marks_rewrite_event_unresolved(tmp_path:
                     "description": "修订后仍冲突。",
                     "evidence": [{"source": "polished.md", "quote": "冲突"}],
                     "suggested_fix": "继续修复。",
+                    "source_layer": "polished",
+                    "blocking_reason": "正文与当前状态存在明确冲突",
+                    "evidence_strength": "strong",
+                    "is_hard_blocker": True,
+                    "confidence": 0.9,
                 }
             ],
             "created_at": "2026-05-22T00:00:00Z",
@@ -847,7 +858,9 @@ def test_session_revise_content_routes_writer_rewrite(tmp_path: Path, monkeypatc
         ),
     )
     monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
-    monkeypatch.setattr(session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection)
+    monkeypatch.setattr(
+        session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection
+    )
 
     result = session_module.revise_content(
         SessionInstructionOptions(
@@ -909,7 +922,9 @@ def test_session_revise_content_routes_plot_replan(tmp_path: Path, monkeypatch) 
         ),
     )
     monkeypatch.setattr(session_module, "_propose_state", lambda *args, **kwargs: None)
-    monkeypatch.setattr(session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection)
+    monkeypatch.setattr(
+        session_module, "_capture_and_advance_projection", lambda root, session, chapter, projection: projection
+    )
 
     result = session_module.revise_content(
         SessionInstructionOptions(

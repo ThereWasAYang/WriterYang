@@ -228,7 +228,9 @@ def revise_outline(options: SessionInstructionOptions) -> SessionResult:
         use_vector_context=options.use_vector_context,
     )
     _write_session(root, session)
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Outline revised.")
+    return SessionResult(
+        session=session, session_path=_session_path(root, session.session_id), message="Outline revised."
+    )
 
 
 def approve_outline(options: SessionActionOptions) -> SessionResult:
@@ -266,11 +268,15 @@ def approve_outline(options: SessionActionOptions) -> SessionResult:
                 content=_render_outline_markdown(approved_outline),
                 backup_reason=approval_backup_reason,
             ),
-            _TransactionalTextWrite(path=_session_path(root, session.session_id), content=session.model_dump_json(indent=2) + "\n"),
+            _TransactionalTextWrite(
+                path=_session_path(root, session.session_id), content=session.model_dump_json(indent=2) + "\n"
+            ),
         ]
     )
     _write_text_transaction(root, writes, action="outline approval")
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Outline approved.")
+    return SessionResult(
+        session=session, session_path=_session_path(root, session.session_id), message="Outline approved."
+    )
 
 
 def run_session(options: SessionRunOptions) -> SessionResult:
@@ -283,10 +289,10 @@ def run_session(options: SessionRunOptions) -> SessionResult:
         raise CreationSessionError(
             "session content is already generated; review, revise, accept, or archive it instead of running content generation"
         )
-    if (
-        session.status not in {"outline_approved", "generating"}
-        or session.content_status not in {"not_started", "generating"}
-    ):
+    if session.status not in {"outline_approved", "generating"} or session.content_status not in {
+        "not_started",
+        "generating",
+    }:
         raise CreationSessionError(
             f"session cannot run content generation from status {session.status}/{session.content_status}"
         )
@@ -296,7 +302,9 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     max_rounds = options.max_auto_revision_rounds
     if max_rounds is None:
         max_rounds = session.max_auto_revision_rounds
-    session = session.model_copy(update={"status": "generating", "content_status": "generating", "updated_at": utc_now()})
+    session = session.model_copy(
+        update={"status": "generating", "content_status": "generating", "updated_at": utc_now()}
+    )
     _write_session(root, session)
     _start_session_progress(root, session.session_id, message="Session 写作任务已开始。")
 
@@ -348,7 +356,11 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                     message="Session stopped at review gate.",
                     chapter_number=chapter_number,
                 )
-                return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session stopped at review gate.")
+                return SessionResult(
+                    session=session,
+                    session_path=_session_path(root, session.session_id),
+                    message="Session stopped at review gate.",
+                )
             _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
             audit_report = _load_audit(root, chapter_number)
             round_number = 0
@@ -365,7 +377,9 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                     chapter_number=chapter_number,
                     round_number=round_number,
                 )
-                _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
+                _raise_if_session_cancel_requested(
+                    root, session, chapter_number=chapter_number, round_number=round_number
+                )
                 repair_route = route_audit_repair(
                     root,
                     audit_report,
@@ -411,7 +425,9 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                             use_search_context=options.use_search_context,
                             use_vector_context=options.use_vector_context,
                         )
-                        _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
+                        _raise_if_session_cancel_requested(
+                            root, session, chapter_number=chapter_number, round_number=round_number
+                        )
                         _generate_chapter_content(
                             root,
                             chapter_number,
@@ -459,7 +475,9 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                             use_vector_context=options.use_vector_context,
                             world_state_dir=world_state_dir,
                         )
-                        _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
+                        _raise_if_session_cancel_requested(
+                            root, session, chapter_number=chapter_number, round_number=round_number
+                        )
                         revisions.append(_rel(root, revision_path))
                         after_output_path = _promote_revision_to_polished(root, chapter_number, revision_path)
                         _retire_state_update_proposal(root, chapter_number)
@@ -487,7 +505,9 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                     except Exception:
                         _update_rewrite_event(root, session.session_id, rewrite_event.event_id, status="failed")
                         raise
-                _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number, round_number=round_number)
+                _raise_if_session_cancel_requested(
+                    root, session, chapter_number=chapter_number, round_number=round_number
+                )
                 audit_report = _load_audit(root, chapter_number)
                 rewrite_status: SessionRewriteStatus = "unresolved" if _has_hard_issues(audit_report) else "completed"
                 _update_rewrite_event(
@@ -565,7 +585,11 @@ def run_session(options: SessionRunOptions) -> SessionResult:
             stage="completed",
             message="Session 内容已生成，等待用户审阅。",
         )
-        return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session content is ready for user review.")
+        return SessionResult(
+            session=session,
+            session_path=_session_path(root, session.session_id),
+            message="Session content is ready for user review.",
+        )
     except _SessionCancelRequested as exc:
         return _cancelled_session_result(
             root,
@@ -854,6 +878,7 @@ def _refresh_session_outline_from_plans(root: Path, session: CreationSession) ->
                 title=plan.title,
                 plan_path=_rel(root, plan_path),
                 summary=plan.summary,
+                reveal_authorizations=plan.reveal_authorizations,
             )
         )
     outline = CreationOutline(
@@ -900,7 +925,9 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
             ],
             status="success",
         )
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session accepted.")
+    return SessionResult(
+        session=session, session_path=_session_path(root, session.session_id), message="Session accepted."
+    )
 
 
 def archive_session(options: SessionActionOptions) -> SessionResult:
@@ -944,7 +971,9 @@ def archive_session(options: SessionActionOptions) -> SessionResult:
         }
     )
     _write_session(root, session)
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Session archived.")
+    return SessionResult(
+        session=session, session_path=_session_path(root, session.session_id), message="Session archived."
+    )
 
 
 def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
@@ -1007,7 +1036,9 @@ def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
         }
     )
     _write_session(root, session)
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Audit revised.")
+    return SessionResult(
+        session=session, session_path=_session_path(root, session.session_id), message="Audit revised."
+    )
 
 
 def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
@@ -1057,7 +1088,11 @@ def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         }
     )
     _write_session(root, session)
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Rewrite restored from rejected text snapshot.")
+    return SessionResult(
+        session=session,
+        session_path=_session_path(root, session.session_id),
+        message="Rewrite restored from rejected text snapshot.",
+    )
 
 
 def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
@@ -1143,7 +1178,11 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         }
     )
     _write_session(root, session)
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Rewrite retried from latest audit.")
+    return SessionResult(
+        session=session,
+        session_path=_session_path(root, session.session_id),
+        message="Rewrite retried from latest audit.",
+    )
 
 
 def load_session(root: Path, session_id: str) -> CreationSession:
@@ -1244,10 +1283,7 @@ def _session_status_after_manual_rewrite(
 def _with_replaced_output(existing: list[str], root: Path, output_path: Path) -> list[str]:
     rel_path = _rel(root, output_path)
     chapter_prefix = "/".join(Path(rel_path).parts[:3])
-    retained = [
-        path for path in existing
-        if "/".join(Path(path).parts[:3]) != chapter_prefix and path != rel_path
-    ]
+    retained = [path for path in existing if "/".join(Path(path).parts[:3]) != chapter_prefix and path != rel_path]
     return [*retained, rel_path]
 
 
@@ -1281,6 +1317,7 @@ def _write_outline_proposal(
                 title=result.plan.title,
                 plan_path=_rel(root, result.plan_json_path),
                 summary=result.plan.summary,
+                reveal_authorizations=result.plan.reveal_authorizations,
             )
         )
     outline = CreationOutline(
@@ -1357,7 +1394,9 @@ def _write_text_transaction(root: Path, writes: list[_TransactionalTextWrite], *
         if rollback_errors:
             message += "; rollback also failed and transaction backups were retained: " + "; ".join(rollback_errors)
         elif backup_cleanup_errors:
-            message += "; backup cleanup failed after rollback, so some backups were retained: " + "; ".join(backup_cleanup_errors)
+            message += "; backup cleanup failed after rollback, so some backups were retained: " + "; ".join(
+                backup_cleanup_errors
+            )
         raise CreationSessionError(message) from exc
 
 
@@ -1991,7 +2030,9 @@ def _record_session_progress(
         started_at=existing.started_at or now,
         updated_at=now,
         completed_at=now if next_status in {"cancelled", "completed", "failed"} else existing.completed_at,
-        cancel_requested_at=now if next_status == "cancel_requested" and not existing.cancel_requested_at else existing.cancel_requested_at,
+        cancel_requested_at=now
+        if next_status == "cancel_requested" and not existing.cancel_requested_at
+        else existing.cancel_requested_at,
         error=_safe_progress_error(error) if error else None,
     )
     _write_session_progress(root, progress)
@@ -2059,7 +2100,10 @@ def _cancelled_session_result(
 def _session_has_partial_outputs(root: Path, session: CreationSession) -> bool:
     for chapter_number in session.chapter_range:
         chapter_dir = _chapter_dir(root, chapter_number)
-        if any((chapter_dir / name).exists() for name in ("draft.md", "polished.md", "audit.json", "state_update_proposal.json")):
+        if any(
+            (chapter_dir / name).exists()
+            for name in ("draft.md", "polished.md", "audit.json", "state_update_proposal.json")
+        ):
             return True
     return False
 
@@ -2174,7 +2218,16 @@ def _rewrite_issues(audit_report: AuditReport) -> list[SessionRewriteIssue]:
 
 
 def _render_outline_markdown(outline: CreationOutline) -> str:
-    lines = [f"# Creation Session {outline.session_id}", "", "## User Intent", "", outline.user_intent, "", "## Chapters", ""]
+    lines = [
+        f"# Creation Session {outline.session_id}",
+        "",
+        "## User Intent",
+        "",
+        outline.user_intent,
+        "",
+        "## Chapters",
+        "",
+    ]
     for chapter in outline.chapters:
         lines.extend(
             [
@@ -2182,6 +2235,11 @@ def _render_outline_markdown(outline: CreationOutline) -> str:
                 "",
                 f"- Plan: {chapter.plan_path}",
                 f"- Summary: {chapter.summary}",
+                f"- Reveal Authorizations: {len(chapter.reveal_authorizations)}",
+                *(
+                    f"  - {item.hidden_truth_id}: {item.method}（{item.reason}）"
+                    for item in chapter.reveal_authorizations
+                ),
                 "",
             ]
         )

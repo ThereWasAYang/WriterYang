@@ -11,6 +11,7 @@ from typing import Callable, Iterable, Mapping
 from urllib import error, request
 
 from novel.core.budget import consume_model_call, consume_provider_attempt, consume_response_tokens
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.agent_defaults import (
     PROFILE_INHERITED_PATCH_FIELDS,
     PROFILE_NAMES,
@@ -30,7 +31,7 @@ from novel.core.model_io import (
     model_io_retention_policy_from_env,
     prune_model_io_dir,
 )
-from novel.core.task_registry import task_definition_for_agent
+from novel.core.task_registry import prompt_registry_entry, task_definition_for_agent
 from novel.core.workflow_runtime import active_workflow_runtime
 from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.security import redact_secret_text
@@ -332,6 +333,7 @@ class LoggingModelProvider(ModelProvider):
         definition = task_definition_for_agent(self.agent_name)
         if definition is None:
             raise RuntimeError(f"agent task is not registered: {self.agent_name}")
+        prompt_entry = prompt_registry_entry(definition.task_id)
         return runtime.execute_node(
             name=f"model:{self.agent_name}",
             node_type="model",
@@ -341,6 +343,7 @@ class LoggingModelProvider(ModelProvider):
             provider=self.provider_name,
             model=self.model,
             prompt_template=model_request.system_prompt,
+            prompt_policy_hash=prompt_entry.policy_hash,
             rendered_prompt="\n".join(
                 value
                 for value in (
@@ -1145,7 +1148,7 @@ def _messages_from_request(model_request: ModelRequest) -> list[dict[str, str]]:
     messages = [{"role": "system", "content": model_request.system_prompt}]
     user_parts = []
     if model_request.context:
-        user_parts.append(f"Context:\n{model_request.context}")
+        user_parts.append(render_untrusted_workspace_data("model_request_context", model_request.context))
     user_parts.append(model_request.user_prompt)
     messages.append({"role": "user", "content": "\n\n".join(user_parts)})
     return messages

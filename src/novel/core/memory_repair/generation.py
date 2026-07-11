@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from novel.core.context_policy import render_untrusted_workspace_data
+
 from .deps import (
     json,
     Path,
@@ -298,7 +300,9 @@ def generate_memory_repair_decision(
         "memory_repair",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
-    user_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage, target_files=target_files)
+    user_prompt = _memory_repair_user_prompt(
+        root, request, change_kind=change_kind, stage=stage, target_files=target_files
+    )
     model_request = ModelRequest(
         system_prompt=load_prompt_template("memory_repair_system"),
         user_prompt=user_prompt,
@@ -377,7 +381,9 @@ def _repair_memory_repair_decision_target_schema(
         "memory_repair",
         overrides=ProviderOverrides(provider_name=provider_name),
     )
-    original_prompt = _memory_repair_user_prompt(root, request, change_kind=change_kind, stage=stage, target_files=target_files)
+    original_prompt = _memory_repair_user_prompt(
+        root, request, change_kind=change_kind, stage=stage, target_files=target_files
+    )
     try:
         content = generate_with_output_guard(
             repair_provider,
@@ -521,6 +527,7 @@ def _is_append_collection_path(path: str) -> bool:
         return False
     return _unescape_pointer(parts[0]) in COLLECTION_PATH_FILES and _unescape_pointer(parts[1]) == "-"
 
+
 def _memory_repair_user_prompt(
     root: Path,
     request: str,
@@ -546,13 +553,11 @@ def _memory_repair_user_prompt(
     return (
         "请生成 MemoryRepairDecision JSON。\n"
         f"{task_note}"
-        "允许 target_files：\n"
-        + "\n".join(f"- {path}" for path in allowed_files)
-        + "\n\n"
+        "允许 target_files：\n" + "\n".join(f"- {path}" for path in allowed_files) + "\n\n"
         "当前文件结构与 JSON Pointer 路径索引：\n"
-        f"{_memory_pointer_index(root, target_files=allowed_files)}\n\n"
+        f"{render_untrusted_workspace_data('memory_pointer_index', _memory_pointer_index(root, target_files=allowed_files))}\n"
         "当前可见 ID 摘要：\n"
-        f"{_memory_id_summary(root, target_files=allowed_files)}\n\n"
+        f"{render_untrusted_workspace_data('memory_id_summary', _memory_id_summary(root, target_files=allowed_files))}\n"
         f"用户请求：\n{request}\n"
     )
 
@@ -568,13 +573,11 @@ def _memory_change_batch_plan_user_prompt(
         "本次任务是 setting_change 的分批规划：只拆分批次，不生成 operations。\n"
         f"{SETTING_CHANGE_MAPPING_RULES}"
         f"创作阶段：{stage or 'unknown'}。\n\n"
-        "允许 target_files：\n"
-        + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES))
-        + "\n\n"
+        "允许 target_files：\n" + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES)) + "\n\n"
         "当前文件结构与 JSON Pointer 路径索引：\n"
-        f"{_memory_pointer_index(root)}\n\n"
+        f"{render_untrusted_workspace_data('memory_pointer_index', _memory_pointer_index(root))}\n"
         "当前可见 ID 摘要：\n"
-        f"{_memory_id_summary(root)}\n\n"
+        f"{render_untrusted_workspace_data('memory_id_summary', _memory_id_summary(root))}\n"
         f"用户请求：\n{request}\n"
     )
 
@@ -586,10 +589,7 @@ def _memory_change_clarification_user_prompt(
     stage: MemoryChangeStage,
     conversation_turns: list[MemoryChangeConversationTurn],
 ) -> str:
-    transcript = "\n".join(
-        f"- {turn.role}: {turn.content}"
-        for turn in conversation_turns
-    ) or "- user: " + request
+    transcript = "\n".join(f"- {turn.role}: {turn.content}" for turn in conversation_turns) or "- user: " + request
     return (
         "请判断本次 setting_change 是否已经足以生成安全的 MemoryRepairProposal。\n"
         "只要用户的创作意图足够明确，就输出 ready；文件、字段、visibility 和 JSON Pointer 映射是系统责任，不是用户责任。\n"
@@ -599,15 +599,13 @@ def _memory_change_clarification_user_prompt(
         "不要把新姓名近似联想到现有角色；只有 exact id、exact name 或 exact alias 匹配才视为已有实体。\n"
         f"{SETTING_CHANGE_MAPPING_RULES}"
         f"创作阶段：{stage or 'unknown'}。\n\n"
-        "允许 target_files：\n"
-        + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES))
-        + "\n\n"
+        "允许 target_files：\n" + "\n".join(f"- {path}" for path in sorted(ALLOWED_MEMORY_FILES)) + "\n\n"
         "当前文件结构与 JSON Pointer 路径索引：\n"
-        f"{_memory_pointer_index(root)}\n\n"
+        f"{render_untrusted_workspace_data('memory_pointer_index', _memory_pointer_index(root))}\n"
         "当前可见 ID 摘要：\n"
-        f"{_memory_id_summary(root)}\n\n"
+        f"{render_untrusted_workspace_data('memory_id_summary', _memory_id_summary(root))}\n"
         "对话记录：\n"
-        f"{transcript}\n\n"
+        f"{render_untrusted_workspace_data('conversation_transcript', transcript)}\n"
         f"合并后的用户请求：\n{request}\n"
     )
 
@@ -657,11 +655,7 @@ def _file_pointer_index(root: Path, rel_path: str) -> str:
                 item_id = item.get("id") if isinstance(item.get("id"), str) else "-"
                 name = item.get("name") or item.get("title") or "-"
                 item_fields = sorted(str(key) for key in item)
-                examples = [
-                    f"/{collection_key}/{index}/{field}"
-                    for field in item_fields
-                    if field != "id"
-                ][:8]
+                examples = [f"/{collection_key}/{index}/{field}" for field in item_fields if field != "id"][:8]
                 lines.append(f"  existing[{index}]: id={item_id}; name/title={name}; path=/{collection_key}/{index}")
                 lines.append("    fields: " + ", ".join(item_fields))
                 if examples:
@@ -674,7 +668,9 @@ def _file_pointer_index(root: Path, rel_path: str) -> str:
                         continue
                     item_id = item.get("id") if isinstance(item.get("id"), str) else "-"
                     name = item.get("name") or item.get("title") or "-"
-                    lines.append(f"  existing[{index}]: id={item_id}; name/title={name}; path=/{collection_key}/{index}")
+                    lines.append(
+                        f"  existing[{index}]: id={item_id}; name/title={name}; path=/{collection_key}/{index}"
+                    )
         else:
             lines.append(f"  existing items: none; use /{collection_key}/- for add")
         return "\n".join(lines)
@@ -853,6 +849,7 @@ def _empty_memory_repair_decision(note: str) -> MemoryRepairDecision:
         notes=[note, "没有生成可安全自动应用的 patch；请提供具体 event/entity id 或手动编辑 proposal。"],
         source="fallback",
     )
+
 
 __all__ = [
     "generate_memory_change_clarification_decision",

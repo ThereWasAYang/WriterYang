@@ -95,7 +95,7 @@ thinking:
 | `scribe` | `writer`、`polish`、`revision` | 中文长文生成、文风保持、角色声音、事实保持、长输出。 | `max_tokens: 16000-32000`，`max_context_tokens: 128000`，较长 `timeout_seconds`。 |
 | `architect` | `plot`、`audit` | 长上下文剧情推理、一致性核对、伏笔控制、结构化 JSON。 | `max_context_tokens: 128000+`，`max_tokens: 8192`，结构化输出稳定优先。 |
 | `loremaster` | `inspiration`、`style_guide`、`canon` | 创意构思、中文表达、稳定 JSON/ID、低频设定生成。 | `max_context_tokens: 64000`，`max_tokens: 8192`，中文表达和成本平衡。 |
-| `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair`、`setup` | 低创意抽取、分类路由、JSON patch、快速稳定、成本可控。 | `max_context_tokens: 64000`，`max_tokens: 4096-8192`，低延迟和低成本优先。 |
+| `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair` | 低创意抽取、分类路由、JSON patch、快速稳定、成本可控。 | `max_context_tokens: 64000`，`max_tokens: 4096-8192`，低延迟和低成本优先。 |
 
 表中的 `max_tokens`、`max_context_tokens`、`timeout_seconds` 属于 default/profile 能力参数。Profile 勾选 `inherit_default: true` 后默认跟随 `default`；需要让某个 profile 与 default 不同时，再在 profile patch 中覆盖这些参数。task override 默认只建议覆盖 `temperature`、`thinking`、`reasoning`，只有 `intent_router`、`memory_repair` 等确实需要独立模型时再写完整 task 配置。
 

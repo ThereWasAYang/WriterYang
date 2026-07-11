@@ -45,6 +45,10 @@ def test_mock_provider_can_generate_audit_report(tmp_path: Path) -> None:
     assert "审核重点：canon, state, premature_reveal" in provider.requests[0].user_prompt
     assert "重点检查人物是否知道了不该知道的信息" in provider.requests[0].user_prompt
     assert "只输出 AuditReport JSON" in provider.requests[0].system_prompt
+    prompt = provider.requests[0].user_prompt
+    assert prompt.count("label=audited_candidate_body") == 2
+    assert "label=draft_body" not in prompt
+    assert "label=polished_body" not in prompt
 
 
 def test_audit_chapter_missing_style_guide_injects_chinese_fallback(tmp_path: Path) -> None:
@@ -140,7 +144,7 @@ def test_audit_recall_reruns_with_requested_chapter_context(tmp_path: Path) -> N
     assert tracker.snapshot().model_calls == 2
     assert tracker.snapshot().provider_attempts == 2
     assert len(inner_provider.requests) == 2
-    assert "Additional recalled context" in inner_provider.requests[1].user_prompt
+    assert "label=recalled_context" in inner_provider.requests[1].user_prompt
     assert (root / "memory" / "chapters" / "001" / "audit_recall.json").is_file()
 
 
@@ -516,7 +520,8 @@ def test_audit_chapter_flags_enter_prompt(tmp_path: Path) -> None:
     assert "严格审核：是" in prompt
     assert "审核重点：style, plot, character_voice" in prompt
     assert "检查对白是否偏离角色" in prompt
-    assert "Draft body" in prompt
+    assert "label=audited_candidate_body" in prompt
+    assert "label=polished_body" not in prompt
 
 
 def test_parse_audit_report_normalizes_issue_id_and_string_evidence() -> None:

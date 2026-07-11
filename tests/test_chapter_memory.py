@@ -22,11 +22,20 @@ from novel.core.chapter_memory import (
     validate_chapter_memory,
 )
 from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
-from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import AcceptanceCommit, CURRENT_SCHEMA_VERSION
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, polish_chapter
 from novel.core.providers import MockProvider
 from novel.core.search import rebuild_search_index, retrieve_context_bundle, search_project
+from novel.core.session import (
+    SessionActionOptions,
+    SessionRunOptions,
+    SessionStartOptions,
+    accept_session,
+    approve_outline,
+    run_session,
+    start_session,
+)
 from novel.core.schemas import ChapterMemory, ChapterMemoryItem, ChapterPlan, ProjectConfig
 from novel.core.state_update import AcceptChapterOptions, accept_chapter
 from novel.core.io import atomic_write_model_json, atomic_write_yaml, load_json_model, load_yaml, load_yaml_model
@@ -113,7 +122,7 @@ def test_chapter_memory_stale_sha_is_detected(tmp_path: Path) -> None:
     root = _workspace_with_accepted_memory(tmp_path)
     memory_path = root / "memory" / "chapters" / "001" / "chapter_memory.json"
     memory = load_json_model(memory_path, ChapterMemory)
-    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
+    polished_path = root / memory.source.polished_path
     polished_path.write_text(polished_path.read_text(encoding="utf-8") + "\n补写一句。\n", encoding="utf-8")
     newer_time = memory_path.stat().st_mtime + 10
     os.utime(polished_path, (newer_time, newer_time))
@@ -129,8 +138,8 @@ def test_chapter_memory_stale_sha_is_detected(tmp_path: Path) -> None:
 def test_chapter_memory_hot_path_skips_hash_when_memory_is_newer(tmp_path: Path, monkeypatch) -> None:
     root = _workspace_with_accepted_memory(tmp_path)
     memory_path = root / "memory" / "chapters" / "001" / "chapter_memory.json"
-    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
     memory = load_json_model(memory_path, ChapterMemory)
+    polished_path = root / memory.source.polished_path
     newer_time = polished_path.stat().st_mtime + 10
     os.utime(memory_path, (newer_time, newer_time))
     hash_calls: list[Path] = []
@@ -198,8 +207,12 @@ def test_chapter_memory_prompt_redacts_hidden_items_for_writer(tmp_path: Path) -
 def test_chapter_memory_overview_is_budgeted_and_keeps_selected_memory(tmp_path: Path) -> None:
     root = _workspace_with_accepted_memory(tmp_path)
     base_memory = load_json_model(root / "memory" / "chapters" / "001" / "chapter_memory.json", ChapterMemory)
-    base_polished = root / "memory" / "chapters" / "001" / "polished.md"
+    base_polished = root / base_memory.source.polished_path
     base_body = base_polished.read_text(encoding="utf-8")
+    base_acceptance = load_json_model(
+        root / "memory" / "chapters" / "001" / "acceptance.json",
+        AcceptanceCommit,
+    )
     source_ref = {"path": "memory/chapters/001/polished.md", "kind": "accepted_polished"}
     focused_item = ChapterMemoryItem(
         summary="FOCUSED_OLD_MEMORY",
@@ -210,14 +223,32 @@ def test_chapter_memory_overview_is_budgeted_and_keeps_selected_memory(tmp_path:
     for chapter_number in range(2, 31):
         chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
         chapter_dir.mkdir(parents=True, exist_ok=True)
-        polished_path = chapter_dir / "polished.md"
+        polished_path = chapter_dir / "candidates" / "accepted_candidate.md"
+        polished_path.parent.mkdir(parents=True, exist_ok=True)
         polished_path.write_text(
             base_body.replace("chapter_number: 1", f"chapter_number: {chapter_number}", 1),
             encoding="utf-8",
         )
+        candidate_ref = base_acceptance.candidate.model_copy(
+            update={
+                "artifact_id": f"art_{chapter_number:032x}",
+                "path": polished_path.relative_to(root).as_posix(),
+                "sha256": _sha256(polished_path),
+            }
+        )
+        atomic_write_model_json(
+            chapter_dir / "acceptance.json",
+            base_acceptance.model_copy(
+                update={
+                    "chapter_number": chapter_number,
+                    "candidate": candidate_ref,
+                    "accepted_content_sha256": candidate_ref.sha256,
+                }
+            ),
+        )
         source = base_memory.source.model_copy(
             update={
-                "polished_path": f"memory/chapters/{chapter_number:03d}/polished.md",
+                "polished_path": polished_path.relative_to(root).as_posix(),
                 "polished_sha256": _sha256(polished_path),
             }
         )
@@ -229,6 +260,14 @@ def test_chapter_memory_overview_is_budgeted_and_keeps_selected_memory(tmp_path:
                     "title": f"第 {chapter_number} 章",
                     "source": source,
                     "reader_visible_summary": f"SUMMARY_{chapter_number:03d}",
+                    "plot_beats": [],
+                    "character_knowledge_changes": [],
+                    "state_changes": [],
+                    "timeline_event_ids": [],
+                    "open_threads": [],
+                    "foreshadowing": [],
+                    "continuity_notes": [],
+                    "retrieval_hints": [],
                 }
             ),
         )
@@ -288,7 +327,7 @@ def test_accepted_chapter_numbers_do_not_match_body_status_text(tmp_path: Path) 
     assert _accepted_chapter_numbers(root) == []
 
 
-def test_context_bundle_redacts_chapter_memory_excerpt_for_writer(tmp_path: Path) -> None:
+def test_context_bundle_excludes_stale_chapter_memory_for_writer(tmp_path: Path) -> None:
     root = _workspace_with_accepted_memory(tmp_path)
     memory_path = root / "memory" / "chapters" / "001" / "chapter_memory.json"
     memory = load_json_model(memory_path, ChapterMemory)
@@ -303,9 +342,8 @@ def test_context_bundle_redacts_chapter_memory_excerpt_for_writer(tmp_path: Path
     bundle = retrieve_context_bundle(root, chapter_number=2, task="write", instruction="chapter_memory", limit=20)
     rendered = bundle.render_for_prompt()
 
-    assert any(item.type == "search_chapter_memory" for item in bundle.included)
+    assert not any(item.type == "search_chapter_memory" for item in bundle.included)
     assert "SECRET_DO_NOT_LEAK" not in rendered
-    assert "Use it only as a pointer" in rendered
 
 
 def test_search_indexes_chapter_memory(tmp_path: Path) -> None:
@@ -320,10 +358,23 @@ def test_search_indexes_chapter_memory(tmp_path: Path) -> None:
 
 
 def _workspace_with_accepted_memory(tmp_path: Path) -> Path:
-    root = _workspace_with_audit(tmp_path)
-    _run_cli(["propose-state-update", "1", "--path", str(root), "--provider", "mock"])
-    code, _, stderr = _run_cli(["accept-chapter", "1", "--path", str(root), "--provider", "mock"])
-    assert code == 0, stderr
+    root = tmp_path / "accepted_workspace"
+    init_workspace(InitOptions(title="雨夜旧车站", root=root))
+    proposal_path = tmp_path / "accepted_canon_proposal.json"
+    proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
+    assert apply_canon_proposal(root, proposal_path).validation_report.ok
+    started = start_session(
+        SessionStartOptions(
+            root=root,
+            user_intent="写第一章。",
+            chapter_range=(1,),
+            provider_name="mock",
+        )
+    )
+    session_id = started.session.session_id
+    approve_outline(SessionActionOptions(root=root, session_id=session_id))
+    run_session(SessionRunOptions(root=root, session_id=session_id, provider_name="mock"))
+    accept_session(SessionActionOptions(root=root, session_id=session_id, provider_name="mock"))
     return root
 
 

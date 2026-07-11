@@ -48,7 +48,6 @@ class TaskId(StrEnum):
     CHAPTER_MEMORY = "chapter_memory"
     INTENT_ROUTER = "intent_router"
     MEMORY_REPAIR = "memory_repair"
-    SETUP = "setup"
 
 
 class ProfileId(StrEnum):
@@ -72,10 +71,7 @@ class ArtifactKind(StrEnum):
 
 def ensure_schema_version(value: object) -> int:
     if value != CURRENT_SCHEMA_VERSION:
-        raise ValueError(
-            f"unsupported_project_schema: expected schema_version "
-            f"{CURRENT_SCHEMA_VERSION}, got {value!r}"
-        )
+        raise ValueError(f"unsupported_project_schema: expected schema_version {CURRENT_SCHEMA_VERSION}, got {value!r}")
     return CURRENT_SCHEMA_VERSION
 
 

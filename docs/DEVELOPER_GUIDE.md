@@ -151,7 +151,7 @@ exports/
 inspire -> canon suggest/apply -> session start -> approve-outline -> session run -> user review -> session accept/archive -> optional revision-session -> export
 ```
 
-用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能只靠硬编码关键词判断。可以保留关键词启发式作为兼容或 fallback，但 fallback 不得执行 apply、archive、accepted、state/timeline/canon 写入等高风险动作。主路径应由 orchestrator 编排层调用 `intent_router` task 输出结构化决策，并通过 schema 校验、明确错误提示和保守 fallback 保护风险动作。
+用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能靠硬编码关键词判断。模型不可用时只允许显式、低置信度、proposal-only 的保守 fallback；不得执行 apply、archive、accepted、state/timeline/canon 写入。主路径由 orchestrator 决策层调用 `intent_router` task 输出结构化决策，并通过 schema 校验和确认门保护风险动作。
 
 `novel ask` 先由 orchestrator 调用 `intent_router` 输出 `AskIntentDecision`，再转换成 strict `CommandProposal`。默认只展示 command、范围、风险和 workflow budget；只读低风险 command 可自动执行，其他 command 必须由 `--confirm` 明确确认后交给 Command Bus。proposal 节点、intent-router 模型节点和确认后的 command 共用同一个 `workflow_run_id`。自然语言中的“确认/应用 repair”在 fallback 场景不会执行，必须使用显式 `novel memory-repair apply <repair_id>`。
 
@@ -349,6 +349,12 @@ Prompt 模板只放 system prompt。user prompt 由对应 service 的 `build_*_u
 - 用户 instruction / input 文件内容。
 - 可选 `ContextBundle.render_for_prompt()`。默认检索路径是 ChapterPlan 实体扩展、结构化 timeline focus recall、关键词/SQLite FTS；`--vector-context auto` 只在真实 embedding 配置完整时启用语义召回，`--vector-context on` 强制尝试，旧 `--use-vector-context` 是兼容别名。
 - 可选 ChapterMemory context。它只作为压缩上下文和检索导航，不能替代 canon、current_state、timeline 或 accepted `polished.md`。
+
+所有来自 workspace 的 title、plan、正文、canon/state/timeline、检索结果、历史模型输出和摘要都必须用 `render_untrusted_workspace_data()` 包裹。不得把项目文件中的文字当成 Task、权限、route 或输出格式指令；`ModelRequest.context` 也会在 Provider adapter 统一加 delimiter。
+
+Search 索引必须保持显式 allowlist，不得恢复对 `memory/**/*.md` 或章节 JSON 的全目录 `rglob`。Context Policy 再根据 authority、lifecycle、visibility 和当前 session 过滤检索结果。Writer/Polish/Revision 使用 hidden truth 前必须有已批准 ChapterPlan 中的精确 `RevealAuthorization`；用户 instruction 不能替代该授权。
+
+Audit user prompt 只能包含一个 audited candidate。自动修复必须经 `audit_policy.py` 分类；缺少强 evidence、hard-blocker 标记、明确 source layer 或足够 confidence 的 issue 一律 manual review，不能让 route model 扩大 deterministic policy 的授权。
 
 详见 `docs/AGENT_PROMPT_ASSEMBLY.md`。
 

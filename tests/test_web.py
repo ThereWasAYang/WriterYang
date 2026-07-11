@@ -562,9 +562,7 @@ def test_api_provider_config_warns_without_default(tmp_path: Path) -> None:
 
 def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
-    assert run_internal_task_command(
-        ["generate-chapter", "1", "--path", str(root), "--provider", "mock"]
-    ) == 0
+    assert run_internal_task_command(["generate-chapter", "1", "--path", str(root), "--provider", "mock"]) == 0
 
     runs_status, runs_payload = handle_api_request("GET", "/api/runs", f"path={root}", None)
     state_status, state_payload = handle_api_request("GET", "/api/state-timeline", f"path={root}", None)
@@ -696,7 +694,12 @@ def test_locked_web_write_attaches_api_call_usage_from_new_provider_logs(tmp_pat
     result = _locked_write({"path": str(root)}, "test api usage", handler)
 
     usage = result["api_call_usage"]  # type: ignore[index]
-    expected_chars = len(secret_prompt) + len("用户输入") + len("第二次") + len(json.dumps({"text": "结构化内容"}, ensure_ascii=False, sort_keys=True))
+    expected_chars = (
+        len(secret_prompt)
+        + len("用户输入")
+        + len("第二次")
+        + len(json.dumps({"text": "结构化内容"}, ensure_ascii=False, sort_keys=True))
+    )
     assert usage["call_count"] == 2  # type: ignore[index]
     assert usage["messages_char_count"] == expected_chars  # type: ignore[index]
     assert usage["prompt_tokens"] == 11  # type: ignore[index]
@@ -1503,13 +1506,13 @@ def test_api_search_endpoint_uses_fts_and_returns_results(tmp_path: Path) -> Non
     status, payload = handle_api_request(
         "GET",
         "/api/search",
-        f"path={root}&query=Weak&type=all&limit=5&highlight=1",
+        f"path={root}&query=林澈&type=all&limit=5&highlight=1",
         None,
     )
 
     assert status == 200
     data = payload["data"]
-    assert data["query"] == "Weak"  # type: ignore[index]
+    assert data["query"] == "林澈"  # type: ignore[index]
     assert data["use_vector"] is False  # type: ignore[index]
     assert data["results"]  # type: ignore[index]
     serialized = json.dumps(payload, ensure_ascii=False)
@@ -1888,13 +1891,13 @@ def test_api_setting_change_memory_repair_suggest_apply_and_management_events(tm
         "/api/settings/change/suggest",
         "",
         json.dumps(
-                {
-                    "path": str(root),
-                    "request": "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
-                    "provider": "mock",
-                }
-            ),
-        )
+            {
+                "path": str(root),
+                "request": "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
+                "provider": "mock",
+            }
+        ),
+    )
     proposal_path = suggest_payload["data"]["proposal_relative_path"]  # type: ignore[index]
     apply_status, apply_payload = handle_api_request(
         "POST",
@@ -2431,8 +2434,12 @@ def test_api_setting_change_suggest_restores_regressed_duplicate_context_adds(tm
     assert status == 200
     proposal = payload["data"]["proposal"]  # type: ignore[index]
     operations = proposal["operations"]
-    assert not any(operation["op"] == "add" and operation["file"] == "memory/canon/hidden_truths.json" for operation in operations)
-    assert not any(operation["op"] == "add" and operation["file"] == "memory/canon/foreshadowing.json" for operation in operations)
+    assert not any(
+        operation["op"] == "add" and operation["file"] == "memory/canon/hidden_truths.json" for operation in operations
+    )
+    assert not any(
+        operation["op"] == "add" and operation["file"] == "memory/canon/foreshadowing.json" for operation in operations
+    )
     assert any(operation["path"] == "/hidden_truths/0" for operation in operations)
     assert any(operation["path"] == "/foreshadowing_threads/0" for operation in operations)
     assert any("已还原 target-schema repair 退化的重复新增操作" in note for note in proposal["notes"])
@@ -2662,14 +2669,14 @@ def test_frontend_basic_render() -> None:
     assert "error.detailText = apiErrorDetailText(error)" in app_js
     assert "throw apiFailureError(payload.error" in app_js
     assert "throw apiFailureError(data.error" in app_js
-    assert "setMessage(error.message, true, error.detailText || \"\")" in app_js
-    assert "if (button.id !== \"messageDetails\") button.disabled = disabled;" in app_js
+    assert 'setMessage(error.message, true, error.detailText || "")' in app_js
+    assert 'if (button.id !== "messageDetails") button.disabled = disabled;' in app_js
     assert "syncMessageDetailsButton();" in app_js
     assert 'messageRow.classList.toggle("hidden", !display.text && !hasDetails);' in app_js
-    assert "showMainPage(\"logsPage\")" in app_js
-    assert "showTab(\"singleFileView\")" in app_js
-    assert "$(\"fileViewer\").textContent = latestHeaderMessageDetails" in app_js
-    assert "summarizedMessage(item.detail, \"已省略\")" in app_js
+    assert 'showMainPage("logsPage")' in app_js
+    assert 'showTab("singleFileView")' in app_js
+    assert '$("fileViewer").textContent = latestHeaderMessageDetails' in app_js
+    assert 'summarizedMessage(item.detail, "已省略")' in app_js
     assert ".config-layout" in frontend
     assert ".provider-form-grid" in frontend
     assert 'id="currentProjectSummary"' in html
@@ -2786,7 +2793,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="busyBanner" class="busy-banner hidden"' in html
     assert ".busy-banner" in app_css
     assert "setBusyBanner(`${currentBusyLabel}执行中" in app_js
-    assert "setBusyBanner(\"\")" in app_js
+    assert 'setBusyBanner("")' in app_js
     assert "setMessage(`${currentBusyLabel}执行中" not in app_js
     assert "真实 API 可能需要较长时间" not in app_js
     assert "beforeunload" in app_js
@@ -2856,13 +2863,13 @@ def test_frontend_basic_render() -> None:
     assert "chapterComparePreviewEndpoints.has(endpoint)" in app_js
     assert "outline_proposal.md" in app_js
     assert "approved_outline.md" in app_js
-    assert "$(\"reloadOutlinePreview\").addEventListener(\"click\", loadCurrentSession)" in app_js
-    assert "showTab(\"chapterCompare\")" in app_js
+    assert '$("reloadOutlinePreview").addEventListener("click", loadCurrentSession)' in app_js
+    assert 'showTab("chapterCompare")' in app_js
     assert "await loadCompare();" in app_js
     assert 'const chapterCompareFileTypes = ["plan", "draft", "polished", "audit"];' in app_js
     assert "syncCompareChapterSelect" in app_js
     assert "compareChapterNumber" in app_js
-    assert "$(\"compareChapterSelect\").addEventListener(\"change\"" in app_js
+    assert '$("compareChapterSelect").addEventListener("change"' in app_js
     assert "chapter_memoryViewer" not in html
     assert 'id="canonSuggest"' in html
     assert 'id="canonApply"' in html
@@ -2963,15 +2970,15 @@ def test_frontend_basic_render() -> None:
     assert 'id="settingChangeClarificationSubmit"' in html
     assert "setSettingChangeClarificationControlsVisible(true)" in app_js
     assert "setSettingChangeClarificationControlsVisible(false)" in app_js
-    assert "resetSettingChangeState(\"instruction\")" in app_js
-    assert "resetSettingChangeState(\"memoryRepairInstruction\")" in app_js
-    assert "latestSettingChangeClarificationId = \"\";" in app_js
+    assert 'resetSettingChangeState("instruction")' in app_js
+    assert 'resetSettingChangeState("memoryRepairInstruction")' in app_js
+    assert 'latestSettingChangeClarificationId = "";' in app_js
     assert "apiCallUsageText(data.api_call_usage)" in app_js
     assert "messages chars=" in app_js
     assert "tokens prompt=" in app_js
     assert "readWorkspaceFile(proposalPath)" in app_js
-    assert "openSettingChangeProposalFile(\"workbench\")" in app_js
-    assert "openSettingChangeProposalFile(\"memory\")" in app_js
+    assert 'openSettingChangeProposalFile("workbench")' in app_js
+    assert 'openSettingChangeProposalFile("memory")' in app_js
     assert 'id="auditIssueAsSettingChange"' in html
     assert "/api/chapter-memory/generate" in app_js
     assert "/api/chapter-memory/rebuild" in app_js
@@ -3071,10 +3078,13 @@ def test_workbench_prioritizes_session_flow_layout() -> None:
     assert "--workbench-secondary-sticky-offset: 76px;" in app_css
     assert "syncWorkbenchStickyOffset" in app_js
     assert 'document.documentElement.style.setProperty("--workbench-secondary-sticky-offset"' in app_js
-    assert '$("debugOptionsDetails").addEventListener("toggle", () => window.requestAnimationFrame(syncWorkbenchStickyOffset));' in app_js
+    assert (
+        '$("debugOptionsDetails").addEventListener("toggle", () => window.requestAnimationFrame(syncWorkbenchStickyOffset));'
+        in app_js
+    )
     assert "new ResizeObserver(() => syncWorkbenchStickyOffset())" in app_js
     assert "syncProjectPrepDetails(data);" in app_js
-    assert 'details.open = !status.inspiration_exists' in app_js
+    assert "details.open = !status.inspiration_exists" in app_js
 
 
 def test_static_assets_are_served_from_web_static() -> None:
@@ -3199,7 +3209,9 @@ def test_api_session_audit_summary_does_not_translate_old_english_audit_descript
                             "hidden truth taohuayuan_truth related_entity_ids "
                             "references missing entity: taohuayuan_village"
                         ),
-                        "evidence": [{"source": "memory/canon/hidden_truths.json", "quote": "canon validation warning"}],
+                        "evidence": [
+                            {"source": "memory/canon/hidden_truths.json", "quote": "canon validation warning"}
+                        ],
                         "suggested_fix": "Review the referenced canon relationship and update missing IDs if needed.",
                     }
                 ],
@@ -3226,8 +3238,7 @@ def test_api_session_audit_summary_does_not_translate_old_english_audit_descript
     assert status == 200
     issue = payload["data"]["audit_summary"][0]["issues"][0]  # type: ignore[index]
     assert issue["description"] == (
-        "hidden truth taohuayuan_truth related_entity_ids "
-        "references missing entity: taohuayuan_village"
+        "hidden truth taohuayuan_truth related_entity_ids references missing entity: taohuayuan_village"
     )
     assert issue["suggested_fix"] == "检查该 canon 关联关系，必要时补齐缺失 ID，或移除已经失效的引用。"
 
@@ -3549,8 +3560,12 @@ def test_api_chapter_memory_rebuild_handles_missing_and_stale(tmp_path: Path) ->
         "",
         json.dumps({"path": str(root), "chapter_number": 1, "provider": "mock", "force": True}),
     )
-    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
-    polished_path.write_text(polished_path.read_text(encoding="utf-8") + "\n补写一句。\n", encoding="utf-8")
+    memory_path = root / "memory" / "chapters" / "001" / "chapter_memory.json"
+    memory = load_json_model(memory_path, ChapterMemory)
+    atomic_write_model_json(
+        memory_path,
+        memory.model_copy(update={"source": memory.source.model_copy(update={"polished_sha256": "0" * 64})}),
+    )
 
     status, payload = handle_api_request(
         "POST",
@@ -3578,10 +3593,11 @@ def test_api_chapters_marks_memory_stale_for_freshness_warnings(tmp_path: Path) 
         "",
         json.dumps({"path": str(root), "chapter_number": 1, "provider": "mock", "force": True}),
     )
-    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
-    polished_path.write_text(
-        polished_path.read_text(encoding="utf-8").replace("status: accepted", "status: polished", 1),
-        encoding="utf-8",
+    memory_path = root / "memory" / "chapters" / "001" / "chapter_memory.json"
+    memory = load_json_model(memory_path, ChapterMemory)
+    atomic_write_model_json(
+        memory_path,
+        memory.model_copy(update={"source": memory.source.model_copy(update={"polished_sha256": "0" * 64})}),
     )
 
     status, payload = handle_api_request("GET", "/api/chapters", f"path={root}", None)
@@ -3638,19 +3654,22 @@ def _write_test_acceptance_lineage(root: Path, chapter_number: int, chapter_dir:
         content=candidate_content,
         suffix=".md",
     )
-    audit_content = json.dumps(
-        {
-            "schema_version": 3,
-            "chapter_number": chapter_number,
-            "audited_file": "polished.md",
-            "overall_status": "passed",
-            "summary": "通过。",
-            "issues": [],
-            "created_at": "2026-05-23T00:00:00Z",
-        },
-        ensure_ascii=False,
-        indent=2,
-    ).encode("utf-8") + b"\n"
+    audit_content = (
+        json.dumps(
+            {
+                "schema_version": 3,
+                "chapter_number": chapter_number,
+                "audited_file": "polished.md",
+                "overall_status": "passed",
+                "summary": "通过。",
+                "issues": [],
+                "created_at": "2026-05-23T00:00:00Z",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ).encode("utf-8")
+        + b"\n"
+    )
     audit = store.create(
         chapter_number=chapter_number,
         kind=ArtifactKind.AUDIT,

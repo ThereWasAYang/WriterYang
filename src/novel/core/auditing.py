@@ -20,6 +20,7 @@ from novel.core.audit_localization import (
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.consistency import check_chapter_consistency
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
@@ -201,9 +202,7 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         backup_if_exists(audit_path, reason="force")
     atomic_write_model_json(audit_path, report)
     context_report_path = (
-        write_context_report(root, context.context_bundle, force=options.force)
-        if context.context_bundle
-        else None
+        write_context_report(root, context.context_bundle, force=options.force) if context.context_bundle else None
     )
     return ChapterAuditResult(
         audit_path=audit_path,
@@ -227,7 +226,9 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
     canon = load_canon_files(root)
     state_path, timeline_path = resolve_world_state_paths(root, options.world_state_dir)
     state_json = _budgeted_state_or_raw(state_path, project=project, chapter_number=options.chapter_number, plan=plan)
-    timeline_json = _budgeted_timeline_or_raw(timeline_path, project=project, chapter_number=options.chapter_number, plan=plan)
+    timeline_json = _budgeted_timeline_or_raw(
+        timeline_path, project=project, chapter_number=options.chapter_number, plan=plan
+    )
     context_bundle = (
         retrieve_context_bundle(
             root,
@@ -269,7 +270,9 @@ def _budgeted_state_or_raw(path: Path, *, project: ProjectConfig, chapter_number
 def _budgeted_timeline_or_raw(path: Path, *, project: ProjectConfig, chapter_number: int, plan: ChapterPlan) -> str:
     try:
         timeline = load_json_model(path, TimelineFile)
-        return render_timeline_prompt_text(timeline, project=project, chapter_number=chapter_number, task="audit", plan=plan)
+        return render_timeline_prompt_text(
+            timeline, project=project, chapter_number=chapter_number, task="audit", plan=plan
+        )
     except Exception:
         return _read_required_json_text(path)
 
@@ -369,8 +372,7 @@ def _deterministic_summary_from_issues(issues: tuple[AuditIssue, ...]) -> str:
         source = evidence.source if evidence else ""
         quote = evidence.quote if evidence else ""
         lines.append(
-            f"- {issue.id} [{issue.severity}/{issue.type}] {issue.description} "
-            f"source={source} evidence={quote}"
+            f"- {issue.id} [{issue.severity}/{issue.type}] {issue.description} source={source} evidence={quote}"
         )
     return "\n".join(lines) + "\n"
 
@@ -446,22 +448,35 @@ def build_audit_user_prompt(
     focus: tuple[FocusArea, ...],
     recalled_context: str = "",
 ) -> str:
-    recalled_context_text = f"Additional recalled context：\n{recalled_context}\n\n" if recalled_context else ""
+    recalled_context_text = (
+        render_untrusted_workspace_data("recalled_context", recalled_context) if recalled_context else ""
+    )
+    project_text = json.dumps(
+        {
+            "title": context.project.title,
+            "language": context.project.language,
+            "genre": context.project.genre,
+        },
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{context.project.title}\n"
-        f"语言：{context.project.language}\n"
-        f"类型：{', '.join(context.project.genre)}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         f"章节：{context.plan.chapter_number} - {context.plan.title}\n"
         f"严格审核：{'是' if strict else '否'}\n"
         f"审核重点：{', '.join(focus) if focus else '全部'}\n"
         f"用户额外审核要求：{instruction or '无'}\n\n"
         "请输出严格 JSON，符合 AuditReport schema，至少包含：\n"
         "chapter_number, audited_file, overall_status, summary, issues, passed_checks, created_at, need_context。\n"
-        "issues 每项至少包含 id, severity, type, description, evidence, suggested_fix。\n\n"
+        "issues 每项必须包含 id, severity, type, description, evidence, suggested_fix, source_layer, "
+        "blocking_reason, evidence_strength, is_hard_blocker, confidence。\n\n"
         "字段约束：\n"
         "- issue.id 必须使用小写字母、数字和下划线，例如 audit_001_001，不要使用连字符。\n"
         "- issue.evidence 必须是数组，每项包含 source 和 quote；不要把 evidence 写成字符串。\n"
         "- severity 只能是 low, medium, high, critical。\n"
+        "- source_layer 只能是 plan/draft/polished/state/timeline/canon/style/unknown。\n"
+        "- evidence_strength 只能是 weak/medium/strong；只有引用明确来源和具体 quote 时才可写 strong。\n"
+        "- is_hard_blocker 只有在问题会阻止当前 candidate 安全进入后续流程时才为 true，并填写 blocking_reason。\n"
+        "- confidence 为 0 到 1；证据不足或 source_layer 不明时不得高于 0.74。\n"
         "- overall_status 只能是 passed, needs_revision, blocked。\n\n"
         "Severity policy：\n"
         "- critical：会导致章节无法继续使用的问题，例如重大设定矛盾、主角死亡但后文当作未死亡、章节编号错乱。\n"
@@ -482,19 +497,17 @@ def build_audit_user_prompt(
         "才应作为时间线硬冲突。\n"
         "如果缺少某段历史正文、实体或查询上下文，且该缺口会影响 medium/high/critical 问题判断，"
         "可在 need_context 中列出 kind=chapter_prose/entity/query、ref 和 reason；否则 need_context 置空数组。\n"
-        f"{context.deterministic_summary}\n"
-        f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
-        f"Audited file metadata：\n{json.dumps(context.audited_document.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
-        f"Audited file body：\n{context.audited_body}\n\n"
-        f"Draft body：\n{context.draft_body}\n\n"
-        f"Polished body：\n{context.polished_body}\n\n"
-        f"{context.search_context}\n"
-        f"{recalled_context_text}"
-        f"Style guide：\n{context.style_guide}\n\n"
-        f"Canon 摘要：\n{context.canon_summary}\n\n"
-        f"Current state：\n{context.state_json}\n\n"
-        f"Timeline：\n{context.timeline_json}\n\n"
-        f"Inspiration.md：\n{context.inspiration_md}\n"
+        f"{render_untrusted_workspace_data('deterministic_summary', context.deterministic_summary)}\n"
+        f"{render_untrusted_workspace_data('approved_chapter_plan', context.plan.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('audited_candidate_metadata', json.dumps(context.audited_document.metadata, ensure_ascii=False, indent=2, default=str))}\n"
+        f"{render_untrusted_workspace_data('audited_candidate_body', context.audited_body)}\n"
+        f"{render_untrusted_workspace_data('search_context', context.search_context)}\n"
+        f"{recalled_context_text}\n"
+        f"{render_untrusted_workspace_data('style_guide', context.style_guide)}\n"
+        f"{render_untrusted_workspace_data('canon_summary', context.canon_summary)}\n"
+        f"{render_untrusted_workspace_data('current_state', context.state_json)}\n"
+        f"{render_untrusted_workspace_data('timeline', context.timeline_json)}\n"
+        f"{render_untrusted_workspace_data('inspiration_md', context.inspiration_md)}\n"
     )
 
 
@@ -801,15 +814,17 @@ def combine_audit_reports(
     if precheck_issues:
         summary = f"程序预检发现 {len(precheck_issues)} 个问题。{summary}"
 
-    return localize_audit_report_for_author(AuditReport(
-        chapter_number=chapter_number,
-        audited_file=audited_file,
-        overall_status=status,
-        summary=summary,
-        issues=issues,
-        passed_checks=checks,
-        created_at=utc_now(),
-    ))
+    return localize_audit_report_for_author(
+        AuditReport(
+            chapter_number=chapter_number,
+            audited_file=audited_file,
+            overall_status=status,
+            summary=summary,
+            issues=issues,
+            passed_checks=checks,
+            created_at=utc_now(),
+        )
+    )
 
 
 def default_mock_audit_report_json(

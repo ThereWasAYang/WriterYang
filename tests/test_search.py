@@ -25,6 +25,15 @@ from novel.core.search import (
     search_project,
     write_context_report,
 )
+from novel.core.session import (
+    SessionActionOptions,
+    SessionRunOptions,
+    SessionStartOptions,
+    accept_session,
+    approve_outline,
+    run_session,
+    start_session,
+)
 from novel.core.schemas import ContextBundle
 from novel.core.workflow import GenerateChapterOptions, generate_chapter
 from novel.core.workspace import InitOptions, init_workspace
@@ -49,6 +58,29 @@ def test_index_rebuild_creates_search_index(tmp_path: Path) -> None:
     status = search_index_status(root)
     assert status.fts_status == "indexed"
     assert status.embedding_status in {"env_missing", "missing", "not_configured", "test_only"}
+    payload = json.loads(result.index_path.read_text(encoding="utf-8"))
+    for document in payload["documents"]:
+        assert document["authority"] in {"canonical", "approved_plan", "accepted_chapter", "chapter_memory"}
+        assert document["lifecycle_status"] in {"current", "accepted", "fresh", "working"}
+        assert document["visibility"] in {"reader_visible", "author_only", "hidden_truth", "audit_only"}
+        assert len(document["source_sha256"]) == 64
+
+
+def test_index_allowlist_excludes_archive_rejection_backup_and_working_candidates(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    excluded_files = (
+        root / "memory" / "archive" / "session_x" / "archived.md",
+        root / "memory" / "sessions" / "session_x" / "rejections" / "rejected.md",
+        root / "memory" / "backups" / "backup.md",
+        root / "memory" / "chapters" / "001" / "polished.md",
+    )
+    for path in excluded_files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("不应召回的唯一毒化文本 poison_archive_7788", encoding="utf-8")
+
+    rebuild_search_index(root)
+
+    assert search_project(root, "poison_archive_7788", limit=20) == []
 
 
 def test_index_refresh_updates_only_changed_documents(tmp_path: Path) -> None:
@@ -57,8 +89,10 @@ def test_index_refresh_updates_only_changed_documents(tmp_path: Path) -> None:
     first_status = search_index_status(root)
     assert first_status.fts_status == "indexed"
 
-    inspiration = root / "memory" / "inspiration.md"
-    inspiration.write_text(inspiration.read_text(encoding="utf-8") + "\n新增线索：蓝色伞柄。\n", encoding="utf-8")
+    characters_path = root / "memory" / "canon" / "characters.json"
+    characters = json.loads(characters_path.read_text(encoding="utf-8"))
+    characters["characters"][0]["reader_visible_summary"] += " 他握着蓝色伞柄。"
+    characters_path.write_text(json.dumps(characters, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     stale_status = search_index_status(root)
     assert stale_status.fts_status == "stale"
     assert stale_status.stale_document_count >= 1
@@ -74,8 +108,10 @@ def test_index_refresh_updates_only_changed_documents(tmp_path: Path) -> None:
 def test_index_refresh_counts_deleted_documents(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
     rebuild_search_index(root)
-    inspiration = root / "memory" / "inspiration.md"
-    inspiration.unlink()
+    characters_path = root / "memory" / "canon" / "characters.json"
+    characters = json.loads(characters_path.read_text(encoding="utf-8"))
+    characters["characters"] = []
+    characters_path.write_text(json.dumps(characters, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     result = refresh_search_index(root)
 
@@ -403,6 +439,34 @@ def test_context_bundle_allows_hidden_truth_for_audit(tmp_path: Path) -> None:
     assert "旧车站在特定雨夜会短暂连接过去的时间层" in rendered
 
 
+def test_context_bundle_allows_only_explicitly_authorized_hidden_truth_for_writer(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    payload = json.loads(default_mock_chapter_plan_json(1))
+    payload["reveal_authorizations"] = [
+        {
+            "hidden_truth_id": "truth_station_overlap",
+            "chapter_number": 1,
+            "method": "通过广播日期揭示",
+            "reason": "本章已批准的核心揭示",
+        }
+    ]
+    plan = parse_chapter_plan(json.dumps(payload, ensure_ascii=False))
+
+    bundle = retrieve_context_bundle(
+        root,
+        chapter_number=1,
+        task="write",
+        instruction="按已批准计划写作",
+        plan=plan,
+        limit=20,
+    )
+    rendered = bundle.render_for_prompt()
+
+    assert "旧车站在特定雨夜会短暂连接过去的时间层" in rendered
+    assert not any(item.id == "truth_station_overlap" for item in bundle.excluded)
+    assert "BEGIN UNTRUSTED_WORKSPACE_DATA" in rendered
+
+
 def test_use_search_context_does_not_break_planning_prompt(tmp_path: Path) -> None:
     root = _workspace_ready_for_search(tmp_path)
     provider = MockProvider(fake_response=default_mock_chapter_plan_json(1))
@@ -502,10 +566,18 @@ def _workspace_ready_for_search(tmp_path: Path) -> Path:
 
 def _workspace_with_generated_chapter(tmp_path: Path) -> Path:
     root = _workspace_ready_for_search(tmp_path)
-    result = generate_chapter(
-        GenerateChapterOptions(root=root, chapter_number=1, provider_name="mock")
+    started = start_session(
+        SessionStartOptions(
+            root=root,
+            user_intent="写第一章并保留旧车站广播线索。",
+            chapter_range=(1,),
+            provider_name="mock",
+        )
     )
-    assert result.run_log.status == "completed"
+    session_id = started.session.session_id
+    approve_outline(SessionActionOptions(root=root, session_id=session_id))
+    run_session(SessionRunOptions(root=root, session_id=session_id, provider_name="mock"))
+    accept_session(SessionActionOptions(root=root, session_id=session_id, provider_name="mock"))
     return root
 
 
@@ -530,9 +602,7 @@ def _write_timeline_events(root: Path, events: list[dict[str, object]]) -> None:
     normalized_events: list[dict[str, object]] = []
     for event in events:
         chapter = event.get("chapter", 1)
-        event_data = {
-            key: value for key, value in event.items() if key not in {"chapter", "scene", "in_story_time"}
-        }
+        event_data = {key: value for key, value in event.items() if key not in {"chapter", "scene", "in_story_time"}}
         normalized_events.append(
             {
                 **event_data,

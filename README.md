@@ -107,12 +107,14 @@ Web API 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BY
 
 真实创作建议在 `config/agents.yaml` 配置顶层 `default`，让各 profile 通过 `inherit_default: true` 继承。离线测试使用命令行 `--provider mock` 覆盖。
 
-| Profile | 默认用途 |
-| --- | --- |
-| `scribe` | 正文写作、润色和 scoped revision patch |
-| `architect` | 章节计划和一致性 Audit |
-| `loremaster` | 灵感、文风与 Canon proposal |
-| `clerk` | State Update、Chapter Memory、路由、Memory Repair 与 Setup |
+<!-- TASK_REGISTRY_PROFILES:START -->
+| Profile | Runtime Tasks | 默认用途 |
+| --- | --- | --- |
+| `scribe` | `write`、`polish`、`revision` | 正文写作、润色和 scoped revision patch |
+| `architect` | `plan`、`audit` | 章节计划和一致性 Audit |
+| `loremaster` | `inspiration`、`style_guide`、`canon` | 灵感、文风与 Canon proposal |
+| `clerk` | `state_update`、`chapter_memory`、`intent_router`、`memory_repair` | State Update、Chapter Memory、路由与 Memory Repair |
+<!-- TASK_REGISTRY_PROFILES:END -->
 
 Provider 适配与 Agent logic 分离。`deepseek`、`zai` 和 OpenAI-compatible provider 的私有参数由 provider adapter 决定是否进入 payload；API Key 只读取环境变量或项目 `.env`，不要写入 YAML、JSON、Markdown 或日志。
 

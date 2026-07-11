@@ -79,6 +79,39 @@
       },
       "title": "RequiredContext",
       "type": "object"
+    },
+    "RevealAuthorization": {
+      "additionalProperties": true,
+      "properties": {
+        "hidden_truth_id": {
+          "minLength": 1,
+          "title": "Hidden Truth Id",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "method": {
+          "minLength": 1,
+          "title": "Method",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hidden_truth_id",
+        "chapter_number",
+        "method",
+        "reason"
+      ],
+      "title": "RevealAuthorization",
+      "type": "object"
     }
   },
   "additionalProperties": true,
@@ -143,6 +176,13 @@
         "type": "string"
       },
       "title": "Expected State Changes",
+      "type": "array"
+    },
+    "reveal_authorizations": {
+      "items": {
+        "$ref": "#/$defs/RevealAuthorization"
+      },
+      "title": "Reveal Authorizations",
       "type": "array"
     }
   },

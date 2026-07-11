@@ -1163,6 +1163,7 @@ memory/chapters/{chapter_number}/plan.json
   "expected_state_changes": [
     "林澈知道车票日期与母亲失踪有关"
   ],
+  "reveal_authorizations": [],
   "ending_hook": "窗外传来旧车站广播里的同一首歌。"
 }
 ```
@@ -1182,6 +1183,7 @@ memory/chapters/{chapter_number}/plan.json
 
 - `required_context`
 - `expected_state_changes`
+- `reveal_authorizations`；每项包含 `hidden_truth_id`、`chapter_number`、`method` 和 `reason`。
 
 Validation 规则：
 
@@ -1189,6 +1191,7 @@ Validation 规则：
 - Scene number 应从 1 开始并按顺序递增。
 - `location_id` 应尽可能引用已有地点。
 - `participant_ids` 应尽可能引用已有角色。
+- `reveal_authorizations.hidden_truth_id` 必须精确引用已有 hidden truth，不得重复；其章节必须与当前 ChapterPlan 一致。只有大纲被用户批准后授权才生效。
 
 ---
 
@@ -1299,7 +1302,12 @@ memory/chapters/{chapter_number}/audit.json
           "quote": "沈鹿把那张破损车票放回桌上。"
         }
       ],
-      "suggested_fix": "改为林澈把车票放在桌上，沈鹿只是看见它，而不是持有它。"
+      "suggested_fix": "改为林澈把车票放在桌上，沈鹿只是看见它，而不是持有它。",
+      "source_layer": "polished",
+      "blocking_reason": "正文与 current_state 明确冲突",
+      "evidence_strength": "strong",
+      "is_hard_blocker": true,
+      "confidence": 0.96
     }
   ],
   "passed_checks": [
@@ -1353,6 +1361,7 @@ memory/chapters/{chapter_number}/audit.json
 Validation 规则：
 
 - 如果 `overall_status` 是 `passed`，不应存在 `high` 或 `critical` issue。
+- 自动修复只接受 `source_layer` 明确、`evidence_strength=strong`、`is_hard_blocker=true`、`blocking_reason` 非空、`confidence>=0.75` 且具有具体 evidence 的 issue；其他问题只允许人工复核。
 - 除非 issue type 纯粹用于提示信息，否则每个 issue 都应包含修复建议。
 
 ### 21.1 ChapterMemory
@@ -1379,6 +1388,19 @@ summary、剧情节拍、角色知识变化、state change、timeline event ID�
   `reader_visible`。
 - `source.polished_sha256` 应匹配已 accepted 的 `polished.md`；过期 memory
   应产生 warning，且不应静默替代 source verification。
+
+### 21.2 ContextBundle 与 SearchDocument metadata
+
+`SearchDocument` 和进入 Prompt 的 `ContextItem` 使用以下来源字段：
+
+- `artifact_ref`：存在 immutable artifact 时的严格引用；canonical 文件可为空。
+- `authority`：`canonical`、`approved_plan`、`accepted_chapter`、`chapter_memory`、`workflow` 或显式 `history`。
+- `lifecycle_status`：`current`、`accepted`、`fresh`、`working`、`historical`、`stale`。
+- `session_id` / `accepted_commit_id`：约束 workflow-local 与 accepted lineage。
+- `visibility`：`reader_visible`、`author_only`、`hidden_truth`、`audit_only`。
+- `source_sha256`：索引时源文件 hash。
+
+默认 Search allowlist 只允许 current canonical、当前 approved plan、fresh accepted chapter 与 ChapterMemory。archive、rejection、backup、stale artifact、transaction staging、model I/O 与其他 workflow working candidate 不进入默认索引。Context Policy 会在召回后再次按 Task、session 和 Reveal Authorization 过滤。
 
 ---
 
@@ -1468,7 +1490,7 @@ runs/{workflow_run_id}/run.json
 runs/{workflow_run_id}/nodes/{node_id}.json
 ```
 
-`WorkflowRun` 记录 root command、surface、全局 `WorkflowBudget`、累计 `BudgetUsage`、有序 `node_ids` 和整体状态。`WorkflowNodeRun` 记录 command/model/deterministic 节点的 parent、Task/Profile、Provider/model、输入输出 artifact/path、prompt hash、retry/repair 次数、调用前后预算、错误与恢复命令。
+`WorkflowRun` 记录 root command、surface、全局 `WorkflowBudget`、累计 `BudgetUsage`、有序 `node_ids` 和整体状态。`WorkflowNodeRun` 记录 command/model/deterministic 节点的 parent、Task/Profile、Provider/model、输入输出 artifact/path、template/rendered prompt hash、`prompt_policy_hash`、retry/repair 次数、调用前后预算、错误与恢复命令。
 
 约束：
 

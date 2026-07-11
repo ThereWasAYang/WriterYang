@@ -138,8 +138,7 @@
         "state_update",
         "chapter_memory",
         "intent_router",
-        "memory_repair",
-        "setup"
+        "memory_repair"
       ],
       "title": "TaskId",
       "type": "string"
@@ -290,6 +289,18 @@
       ],
       "default": null,
       "title": "Prompt Template Hash"
+    },
+    "prompt_policy_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prompt Policy Hash"
     },
     "rendered_prompt_hash": {
       "anyOf": [

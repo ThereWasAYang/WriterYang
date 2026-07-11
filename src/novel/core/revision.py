@@ -10,11 +10,23 @@ from novel.core.agent_output import (
     AgentOutputContract,
     generate_with_output_guard,
 )
-from novel.core.chapter_versions import is_allowed_chapter_version_name, latest_chapter_version_path, next_chapter_version_path
+from novel.core.chapter_versions import (
+    is_allowed_chapter_version_name,
+    latest_chapter_version_path,
+    next_chapter_version_path,
+)
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.drafting import _chapter_number_text
-from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.io import (
+    atomic_write_json,
+    atomic_write_model_json,
+    atomic_write_text,
+    backup_if_exists,
+    load_json_model,
+    load_yaml_model,
+)
 from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -183,9 +195,7 @@ def revise_chapter(
     log_path = chapter_dir / "revision_log.json"
     _append_revision_log(log_path, options.chapter_number, record)
     context_report_path = (
-        write_context_report(root, context.context_bundle, force=options.force)
-        if context.context_bundle
-        else None
+        write_context_report(root, context.context_bundle, force=options.force) if context.context_bundle else None
     )
     return ChapterRevisionResult(
         output_path=output_path,
@@ -329,26 +339,28 @@ def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisio
         task="revision",
         plan=context.plan,
     )
+    project_text = json.dumps(
+        {"title": context.project.title, "language": context.project.language},
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{context.project.title}\n"
-        f"语言：{context.project.language}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         f"修订模式：{mode}\n"
         f"目标文件类型：{options.target}\n"
         f"源文件：{context.source_file}\n"
         f"用户修订要求：{options.instruction or '无'}\n\n"
         "请只输出修订后的正文 Markdown，不要包含 YAML front matter。"
         "保留章节核心剧情与结尾钩子，除非用户明确要求改变。\n\n"
-        f"{context.search_context}\n"
-        f"Blocking audit issues（必须逐条解决 medium/high/critical，优先应用 suggested_fix）：\n"
-        f"{blocking_issue_text}\n\n"
-        f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
-        f"Source metadata：\n{json.dumps(context.source_document.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
-        f"Source body：\n{context.source_document.body}\n\n"
-        f"Audit report：\n{audit_text}\n\n"
-        f"Style guide：\n{context.style_guide}\n\n"
-        f"Canon 摘要：\n{context.canon_summary}\n\n"
-        f"Current state：\n{state_text}\n\n"
-        f"Timeline：\n{timeline_text}\n"
+        f"{render_untrusted_workspace_data('search_context', context.search_context)}\n"
+        f"{render_untrusted_workspace_data('blocking_audit_issues', blocking_issue_text)}\n"
+        f"{render_untrusted_workspace_data('approved_chapter_plan', context.plan.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('source_metadata', json.dumps(context.source_document.metadata, ensure_ascii=False, indent=2, default=str))}\n"
+        f"{render_untrusted_workspace_data('source_body', context.source_document.body)}\n"
+        f"{render_untrusted_workspace_data('audit_report', audit_text)}\n"
+        f"{render_untrusted_workspace_data('style_guide', context.style_guide)}\n"
+        f"{render_untrusted_workspace_data('canon_summary', context.canon_summary)}\n"
+        f"{render_untrusted_workspace_data('current_state', state_text)}\n"
+        f"{render_untrusted_workspace_data('timeline', timeline_text)}\n"
     )
 
 

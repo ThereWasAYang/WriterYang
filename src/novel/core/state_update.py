@@ -22,7 +22,15 @@ from novel.core.chapter_memory import (
     load_chapter_memory_provider,
 )
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
-from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, backup_if_exists, load_json_model, load_yaml_model
+from novel.core.context_policy import render_untrusted_workspace_data
+from novel.core.io import (
+    atomic_write_model_json,
+    atomic_write_text,
+    backup_file,
+    backup_if_exists,
+    load_json_model,
+    load_yaml_model,
+)
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
 from novel.core.contracts import CURRENT_SCHEMA_VERSION
@@ -176,9 +184,7 @@ def propose_state_update(
         backup_if_exists(proposal_path, reason="force")
     atomic_write_model_json(proposal_path, proposal)
     context_report_path = (
-        write_context_report(root, context.context_bundle, force=options.force)
-        if context.context_bundle
-        else None
+        write_context_report(root, context.context_bundle, force=options.force) if context.context_bundle else None
     )
     record_management_event(
         root,
@@ -260,9 +266,7 @@ def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResu
             status="error",
             details={"apply_log_path": str(apply_log_path.relative_to(root)), "error": str(exc)},
         )
-        raise StateUpdateError(
-            f"state update write failed and was rolled back; see {apply_log_path}"
-        ) from exc
+        raise StateUpdateError(f"state update write failed and was rolled back; see {apply_log_path}") from exc
     atomic_write_model_json(apply_log_path, apply_log)
     target_files = [str(state_path.relative_to(root)), str(timeline_path.relative_to(root))]
     record_management_event(
@@ -578,8 +582,7 @@ def validate_state_update_proposal(
         reusable_historical_change_ids = {
             change_id
             for event in current_timeline.events
-            if event.narrative_position
-            and event.narrative_position.chapter == proposal.chapter_number
+            if event.narrative_position and event.narrative_position.chapter == proposal.chapter_number
             for change_id in event.state_change_ids
         }
     proposed_change_ids = {change.id for change in proposal.state_changes}
@@ -595,12 +598,8 @@ def validate_state_update_proposal(
             raise StateUpdateError(f"timeline event {event.id} references missing location: {event.location_id}")
         for participant_id in event.participant_ids:
             if participant_id not in character_ids:
-                raise StateUpdateError(
-                    f"timeline event {event.id} references missing participant: {participant_id}"
-                )
-        missing_change_ids = sorted(
-            set(event.state_change_ids) - proposed_change_ids - reusable_historical_change_ids
-        )
+                raise StateUpdateError(f"timeline event {event.id} references missing participant: {participant_id}")
+        missing_change_ids = sorted(set(event.state_change_ids) - proposed_change_ids - reusable_historical_change_ids)
         if missing_change_ids:
             raise StateUpdateError(
                 f"timeline event {event.id} references missing state changes: {', '.join(missing_change_ids)}"
@@ -691,8 +690,7 @@ def _validate_proposed_item_holder_location_conflicts(
 ) -> None:
     state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
     item_positions = {
-        item.entity_id: {"holder_id": item.holder_id, "location_id": item.location_id}
-        for item in state.item_states
+        item.entity_id: {"holder_id": item.holder_id, "location_id": item.location_id} for item in state.item_states
     }
     for item_id in item_ids:
         item_positions.setdefault(item_id, {"holder_id": None, "location_id": None})
@@ -832,9 +830,12 @@ def build_state_update_user_prompt(
             "- 可以复用本章旧 timeline event id；没有变化时保持原事件。\n"
             "- 不得重放本次未改变且已经生效的旧 state change。\n\n"
         )
+    project_text = json.dumps(
+        {"title": context.project.title, "language": context.project.language},
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{context.project.title}\n"
-        f"语言：{context.project.language}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         f"章节：{context.plan.chapter_number} - {context.plan.title}\n"
         f"用户额外状态更新说明：{instruction or '无'}\n\n"
         "请输出严格 JSON，结构如下：\n"
@@ -867,14 +868,14 @@ def build_state_update_user_prompt(
         "- 不要为了倒序/插叙把 narrative_position 倒退；如果无法判断 scene，宁可省略 scene 或写入 warnings。\n"
         "- append 模式下，新 timeline event 的 narrative_position 不能倒退到现有 timeline 的最后事件之前。\n\n"
         f"{revision_rules}"
-        f"{context.search_context}\n"
-        f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
-        f"AuditReport：\n{context.audit.model_dump_json(indent=2)}\n\n"
-        f"Polished metadata：\n{json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
-        f"Polished body：\n{context.polished.body}\n\n"
-        f"Canon 摘要：\n{context.canon_summary}\n\n"
-        f"Current state：\n{context.state_json}\n\n"
-        f"Timeline：\n{context.timeline_json}\n"
+        f"{render_untrusted_workspace_data('search_context', context.search_context)}\n"
+        f"{render_untrusted_workspace_data('approved_chapter_plan', context.plan.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('passed_audit_report', context.audit.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('candidate_metadata', json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str))}\n"
+        f"{render_untrusted_workspace_data('candidate_body', context.polished.body)}\n"
+        f"{render_untrusted_workspace_data('canon_summary', context.canon_summary)}\n"
+        f"{render_untrusted_workspace_data('current_state', context.state_json)}\n"
+        f"{render_untrusted_workspace_data('timeline', context.timeline_json)}\n"
     )
 
 
@@ -1043,9 +1044,7 @@ def _normalize_state_update_references(root: Path, proposal: StateUpdateProposal
             and change.new_value in location_ids
         ):
             normalized_changes.append(change.model_copy(update={"field": "location_id"}))
-            warnings.append(
-                f"normalized state change {change.id} holder_id location reference to location_id"
-            )
+            warnings.append(f"normalized state change {change.id} holder_id location reference to location_id")
             changed = True
             continue
         normalized_changes.append(change)
@@ -1184,7 +1183,15 @@ def _validate_state_change_field(
     location_ids: set[str],
     item_ids: set[str],
 ) -> None:
-    character_fields = {"location_id", "health", "mental_state", "knowledge", "goals", "possessions", "last_updated_chapter"}
+    character_fields = {
+        "location_id",
+        "health",
+        "mental_state",
+        "knowledge",
+        "goals",
+        "possessions",
+        "last_updated_chapter",
+    }
     item_fields = {"holder_id", "location_id", "condition", "known_properties", "last_updated_chapter"}
     location_fields = {"accessibility", "condition", "active_events", "last_updated_chapter"}
     story_fields = {"latest_chapter", "in_story_time", "summary"}

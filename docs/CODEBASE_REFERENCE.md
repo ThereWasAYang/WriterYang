@@ -59,6 +59,7 @@
 - `src/novel/core/agent_output.py`
 - `src/novel/core/app_logging.py`
 - `src/novel/core/artifact_store.py`
+- `src/novel/core/audit_policy.py`
 - `src/novel/core/budget.py`
 - `src/novel/core/auditing.py`
 - `src/novel/core/canon.py`
@@ -67,6 +68,7 @@
 - `src/novel/core/command_bus.py`
 - `src/novel/core/consistency.py`
 - `src/novel/core/context_budget.py`
+- `src/novel/core/context_policy.py`
 - `src/novel/core/drafting.py`
 - `src/novel/core/embeddings.py`
 - `src/novel/core/env.py`
@@ -814,6 +816,8 @@ orchestrator 项目管家修复 proposal 包，保留 `from novel.core.memory_re
 搜索和 ContextBundle：
 
 - `rebuild_search_index()`：全量构建 JSON/SQLite/manifest 搜索索引，可选真实 embedding。
+- `_collect_documents()`：显式 allowlist collector；只收集 current canon/state/timeline、当前 approved plan、fresh accepted chapter 与 ChapterMemory。不存在 `memory/**` 全目录 `rglob`。
+- `SearchDocument`：保存 `artifact_ref`、`authority`、`lifecycle_status`、`session_id`、`accepted_commit_id`、`visibility` 和 `source_sha256`；archive/rejection/backup/stale 不进入默认索引。
 - `refresh_search_index()`：增量刷新新增、修改、删除文档；默认只更新 FTS，`with_embeddings=True` 时刷新真实 embedding。
 - `_write_search_index_update()`：rebuild/refresh 共享的内部写索引流程，统一写 JSON、SQLite 和 manifest。
 - `search_index_status()`：返回 FTS 和 embedding freshness 状态，供 CLI/Web 状态栏使用；`search_project(use_vector=True)` 会在真实向量缺失或过期时先调用 embedding refresh。
@@ -824,9 +828,20 @@ orchestrator 项目管家修复 proposal 包，保留 `from novel.core.memory_re
 - `chapter_memory.json` 作为 `chapter_memory` 类型入索引，检索命中只作为 accepted 正文/canon/state/timeline 的导航指针；Writer 任务会隐藏原始 excerpt，避免泄漏 hidden truth。
 - `write_context_report()`：写 `context_report*.json`。
 - `_include_entity_context()`、`_include_related_events()`、`_include_related_hidden_material()`：补充 canon/state/timeline/hidden material。
-- `_maybe_include_hidden_truth()`：按 task visibility 控制 hidden truth。
+- `_maybe_include_hidden_truth()`：按 Task Context Policy 和精确 `RevealAuthorization` 控制 hidden truth；用户 instruction 本身不能授权 Writer/Polish/Revision 揭示。
 - `_score_document()`、`_highlight()`：关键词打分和高亮。
 - `_load_embedding_provider()`：显式加载 embedding provider；默认拒绝把 `local_hash` 当作真实业务语义检索。
+
+### `core/context_policy.py`
+
+- `CONTEXT_POLICIES`：按 Task 固定可读 authority、lifecycle、visibility 和 Reveal Authorization 要求。
+- `search_metadata_allowed()`：阻止 stale/history/其他 workflow working data 进入当前 prompt。
+- `render_untrusted_workspace_data()`：统一包裹项目文件、检索结果、模型历史输出和摘要，声明其为数据而非权限指令。
+
+### `core/audit_policy.py`
+
+- `classify_audit_issue()`：把 issue 分为 `auto_fix`、`manual_review`、`advisory`。
+- 自动修复要求明确可执行 `source_layer`、具体 evidence、`evidence_strength=strong`、`is_hard_blocker=true`、非空 `blocking_reason` 和 `confidence>=0.75`；任一条件不满足就保守转人工。
 
 ### `core/inspection.py`
 
@@ -1028,7 +1043,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 
 ### `src/novel/core/task_registry.py`
 
-集中记录当前四个 Profile 与 Task、Prompt、输出 artifact、上下文权限和风险等级的映射，避免文档与运行时职责表继续漂移。
+集中记录当前四个 Profile 与 Task、Prompt、输出 artifact、Context Policy、Prompt Policy、上下文权限和风险等级的映射。`prompt_registry_entry()` 生成 template/policy hash 供 WorkflowNode trace 使用；`render_profile_registry_markdown()` 是 README Profile/Task 表的单一来源。Setup 仅保留 Provider connectivity 工具，不再登记为 Agent Task。
 
 ### `src/novel/core/markdown_blocks.py` 与 `src/novel/core/revision_workflow.py`
 

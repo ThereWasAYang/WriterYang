@@ -13,6 +13,7 @@ from novel.core.agent_output import (
     AgentOutputContract,
 )
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
@@ -241,7 +242,9 @@ def suggest_canon_drift(
         return CanonDriftResult(proposal=proposal, output_path=output_path)
     project = load_yaml_model(root / "project.yaml", ProjectConfig)
     if project.canon_drift and not project.canon_drift.enabled:
-        return CanonDriftResult(proposal=CanonProposal(notes=["canon drift detection disabled by project config"]), output_path=None)
+        return CanonDriftResult(
+            proposal=CanonProposal(notes=["canon drift detection disabled by project config"]), output_path=None
+        )
     plan = load_json_model(chapter_dir / "plan.json", ChapterPlan)
     polished_path = chapter_dir / "polished.md"
     if not polished_path.exists():
@@ -256,9 +259,13 @@ def suggest_canon_drift(
         polished_markdown=polished_path.read_text(encoding="utf-8"),
         existing_summary=format_canon_summary(canon),
         state_text=render_state_prompt_text(state, project=project, chapter_number=chapter_number, plan=plan),
-        timeline_text=render_timeline_prompt_text(timeline, project=project, chapter_number=chapter_number, task="canon", plan=plan),
+        timeline_text=render_timeline_prompt_text(
+            timeline, project=project, chapter_number=chapter_number, task="canon", plan=plan
+        ),
     )
-    proposal = _generate_canon_proposal_with_repair(root, provider, prompt, format_canon_summary(canon), existing_canon=canon)
+    proposal = _generate_canon_proposal_with_repair(
+        root, provider, prompt, format_canon_summary(canon), existing_canon=canon
+    )
     if not _canon_proposal_has_changes(proposal):
         return CanonDriftResult(proposal=proposal, output_path=None)
     if force and output_path.exists():
@@ -314,7 +321,9 @@ def format_canon_summary(canon: CanonFiles) -> str:
         f"- Hidden truths: {len(canon.hidden_truths.hidden_truths)}",
         f"- Foreshadowing threads: {len(canon.foreshadowing.foreshadowing_threads)}",
     ]
-    _extend_named(lines, "Characters", ((item.id, _format_character_summary(item)) for item in canon.characters.characters))
+    _extend_named(
+        lines, "Characters", ((item.id, _format_character_summary(item)) for item in canon.characters.characters)
+    )
     _extend_named(lines, "Locations", ((item.id, item.name) for item in canon.locations.locations))
     _extend_named(lines, "Items", ((item.id, item.name) for item in canon.items.items))
     _extend_named(lines, "World Rules", ((item.id, item.name) for item in canon.world.world_rules))
@@ -357,10 +366,7 @@ def format_canon_validation_report(report: ValidationReport) -> str:
     if report.ok:
         lines.append(f"Canon validation passed: {len(report.warnings)} warning(s)")
     else:
-        lines.append(
-            f"Canon validation failed: {len(report.errors)} error(s), "
-            f"{len(report.warnings)} warning(s)"
-        )
+        lines.append(f"Canon validation failed: {len(report.errors)} error(s), {len(report.warnings)} warning(s)")
     return "\n".join(lines)
 
 
@@ -377,10 +383,12 @@ def build_canon_user_prompt(
     existing_summary: str,
     search_context: str = "",
 ) -> str:
+    project_text = json.dumps(
+        {"title": project.title, "language": project.language, "genre": project.genre},
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{project.title}\n"
-        f"语言：{project.language}\n"
-        f"类型：{', '.join(project.genre)}\n\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         "请输出严格 JSON，结构如下：\n"
         "{\n"
         '  "characters": [{"id": "char_x", "name": "姓名", "role": "主角", "reader_visible_summary": "读者可见摘要", "aliases": [], "relationships": [], "tags": []}],\n'
@@ -405,11 +413,11 @@ def build_canon_user_prompt(
         "- reader_visible_summary 只写读者可见信息。\n"
         "- hidden_truths 不得混入 reader_visible_summary。\n"
         "- foreshadowing_threads 应关联 hidden_truth_id 或 related_entity_ids。\n\n"
-        f"{search_context}\n"
-        f"已有 canon 摘要：\n{existing_summary}\n\n"
-        f"style guide：\n{style_guide}\n\n"
-        f"inspiration.md：\n{inspiration_md}\n\n"
-        f"inspiration.json：\n{inspiration_json}\n"
+        f"{render_untrusted_workspace_data('search_context', search_context)}\n"
+        f"{render_untrusted_workspace_data('existing_canon_summary', existing_summary)}\n"
+        f"{render_untrusted_workspace_data('style_guide', style_guide)}\n"
+        f"{render_untrusted_workspace_data('inspiration_md', inspiration_md)}\n"
+        f"{render_untrusted_workspace_data('inspiration_json', inspiration_json)}\n"
     )
 
 
@@ -423,9 +431,12 @@ def build_canon_drift_user_prompt(
     state_text: str,
     timeline_text: str,
 ) -> str:
+    project_text = json.dumps(
+        {"title": project.title, "language": project.language},
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{project.title}\n"
-        f"语言：{project.language}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         f"章节：{chapter_number} - {plan.title}\n\n"
         "请扫描本章最终稿是否引入了未登记到 canon 的新角色、地点、物品、世界规则、隐藏真相或伏笔。\n"
         "只输出 CanonProposal JSON；若没有需要补登的内容，输出所有数组为空，并在 notes 说明。\n\n"
@@ -435,11 +446,11 @@ def build_canon_drift_user_prompt(
         "- 新 ID 必须使用 char_/loc_/item_/rule_/truth_/thread_ 前缀，并匹配 ^[a-z0-9_]+$。\n"
         "- reader_visible_summary 只能写读者可见信息；隐藏背景只能写入 hidden_truths 或 private_author_notes。\n"
         "- 不要修改 current_state/timeline；本任务只生成人工确认用 canon proposal。\n\n"
-        f"已有 canon 摘要：\n{existing_summary}\n\n"
-        f"ChapterPlan：\n{plan.model_dump_json(indent=2)}\n\n"
-        f"Current state：\n{state_text}\n\n"
-        f"Timeline：\n{timeline_text}\n\n"
-        f"最终稿 polished.md：\n{polished_markdown}\n"
+        f"{render_untrusted_workspace_data('existing_canon_summary', existing_summary)}\n"
+        f"{render_untrusted_workspace_data('approved_chapter_plan', plan.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('current_state', state_text)}\n"
+        f"{render_untrusted_workspace_data('timeline', timeline_text)}\n"
+        f"{render_untrusted_workspace_data('candidate_body', polished_markdown)}\n"
     )
 
 
@@ -700,9 +711,7 @@ def validate_canon_proposal(proposal: CanonProposal, *, existing_canon: CanonFil
     for truth in proposal.hidden_truths:
         for thread_id in truth.foreshadowing_ids:
             if thread_id not in thread_ids:
-                raise CanonError(
-                    f"hidden truth {truth.id} references missing foreshadowing thread: {thread_id}"
-                )
+                raise CanonError(f"hidden truth {truth.id} references missing foreshadowing thread: {thread_id}")
         for entity_id in truth.related_entity_ids:
             if entity_id not in entity_ids:
                 raise CanonError(f"hidden truth {truth.id} references missing entity: {entity_id}")
@@ -962,11 +971,21 @@ def _require_unique_ids(values: list[str], label: str) -> None:
 
 
 def _check_apply_conflicts(canon: CanonFiles, proposal: CanonProposal) -> None:
-    _check_conflict([item.id for item in canon.characters.characters], [item.id for item in proposal.characters], "character")
-    _check_conflict([item.id for item in canon.locations.locations], [item.id for item in proposal.locations], "location")
+    _check_conflict(
+        [item.id for item in canon.characters.characters], [item.id for item in proposal.characters], "character"
+    )
+    _check_conflict(
+        [item.id for item in canon.locations.locations], [item.id for item in proposal.locations], "location"
+    )
     _check_conflict([item.id for item in canon.items.items], [item.id for item in proposal.items], "item")
-    _check_conflict([item.id for item in canon.world.world_rules], [item.id for item in proposal.world_rules], "world rule")
-    _check_conflict([item.id for item in canon.hidden_truths.hidden_truths], [item.id for item in proposal.hidden_truths], "hidden truth")
+    _check_conflict(
+        [item.id for item in canon.world.world_rules], [item.id for item in proposal.world_rules], "world rule"
+    )
+    _check_conflict(
+        [item.id for item in canon.hidden_truths.hidden_truths],
+        [item.id for item in proposal.hidden_truths],
+        "hidden truth",
+    )
     _check_conflict(
         [item.id for item in canon.foreshadowing.foreshadowing_threads],
         [item.id for item in proposal.foreshadowing_threads],
@@ -1013,6 +1032,4 @@ def _ensure_hidden_truths_not_reader_visible(proposal: CanonProposal) -> None:
         for entity_id, summary in summaries:
             for fragment in fragments:
                 if fragment and fragment in summary:
-                    raise CanonError(
-                        f"hidden truth {truth.id} appears in reader_visible_summary for {entity_id}"
-                    )
+                    raise CanonError(f"hidden truth {truth.id} appears in reader_visible_summary for {entity_id}")

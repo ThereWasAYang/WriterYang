@@ -14,6 +14,7 @@ from novel.core.agent_output import (
 )
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.management import record_management_event
@@ -92,15 +93,13 @@ def polish_chapter(
     plan = load_json_model(plan_path, ChapterPlan)
     if plan.chapter_number != options.chapter_number:
         raise PolishingError(
-            f"plan.json chapter_number {plan.chapter_number} does not match requested "
-            f"chapter {options.chapter_number}"
+            f"plan.json chapter_number {plan.chapter_number} does not match requested chapter {options.chapter_number}"
         )
     draft = read_markdown_with_front_matter(draft_path)
     draft_chapter = draft.metadata.get("chapter_number")
     if draft_chapter != options.chapter_number:
         raise PolishingError(
-            f"draft.md chapter_number {draft_chapter} does not match requested "
-            f"chapter {options.chapter_number}"
+            f"draft.md chapter_number {draft_chapter} does not match requested chapter {options.chapter_number}"
         )
 
     warnings: list[str] = []
@@ -265,10 +264,12 @@ def build_polish_user_prompt(
         task="polish",
         plan=plan,
     )
+    project_text = json.dumps(
+        {"title": project.title, "language": project.language, "genre": project.genre},
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{project.title}\n"
-        f"语言：{project.language}\n"
-        f"类型：{', '.join(project.genre)}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         f"章节：{plan.chapter_number} - {plan.title}\n"
         f"编辑模式：{edit_mode} ({_edit_mode_description(edit_mode)})\n"
         f"尽量保持长度：{'是' if keep_length else '否'}\n"
@@ -276,15 +277,15 @@ def build_polish_user_prompt(
         f"临时文风要求：{style_note or '无'}\n\n"
         "请只输出润色后的正文 Markdown，不要包含 YAML front matter，"
         "不要包含 provider 原始响应、调试信息、JSON、分析说明、大纲或包装语。\n\n"
-        f"{search_context}\n"
-        f"ChapterPlan：\n{plan.model_dump_json(indent=2)}\n\n"
-        f"Draft metadata：\n{json.dumps(draft.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
-        f"Draft body：\n{draft.body}\n\n"
-        f"Style guide：\n{style_guide}\n\n"
-        f"Canon 摘要：\n{canon_summary}\n\n"
-        f"Current state：\n{state_text}\n\n"
-        f"Timeline：\n{timeline_text}\n\n"
-        f"Inspiration.md：\n{inspiration_md}\n"
+        f"{render_untrusted_workspace_data('search_context', search_context)}\n"
+        f"{render_untrusted_workspace_data('approved_chapter_plan', plan.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('draft_metadata', json.dumps(draft.metadata, ensure_ascii=False, indent=2, default=str))}\n"
+        f"{render_untrusted_workspace_data('draft_body', draft.body)}\n"
+        f"{render_untrusted_workspace_data('style_guide', style_guide)}\n"
+        f"{render_untrusted_workspace_data('canon_summary', canon_summary)}\n"
+        f"{render_untrusted_workspace_data('current_state', state_text)}\n"
+        f"{render_untrusted_workspace_data('timeline', timeline_text)}\n"
+        f"{render_untrusted_workspace_data('inspiration_md', inspiration_md)}\n"
     )
 
 

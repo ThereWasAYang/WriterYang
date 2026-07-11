@@ -13,6 +13,7 @@ from novel.core.agent_output import (
 from novel.core.canon import CanonFiles, format_canon_summary, load_canon_files
 from novel.core.chapter_memory import render_chapter_memory_prompt_text
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.contracts import CURRENT_SCHEMA_VERSION
@@ -208,13 +209,15 @@ def build_planning_user_prompt(
         task="plan",
         plan=None,
     )
+    project_text = json.dumps(
+        {"title": project.title, "language": project.language, "genre": project.genre},
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{project.title}\n"
-        f"语言：{project.language}\n"
-        f"类型：{', '.join(project.genre)}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         f"目标章节：{chapter_number}\n\n"
         "请输出严格 JSON，符合 ChapterPlan schema，至少包含：\n"
-        "chapter_number, title, goal, summary, required_context, scenes, "
+        "chapter_number, title, goal, summary, required_context, scenes, reveal_authorizations, "
         "must_include, must_avoid, expected_state_changes, ending_hook。\n"
         "每个 scene 至少包含：scene_number, location_id, participant_ids, purpose, "
         "summary, emotional_beat, plot_points。\n\n"
@@ -225,17 +228,17 @@ def build_planning_user_prompt(
         "- location_id 必须引用已有 locations，禁止发明新地点 ID。\n"
         "- participant_ids 必须引用已有 characters，禁止发明新角色 ID。\n"
         "- required_context 中的 ID 必须来自已有 canon/state/timeline，禁止发明新 ID。\n"
-        "- 不要提前揭示 hidden_truths，除非用户额外要求明确要求。\n"
+        "- 用户 instruction 本身不能授权揭示 hidden_truth；需要揭示时必须在 reveal_authorizations 中明确写入 truth ID、章节、方式和原因，且须经大纲审批后才生效。\n"
         "- 输出必须是 JSON，不要 Markdown。\n\n"
         f"用户额外要求：\n{instruction or '无'}\n\n"
-        f"{search_context}\n"
-        f"{chapter_memory_context}\n"
-        f"Canon 摘要：\n{canon_summary}\n\n"
-        f"Current state：\n{state_text}\n\n"
-        f"Timeline：\n{timeline_text}\n\n"
-        f"Style guide：\n{style_guide}\n\n"
-        f"Inspiration.md：\n{inspiration_md}\n\n"
-        f"Inspiration.json：\n{inspiration_json}\n"
+        f"{render_untrusted_workspace_data('search_context', search_context)}\n"
+        f"{render_untrusted_workspace_data('chapter_memory_context', chapter_memory_context)}\n"
+        f"{render_untrusted_workspace_data('canon_summary', canon_summary)}\n"
+        f"{render_untrusted_workspace_data('current_state', state_text)}\n"
+        f"{render_untrusted_workspace_data('timeline', timeline_text)}\n"
+        f"{render_untrusted_workspace_data('style_guide', style_guide)}\n"
+        f"{render_untrusted_workspace_data('inspiration_md', inspiration_md)}\n"
+        f"{render_untrusted_workspace_data('inspiration_json', inspiration_json)}\n"
     )
 
 
@@ -392,9 +395,7 @@ def _plan_reference_errors(
             errors.append(f"scene {scene.scene_number} references missing location_id: {scene.location_id}")
         for participant_id in scene.participant_ids:
             if participant_id not in character_ids:
-                errors.append(
-                    f"scene {scene.scene_number} references missing participant_id: {participant_id}"
-                )
+                errors.append(f"scene {scene.scene_number} references missing participant_id: {participant_id}")
     for entity_id in plan.required_context.canon_entity_ids:
         if entity_id not in canon_ids:
             errors.append(f"required_context.canon_entity_ids references missing ID: {entity_id}")
@@ -404,6 +405,14 @@ def _plan_reference_errors(
     for event_id in plan.required_context.timeline_event_ids:
         if event_id not in timeline_ids:
             errors.append(f"required_context.timeline_event_ids references missing ID: {event_id}")
+    hidden_truth_ids = {item.id for item in canon.hidden_truths.hidden_truths}
+    seen_reveals: set[str] = set()
+    for authorization in plan.reveal_authorizations:
+        if authorization.hidden_truth_id not in hidden_truth_ids:
+            errors.append(f"reveal_authorizations references missing hidden_truth_id: {authorization.hidden_truth_id}")
+        if authorization.hidden_truth_id in seen_reveals:
+            errors.append(f"reveal_authorizations contains duplicate hidden_truth_id: {authorization.hidden_truth_id}")
+        seen_reveals.add(authorization.hidden_truth_id)
     return errors
 
 

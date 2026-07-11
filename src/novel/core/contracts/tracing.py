@@ -59,6 +59,7 @@ class WorkflowNodeRun(SchemaV3Model):
     input_paths: list[str] = Field(default_factory=list)
     output_paths: list[str] = Field(default_factory=list)
     prompt_template_hash: str | None = None
+    prompt_policy_hash: str | None = None
     rendered_prompt_hash: str | None = None
     retry_count: int = Field(default=0, ge=0)
     repair_count: int = Field(default=0, ge=0)

@@ -15,9 +15,10 @@ from novel.core.agent_output import (
     generate_with_output_guard,
 )
 from novel.core.context_budget import project_context_budget
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
-from novel.core.contracts import AcceptanceCommit, CURRENT_SCHEMA_VERSION
+from novel.core.contracts import AcceptanceCommit, ArtifactKind, CURRENT_SCHEMA_VERSION
 from novel.core.plan_refs import (
     plan_focus_entity_ids,
     plan_timeline_event_ids,
@@ -143,18 +144,17 @@ def load_chapter_memory_provider(
 def load_chapter_memory_context(root: Path, chapter_number: int) -> ChapterMemoryContext:
     chapter_dir = _chapter_dir(root, chapter_number)
     plan_path = chapter_dir / "plan.json"
-    polished_path = chapter_dir / "polished.md"
     if not plan_path.exists():
         raise ChapterMemoryError(f"{plan_path} is missing; run novel plan-chapter first")
-    if not polished_path.exists():
-        raise ChapterMemoryError(f"{polished_path} is missing; run novel polish-chapter first")
+
+    polished_path, accepted_by_commit = _resolve_accepted_polished_source(root, chapter_number)
 
     project = load_yaml_model(root / "project.yaml", ProjectConfig)
     plan = load_json_model(plan_path, ChapterPlan)
     if plan.chapter_number != chapter_number:
         raise ChapterMemoryError("plan.json chapter_number does not match requested chapter")
     polished = _read_markdown_with_front_matter(polished_path)
-    if polished.metadata.get("status") != "accepted":
+    if not accepted_by_commit and polished.metadata.get("status") != "accepted":
         raise ChapterMemoryError("chapter memory can only be generated for accepted polished.md")
 
     audit = _load_optional_model(chapter_dir / "audit.json", AuditReport)
@@ -181,6 +181,27 @@ def load_chapter_memory_context(root: Path, chapter_number: int) -> ChapterMemor
         timeline=timeline,
         source=source,
     )
+
+
+def _resolve_accepted_polished_source(root: Path, chapter_number: int) -> tuple[Path, bool]:
+    chapter_dir = _chapter_dir(root, chapter_number)
+    acceptance_path = chapter_dir / "acceptance.json"
+    if acceptance_path.is_file():
+        try:
+            acceptance = load_json_model(acceptance_path, AcceptanceCommit)
+        except Exception as exc:
+            raise ChapterMemoryError(f"could not validate accepted chapter lineage: {exc}") from exc
+        if acceptance.chapter_number != chapter_number or acceptance.candidate.kind != ArtifactKind.CANDIDATE:
+            raise ChapterMemoryError("acceptance.json does not bind the requested chapter candidate")
+        candidate_path = root / acceptance.candidate.path
+        if not candidate_path.is_file() or _sha256(candidate_path) != acceptance.candidate.sha256:
+            raise ChapterMemoryError("accepted candidate no longer matches acceptance.json")
+        return candidate_path, True
+
+    polished_path = chapter_dir / "polished.md"
+    if not polished_path.exists():
+        raise ChapterMemoryError(f"{polished_path} is missing; run novel polish-chapter first")
+    return polished_path, False
 
 
 def build_deterministic_chapter_memory(
@@ -269,7 +290,10 @@ def chapter_memory_freshness_warnings(
         actual_sha = _sha256(polished_path)
         if actual_sha != memory.source.polished_sha256:
             warnings.append("stale chapter memory: polished_sha256 does not match accepted polished.md")
-    if not _memory_source_matches_acceptance(root, memory):
+    acceptance_path = _chapter_dir(root, memory.chapter_number) / "acceptance.json"
+    if acceptance_path.is_file() and not _memory_source_matches_acceptance(root, memory):
+        warnings.append("chapter memory source does not match acceptance commit")
+    elif not acceptance_path.is_file():
         try:
             metadata = _read_markdown_front_matter_metadata(polished_path)
             if metadata.get("status") != "accepted":
@@ -382,9 +406,12 @@ def build_chapter_memory_system_prompt() -> str:
 
 
 def build_chapter_memory_user_prompt(context: ChapterMemoryContext) -> str:
+    project_text = json.dumps(
+        {"title": context.project.title, "language": context.project.language},
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{context.project.title}\n"
-        f"语言：{context.project.language}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         f"章节：{context.chapter_number} - {context.plan.title}\n\n"
         "请输出严格 JSON，符合 ChapterMemory schema。\n"
         "ChapterMemory 是辅助检索和上下文压缩指南，不是正式事实源。\n"
@@ -392,14 +419,14 @@ def build_chapter_memory_user_prompt(context: ChapterMemoryContext) -> str:
         "不要把正文没有发生的事件写进记忆；不确定内容写入 warnings。\n"
         "每个列表项都要包含 visibility 和 source_refs。\n"
         "Writer 可见内容必须保守，hidden_truth 不得伪装成 reader_visible。\n\n"
-        f"Source：\n{context.source.model_dump_json(indent=2)}\n\n"
-        f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
-        f"AuditReport：\n{context.audit.model_dump_json(indent=2) if context.audit else '{}'}\n\n"
-        f"StateUpdateProposal：\n{context.proposal.model_dump_json(indent=2) if context.proposal else '{}'}\n\n"
-        f"StateUpdateApplyLog：\n{context.apply_log.model_dump_json(indent=2) if context.apply_log else '{}'}\n\n"
-        f"Accepted polished metadata：\n{json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str)}\n\n"
-        f"Accepted polished body：\n{context.polished.body}\n\n"
-        f"Chapter timeline events：\n{json.dumps([event.model_dump(mode='json') for event in _chapter_timeline_events(context)], ensure_ascii=False, indent=2, default=str)}\n"
+        f"{render_untrusted_workspace_data('source_refs', context.source.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('approved_chapter_plan', context.plan.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('passed_audit_report', context.audit.model_dump_json(indent=2) if context.audit else '{}')}\n"
+        f"{render_untrusted_workspace_data('state_update_proposal', context.proposal.model_dump_json(indent=2) if context.proposal else '{}')}\n"
+        f"{render_untrusted_workspace_data('state_update_apply_log', context.apply_log.model_dump_json(indent=2) if context.apply_log else '{}')}\n"
+        f"{render_untrusted_workspace_data('accepted_metadata', json.dumps(context.polished.metadata, ensure_ascii=False, indent=2, default=str))}\n"
+        f"{render_untrusted_workspace_data('accepted_body', context.polished.body)}\n"
+        f"{render_untrusted_workspace_data('chapter_timeline_events', json.dumps([event.model_dump(mode='json') for event in _chapter_timeline_events(context)], ensure_ascii=False, indent=2, default=str))}\n"
     )
 
 
@@ -756,7 +783,9 @@ def _reader_visible_summary_from_polished(context: ChapterMemoryContext, *, limi
     summary = _compact(" ".join(paragraphs), limit) if paragraphs else ""
     if summary:
         return summary
-    return f"第 {context.chapter_number} 章 accepted polished.md 已归档；核对细节请读取 {context.source.polished_path}。"
+    return (
+        f"第 {context.chapter_number} 章 accepted polished.md 已归档；核对细节请读取 {context.source.polished_path}。"
+    )
 
 
 def _relative_if_exists(root: Path, path: Path) -> str | None:

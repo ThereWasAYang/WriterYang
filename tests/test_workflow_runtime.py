@@ -16,6 +16,7 @@ from novel.core.contracts import (
 from novel.core.io import load_json_model
 from novel.core.orchestrator import propose_ask_command
 from novel.core.providers import LoggingModelProvider, MockProvider
+from novel.core.task_registry import prompt_registry_entry
 from novel.core.workflow_runtime import WORKFLOW_DEFINITIONS
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -66,7 +67,11 @@ def test_command_and_model_nodes_share_trace_and_parentage(tmp_path: Path) -> No
     assert model.profile_id == "architect"
     assert model.provider == "mock"
     assert model.prompt_template_hash
+    assert model.prompt_policy_hash
     assert model.rendered_prompt_hash
+    prompt_entry = prompt_registry_entry("plan")
+    assert model.prompt_template_hash == prompt_entry.template_hash
+    assert model.prompt_policy_hash == prompt_entry.policy_hash
     assert model.input_paths == ["project.yaml"]
     assert model.output_paths[0].startswith("runs/model_io/")
     assert (root / model.output_paths[0]).is_file()

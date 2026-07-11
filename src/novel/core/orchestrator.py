@@ -13,6 +13,7 @@ from novel.core.agent_output import (
     AgentOutputContract,
     AgentOutputContractError,
 )
+from novel.core.audit_policy import auto_fixable_issues, manual_review_blockers
 from novel.core.budget import WorkflowBudgetExceeded, workflow_budget_scope
 from novel.core.contracts import (
     BudgetUsage,
@@ -27,6 +28,7 @@ from novel.core.contracts import (
     Surface,
     WorkflowBudget,
 )
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_model_json
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.prompts import load_prompt_template, prompt_template_version
@@ -239,7 +241,7 @@ def decide_ask_intent(
         allow_user_questions=False,
     )
     try:
-        return generate_json_with_repair(
+        decision = generate_json_with_repair(
             route_provider,
             model_request,
             root=root,
@@ -262,6 +264,7 @@ def decide_ask_intent(
                 error=error,
             ),
         )
+        return decision
     except AgentOutputContractError:
         fallback = _fallback_ask_intent_decision(instruction)
         return fallback.model_copy(
@@ -482,7 +485,7 @@ def route_revision_request(
         allow_user_questions=False,
     )
     try:
-        return generate_json_with_repair(
+        decision = generate_json_with_repair(
             route_provider,
             request,
             root=root,
@@ -509,6 +512,7 @@ def route_revision_request(
                 error=error,
             ),
         )
+        return decision
     except AgentOutputContractError:
         fallback = _fallback_revision_route_decision(instruction, chapter_numbers=chapters)
         return fallback.model_copy(
@@ -547,6 +551,17 @@ def route_audit_repair(
             risk_level="low",
             source="deterministic",
         )
+    manual_blockers = manual_review_blockers(audit_report)
+    if manual_blockers:
+        return AuditRepairRouteDecision(
+            route="manual_review",
+            reason="automatic repair denied by audit policy: "
+            + "; ".join(f"{item.issue_id}: {item.reason}" for item in manual_blockers),
+            chapter_number=audit_report.chapter_number,
+            issue_ids=[item.issue_id for item in manual_blockers],
+            risk_level="medium",
+            source="deterministic",
+        )
     deterministic = _deterministic_audit_repair_route(audit_report)
     if provider is None and provider_name.lower() == "mock":
         return deterministic
@@ -569,7 +584,7 @@ def route_audit_repair(
         allow_user_questions=False,
     )
     try:
-        return generate_json_with_repair(
+        decision = generate_json_with_repair(
             route_provider,
             request,
             root=root,
@@ -594,6 +609,20 @@ def route_audit_repair(
                 error=error,
             ),
         )
+        if decision.route != deterministic.route:
+            return AuditRepairRouteDecision(
+                route="manual_review",
+                reason=(
+                    "provider route conflicts with deterministic audit policy: "
+                    f"provider={decision.route}, policy={deterministic.route}"
+                ),
+                chapter_number=audit_report.chapter_number,
+                issue_ids=deterministic.issue_ids,
+                source_layer=deterministic.source_layer,
+                risk_level="high",
+                source="deterministic",
+            )
+        return decision
     except AgentOutputContractError:
         return deterministic.model_copy(
             update={"reason": f"provider audit route contract failed; {deterministic.reason}"}
@@ -619,9 +648,9 @@ def build_audit_repair_route_user_prompt(
         f"chapter_number: {audit_report.chapter_number}\n"
         f"audited_file: {audit_report.audited_file}\n"
         f"overall_status: {audit_report.overall_status}\n"
-        f"blocking_issues JSON:\n{json.dumps(blocking, ensure_ascii=False, indent=2)}\n\n"
-        f"plan_summary:\n{plan_summary or '未提供'}\n\n"
-        f"state_summary:\n{state_summary or '未提供'}\n"
+        f"{render_untrusted_workspace_data('blocking_audit_issues', json.dumps(blocking, ensure_ascii=False, indent=2))}\n"
+        f"{render_untrusted_workspace_data('plan_summary', plan_summary or '未提供')}\n"
+        f"{render_untrusted_workspace_data('state_summary', state_summary or '未提供')}\n"
     )
 
 
@@ -699,7 +728,7 @@ def _audit_repair_route_repair_prompt(*, invalid_output: str, error: str) -> str
 
 
 def _deterministic_audit_repair_route(audit_report: AuditReport) -> AuditRepairRouteDecision:
-    blocking = [issue for issue in audit_report.issues if issue.severity in {"medium", "high", "critical"}]
+    blocking = auto_fixable_issues(audit_report)
     issue_ids = [issue.id for issue in blocking]
     layers = {issue.source_layer for issue in blocking if issue.source_layer}
     evidence_sources = {item.source for issue in blocking for item in issue.evidence}
@@ -753,7 +782,7 @@ def build_revision_route_user_prompt(
         "只填写被选 route 对应的 instruction 字段，其他 instruction 字段可为 null。\n"
         "risk_level 只能是 low/medium/high。\n\n"
         f"涉及章节：{chapter_numbers}\n"
-        f"Session 摘要：\n{session_summary or '无'}\n\n"
+        f"{render_untrusted_workspace_data('session_summary', session_summary or '无')}\n"
         f"用户修改意见：\n{user_instruction.strip()}\n"
     )
 

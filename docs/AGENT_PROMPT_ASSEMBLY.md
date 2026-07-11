@@ -449,14 +449,19 @@ Creation Session 不再承载 segment scope；`revision_system.txt` 保留给未
 - `excluded`：被排除的条目，尤其是 hidden truth。
 - `visibility`：`reader_visible`、`author_only`、`hidden_truth`、`audit_only`。
 - `reason` / `priority` / `source`：用于解释检索结果。
+- `authority` / `lifecycle_status` / `artifact_ref` / `source_sha256`：用于证明来源当前有效且适合本 Task。
 
 策略：
 
 - `plan` 和 `audit` 可以看到 hidden truth，但必须标记为内部参考。
-- `write` 默认不把 hidden truth 原文放进 prompt。
+- `write`、`polish`、`revision` 默认看不到 hidden truth 原文；只有用户批准的 `ChapterPlan.reveal_authorizations` 中与当前章节和 truth ID 精确匹配的条目才能放行。自然语言 instruction 不是授权。
+- Search collector 只索引 canonical、approved plan、accepted chapter 和 fresh ChapterMemory；archive、rejection、backup、stale artifact 与其他 workflow working candidate 默认召回为零。
 - 如果开启 `--use-search-context`，默认使用 ChapterPlan 实体扩展 + 关键词/SQLite FTS 补充，并写 `context_report*.json` 供追踪。
 - `chapter_memory.json` 会作为 `chapter_memory` 类型进入检索；Writer 的 ContextBundle 只拿到“这是导航指针，需要回源校验”的安全摘录，不直接注入可能包含 hidden truth 的原始 JSON excerpt。
+- 所有 workspace-derived 内容使用 `BEGIN/END UNTRUSTED_WORKSPACE_DATA` delimiter；数据中伪装成系统指令的文本不得改变 Task、route、权限或输出契约。
 - `--vector-context auto` 是默认语义召回策略：真实 embedding 配置和环境变量完整时启用，否则只用 FTS；`on` 强制尝试语义召回，`off` 关闭。`local_hash` 只允许显式测试路径，不作为真实业务 fallback。
+
+Audit 模型只接收一个明确的 audited candidate，不再同时注入 draft 与 polished。issue 只有在 `source_layer` 可执行、evidence 具体、`evidence_strength=strong`、`is_hard_blocker=true`、`blocking_reason` 非空且 `confidence>=0.75` 时才可自动路由；否则必须进入 manual review。
 
 ## 14. Prompt 和日志排查
 

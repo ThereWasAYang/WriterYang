@@ -12,6 +12,7 @@ from novel.core.agent_output import (
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.chapter_memory import render_chapter_memory_prompt_text
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.management import record_management_event
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
@@ -74,8 +75,7 @@ def write_chapter_draft(
     plan = load_json_model(plan_path, ChapterPlan)
     if plan.chapter_number != options.chapter_number:
         raise DraftingError(
-            f"plan.json chapter_number {plan.chapter_number} does not match requested "
-            f"chapter {options.chapter_number}"
+            f"plan.json chapter_number {plan.chapter_number} does not match requested chapter {options.chapter_number}"
         )
 
     warnings: list[str] = []
@@ -237,25 +237,27 @@ def build_writer_user_prompt(
         task="write",
         plan=plan,
     )
+    project_text = json.dumps(
+        {"title": project.title, "language": project.language, "genre": project.genre},
+        ensure_ascii=False,
+    )
     return (
-        f"项目：{project.title}\n"
-        f"语言：{project.language}\n"
-        f"类型：{', '.join(project.genre)}\n"
+        f"{render_untrusted_workspace_data('project', project_text)}\n"
         f"章节：{plan.chapter_number} - {plan.title}\n"
         f"目标字数：{target_words if target_words else '未指定'}\n"
         f"用户额外写作要求：{instruction or '无'}\n"
         f"临时文风要求：{style_note or '无'}\n\n"
         "请只输出正文 Markdown，不要包含 YAML front matter，"
         "不要包含 provider 原始响应、调试信息、JSON、分析说明或大纲。\n\n"
-        f"{search_context}\n"
-        f"{chapter_memory_context}\n"
-        f"ChapterPlan：\n{plan.model_dump_json(indent=2)}\n\n"
-        f"Style guide：\n{style_guide}\n\n"
-        f"Canon 摘要：\n{canon_summary}\n\n"
-        f"Current state：\n{state_text}\n\n"
-        f"Timeline：\n{timeline_text}\n\n"
-        f"Inspiration.md：\n{inspiration_md}\n\n"
-        f"Inspiration.json：\n{inspiration_json}\n"
+        f"{render_untrusted_workspace_data('search_context', search_context)}\n"
+        f"{render_untrusted_workspace_data('chapter_memory_context', chapter_memory_context)}\n"
+        f"{render_untrusted_workspace_data('approved_chapter_plan', plan.model_dump_json(indent=2))}\n"
+        f"{render_untrusted_workspace_data('style_guide', style_guide)}\n"
+        f"{render_untrusted_workspace_data('canon_summary', canon_summary)}\n"
+        f"{render_untrusted_workspace_data('current_state', state_text)}\n"
+        f"{render_untrusted_workspace_data('timeline', timeline_text)}\n"
+        f"{render_untrusted_workspace_data('inspiration_md', inspiration_md)}\n"
+        f"{render_untrusted_workspace_data('inspiration_json', inspiration_json)}\n"
     )
 
 

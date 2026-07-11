@@ -2,35 +2,20 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import cast
 
 from novel.core.audit_localization import (
     localize_audit_issue_for_author,
     localize_session_rewrite_issue_for_author,
 )
 from novel.core.session import (
-    CreationSessionError,
-    SessionActionOptions,
-    SessionInstructionOptions,
-    SessionResult,
-    SessionRunOptions,
-    SessionStartOptions,
-    SessionRewriteControlOptions,
-    accept_session,
-    approve_outline,
-    archive_session,
     load_rewrite_events,
     parse_range,
-    retry_rewrite,
-    revise_audit,
-    revise_content,
-    revise_outline,
-    run_session,
-    show_session,
-    start_session,
-    undo_rewrite,
 )
+from novel.core.command_bus import DomainError
+from novel.core.contracts import SessionCommand, SessionStartCommand
+from novel.core.contracts.commands import SessionCommandType
 from novel.core.io import load_json_model
-from novel.core.locking import ProjectLockError
 from novel.core.schemas import (
     AuditReport,
     CreationSession,
@@ -42,129 +27,43 @@ from novel.cli_shared import (
     _management_event_lines,
     _success,
     _failure,
-    _command_lock,
+    _dispatch_cli_command,
 )
 
-def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
+def _run_session_command(args: argparse.Namespace, root: Path) -> dict[str, object]:
     command = args.session_command
     if command == "start":
-        chapters = parse_range(args.chapters)
-        return start_session(
-            SessionStartOptions(
-                root=root,
+        return _dispatch_cli_command(
+            args,
+            root,
+            SessionStartCommand(
                 user_intent=args.intent,
-                chapter_range=chapters,
+                chapter_range=list(parse_range(args.chapters)),
                 provider_name=args.provider,
                 force=args.force,
                 use_search_context=getattr(args, "use_search_context", True),
                 use_vector_context=_vector_context_mode_from_args(args),
-            )
+            ),
         )
-    if command == "show":
-        return show_session(root, args.session_id)
-    if command == "revise-outline":
-        return revise_outline(
-            SessionInstructionOptions(
-                root=root,
-                session_id=args.session_id,
-                instruction=args.instruction,
-                provider_name=args.provider,
-                force=args.force,
-                use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=_vector_context_mode_from_args(args),
-            )
-        )
-    if command == "approve-outline":
-        return approve_outline(SessionActionOptions(root=root, session_id=args.session_id, force=args.force))
-    if command == "run":
-        return run_session(
-            SessionRunOptions(
-                root=root,
-                session_id=args.session_id,
-                provider_name=args.provider,
-                force=args.force,
-                max_auto_revision_rounds=args.max_auto_revision_rounds,
-                use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=_vector_context_mode_from_args(args),
-                polish_mode=_polish_mode_from_arg(getattr(args, "polish_mode", None)),
-            )
-        )
-    if command == "revise-content":
-        return revise_content(
-            SessionInstructionOptions(
-                root=root,
-                session_id=args.session_id,
-                instruction=args.instruction,
-                provider_name=args.provider,
-                force=args.force,
-                from_audit=args.from_audit,
-                use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=_vector_context_mode_from_args(args),
-            )
-        )
-    if command == "revise-audit":
-        return revise_audit(
-            SessionRewriteControlOptions(
-                root=root,
-                session_id=args.session_id,
-                event_id=args.event_id,
-                instruction=args.instruction,
-                provider_name=args.provider,
-                force=args.force,
-                use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=_vector_context_mode_from_args(args),
-                polish_mode=_polish_mode_from_arg(getattr(args, "polish_mode", None)),
-            )
-        )
-    if command == "retry-rewrite":
-        return retry_rewrite(
-            SessionRewriteControlOptions(
-                root=root,
-                session_id=args.session_id,
-                event_id=args.event_id,
-                instruction=args.instruction,
-                provider_name=args.provider,
-                force=args.force,
-                use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=_vector_context_mode_from_args(args),
-            )
-        )
-    if command == "undo-rewrite":
-        return undo_rewrite(
-            SessionRewriteControlOptions(
-                root=root,
-                session_id=args.session_id,
-                event_id=args.event_id,
-                provider_name=args.provider,
-                use_search_context=getattr(args, "use_search_context", True),
-                use_vector_context=_vector_context_mode_from_args(args),
-            )
-        )
-    if command == "accept":
-        return accept_session(
-            SessionActionOptions(root=root, session_id=args.session_id, provider_name=args.provider, force=args.force)
-        )
-    if command == "archive":
-        return archive_session(SessionActionOptions(root=root, session_id=args.session_id, force=args.force))
-    raise CreationSessionError(f"unknown session command: {command}")
-
-def _session_payload(command: str, result: SessionResult, root: Path) -> dict[str, object]:
-    return {
-        "command": f"session {command}",
-        "session_id": result.session.session_id,
-        "status": result.session.status,
-        "outline_status": result.session.outline_status,
-        "content_status": result.session.content_status,
-        "chapter_range": result.session.chapter_range,
-        "approved_outline_path": result.session.approved_outline_path,
-        "final_output_paths": result.session.final_output_paths,
-        "archive_paths": result.session.archive_paths,
-        "session_path": str(result.session_path),
-        "message": result.message,
-        "rewrite_events": _session_rewrite_payload(root, result.session),
-        "revision_route": _session_latest_revision_route_payload(result.session),
-        "management_events": _management_event_payload(root),
-    }
+    command_type = cast(SessionCommandType, f"session.{command.replace('-', '_')}")
+    return _dispatch_cli_command(
+        args,
+        root,
+        SessionCommand(
+            type=command_type,
+            session_id=args.session_id,
+            instruction=getattr(args, "instruction", None),
+            event_id=getattr(args, "event_id", None),
+            provider_name=getattr(args, "provider", "config"),
+            force=bool(getattr(args, "force", False)),
+            from_audit=bool(getattr(args, "from_audit", False)),
+            max_auto_revision_rounds=getattr(args, "max_auto_revision_rounds", None),
+            use_search_context=getattr(args, "use_search_context", True),
+            use_vector_context=_vector_context_mode_from_args(args),
+            polish_mode=_polish_mode_from_arg(getattr(args, "polish_mode", None)),
+        ),
+        confirmed=command in {"accept", "archive"},
+    )
 
 def _session_low_issue_lines(root: Path, audit_history: list[str]) -> list[str]:
     low_issues: list[str] = []
@@ -262,22 +161,38 @@ def _session_revision_route_lines(session: CreationSession) -> list[str]:
 
 def _cmd_session(args: argparse.Namespace) -> int:
     try:
-        root = Path(args.path)
-        with _command_lock(args, root, f"session {args.session_command}"):
-            result = _run_session_command(args, root)
-    except ProjectLockError as exc:
-        return _failure(args, str(exc), error_type="project_locked")
-    except CreationSessionError as exc:
-        return _failure(args, str(exc), error_type="session_error")
-    payload = _session_payload(args.session_command, result, root)
+        root = Path(args.path).expanduser().resolve()
+        payload = _run_session_command(args, root)
+        session_data = payload.get("session")
+        if not isinstance(session_data, dict):
+            raise DomainError("internal_error", "command result is missing session")
+        session = CreationSession.model_validate(session_data)
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
+    payload.update(
+        {
+            "command": f"session {args.session_command}",
+            "session_id": session.session_id,
+            "status": session.status,
+            "outline_status": session.outline_status,
+            "content_status": session.content_status,
+            "chapter_range": session.chapter_range,
+            "approved_outline_path": session.approved_outline_path,
+            "final_output_paths": session.final_output_paths,
+            "archive_paths": session.archive_paths,
+            "rewrite_events": _session_rewrite_payload(root, session),
+            "revision_route": _session_latest_revision_route_payload(session),
+            "management_events": _management_event_payload(root),
+        }
+    )
     lines = [
-        f"Session: {result.session.session_id}",
-        result.message,
-        f"Status: {result.session.status}",
-        f"Session file: {result.session_path}",
-        *_session_revision_route_lines(result.session),
-        *_session_rewrite_lines(root, result.session),
+        f"Session: {session.session_id}",
+        str(payload.get("message") or ""),
+        f"Status: {session.status}",
+        f"Session file: {payload['session_path']}",
+        *_session_revision_route_lines(session),
+        *_session_rewrite_lines(root, session),
         *_management_event_lines(root),
-        *_session_low_issue_lines(root, result.session.audit_history),
+        *_session_low_issue_lines(root, session.audit_history),
     ]
     return _success(args, payload, lines)

@@ -83,12 +83,8 @@ def test_developer_docs_reference_existing_core_commands() -> None:
         "novel doctor",
         "novel usage",
         "novel session",
-        "novel plan-chapter",
-        "novel write-chapter",
-        "novel polish-chapter",
-        "novel audit-chapter",
-        "novel propose-state-update",
-        "novel apply-state-update",
+        "novel revision-session",
+        "novel preview",
         "novel export markdown",
     ):
         assert command in combined_docs

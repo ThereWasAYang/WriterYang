@@ -63,6 +63,7 @@
 - `src/novel/core/canon.py`
 - `src/novel/core/chapter_memory.py`
 - `src/novel/core/chapter_versions.py`
+- `src/novel/core/command_bus.py`
 - `src/novel/core/consistency.py`
 - `src/novel/core/context_budget.py`
 - `src/novel/core/drafting.py`
@@ -109,6 +110,7 @@
 - `src/novel/core/security.py`
 - `src/novel/core/session.py`
 - `src/novel/core/setup_guide.py`
+- `src/novel/core/setting_change_followup.py`
 - `src/novel/core/state_change_values.py`
 - `src/novel/core/state_update.py`
 - `src/novel/core/structured_generation.py`
@@ -233,7 +235,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_provider_config_summary()` / `_sanitize_config()` / `_collect_env_names()`：脱敏展示 profile/task/embedding 配置。
 - `/api/search-status` 对应 `search_index_status()`；只返回 env 名称和是否缺失，不返回真实 env 值。
 - `/api/usage` 对应 `summarize_provider_usage()`；Web 用量统计页展示总调用、成功/失败、token，以及按 Task / Provider / Model 的摘要。
-- `/api/projects`、`/api/session`、`/api/generate-chapter`、`/api/setup/open-web` 保留为兼容 HTTP 契约，详见 `docs/INTEGRATION.md`；普通 Web 创作路径优先使用主页、创作工作台和 Session API。
+- `/api/projects`、`/api/session`、`/api/setup/open-web` 是稳定 HTTP 契约，详见 `docs/INTEGRATION.md`；创作路径统一使用 Session API，低层生成端点已删除。
 - `_state_timeline_summary()` / `_state_timeline_visual_summary()`：状态和时间线可视化摘要。
 - `_audit_annotations()` / `_locate_quote()`：audit evidence 定位正文。
 - `_workspace_diff()`：版本 diff。
@@ -913,7 +915,7 @@ Provider 用量统计：
 | `tests/test_auditing.py` | AuditReport、deterministic precheck、output guard。 |
 | `tests/test_state_update.py` | State proposal/apply/accept、回滚、冲突。 |
 | `tests/test_chapter_memory.py` | ChapterMemory schema、accept 集成、fallback、上下文注入和检索。 |
-| `tests/test_workflow.py` | `generate-chapter` 流水线和 run log。 |
+| `tests/test_workflow.py` | workflow runtime 内部 Task 流水线和 run log。 |
 | `tests/test_workflow_tools.py` | 工具脚本帮助输出、dry-run 行为、CLI 契约和确定性脚本边界。 |
 | `tests/test_session.py` | Creation Session 状态机、归档、安全。 |
 | `tests/test_orchestrator.py` | `novel ask` 和 handoff trace。 |
@@ -1030,3 +1032,11 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 ### `src/novel/core/previewing.py`
 
 构建非正式 Preview Package。只读取指定 working `draft.md`/`polished.md`，固定写入 `exports/previews/{preview_id}/`，并生成 strict `PreviewManifest`。该 service 不调用 production lifecycle guard，也绝不更新 `exports/export_manifest.json`。
+
+### `src/novel/core/command_bus.py`
+
+注册公开 typed command handler，统一 confirmation gate、项目锁、CLI/Web 结果结构与 `DomainError`。Session、Revision、Memory/Setting Change、Preview 和 Production Export 的 adapter 不再自行调用领域 mutation service。
+
+### `src/novel/core/setting_change_followup.py`
+
+负责 Setting Change 应用后的 Session follow-up 决策与执行。原 Web 私有 `_sync_setting_change_session` 已删除；同步失败返回可恢复 checkpoint 或 manual review，不由 adapter 吞错。

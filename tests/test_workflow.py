@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 import pytest
 
-from novel.cli import build_parser, main
+from novel.cli import build_parser
+from tests.internal_task_cli import run_test_cli
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.schemas import AgentRunLog
 from novel.core.workspace import InitOptions, init_workspace
@@ -191,5 +192,5 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     stdout = StringIO()
     stderr = StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = main(args)
+        code = run_test_cli(args)
     return code, stdout.getvalue(), stderr.getvalue()

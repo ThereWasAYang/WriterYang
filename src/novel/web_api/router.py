@@ -24,6 +24,7 @@ from .deps import (
 )
 from novel.core.revision_workflow import RevisionWorkflowError
 from novel.core.previewing import PreviewError
+from novel.core.command_bus import DomainError
 
 from .common import (
     APIResponse,
@@ -43,8 +44,7 @@ from .common import (
 )
 
 from .generation import (
-    _audit_chapter, _chapter_memory_generate, _chapter_memory_rebuild, _export_docx, _export_markdown,
-    _generate_chapter, _plan_chapter, _polish_chapter, _write_chapter,
+    _chapter_memory_generate, _chapter_memory_rebuild, _export_docx, _export_markdown,
 )
 from .config import (
     _generate_style_guide, _index_refresh, _init_project, _save_chapter_file, _save_provider_config, _save_style_guide,
@@ -114,6 +114,10 @@ def handle_api_request(
     except WebAPIError as exc:
         log_failure(exc.status, exc.code, exc)
         return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
+    except DomainError as exc:
+        status = 409 if exc.code in {"project_locked", "confirmation_required"} else 400
+        log_failure(status, exc.code, exc)
+        return _failure(status, exc.code, exc.message, request_id=request_id, details=exc.details)
     except ProjectLockError as exc:
         log_failure(409, "project_locked", exc)
         return _failure(409, "project_locked", str(exc), request_id=request_id)
@@ -244,14 +248,9 @@ def _root_for_logging(
 
 def _post_routes() -> dict[str, PostRoute]:
     return {
-        "/api/plan-chapter": ("web plan-chapter", _plan_chapter, True),
-        "/api/write-chapter": ("web write-chapter", _write_chapter, True),
-        "/api/polish-chapter": ("web polish-chapter", _polish_chapter, True),
-        "/api/audit-chapter": ("web audit-chapter", _audit_chapter, True),
-        "/api/export/markdown": ("web export markdown", _export_markdown, True),
-        "/api/export/docx": ("web export docx", _export_docx, True),
-        "/api/preview/package": ("web preview package", _preview_package, True),
-        "/api/generate-chapter": ("web generate-chapter", _generate_chapter, True),
+        "/api/export/markdown": ("web export markdown", _export_markdown, False),
+        "/api/export/docx": ("web export docx", _export_docx, False),
+        "/api/preview/package": ("web preview package", _preview_package, False),
         "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, True),
         "/api/style-guide": ("web style guide save", _save_style_guide, True),
         "/api/style-guide/generate": ("web style guide generate", _generate_style_guide, True),
@@ -265,25 +264,25 @@ def _post_routes() -> dict[str, PostRoute]:
         "/api/inspire": ("web inspire", _inspire, True),
         "/api/canon/suggest": ("web canon suggest", _canon_suggest, True),
         "/api/canon/apply": ("web canon apply", _canon_apply, True),
-        "/api/settings/change/suggest": ("web setting change suggest", _settings_change_suggest, True),
-        "/api/settings/change/answer": ("web setting change answer", _settings_change_answer, True),
-        "/api/settings/change/apply": ("web setting change apply", _settings_change_apply, True),
+        "/api/settings/change/suggest": ("web setting change suggest", _settings_change_suggest, False),
+        "/api/settings/change/answer": ("web setting change answer", _settings_change_answer, False),
+        "/api/settings/change/apply": ("web setting change apply", _settings_change_apply, False),
         "/api/chapter-memory/generate": ("web chapter memory generate", _chapter_memory_generate, True),
         "/api/chapter-memory/rebuild": ("web chapter memory rebuild", _chapter_memory_rebuild, True),
-        "/api/session/start": ("web session start", _session_start, True),
-        "/api/session/revise-outline": ("web session revise-outline", _session_revise_outline, True),
-        "/api/session/approve-outline": ("web session approve-outline", _session_approve_outline, True),
-        "/api/session/run": ("web session run", _session_run, True),
+        "/api/session/start": ("web session start", _session_start, False),
+        "/api/session/revise-outline": ("web session revise-outline", _session_revise_outline, False),
+        "/api/session/approve-outline": ("web session approve-outline", _session_approve_outline, False),
+        "/api/session/run": ("web session run", _session_run, False),
         "/api/session/cancel": ("web session cancel", _session_cancel, False),
-        "/api/session/revise-content": ("web session revise-content", _session_revise_content, True),
-        "/api/session/revise-audit": ("web session revise-audit", _session_revise_audit, True),
-        "/api/session/retry-rewrite": ("web session retry-rewrite", _session_retry_rewrite, True),
-        "/api/session/undo-rewrite": ("web session undo-rewrite", _session_undo_rewrite, True),
-        "/api/session/accept": ("web session accept", _session_accept, True),
-        "/api/session/archive": ("web session archive", _session_archive, True),
-        "/api/revision-session/start": ("web revision-session start", _revision_start, True),
-        "/api/revision-session/run": ("web revision-session run", _revision_run, True),
-        "/api/revision-session/accept": ("web revision-session accept", _revision_accept, True),
+        "/api/session/revise-content": ("web session revise-content", _session_revise_content, False),
+        "/api/session/revise-audit": ("web session revise-audit", _session_revise_audit, False),
+        "/api/session/retry-rewrite": ("web session retry-rewrite", _session_retry_rewrite, False),
+        "/api/session/undo-rewrite": ("web session undo-rewrite", _session_undo_rewrite, False),
+        "/api/session/accept": ("web session accept", _session_accept, False),
+        "/api/session/archive": ("web session archive", _session_archive, False),
+        "/api/revision-session/start": ("web revision-session start", _revision_start, False),
+        "/api/revision-session/run": ("web revision-session run", _revision_run, False),
+        "/api/revision-session/accept": ("web revision-session accept", _revision_accept, False),
     }
 
 

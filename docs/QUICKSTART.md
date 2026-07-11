@@ -103,26 +103,19 @@ novel canon show --path ./qingdeng-inn
 ## 5. 生成章节
 
 ```bash
-novel plan-chapter 1 --path ./qingdeng-inn --provider mock
-novel write-chapter 1 --path ./qingdeng-inn --provider mock
-novel polish-chapter 1 --path ./qingdeng-inn --provider mock
-novel audit-chapter 1 --path ./qingdeng-inn --provider mock
-```
-
-也可以一键跑流水线：
-
-```bash
-novel generate-chapter 1 --path ./qingdeng-inn --provider mock --force
+novel session start "写第一章，雨夜开场" --path ./qingdeng-inn --chapters 1 --provider mock
+novel session approve-outline <session_id> --path ./qingdeng-inn
+novel session run <session_id> --path ./qingdeng-inn --provider mock
 ```
 
 ## 6. 接受章节并更新状态
 
-只有审核通过或你明确允许问题继续时，才建议接受章节。
+Session 运行结束后可先按 Audit 或用户意见修订。只有 workflow 完成 consistency audit 后才能接受；接受动作会事务性提交正文、State、Timeline、Chapter Memory 和 Acceptance Commit。
 
 ```bash
-novel propose-state-update 1 --path ./qingdeng-inn --provider mock
-novel apply-state-update 1 --path ./qingdeng-inn
-novel accept-chapter 1 --path ./qingdeng-inn --allow-issues
+novel session revise-content <session_id> --path ./qingdeng-inn --from-audit --provider mock
+novel session accept <session_id> --path ./qingdeng-inn --provider mock
+novel session archive <session_id> --path ./qingdeng-inn
 ```
 
 ## 7. 导出 Markdown

@@ -35,6 +35,8 @@ from novel.core.schemas import (
     VectorContextMode,
 )
 from novel.core.validation import validate_project
+from novel.core.command_bus import command_result_payload, dispatch_command, new_command_envelope
+from novel.core.contracts import PublicCommand, Surface
 
 ERROR_CODES = {
     "audit_error": "Audit generation or validation failed.",
@@ -149,7 +151,7 @@ def _audit_issue_lines(report: AuditReport) -> list[str]:
         if localized.suggested_fix:
             lines.append(f"  建议修复：{localized.suggested_fix}")
     if all(issue.severity == "low" for issue in report.issues):
-        lines.append("低级别问题不会自动修复；可按需运行 revise-chapter --from-audit 生成修订版。")
+        lines.append("低级别问题不会自动修复；可按需使用 revision-session 或 session revise-content 生成修订版。")
     return lines
 
 def _management_event_payload(root: Path) -> list[dict[str, object]]:
@@ -295,6 +297,24 @@ def _command_lock(args: argparse.Namespace, root: Path, task: str, *, enabled: b
     if not enabled:
         return nullcontext()
     return ProjectLock(root, task=task)
+
+
+def _dispatch_cli_command(
+    args: argparse.Namespace,
+    root: Path,
+    command: PublicCommand,
+    *,
+    confirmed: bool = False,
+) -> dict[str, object]:
+    result = dispatch_command(
+        new_command_envelope(
+            surface=Surface.CLI,
+            project_root=root,
+            command=command,
+            confirmed=confirmed,
+        )
+    )
+    return command_result_payload(result)
 
 def _validation_payload(report) -> dict[str, object]:
     return {
@@ -464,9 +484,8 @@ def _prompt_yes_no(label: str, *, default: bool) -> bool:
 
 def completion_script(shell: str) -> str:
     commands = (
-        "init validate migrate schema index search ask memory-repair setting-change chapter-memory session status usage show inspire canon plan-chapter "
-        "write-chapter polish-chapter audit-chapter revise-chapter propose-state-update "
-        "apply-state-update accept-chapter generate-chapter export web doctor completion"
+        "init validate migrate schema index search ask memory-repair setting-change chapter-memory session revision-session "
+        "status usage show inspire canon export preview web doctor completion"
     )
     common_options = "--help --json --quiet --project --path"
     if shell == "bash":

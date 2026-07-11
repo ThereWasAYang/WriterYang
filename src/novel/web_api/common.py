@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Literal
+from novel.core.command_bus import command_result_payload, dispatch_command, new_command_envelope
+from novel.core.contracts import PublicCommand, Surface
 
 from .deps import (
     Callable,
@@ -81,6 +83,37 @@ class WebAPIError(RuntimeError):
         self.code = code
         self.status = status
         self.details = details or {}
+
+
+def _dispatch_web_command(
+    data: dict[str, object],
+    command: PublicCommand,
+    *,
+    confirmed: bool = False,
+) -> dict[str, object]:
+    result = dispatch_command(
+        new_command_envelope(
+            surface=Surface.WEB,
+            project_root=_root_from_body(data),
+            command=command,
+            confirmed=confirmed,
+        )
+    )
+    return command_result_payload(result)
+
+
+def _dispatch_web_query_command(
+    query: dict[str, str],
+    command: PublicCommand,
+) -> dict[str, object]:
+    result = dispatch_command(
+        new_command_envelope(
+            surface=Surface.WEB,
+            project_root=_root_from_query(query),
+            command=command,
+        )
+    )
+    return command_result_payload(result)
 
 def _safe_config_file(path: Path) -> dict[str, object]:
     if not path.exists():

@@ -13,13 +13,13 @@ from novel.core.chapter_memory import (
     generate_chapter_memory,
     load_chapter_memory_provider,
 )
-from novel.core.memory_repair import (
-    MemoryRepairError,
-    SettingChangeSuggestionResult,
-    answer_setting_change_clarification,
-    apply_memory_repair,
-    suggest_memory_repair,
-    suggest_setting_change_interactive,
+from novel.core.command_bus import DomainError
+from novel.core.contracts import (
+    MemoryRepairApplyCommand,
+    MemoryRepairSuggestCommand,
+    SettingChangeAnswerCommand,
+    SettingChangeApplyCommand,
+    SettingChangeSuggestCommand,
 )
 from novel.core.locking import ProjectLockError
 from novel.core.schemas import (
@@ -36,161 +36,161 @@ from novel.cli_shared import (
     _failure,
     _print_json,
     _command_lock,
+    _dispatch_cli_command,
 )
 
 def _cmd_memory_repair(args: argparse.Namespace) -> int:
-    root = Path(args.path)
+    root = Path(args.path).expanduser().resolve()
     try:
-        with _command_lock(args, root, f"memory-repair {args.memory_repair_command}"):
-            if args.memory_repair_command == "suggest":
-                repair_result = suggest_memory_repair(root, args.request, provider_name=args.provider)
-                repair_payload: dict[str, object] = {
-                    "command": "memory-repair suggest",
-                    "repair_id": repair_result.proposal.repair_id,
-                    "proposal_path": str(repair_result.proposal_path),
-                    "markdown_path": str(repair_result.markdown_path),
-                    "target_files": repair_result.proposal.target_files,
-                    "operation_count": len(repair_result.proposal.operations),
-                    "confidence": repair_result.proposal.confidence,
-                    "management_events": _management_event_payload(root),
-                }
-                return _success(
-                    args,
-                    repair_payload,
-                    [
-                        f"Memory repair proposal: {repair_result.proposal_path}",
-                        f"Targets: {', '.join(repair_result.proposal.target_files) or 'none'}",
-                        f"Operations: {len(repair_result.proposal.operations)}",
-                        *_management_event_lines(root),
-                    ],
-                )
-            apply_result = apply_memory_repair(root, _resolve_memory_repair_proposal_arg(args.proposal))
-            apply_payload: dict[str, object] = {
-                "command": "memory-repair apply",
-                "repair_id": apply_result.proposal.repair_id,
-                "apply_log_path": str(apply_result.apply_log_path),
-                "status": apply_result.apply_log.status,
-                "management_events": _management_event_payload(root),
-            }
+        if args.memory_repair_command == "suggest":
+            payload = _dispatch_cli_command(
+                args,
+                root,
+                MemoryRepairSuggestCommand(request=args.request, provider_name=args.provider),
+            )
+            proposal = payload.get("proposal")
+            if not isinstance(proposal, dict):
+                raise DomainError("internal_error", "command result is missing proposal")
+            payload.update({"command": "memory-repair suggest", "management_events": _management_event_payload(root)})
             return _success(
                 args,
-                apply_payload,
+                payload,
                 [
-                    f"Applied memory repair: {apply_result.proposal.repair_id}",
-                    f"Apply log: {apply_result.apply_log_path}",
+                    f"Memory repair proposal: {payload.get('proposal_path')}",
+                    f"Targets: {', '.join(str(item) for item in proposal.get('target_files', [])) or 'none'}",
+                    f"Operations: {len(proposal.get('operations', []))}",
                     *_management_event_lines(root),
                 ],
             )
-    except ProjectLockError as exc:
-        return _failure(args, str(exc), error_type="project_locked")
-    except MemoryRepairError as exc:
-        return _failure(args, str(exc), error_type="memory_repair_error")
+        proposal_path = _resolve_memory_repair_proposal_arg(args.proposal).as_posix()
+        payload = _dispatch_cli_command(
+            args,
+            root,
+            MemoryRepairApplyCommand(proposal_path=proposal_path),
+            confirmed=True,
+        )
+        payload.update({"command": "memory-repair apply", "management_events": _management_event_payload(root)})
+        return _success(
+            args,
+            payload,
+            [
+                f"Applied memory repair: {payload.get('repair_id')}",
+                f"Apply log: {payload.get('apply_log_path')}",
+                *_management_event_lines(root),
+            ],
+        )
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
 
 def _setting_change_suggestion_success(
     args: argparse.Namespace,
     root: Path,
-    result: SettingChangeSuggestionResult,
+    result: dict[str, object],
     *,
     command: str,
 ) -> int:
-    if result.status == "needs_clarification":
-        clarification = result.clarification
-        if clarification is None:
+    if result.get("status") == "needs_clarification":
+        clarification = result.get("clarification")
+        if not isinstance(clarification, dict):
             return _failure(args, "missing setting change clarification result", error_type="memory_repair_error")
+        clarification_id = str(clarification.get("clarification_id") or "")
         payload: dict[str, object] = {
+            **result,
             "command": command,
             "status": "needs_clarification",
-            "clarification_id": clarification.clarification_id,
-            "questions": clarification.questions,
-            "conversation_turns": [turn.model_dump(mode="json") for turn in clarification.conversation_turns],
-            "clarification_path": str((root / "memory" / "repairs" / "clarifications" / clarification.clarification_id / "session.json").resolve()),
+            "clarification_id": clarification_id,
+            "questions": clarification.get("questions", []),
+            "conversation_turns": clarification.get("conversation_turns", []),
+            "clarification_path": str((root / "memory" / "repairs" / "clarifications" / clarification_id / "session.json").resolve()),
             "management_events": _management_event_payload(root),
         }
+        questions = clarification.get("questions", [])
         lines = [
-            f"Setting change needs clarification: {clarification.clarification_id}",
-            *[f"Question: {question}" for question in clarification.questions],
-            f"Continue: novel setting-change answer {clarification.clarification_id} --path {root} --answer <your-answer>",
+            f"Setting change needs clarification: {clarification_id}",
+            *[f"Question: {question}" for question in questions if isinstance(question, str)],
+            f"Continue: novel setting-change answer {clarification_id} --path {root} --answer <your-answer>",
         ]
         return _success(args, payload, lines)
-    proposal_result = result.proposal_result
-    if proposal_result is None:
+    proposal = result.get("proposal")
+    if not isinstance(proposal, dict):
         return _failure(args, "missing setting change proposal result", error_type="memory_repair_error")
-    proposal = proposal_result.proposal
-    impact = proposal.impact
+    impact = proposal.get("impact")
     payload = {
+        **result,
         "command": command,
         "status": "proposal_ready",
-        "repair_id": proposal.repair_id,
-        "proposal_path": str(proposal_result.proposal_path),
-        "markdown_path": str(proposal_result.markdown_path),
-        "target_files": proposal.target_files,
-        "domains": proposal.domains,
-        "operation_count": len(proposal.operations),
-        "confidence": proposal.confidence,
-        "impact": impact.model_dump(mode="json") if impact else None,
-        "followup_actions": [
-            action.model_dump(mode="json") for action in proposal.followup_actions
-        ],
+        "repair_id": proposal.get("repair_id"),
+        "target_files": proposal.get("target_files", []),
+        "domains": proposal.get("domains", []),
+        "operation_count": len(proposal.get("operations", [])),
+        "confidence": proposal.get("confidence"),
+        "impact": impact,
+        "followup_actions": proposal.get("followup_actions", []),
         "management_events": _management_event_payload(root),
     }
-    affected = ", ".join(str(number) for number in impact.affected_chapters) if impact else ""
+    affected_chapters = impact.get("affected_chapters", []) if isinstance(impact, dict) else []
+    affected = ", ".join(str(number) for number in affected_chapters)
     return _success(
         args,
         payload,
         [
-            f"Setting change proposal: {proposal_result.proposal_path}",
-            f"Targets: {', '.join(proposal.target_files) or 'none'}",
-            f"Domains: {', '.join(proposal.domains) or 'none'}",
-            f"Operations: {len(proposal.operations)}",
+            f"Setting change proposal: {result.get('proposal_path')}",
+            f"Targets: {', '.join(str(item) for item in proposal.get('target_files', [])) or 'none'}",
+            f"Domains: {', '.join(str(item) for item in proposal.get('domains', [])) or 'none'}",
+            f"Operations: {len(proposal.get('operations', []))}",
             f"Affected chapters: {affected or 'none'}",
             *_management_event_lines(root),
         ],
     )
 
 def _cmd_setting_change(args: argparse.Namespace) -> int:
-    root = Path(args.path)
+    root = Path(args.path).expanduser().resolve()
     try:
-        with _command_lock(args, root, f"setting-change {args.setting_change_command}"):
-            if args.setting_change_command == "suggest":
-                result = suggest_setting_change_interactive(
-                    root,
-                    args.request,
+        if args.setting_change_command == "suggest":
+            result = _dispatch_cli_command(
+                args,
+                root,
+                SettingChangeSuggestCommand(
+                    request=args.request,
                     provider_name=args.provider,
                     stage=cast(MemoryChangeStage, args.stage),
                     session_id=args.session_id,
                     chapter_number=args.chapter,
                     audit_issue_ids=list(args.audit_issue_id or []),
-                )
-                return _setting_change_suggestion_success(args, root, result, command="setting-change suggest")
-            if args.setting_change_command == "answer":
-                result = answer_setting_change_clarification(
-                    root,
-                    args.clarification_id,
-                    args.answer,
-                    provider_name=args.provider,
-                )
-                return _setting_change_suggestion_success(args, root, result, command="setting-change answer")
-            apply_result = apply_memory_repair(root, _resolve_memory_repair_proposal_arg(args.proposal))
-            payload: dict[str, object] = {
-                "command": "setting-change apply",
-                "repair_id": apply_result.proposal.repair_id,
-                "apply_log_path": str(apply_result.apply_log_path),
-                "status": apply_result.apply_log.status,
-                "management_events": _management_event_payload(root),
-            }
-            return _success(
-                args,
-                payload,
-                [
-                    f"Applied setting change: {apply_result.proposal.repair_id}",
-                    f"Apply log: {apply_result.apply_log_path}",
-                    *_management_event_lines(root),
-                ],
+                ),
             )
-    except ProjectLockError as exc:
-        return _failure(args, str(exc), error_type="project_locked")
-    except MemoryRepairError as exc:
-        return _failure(args, str(exc), error_type="memory_repair_error")
+            return _setting_change_suggestion_success(args, root, result, command="setting-change suggest")
+        if args.setting_change_command == "answer":
+            result = _dispatch_cli_command(
+                args,
+                root,
+                SettingChangeAnswerCommand(
+                    clarification_id=args.clarification_id,
+                    answer=args.answer,
+                    provider_name=args.provider,
+                ),
+            )
+            return _setting_change_suggestion_success(args, root, result, command="setting-change answer")
+        result = _dispatch_cli_command(
+            args,
+            root,
+            SettingChangeApplyCommand(
+                proposal_path=_resolve_memory_repair_proposal_arg(args.proposal).as_posix(),
+            ),
+            confirmed=True,
+        )
+        result.update({"command": "setting-change apply", "management_events": _management_event_payload(root)})
+        return _success(
+            args,
+            result,
+            [
+                f"Applied setting change: {result.get('repair_id') or result.get('proposal', {})}",
+                f"Apply log: {result.get('apply_log_path')}",
+                *_management_event_lines(root),
+            ],
+        )
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
 
 def _cmd_chapter_memory(args: argparse.Namespace) -> int:
     root = Path(args.path)

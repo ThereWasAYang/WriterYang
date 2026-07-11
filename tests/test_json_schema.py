@@ -59,6 +59,8 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "acceptance_commit",
         "transaction_journal",
         "command_proposal",
+        "command_envelope",
+        "command_result",
         "workflow_budget",
         "segment_selection",
         "segment_patch",

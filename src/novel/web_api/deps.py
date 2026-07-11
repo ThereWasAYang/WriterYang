@@ -33,7 +33,6 @@ from novel.core.audit_localization import (
     localize_audit_issue_for_author,
     localize_session_rewrite_issue_for_author,
 )
-from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.canon import (
     CanonAppliedProposalRecord,
     CanonError,
@@ -56,7 +55,6 @@ from novel.core.chapter_versions import (
     latest_chapter_version_path,
     next_chapter_version_path,
 )
-from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.env import load_project_env
 from novel.core.exporting import DocxExportOptions, MarkdownExportOptions, export_docx, export_markdown, parse_chapter_selector
 from novel.core.inspiration import InspirationOptions, load_inspiration_provider, run_inspiration_agent
@@ -71,8 +69,6 @@ from novel.core.memory_repair import (
     apply_memory_repair,
     suggest_setting_change_interactive,
 )
-from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
-from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.provider_config import resolve_agent_config_source, resolve_profile_config_source
 from novel.core.search import SearchError, refresh_search_index, search_index_status, search_project
 from novel.core.embeddings import EmbeddingError, resolve_embedding_parameters
@@ -178,9 +174,6 @@ __all__ = [
     "log_app_warning",
     "localize_audit_issue_for_author",
     "localize_session_rewrite_issue_for_author",
-    "ChapterAuditOptions",
-    "audit_chapter",
-    "load_audit_provider",
     "CanonAppliedProposalRecord",
     "CanonError",
     "CanonSuggestOptions",
@@ -197,9 +190,6 @@ __all__ = [
     "is_allowed_chapter_version_name",
     "latest_chapter_version_path",
     "next_chapter_version_path",
-    "ChapterDraftingOptions",
-    "load_drafting_provider",
-    "write_chapter_draft",
     "load_project_env",
     "DocxExportOptions",
     "MarkdownExportOptions",
@@ -226,12 +216,6 @@ __all__ = [
     "answer_setting_change_clarification",
     "apply_memory_repair",
     "suggest_setting_change_interactive",
-    "ChapterPlanningOptions",
-    "load_planning_provider",
-    "plan_chapter",
-    "ChapterPolishingOptions",
-    "load_polishing_provider",
-    "polish_chapter",
     "resolve_agent_config_source",
     "resolve_profile_config_source",
     "SearchError",

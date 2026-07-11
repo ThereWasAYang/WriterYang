@@ -5,7 +5,8 @@ from io import StringIO
 import json
 from pathlib import Path
 
-from novel.cli import build_parser, main
+from novel.cli import build_parser
+from tests.internal_task_cli import run_test_cli
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.locking import ProjectLock
 from novel.core.workspace import InitOptions, init_workspace
@@ -78,7 +79,7 @@ def test_integration_doc_commands_match_cli() -> None:
 
     assert "novel status --project ./rain-station --json --quiet" in doc
     assert "novel ask" in doc
-    assert "novel generate-chapter 1" in doc
+    assert "novel session start" in doc
     assert "novel doctor --project ./rain-station --json --quiet" in doc
     assert "project_read_error" in doc
     assert "docs/openclaw_tool_manifest.json" in doc
@@ -269,5 +270,5 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     stdout = StringIO()
     stderr = StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = main(args)
+        code = run_test_cli(args)
     return code, stdout.getvalue(), stderr.getvalue()

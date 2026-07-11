@@ -1,24 +1,3 @@
-    async function runAction(endpoint, label) {
-      return withBusy(label, async () => {
-        const payload = {
-          path: projectPath(),
-          chapter_number: chapterNumber(),
-          instruction: $("instruction").value.trim(),
-          provider: $("provider").value,
-          force: $("forceWrites").checked,
-          use_search_context: $("useSearchContext").checked,
-          vector_context: $("vectorContextMode").value,
-          use_vector_context: $("useVectorContext").checked,
-          polish_mode: $("autoPolish").checked ? "auto" : "single_pass",
-        };
-        const data = await apiPost(endpoint, payload);
-        $("fileViewer").textContent = JSON.stringify(data, null, 2);
-        await refreshAll({ silent: true });
-        await loadDebugArtifactPreview(endpoint, { silent: true });
-        setMessage(actionMessage(label, data));
-      });
-    }
-
     async function runSessionAction(endpoint, payload, label) {
       if (!validateSessionAction(endpoint)) return;
       if (!(await prepareSessionRunAction(endpoint))) return;
@@ -608,16 +587,6 @@
         label: "Canon proposal",
         emptyText: "生成或应用 Canon proposal 后，内容会显示在这里。",
         missingMessage: "暂无 Canon proposal 可预览。",
-      }, options);
-    }
-
-    async function loadDebugArtifactPreview(endpoint, options = {}) {
-      const fileType = debugActionPreviewFiles[endpoint];
-      if (!fileType) return null;
-      return loadChapterArtifactPreview(fileType, {
-        metaId: "debugArtifactPreviewMeta",
-        preId: "debugArtifactPreview",
-        label: "调试产物",
       }, options);
     }
 

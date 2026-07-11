@@ -7,7 +7,7 @@ novel validate --path <project>
 novel status --path <project>
 ```
 
-如果改动影响某章正文，还应重新运行 `audit-chapter`。
+如果改动影响某章正文，应创建 Revision Session 并重新 Audit。
 
 ## 基本原则
 
@@ -108,7 +108,7 @@ Timeline 记录故事世界中已经确定存在的事件，包括尚未正文�
 
 - 手动改 `draft.md` 或 `polished.md` 后，保留 YAML front matter。
 - 不要让 `chapter_number` 与目录编号不一致。
-- 改正文后重新运行 `audit-chapter`。
+- 改正文后通过 `revision-session run` 重新 Audit。
 - 如果要保留旧稿，优先复制为 `draft.v2.md` 或 `polished.v2.md`，不要直接覆盖。
 
 ## 推荐人工编辑流程
@@ -116,5 +116,5 @@ Timeline 记录故事世界中已经确定存在的事件，包括尚未正文�
 1. 改文件。
 2. 运行 `novel validate --path <project>`。
 3. 如果改了 canon，运行 `novel canon validate --path <project>`。
-4. 如果改了章节正文，运行 `novel audit-chapter <n> --path <project> --provider mock --force` 或使用真实 provider。
-5. 确认无阻塞问题后再 `accept-chapter` 或重新 export。
+4. 如果改了已认可章节正文，运行 `novel revision-session start/run` 生成范围受控的 candidate 并重新 Audit。
+5. 确认无阻塞问题后执行 `revision-session accept`，再重新 export。

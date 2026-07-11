@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from .deps import (
     asdict,
     Path,
@@ -11,30 +13,18 @@ from .deps import (
     AuditReport,
     CreationSession,
     SessionProgress,
-    SessionActionOptions,
-    SessionInstructionOptions,
-    SessionRunOptions,
-    SessionStartOptions,
-    SessionRewriteControlOptions,
-    accept_session,
-    approve_outline,
-    archive_session,
     find_latest_active_session,
     load_session_progress,
     load_session,
     load_rewrite_events,
     parse_range,
-    request_session_cancel,
-    retry_rewrite,
-    revise_audit,
-    revise_content,
-    revise_outline,
-    run_session,
-    start_session,
-    undo_rewrite,
     ValidationMessage,
     validate_project,
 )
+from novel.core.contracts import PublicCommand, SessionCommand, SessionStartCommand
+from novel.core.contracts.commands import SessionCommandType
+from novel.core.command_bus import allowed_session_commands
+from novel.core.session import SessionResult
 
 from .common import (
     WebAPIError,
@@ -49,190 +39,112 @@ from .common import (
     _required_string,
     _relative,
     _safe_error,
+    _dispatch_web_command,
 )
 
 from .inspection import _management_event_summary
 
+
+
 def _session_start(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
     chapter_range = parse_range(str(data.get("chapters") or data.get("chapter") or "1"))
-    result = start_session(
-        SessionStartOptions(
-            root=root,
+    return _session_command_payload(
+        data,
+        SessionStartCommand(
             user_intent=str(data.get("intent") or ""),
-            chapter_range=chapter_range,
+            chapter_range=list(chapter_range),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             use_search_context=bool(data.get("use_search_context", True)),
             use_vector_context=_vector_context_mode(data),
             polish_mode=_polish_mode(data),
-        )
+        ),
     )
-    return _session_result_payload(result)
 
 
 def _session_revise_outline(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    result = revise_outline(
-        SessionInstructionOptions(
-            root=root,
-            session_id=session_id,
-            instruction=str(data.get("instruction") or ""),
-            provider_name=str(data.get("provider") or "config"),
-            force=bool(data.get("force")),
-            use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=_vector_context_mode(data),
-            polish_mode=_polish_mode(data),
-        )
-    )
-    return _session_result_payload(result)
+    return _session_action_command(data, "session.revise_outline")
 
 
 def _session_approve_outline(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    result = approve_outline(
-        SessionActionOptions(
-            root=root,
-            session_id=session_id,
-            force=bool(data.get("force")),
-        )
-    )
-    return _session_result_payload(result)
+    return _session_action_command(data, "session.approve_outline")
 
 
 def _session_run(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    result = run_session(
-        SessionRunOptions(
-            root=root,
-            session_id=session_id,
+    return _session_action_command(data, "session.run")
+
+
+def _session_cancel(data: dict[str, object]) -> dict[str, object]:
+    payload = _session_action_command(data, "session.cancel")
+    payload["message"] = "取消已请求，将在当前章节或修复轮结束后生效。"
+    return payload
+
+
+def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
+    return _session_action_command(data, "session.revise_content")
+
+
+def _session_revise_audit(data: dict[str, object]) -> dict[str, object]:
+    return _session_action_command(data, "session.revise_audit")
+
+
+def _session_retry_rewrite(data: dict[str, object]) -> dict[str, object]:
+    return _session_action_command(data, "session.retry_rewrite")
+
+
+def _session_undo_rewrite(data: dict[str, object]) -> dict[str, object]:
+    return _session_action_command(data, "session.undo_rewrite")
+
+
+def _session_accept(data: dict[str, object]) -> dict[str, object]:
+    return _session_action_command(data, "session.accept", confirmed=True)
+
+
+def _session_archive(data: dict[str, object]) -> dict[str, object]:
+    return _session_action_command(data, "session.archive", confirmed=True)
+
+
+def _session_action_command(
+    data: dict[str, object],
+    command_type: str,
+    *,
+    confirmed: bool = False,
+) -> dict[str, object]:
+    return _session_command_payload(
+        data,
+        SessionCommand(
+            type=cast(SessionCommandType, command_type),
+            session_id=_required_string(data.get("session_id"), "session_id"),
+            instruction=_optional_string(data.get("instruction")),
+            event_id=_optional_string(data.get("event_id")),
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
+            from_audit=bool(data.get("from_audit")),
             max_auto_revision_rounds=_optional_int(data.get("max_auto_revision_rounds")),
             use_search_context=bool(data.get("use_search_context", True)),
             use_vector_context=_vector_context_mode(data),
             polish_mode=_polish_mode(data),
-        )
+        ),
+        confirmed=confirmed,
     )
-    return _session_result_payload(result)
 
 
-def _session_cancel(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    progress = request_session_cancel(root, session_id)
-    return {
-        "session_id": session_id,
-        "message": "取消已请求，将在当前章节或修复轮结束后生效。",
-        "progress": _session_progress_payload(progress),
-    }
-
-
-def _session_revise_content(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    result = revise_content(
-        SessionInstructionOptions(
-            root=root,
-            session_id=session_id,
-            instruction=str(data.get("instruction") or ""),
-            provider_name=str(data.get("provider") or "config"),
-            force=bool(data.get("force")),
-            from_audit=bool(data.get("from_audit")),
-            use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=_vector_context_mode(data),
-            polish_mode=_polish_mode(data),
-        )
-    )
-    return _session_result_payload(result)
-
-
-def _session_revise_audit(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    event_id = _required_string(data.get("event_id"), "event_id")
-    result = revise_audit(
-        SessionRewriteControlOptions(
-            root=root,
-            session_id=session_id,
-            event_id=event_id,
-            instruction=str(data.get("instruction") or ""),
-            provider_name=str(data.get("provider") or "config"),
-            force=bool(data.get("force")),
-            use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=_vector_context_mode(data),
-            polish_mode=_polish_mode(data),
-        )
-    )
-    return _session_result_payload(result)
-
-
-def _session_retry_rewrite(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    event_id = _required_string(data.get("event_id"), "event_id")
-    result = retry_rewrite(
-        SessionRewriteControlOptions(
-            root=root,
-            session_id=session_id,
-            event_id=event_id,
-            instruction=_optional_string(data.get("instruction")),
-            provider_name=str(data.get("provider") or "config"),
-            force=bool(data.get("force")),
-            use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=_vector_context_mode(data),
-            polish_mode=_polish_mode(data),
-        )
-    )
-    return _session_result_payload(result)
-
-
-def _session_undo_rewrite(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    event_id = _required_string(data.get("event_id"), "event_id")
-    result = undo_rewrite(
-        SessionRewriteControlOptions(
-            root=root,
-            session_id=session_id,
-            event_id=event_id,
-            provider_name=str(data.get("provider") or "config"),
-            use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=_vector_context_mode(data),
-            polish_mode=_polish_mode(data),
-        )
-    )
-    return _session_result_payload(result)
-
-
-def _session_accept(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    result = accept_session(
-        SessionActionOptions(
-            root=root,
-            session_id=session_id,
-            provider_name=str(data.get("provider") or "config"),
-            force=bool(data.get("force")),
-        )
-    )
-    return _session_result_payload(result)
-
-
-def _session_archive(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    session_id = _required_string(data.get("session_id"), "session_id")
-    result = archive_session(
-        SessionActionOptions(
-            root=root,
-            session_id=session_id,
-            force=bool(data.get("force")),
-        )
-    )
-    return _session_result_payload(result)
+def _session_command_payload(
+    data: dict[str, object],
+    command: PublicCommand,
+    *,
+    confirmed: bool = False,
+) -> dict[str, object]:
+    payload = _dispatch_web_command(data, command, confirmed=confirmed)
+    session_data = payload.get("session")
+    if isinstance(session_data, dict):
+        session = CreationSession.model_validate(session_data)
+        root = _root_from_body(data)
+        payload["revision_route"] = _session_latest_revision_route(session)
+        payload["rewrite_events"] = _session_rewrite_event_summary(root, session)
+        payload["audit_summary"] = _session_audit_summary(root, session)
+        payload["management_events"] = _management_event_summary(root)
+    return payload
 
 
 def _validate_project(root: Path) -> dict[str, object]:
@@ -308,6 +220,7 @@ def _session_api(query: dict[str, str]) -> dict[str, object]:
     session = load_session(root, session_id)
     return {
         "session": session.model_dump(mode="json"),
+        "next_allowed_commands": allowed_session_commands(session),
         "progress": _session_progress_payload(load_session_progress(root, session.session_id)),
         "audit_summary": _session_audit_summary(root, session),
         "rewrite_events": _session_rewrite_event_summary(root, session),
@@ -359,10 +272,11 @@ def _validation_message_payload(root: Path, message: ValidationMessage) -> dict[
     }
 
 
-def _session_result_payload(result) -> dict[str, object]:
+def _session_result_payload(result: SessionResult) -> dict[str, object]:
     root = _session_root_from_result_path(result.session_path)
     return {
         "session": result.session.model_dump(mode="json"),
+        "next_allowed_commands": allowed_session_commands(result.session),
         "session_path": str(result.session_path),
         "message": result.message,
         "progress": _session_progress_payload(load_session_progress(root, result.session.session_id)),
@@ -374,10 +288,10 @@ def _session_result_payload(result) -> dict[str, object]:
 
 
 def _session_progress_payload(progress: SessionProgress) -> dict[str, object]:
-    return _redact_progress_value(progress.model_dump(mode="json"))
+    return cast(dict[str, object], _redact_progress_value(progress.model_dump(mode="json")))
 
 
-def _redact_progress_value(value):
+def _redact_progress_value(value: object) -> object:
     if isinstance(value, str):
         return _safe_error(value)
     if isinstance(value, list):

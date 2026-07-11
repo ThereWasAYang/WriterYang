@@ -11,19 +11,12 @@ from .deps import (
     InspirationOptions,
     load_inspiration_provider,
     run_inspiration_agent,
-    load_json,
-    MemoryRepairError,
-    SettingChangeSuggestionResult,
-    answer_setting_change_clarification,
-    apply_memory_repair,
-    suggest_setting_change_interactive,
-    PolishMode,
-    VectorContextMode,
-    SessionInstructionOptions,
-    load_session,
-    revise_content,
-    revise_outline,
     is_default_inspiration_placeholder,
+)
+from novel.core.contracts import (
+    SettingChangeAnswerCommand,
+    SettingChangeApplyCommand,
+    SettingChangeSuggestCommand,
 )
 
 from .common import (
@@ -39,12 +32,11 @@ from .common import (
     _polish_mode,
     _optional_int,
     _default_canon_proposal_path,
+    _dispatch_web_command,
     _relative,
 )
 
 from .inspection import _management_event_summary
-from .session import _session_result_payload
-
 def _inspire(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
     provider = load_inspiration_provider(root, str(data.get("provider") or "config"))
@@ -140,194 +132,75 @@ def _canon_applied_proposal_payload(root: Path, record: CanonAppliedProposalReco
 
 
 def _settings_change_suggest(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
     request = _optional_string(data.get("request")) or _optional_string(data.get("instruction"))
     if not request:
         raise WebAPIError("invalid_request", "request is required", status=400)
-    provider = _optional_string(data.get("provider")) or "config"
-    audit_issue_ids = _string_list(data.get("audit_issue_ids"))
-    result = suggest_setting_change_interactive(
-        root,
-        request,
-        provider_name=provider,
-        stage=_memory_change_stage(data.get("source_stage") or data.get("stage")),
-        session_id=_optional_string(data.get("session_id")),
-        chapter_number=_optional_int(data.get("chapter_number")) or _optional_int(data.get("chapter")),
-        audit_issue_ids=audit_issue_ids,
+    return _enrich_setting_change_payload(
+        data,
+        _dispatch_web_command(
+            data,
+            SettingChangeSuggestCommand(
+                request=request,
+                provider_name=_optional_string(data.get("provider")) or "config",
+                stage=_memory_change_stage(data.get("source_stage") or data.get("stage")),
+                session_id=_optional_string(data.get("session_id")),
+                chapter_number=_optional_int(data.get("chapter_number")) or _optional_int(data.get("chapter")),
+                audit_issue_ids=_string_list(data.get("audit_issue_ids")),
+            ),
+        ),
     )
-    return _setting_change_suggestion_payload(root, result)
 
 
 def _settings_change_answer(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
     clarification_id = _optional_string(data.get("clarification_id"))
     answer = _optional_string(data.get("answer")) or _optional_string(data.get("message"))
     if not clarification_id:
         raise WebAPIError("invalid_request", "clarification_id is required", status=400)
     if not answer:
         raise WebAPIError("invalid_request", "answer is required", status=400)
-    result = answer_setting_change_clarification(
-        root,
-        clarification_id,
-        answer,
-        provider_name=_optional_string(data.get("provider")) or "config",
+    return _enrich_setting_change_payload(
+        data,
+        _dispatch_web_command(
+            data,
+            SettingChangeAnswerCommand(
+                clarification_id=clarification_id,
+                answer=answer,
+                provider_name=_optional_string(data.get("provider")) or "config",
+            ),
+        ),
     )
-    return _setting_change_suggestion_payload(root, result)
 
 
-def _setting_change_suggestion_payload(root: Path, result: SettingChangeSuggestionResult) -> dict[str, object]:
-    if result.status == "needs_clarification":
-        if result.clarification is None:
-            raise WebAPIError("internal_error", "missing clarification result", status=500)
-        clarification = result.clarification
-        return {
-            "status": "needs_clarification",
-            "clarification": clarification.model_dump(mode="json"),
-            "clarification_id": clarification.clarification_id,
-            "questions": clarification.questions,
-            "conversation_turns": [turn.model_dump(mode="json") for turn in clarification.conversation_turns],
-            "management_events": _management_event_summary(root),
-        }
-    if result.proposal_result is None:
-        raise WebAPIError("internal_error", "missing setting change proposal result", status=500)
-    proposal_result = result.proposal_result
-    return {
-        "status": "proposal_ready",
-        "proposal": proposal_result.proposal.model_dump(mode="json"),
-        "proposal_path": str(proposal_result.proposal_path),
-        "proposal_relative_path": _relative(root, proposal_result.proposal_path),
-        "markdown_path": str(proposal_result.markdown_path),
-        "markdown_relative_path": _relative(root, proposal_result.markdown_path),
-        "management_events": _management_event_summary(root),
-    }
+def _enrich_setting_change_payload(
+    data: dict[str, object],
+    result: dict[str, object],
+) -> dict[str, object]:
+    root = _root_from_body(data)
+    result["management_events"] = _management_event_summary(root)
+    for field in ("proposal_path", "markdown_path", "apply_log_path"):
+        value = result.get(field)
+        if isinstance(value, str):
+            result[f"{field.removesuffix('_path')}_relative_path"] = _relative(root, Path(value))
+    return result
 
 
 def _settings_change_apply(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
     proposal_path_text = _optional_string(data.get("proposal_path")) or _optional_string(data.get("proposal_file"))
     if not proposal_path_text:
         raise WebAPIError("invalid_request", "proposal_path is required", status=400)
-    proposal_path = _safe_workspace_file(root, proposal_path_text)
-    try:
-        result = apply_memory_repair(root, proposal_path)
-    except MemoryRepairError as exc:
-        raise WebAPIError(
-            "memory_repair_error",
-            str(exc),
-            status=400,
-            details=_memory_repair_apply_error_details(root, proposal_path),
-        ) from exc
-    sync_result: dict[str, object] = {"status": "skipped", "reason": "sync_session is false"}
-    if bool(data.get("sync_session")):
-        sync_result = _sync_setting_change_session(
-            root,
-            result.proposal,
-            session_id=_optional_string(data.get("session_id")),
-            provider_name=_optional_string(data.get("provider")) or "config",
-            use_search_context=bool(data.get("use_search_context", True)),
-            use_vector_context=_vector_context_mode(data),
-            polish_mode=_polish_mode(data),
-        )
-    return {
-        "proposal": result.proposal.model_dump(mode="json"),
-        "apply_log": result.apply_log.model_dump(mode="json"),
-        "apply_log_path": str(result.apply_log_path),
-        "apply_log_relative_path": _relative(root, result.apply_log_path),
-        "sync_result": sync_result,
-        "management_events": _management_event_summary(root),
-    }
-
-
-def _memory_repair_apply_error_details(root: Path, proposal_path: Path) -> dict[str, object]:
-    details: dict[str, object] = {}
-    try:
-        proposal = load_json(proposal_path)
-    except Exception:
-        return details
-    if not isinstance(proposal, dict):
-        return details
-    repair_id = proposal.get("repair_id")
-    if not isinstance(repair_id, str) or not repair_id:
-        return details
-    details["repair_id"] = repair_id
-    apply_log_path = root / "memory" / "repairs" / repair_id / "apply_log.json"
-    if not apply_log_path.exists():
-        return details
-    details["apply_log_path"] = str(apply_log_path)
-    details["apply_log_relative_path"] = _relative(root, apply_log_path)
-    try:
-        apply_log = load_json(apply_log_path)
-    except Exception:
-        return details
-    if isinstance(apply_log, dict):
-        if isinstance(apply_log.get("status"), str):
-            details["apply_log_status"] = apply_log["status"]
-        errors = apply_log.get("errors")
-        if isinstance(errors, list):
-            details["apply_log_error_count"] = len(errors)
-    return details
-
-
-def _sync_setting_change_session(
-    root: Path,
-    proposal,
-    *,
-    session_id: str | None,
-    provider_name: str,
-    use_search_context: bool,
-    use_vector_context: VectorContextMode,
-    polish_mode: PolishMode | None,
-) -> dict[str, object]:
-    if not session_id:
-        return {"status": "skipped", "reason": "session_id is missing"}
-    try:
-        session = load_session(root, session_id)
-    except Exception as exc:
-        return {"status": "failed", "reason": f"could not load session: {exc}"}
-    if session.status in {"accepted", "archived"} or session.content_status in {"accepted", "archived"}:
-        return {
-            "status": "manual_review",
-            "reason": "accepted or archived sessions are not rewritten automatically",
-            "session_id": session_id,
-        }
-    instruction = (
-        "设定变更已应用，请基于最新项目 memory 同步当前创作。\n"
-        f"原始设定变更请求：{proposal.user_request}\n"
-        f"影响分析：{proposal.impact.summary if proposal.impact else '无'}"
+    return _enrich_setting_change_payload(
+        data,
+        _dispatch_web_command(
+            data,
+            SettingChangeApplyCommand(
+                proposal_path=proposal_path_text,
+                sync_session=bool(data.get("sync_session")),
+                session_id=_optional_string(data.get("session_id")),
+                provider_name=_optional_string(data.get("provider")) or "config",
+                use_search_context=bool(data.get("use_search_context", True)),
+                use_vector_context=_vector_context_mode(data),
+                polish_mode=_polish_mode(data),
+            ),
+            confirmed=True,
+        ),
     )
-    try:
-        if session.content_status == "not_started":
-            result = revise_outline(
-                SessionInstructionOptions(
-                    root=root,
-                    session_id=session_id,
-                    instruction=instruction,
-                    provider_name=provider_name,
-                    force=True,
-                    use_search_context=use_search_context,
-                    use_vector_context=use_vector_context,
-                    polish_mode=polish_mode,
-                )
-            )
-            return {"status": "synced", "action": "revise_outline", "session": _session_result_payload(result)}
-        if session.content_status in {"needs_user_review", "needs_revision"}:
-            result = revise_content(
-                SessionInstructionOptions(
-                    root=root,
-                    session_id=session_id,
-                    instruction=instruction,
-                    provider_name=provider_name,
-                    force=True,
-                    use_search_context=use_search_context,
-                    use_vector_context=use_vector_context,
-                    polish_mode=polish_mode,
-                )
-            )
-            return {"status": "synced", "action": "revise_content", "session": _session_result_payload(result)}
-        return {
-            "status": "manual_review",
-            "reason": f"session status {session.status}/{session.content_status} is not safe for automatic sync",
-            "session_id": session_id,
-        }
-    except Exception as exc:
-        return {"status": "failed", "reason": str(exc), "session_id": session_id}

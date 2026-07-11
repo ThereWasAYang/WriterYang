@@ -72,12 +72,12 @@ memory/
     timeline.json           # init 创建空时间线；使用 narrative/story 双轨
   chapters/
     001/
-      plan.json             # [运行时] plan-chapter/session outline approval 后生成
+      plan.json             # [运行时] Session outline approval 后生成
       plan.md               # [运行时] 面向作者阅读的章节计划
-      draft.md              # [运行时] write-chapter/session run 后生成
+      draft.md              # [运行时] Session run 中由 Writer Task 生成
       polished.md           # [运行时] polish/revision 后生成的 working materialization
-      audit.json            # [运行时] audit-chapter/session run 后生成
-      state_update_proposal.json     # [运行时] propose-state-update/session review gate 前生成
+      audit.json            # [运行时] Session run 中由 Audit Task 生成
+      state_update_proposal.json     # [运行时] Session review gate 前生成
       lifecycle.json                 # active artifact refs 与 lineage binding
       plans/ candidates/ audits/ state_proposals/  # immutable artifacts
       chapter_memories/ acceptances/ # pending/committed immutable artifacts
@@ -173,13 +173,13 @@ Audit 自动打回也必须走结构化分流：`route_audit_repair()` 根据 `A
 
 Web UI 面向普通作者时，Session 面板必须保留完整协商链路：创建大纲、修改大纲、批准大纲、开始写作、当前任务进度、协作式取消、自动打回重写记录、Audit 复审/重试打回/撤回、按 Audit/用户意见修订、认可和归档。只读项目检查走 `/api/validate`，复用 `validate_project()`，不应在前端实现校验规则。后台状态、时间线和记忆管理变更必须写 `memory/management_events.jsonl`，Web UI 和 CLI 都要显示最近事件摘要。
 
-底层命令当前仍可用于调试，但不会单独建立正式导出所需的 Session acceptance lineage：
+底层 Plot、Writer、Polish、Audit 与 State Update 是 workflow runtime 内部 Task：
 
 ```text
-plan-chapter -> write-chapter -> finalize polished.md -> audit-chapter -> propose/apply state update -> accept-chapter
+Plot -> Writer -> finalize polished candidate -> Audit -> State Proposal -> Acceptance Commit
 ```
 
-默认 finalization 是 `polish.mode=single_pass`，直接把 Writer 产出的 `draft.md` 提升为 `polished.md` 并继续 audit；显式 `polish-chapter`、`--polish-mode auto` 或 Web UI“自动润色”才会调用 Polish Agent。
+默认 finalization 是 `polish.mode=single_pass`，直接把 Writer 产出的 `draft.md` 提升为 `polished.md` 并继续 audit；Session 的 `--polish-mode auto` 或 Web UI“自动润色”会调用 Polish Agent。
 
 常用命令清单：
 
@@ -197,12 +197,11 @@ novel revision-session run <revision_session_id> --path <project>
 novel revision-session accept <revision_session_id> --path <project>
 novel ask "第2章 event_x 其实是回忆，不是当前行动" --path <project>
 novel memory-repair apply <repair_id> --path <project>
-novel plan-chapter 1 --path <project>
-novel write-chapter 1 --path <project>
-novel polish-chapter 1 --path <project>
-novel audit-chapter 1 --path <project>
-novel propose-state-update 1 --path <project>
-novel apply-state-update 1 --path <project>
+novel session start "写第1章" --chapters 1 --path <project>
+novel session approve-outline <session_id> --path <project>
+novel session run <session_id> --path <project>
+novel session accept <session_id> --path <project>
+novel preview package --path <project> --chapters 1 --source polished
 novel export markdown --path <project>
 ```
 

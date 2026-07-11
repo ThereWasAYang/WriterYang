@@ -70,13 +70,10 @@ from novel.core.state_update import (
     read_state_update_instruction,
 )
 from novel.core.exporting import (
-    DocxExportOptions,
-    ExportError,
-    MarkdownExportOptions,
-    export_docx,
-    export_markdown,
     parse_chapter_selector,
 )
+from novel.core.command_bus import DomainError
+from novel.core.contracts import ProductionExportCommand
 from novel.core.inspection import (
     ProjectReadError,
     format_canon,
@@ -100,6 +97,7 @@ from novel.cli_shared import (
     _failure,
     _print_json,
     _command_lock,
+    _dispatch_cli_command,
     _validation_payload,
 )
 
@@ -819,86 +817,37 @@ def _cmd_generate_chapter(args: argparse.Namespace) -> int:
     )
 
 def _cmd_export(args: argparse.Namespace) -> int:
-    root = Path(args.path)
-    if args.export_command == "markdown":
-        try:
-            chapters = parse_chapter_selector(args.chapters)
-            with _command_lock(args, root, "export markdown"):
-                markdown_result = export_markdown(
-                    MarkdownExportOptions(
-                        root=root,
-                        chapters=chapters,
-                        from_chapter=args.from_chapter,
-                        to_chapter=args.to_chapter,
-                        output_path=args.output,
-                        title=args.title,
-                        include_toc=args.toc,
-                        volume_title=args.volume_title,
-                        chapter_number_style=args.chapter_number_style,
-                        force=args.force,
-                    )
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except ExportError as exc:
-            return _failure(args, str(exc), error_type="export_error")
-        except Exception as exc:
-            return _failure(args, f"markdown export failed: {exc}", error_type="export_error")
-
-        lines = [
-            *(f"warning: {warning}" for warning in markdown_result.warnings),
-            f"Wrote Markdown export: {markdown_result.output_path}",
-            f"Updated export manifest: {markdown_result.manifest_path}",
-            f"Chapters: {', '.join(str(number) for number in markdown_result.exported_chapters)}",
-        ]
-        return _success(
+    root = Path(args.path).expanduser().resolve()
+    if args.export_command not in {"markdown", "docx"}:
+        return _failure(args, f"unknown export command: {args.export_command}", code=2)
+    try:
+        payload = _dispatch_cli_command(
             args,
-            {
-                "command": "export markdown",
-                "output_path": str(markdown_result.output_path),
-                "manifest_path": str(markdown_result.manifest_path),
-                "chapters": list(markdown_result.exported_chapters),
-                "warnings": list(markdown_result.warnings),
-            },
-            lines,
+            root,
+            ProductionExportCommand(
+                type=f"export.{args.export_command}",
+                chapters=list(parse_chapter_selector(args.chapters)),
+                from_chapter=args.from_chapter,
+                to_chapter=args.to_chapter,
+                output_path=str(args.output) if args.output else None,
+                title=args.title,
+                include_toc=bool(getattr(args, "toc", False)),
+                volume_title=getattr(args, "volume_title", None),
+                chapter_number_style=getattr(args, "chapter_number_style", "chinese"),
+                force=args.force,
+            ),
+            confirmed=True,
         )
-    if args.export_command == "docx":
-        try:
-            chapters = parse_chapter_selector(args.chapters)
-            with _command_lock(args, root, "export docx"):
-                docx_result = export_docx(
-                    DocxExportOptions(
-                        root=root,
-                        chapters=chapters,
-                        from_chapter=args.from_chapter,
-                        to_chapter=args.to_chapter,
-                        output_path=args.output,
-                        title=args.title,
-                        force=args.force,
-                    )
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except ExportError as exc:
-            return _failure(args, str(exc), error_type="export_error")
-        except Exception as exc:
-            return _failure(args, f"docx export failed: {exc}", error_type="export_error")
-
-        lines = [
-            *(f"warning: {warning}" for warning in docx_result.warnings),
-            f"Wrote DOCX export: {docx_result.output_path}",
-            f"Updated export manifest: {docx_result.manifest_path}",
-            f"Chapters: {', '.join(str(number) for number in docx_result.exported_chapters)}",
-        ]
-        return _success(
-            args,
-            {
-                "command": "export docx",
-                "output_path": str(docx_result.output_path),
-                "manifest_path": str(docx_result.manifest_path),
-                "chapters": list(docx_result.exported_chapters),
-                "warnings": list(docx_result.warnings),
-            },
-            lines,
-        )
-    return _failure(args, f"unknown export command: {args.export_command}", code=2)
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
+    label = "Markdown" if args.export_command == "markdown" else "DOCX"
+    return _success(
+        args,
+        payload,
+        [
+            *(f"warning: {warning}" for warning in payload["warnings"]),
+            f"Wrote {label} export: {payload['output_path']}",
+            f"Updated export manifest: {payload['manifest_path']}",
+            f"Chapters: {', '.join(str(number) for number in payload['chapters'])}",
+        ],
+    )

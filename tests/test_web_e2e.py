@@ -84,17 +84,15 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
 
             page.click("button[data-page='workbenchPage']")
             page.select_option("#provider", "mock")
-            page.click("#workbenchPage details summary")
-            page.click("#planChapter")
+            page.fill("#instruction", "写第1章，突出雨夜旧车站")
+            page.click("#sessionStart")
             page.wait_for_function(
-                "() => document.querySelector('#chapterList')?.textContent?.includes('plan')"
+                "() => document.querySelector('#sessionPanel')?.textContent?.includes('outline_proposed')"
             )
-            page.click("button[data-tab='chapterCompare']")
-            page.click("#loadCompare")
             page.wait_for_function(
-                "() => !document.querySelector('#planViewer')?.textContent?.includes('未加载')"
+                "() => document.querySelector('#outlinePreview')?.textContent?.includes('旧车站')"
             )
-            assert "旧车站" in page.locator("#planViewer").inner_text()
+            assert "旧车站" in page.locator("#outlinePreview").inner_text()
 
             page.click("button[data-tab='chapterEditor']")
             page.select_option("#editorTarget", "polished")
@@ -166,11 +164,8 @@ def test_web_ui_restores_generated_session_without_local_storage(tmp_path: Path)
             restored_page.wait_for_function(
                 "() => document.querySelector('#chapterProseViewer')?.textContent?.includes('真正沉默')"
             )
-            restored_page.click("#sessionRun")
-            restored_page.wait_for_function(
-                "() => document.querySelector('#message')?.textContent?.includes('当前 Session 已生成正文')"
-            )
-            assert "approve the outline" not in (restored_page.locator("#message").text_content() or "")
+            assert restored_page.locator("#sessionRun").is_disabled()
+            assert restored_page.locator("#sessionReviseInstruction").is_enabled()
             restored_context.close()
             browser.close()
     except Exception as exc:

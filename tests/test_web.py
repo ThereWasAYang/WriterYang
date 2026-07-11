@@ -37,6 +37,7 @@ from novel.core.session import SessionResult
 from novel.core.timeutil import utc_now
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import _locked_write, handle_api_request
+from tests.internal_task_cli import run_internal_task_command
 import novel.web_server as web_server
 from novel.web_server import WebServerError, index_html, run_web_server, static_asset_bytes
 
@@ -561,12 +562,9 @@ def test_api_provider_config_warns_without_default(tmp_path: Path) -> None:
 
 def test_api_runs_and_state_timeline_endpoints(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
-    handle_api_request(
-        "POST",
-        "/api/generate-chapter",
-        "",
-        json.dumps({"path": str(root), "chapter_number": 1, "provider": "mock"}),
-    )
+    assert run_internal_task_command(
+        ["generate-chapter", "1", "--path", str(root), "--provider", "mock"]
+    ) == 0
 
     runs_status, runs_payload = handle_api_request("GET", "/api/runs", f"path={root}", None)
     state_status, state_payload = handle_api_request("GET", "/api/state-timeline", f"path={root}", None)
@@ -2588,8 +2586,8 @@ def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: P
     def fail_revise_outline(*args: object, **kwargs: object) -> None:
         raise AssertionError("content review setting changes must not revise outline")
 
-    monkeypatch.setattr("novel.web_api.memory.revise_content", fake_revise_content)
-    monkeypatch.setattr("novel.web_api.memory.revise_outline", fail_revise_outline)
+    monkeypatch.setattr("novel.core.setting_change_followup.revise_content", fake_revise_content)
+    monkeypatch.setattr("novel.core.setting_change_followup.revise_outline", fail_revise_outline)
 
     suggest_status, suggest_payload = handle_api_request(
         "POST",
@@ -2776,9 +2774,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="outlinePreviewMeta"' in html
     assert 'id="outlinePreview"' in html
     assert 'id="reloadOutlinePreview"' in html
-    assert 'id="debugArtifactPreviewPanel"' in html
-    assert 'id="debugArtifactPreviewMeta"' in html
-    assert 'id="debugArtifactPreview"' in html
+    assert 'id="debugArtifactPreviewPanel"' not in html
     assert 'id="compareChapterSelect"' in html
     assert 'id="rewriteEventsPanel"' in html
     assert "本次修改路由" in app_js
@@ -2883,12 +2879,12 @@ def test_frontend_basic_render() -> None:
     assert "loadCanonProposalPreview(data.relative_path" in app_js
     assert "loadCanonProposalPreview(data.proposal_snapshot_relative_path || proposalFile" in app_js
     assert "loadCanonProposalPreview(latestCanonProposalSnapshotPath)" in app_js
-    assert "debugActionPreviewFiles" in app_js
-    assert "loadDebugArtifactPreview(endpoint" in app_js
-    assert "\"/api/plan-chapter\": \"plan\"" in app_js
-    assert "\"/api/write-chapter\": \"draft\"" in app_js
-    assert "\"/api/polish-chapter\": \"polished\"" in app_js
-    assert "\"/api/audit-chapter\": \"audit\"" in app_js
+    assert "debugActionPreviewFiles" not in app_js
+    assert "loadDebugArtifactPreview(endpoint" not in app_js
+    assert "/api/plan-chapter" not in app_js
+    assert "/api/write-chapter" not in app_js
+    assert "/api/polish-chapter" not in app_js
+    assert "/api/audit-chapter" not in app_js
     assert 'id="memoryRepairSuggest"' in html
     assert 'id="memoryRepairApply"' in html
     assert 'id="memoryRepairReset"' in html
@@ -2916,10 +2912,10 @@ def test_frontend_basic_render() -> None:
     assert 'id="useSearchContext"' in html
     assert 'id="useVectorContext"' in html
     assert 'id="forceWrites"' in html
-    assert 'id="planChapter"' in html
-    assert 'id="writeChapter"' in html
-    assert 'id="polishChapter"' in html
-    assert 'id="auditChapter"' in html
+    assert 'id="planChapter"' not in html
+    assert 'id="writeChapter"' not in html
+    assert 'id="polishChapter"' not in html
+    assert 'id="auditChapter"' not in html
     assert 'id="exportMarkdown"' in html
     assert "/api/save-chapter-file" in app_js
     assert "/api/audit-annotations" in app_js
@@ -3152,7 +3148,7 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
             message="fake revised",
         )
 
-    monkeypatch.setattr("novel.web_api.session.revise_content", fake_revise_content)
+    monkeypatch.setattr("novel.core.command_bus.revise_content", fake_revise_content)
 
     status, payload = handle_api_request(
         "POST",
@@ -3341,7 +3337,7 @@ def test_api_session_rewrite_control_endpoints_pass_event_id(tmp_path: Path, mon
         captured["instruction"] = options.instruction
         return SessionResult(session=session, session_path=session_dir / "session.json", message="controlled")
 
-    monkeypatch.setattr("novel.web_api.session.revise_audit", fake_control)
+    monkeypatch.setattr("novel.core.command_bus.revise_audit", fake_control)
     status, payload = handle_api_request(
         "POST",
         "/api/session/revise-audit",
@@ -3499,7 +3495,7 @@ def test_web_server_get_root_does_not_apply_api_source_validation() -> None:
     assert "<html" in str(captured["body"])
 
 
-def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:
+def test_api_rejects_removed_low_level_generation_workflow(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
 
     status, payload = handle_api_request(
@@ -3516,23 +3512,8 @@ def test_api_triggers_mock_generation_workflow(tmp_path: Path) -> None:
         ),
     )
 
-    assert status == 200
-    assert payload["ok"] is True
-    assert payload["data"]["status"] == "completed"  # type: ignore[index]
-    chapter_dir = root / "memory" / "chapters" / "001"
-    assert (chapter_dir / "plan.json").is_file()
-    assert (chapter_dir / "draft.md").is_file()
-    assert (chapter_dir / "polished.md").is_file()
-    assert (chapter_dir / "audit.json").is_file()
-
-    chapters_status, chapters_payload = handle_api_request(
-        "GET",
-        "/api/chapters",
-        f"path={root}",
-        None,
-    )
-    assert chapters_status == 200
-    assert chapters_payload["data"]["chapters"][0]["has_audit"] is True  # type: ignore[index]
+    assert status == 404
+    assert payload["error"]["code"] == "not_found"  # type: ignore[index]
 
 
 def test_api_chapter_memory_generate_endpoint(tmp_path: Path) -> None:

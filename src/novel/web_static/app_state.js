@@ -29,12 +29,6 @@
       "/api/session/retry-rewrite",
       "/api/session/undo-rewrite",
     ]);
-    const debugActionPreviewFiles = {
-      "/api/plan-chapter": "plan",
-      "/api/write-chapter": "draft",
-      "/api/polish-chapter": "polished",
-      "/api/audit-chapter": "audit",
-    };
     let defaultProjectParentPath = "~/WriterYang";
     const providerProfileNames = ["scribe", "architect", "loremaster", "clerk"];
     const providerTaskNames = [
@@ -720,4 +714,3 @@
         setMessage(`已生成文风草稿，保存后才会写入 ${data.path || styleGuidePath}${warnings}`);
       });
     }
-

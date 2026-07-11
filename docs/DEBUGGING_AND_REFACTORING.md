@@ -18,7 +18,7 @@ novel usage --path <project>
 ```bash
 novel show state --path <project>
 novel show timeline --path <project>
-novel audit-chapter <n> --path <project> --provider mock --force
+novel session run <session_id> --path <project> --provider mock --force
 ```
 
 如果是真实 API 输出异常，查看：
@@ -91,7 +91,7 @@ runs/agent_output_violations/{request_id}.json
 
 - `audit.json` 的 `overall_status` 是 `needs_revision` 或 `blocked`。
 - `session run` 自动修复多轮后停下。
-- `accept-chapter` 或 `session accept` 阻止继续。
+- `session accept` 阻止继续。
 
 处理：
 
@@ -124,8 +124,8 @@ runs/agent_output_violations/{request_id}.json
 
 现象：
 
-- `propose-state-update` 被 audit 阻止。
-- `apply-state-update` 报重复 event id、entity id 不存在、old_value 不匹配、物品 holder/location 冲突。
+- Session 内部 State Proposal Task 被 audit 阻止。
+- Session 接受阶段应用 State Proposal 时报告重复 event id、entity id 不存在、old_value 不匹配、物品 holder/location 冲突。
 - accepted 章节 validate 出现闭环错误。
 
 处理：
@@ -155,7 +155,7 @@ runs/agent_output_violations/{request_id}.json
 处理：
 
 1. 运行 `novel doctor --project <project> --json --quiet`。
-2. 运行 `novel write-chapter 1 --path <project> --dry-run-provider` 查看将使用的 provider/model。
+2. 运行 `novel session start ... --provider config` 前，使用 `novel doctor --path <project>` 检查 provider 配置；Task 到 Profile 的解析由 runtime 记录到 run log。
 3. 确认 `config/agents.yaml` 只保存 env 名，不保存真实 key。
 4. 根据 provider 检查默认 base URL：
    - `deepseek`: `https://api.deepseek.com`

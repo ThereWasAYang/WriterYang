@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "ArtifactKind": {
+      "enum": [
+        "plan",
+        "candidate",
+        "audit",
+        "state_proposal",
+        "chapter_memory",
+        "acceptance",
+        "segment_patch",
+        "state",
+        "timeline"
+      ],
+      "title": "ArtifactKind",
+      "type": "string"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "artifact_id": {
+          "pattern": "^art_[0-9a-f]{32}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "path",
+        "sha256",
+        "created_at"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "command_id": {
+      "pattern": "^cmd_[0-9a-f]{32}$",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "workflow_run_id": {
+      "pattern": "^run_[0-9a-f]{32}$",
+      "title": "Workflow Run Id",
+      "type": "string"
+    },
+    "command_type": {
+      "minLength": 1,
+      "title": "Command Type",
+      "type": "string"
+    },
+    "result": {
+      "additionalProperties": true,
+      "title": "Result",
+      "type": "object"
+    },
+    "next_allowed_commands": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Allowed Commands",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "changed_artifacts": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Changed Artifacts",
+      "type": "array"
+    },
+    "changed_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Paths",
+      "type": "array"
+    }
+  },
+  "required": [
+    "command_id",
+    "workflow_run_id",
+    "command_type"
+  ],
+  "title": "CommandResult",
+  "type": "object"
+}

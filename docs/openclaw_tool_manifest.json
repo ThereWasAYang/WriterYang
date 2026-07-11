@@ -16,12 +16,12 @@
       "argv": ["novel", "ask", "{request}", "--project", "{project}", "--provider", "config", "--json", "--quiet"]
     },
     {
-      "name": "generate_chapter",
-      "argv": ["novel", "generate-chapter", "{chapter_number}", "--project", "{project}", "--provider", "config", "--json", "--quiet"]
+      "name": "session_start",
+      "argv": ["novel", "session", "start", "{request}", "--chapters", "{chapter_number}", "--project", "{project}", "--provider", "config", "--json", "--quiet"]
     },
     {
-      "name": "audit_chapter",
-      "argv": ["novel", "audit-chapter", "{chapter_number}", "--project", "{project}", "--provider", "config", "--json", "--quiet"]
+      "name": "session_show",
+      "argv": ["novel", "session", "show", "{session_id}", "--project", "{project}", "--json", "--quiet"]
     },
     {
       "name": "chapter_memory_show",

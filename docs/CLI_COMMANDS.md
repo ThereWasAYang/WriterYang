@@ -39,21 +39,10 @@ novel inspire "雨夜客栈里，一盏青灯照出二十年前失踪剑客的�
 novel canon suggest --path ./qingdeng-inn --provider mock --output ./qingdeng-canon.json
 novel canon apply ./qingdeng-canon.json --path ./qingdeng-inn
 novel canon show --path ./qingdeng-inn
-novel plan-chapter 1 --path ./qingdeng-inn --provider mock
-novel write-chapter 1 --path ./qingdeng-inn --provider mock
-novel polish-chapter 1 --path ./qingdeng-inn --provider mock
-novel audit-chapter 1 --path ./qingdeng-inn --provider mock
-novel accept-chapter 1 --path ./qingdeng-inn
+novel session start "写第一章雨夜开场" --path ./qingdeng-inn --chapters 1 --provider mock
 ```
 
-一键生成流水线：
-
-```bash
-novel generate-chapter 1 --path ./qingdeng-inn --provider mock
-novel generate-chapter 1 --path ./qingdeng-inn --provider config --auto-accept
-```
-
-`accept-chapter` 前必须通过 consistency audit。章节归档后会写入 metadata，并更新项目状态和时间线相关记录。
+Plot、Writer、Polish、Audit 和 State Update 都是 workflow runtime 内部 Task，不再提供 `plan-chapter`、`write-chapter`、`polish-chapter`、`audit-chapter`、`state-update` 或 `generate-chapter` 公开命令。这样可确保大纲审批、Audit、State/Timeline 更新和 Acceptance Commit 不会被绕过。
 
 `novel canon show --path ...` 是当前推荐的 Canon 查看命令；如旧脚本仍使用兼容别名，应逐步改为该命令。
 
@@ -69,7 +58,7 @@ novel session accept <session_id> --path ./qingdeng-inn
 novel session archive <session_id> --path ./qingdeng-inn
 ```
 
-Web UI 的创作工作台使用同一套 core session logic。CLI 适合自动化、调试和外部 Agent 调用。
+Web UI 与 CLI 都把 typed command 交给同一 Command Bus。CLI 只负责输入和结果格式化，Web 只负责 HTTP envelope 与界面展示。
 
 多章 Session 在接受前使用 `memory/sessions/<session_id>/projection/` 中的 state/timeline 投影。`session accept` 会在一个 transaction journal 中提交全部章节、canonical state/timeline、Chapter Memory 和 acceptance；不要用逐章接受代替多章 Session 提交。
 

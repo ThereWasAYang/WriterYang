@@ -5,7 +5,7 @@ from io import StringIO
 import json
 from pathlib import Path
 
-from novel.cli import main
+from tests.internal_task_cli import run_test_cli
 from novel.cli_shared import _audit_issue_lines
 from novel.core.auditing import (
     ChapterAuditOptions,
@@ -782,7 +782,7 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     stdout = StringIO()
     stderr = StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = main(args)
+        code = run_test_cli(args)
     return code, stdout.getvalue(), stderr.getvalue()
 
 

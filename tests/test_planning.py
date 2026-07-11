@@ -5,7 +5,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from novel.cli import main
+from tests.internal_task_cli import run_test_cli
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import load_json_model
 from novel.core.contracts import CURRENT_SCHEMA_VERSION
@@ -278,5 +278,5 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     stdout = StringIO()
     stderr = StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = main(args)
+        code = run_test_cli(args)
     return code, stdout.getvalue(), stderr.getvalue()

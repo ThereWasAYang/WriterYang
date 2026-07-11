@@ -13,7 +13,8 @@ from pathlib import Path
 
 import novel
 from novel.core.io import load_yaml
-from novel.cli import build_parser, main
+from novel.cli import build_parser
+from tests.internal_task_cli import run_test_cli
 from novel.core.validation import validate_project
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -114,11 +115,9 @@ def test_readme_core_commands_match_cli() -> None:
         "novel status",
         "novel inspire",
         "novel canon suggest",
-        "novel plan-chapter",
-        "novel write-chapter",
-        "novel polish-chapter",
-        "novel audit-chapter",
-        "novel accept-chapter",
+        "novel session start",
+        "novel session run",
+        "novel session accept",
         "novel export markdown",
         "novel --version",
         'tmp_project="$(mktemp -d)/writeryang-template"',
@@ -139,11 +138,9 @@ def test_readme_core_commands_match_cli() -> None:
         "status",
         "inspire",
         "canon",
-        "plan-chapter",
-        "write-chapter",
-        "polish-chapter",
-        "audit-chapter",
-        "generate-chapter",
+        "session",
+        "revision-session",
+        "preview",
         "export",
     ):
         assert parser_command in parser_help
@@ -358,5 +355,5 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     stdout = StringIO()
     stderr = StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = main(args)
+        code = run_test_cli(args)
     return code, stdout.getvalue(), stderr.getvalue()

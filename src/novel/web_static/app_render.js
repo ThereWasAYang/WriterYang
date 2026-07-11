@@ -250,6 +250,28 @@
       if (data.progress) renderSessionProgress(data.progress);
       renderRewriteEvents(data.rewrite_events || []);
       renderManagementEvents(data.management_events || []);
+      applyAllowedSessionCommands(data.next_allowed_commands);
+    }
+
+    function applyAllowedSessionCommands(commands) {
+      if (!Array.isArray(commands)) return;
+      const allowed = new Set(commands);
+      const buttonCommands = {
+        sessionReviseOutline: ["session.revise_outline"],
+        sessionApprove: ["session.approve_outline"],
+        sessionRun: ["session.run"],
+        sessionReviseAuditContent: ["session.revise_content"],
+        sessionReviseInstruction: ["session.revise_content"],
+        sessionReviseAudit: ["session.revise_audit"],
+        sessionRetryRewrite: ["session.retry_rewrite"],
+        sessionUndoRewrite: ["session.undo_rewrite"],
+        sessionAccept: ["session.accept"],
+        sessionArchive: ["session.archive"],
+      };
+      Object.entries(buttonCommands).forEach(([id, commandTypes]) => {
+        const button = $(id);
+        if (button) button.disabled = !commandTypes.some((command) => allowed.has(command));
+      });
     }
 
     async function loadSessionProgress(options = {}) {
@@ -582,10 +604,6 @@
     $("resetStyleGuideTemplate").addEventListener("click", restoreStyleGuideTemplate);
     $("generateStyleGuideDraft").addEventListener("click", generateStyleGuideDraft);
     $("styleGuideEditor").addEventListener("input", updateStyleGuideDirtyState);
-    $("planChapter").addEventListener("click", () => runAction("/api/plan-chapter", "生成计划"));
-    $("writeChapter").addEventListener("click", () => runAction("/api/write-chapter", "写章节"));
-    $("polishChapter").addEventListener("click", () => runAction("/api/polish-chapter", "润色"));
-    $("auditChapter").addEventListener("click", () => runAction("/api/audit-chapter", "审核"));
     $("inspireProject").addEventListener("click", inspireProject);
     $("regenerateInspiration").addEventListener("click", regenerateInspiration);
     $("openInspirationFile").addEventListener("click", () => readWorkspaceFile(inspirationPreviewPath));

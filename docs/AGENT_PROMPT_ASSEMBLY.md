@@ -202,7 +202,7 @@ Prompt 组装：
 - 使用 stream 调用并合并正文。
 - `_clean_body()` 去掉代码块包装。
 - `render_draft_markdown()` 加 YAML front matter。
-- `generate-chapter` 和 session 的默认 `polish.mode=single_pass` 会把 writer 的 `draft.md` 正文提升为 `polished.md`，front matter 标记 `created_by: writer_agent`、`polish_skipped: true`，然后继续 audit。
+- Session runtime 的默认 `polish.mode=single_pass` 会把 Writer 的 `draft.md` 正文提升为 `polished.md`，front matter 标记 `created_by: writer_agent`、`polish_skipped: true`，然后继续 Audit。
 
 ## 6. Polish Agent
 
@@ -227,7 +227,7 @@ Prompt 组装：
 
 - `build_polish_user_prompt()` 写入 edit mode、是否保持长度、用户要求、ChapterPlan、draft metadata/body、style、canon、预算化 state/timeline、inspiration。
 - edit mode 由 `resolve_edit_mode()` 解析：`light`、`normal`、`deep`。
-- Polish Agent 仍可通过显式 `polish-chapter`、`--polish-mode auto` 或 Web UI 的“自动润色”开关运行；`review_gate` 会停在 `draft.md` 等待人工处理，不自动 audit。
+- Polish Agent 可通过 Session 的 `--polish-mode auto` 或 Web UI 的“自动润色”开关运行；`review_gate` 会停在 `draft.md` 等待人工处理，不自动 Audit。
 
 输出处理：
 

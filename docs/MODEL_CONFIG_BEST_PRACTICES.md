@@ -124,5 +124,5 @@ thinking:
 ```bash
 novel doctor --project <project>
 novel validate --path <project>
-novel write-chapter 1 --path <project> --dry-run-provider
+novel doctor --path <project>
 ```

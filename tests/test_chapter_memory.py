@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from novel.cli import main
+from tests.internal_task_cli import run_test_cli
 from novel.core import chapter_memory as chapter_memory_module
 from novel.core import state_update as state_update_module
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, default_mock_audit_report_json
@@ -360,7 +360,7 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     stdout = StringIO()
     stderr = StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        code = main(args)
+        code = run_test_cli(args)
     return code, stdout.getvalue(), stderr.getvalue()
 
 

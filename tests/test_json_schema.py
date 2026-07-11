@@ -60,6 +60,9 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "transaction_journal",
         "command_proposal",
         "workflow_budget",
+        "segment_selection",
+        "segment_patch",
+        "revision_session",
     }
 
     assert set(payloads) == expected
@@ -118,6 +121,7 @@ def test_model_output_schema_payloads_cover_agent_structured_outputs() -> None:
         "AskIntentDecision",
         "RevisionRouteDecision",
         "AuditRepairRouteDecision",
+        "SegmentPatch",
     }
 
     assert set(payloads) == expected

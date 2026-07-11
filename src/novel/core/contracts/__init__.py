@@ -22,6 +22,15 @@ from novel.core.contracts.sessions import (
     SessionPhase,
     validate_session_transition,
 )
+from novel.core.contracts.revisions import (
+    REVISION_PHASE_TRANSITIONS,
+    MarkdownBlockKind,
+    RevisionSession,
+    RevisionSessionPhase,
+    SegmentPatch,
+    SegmentSelection,
+    ensure_revision_phase_transition,
+)
 from novel.core.contracts.state import (
     AcceptanceCommit,
     ProjectionCheckpoint,
@@ -48,8 +57,15 @@ __all__ = [
     "CommandProposal",
     "DecisionRisk",
     "ProfileId",
+    "MarkdownBlockKind",
     "ProjectionCheckpoint",
     "SessionPhase",
+    "RevisionSession",
+    "REVISION_PHASE_TRANSITIONS",
+    "RevisionSessionPhase",
+    "SegmentPatch",
+    "SegmentSelection",
+    "ensure_revision_phase_transition",
     "SessionProjection",
     "StateProposalBinding",
     "StrictModel",

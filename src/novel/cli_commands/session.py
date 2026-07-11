@@ -48,14 +48,12 @@ from novel.cli_shared import (
 def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
     command = args.session_command
     if command == "start":
-        chapters = _resolve_session_chapters(args)
-        segments = parse_range(args.segments) if getattr(args, "segments", None) else None
+        chapters = parse_range(args.chapters)
         return start_session(
             SessionStartOptions(
                 root=root,
                 user_intent=args.intent,
                 chapter_range=chapters,
-                segment_range=segments,
                 provider_name=args.provider,
                 force=args.force,
                 use_search_context=getattr(args, "use_search_context", True),
@@ -150,17 +148,6 @@ def _run_session_command(args: argparse.Namespace, root: Path) -> SessionResult:
         return archive_session(SessionActionOptions(root=root, session_id=args.session_id, force=args.force))
     raise CreationSessionError(f"unknown session command: {command}")
 
-def _resolve_session_chapters(args: argparse.Namespace) -> tuple[int, ...]:
-    chapters = getattr(args, "chapters", None)
-    chapter = getattr(args, "chapter", None)
-    if chapters and chapter:
-        raise CreationSessionError("provide either --chapters or --chapter, not both")
-    if chapters:
-        return parse_range(chapters)
-    if chapter:
-        return (int(chapter),)
-    raise CreationSessionError("provide --chapters or --chapter")
-
 def _session_payload(command: str, result: SessionResult, root: Path) -> dict[str, object]:
     return {
         "command": f"session {command}",
@@ -169,7 +156,6 @@ def _session_payload(command: str, result: SessionResult, root: Path) -> dict[st
         "outline_status": result.session.outline_status,
         "content_status": result.session.content_status,
         "chapter_range": result.session.chapter_range,
-        "segment_range": result.session.segment_range,
         "approved_outline_path": result.session.approved_outline_path,
         "final_output_paths": result.session.final_output_paths,
         "archive_paths": result.session.archive_paths,

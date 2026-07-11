@@ -9,11 +9,12 @@ from pydantic import ValidationError
 import yaml
 
 from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE
+from novel.core.artifact_store import sha256_file
 from novel.core.chapter_memory import validate_chapter_memory
 from novel.core.consistency import ConsistencyResult, check_canon_consistency, check_project_consistency
 from novel.core.env import load_project_env
 from novel.core.io import load_json_model, load_yaml_model
-from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import AcceptanceCommit, CURRENT_SCHEMA_VERSION
 from novel.core.schemas import (
     AgentConfig,
     AgentConfigPatch,
@@ -881,6 +882,14 @@ def _validate_state_update_proposal_references(
 
 
 def _applied_event_ids_for_proposal(path: Path, proposal: StateUpdateProposal) -> set[str]:
+    acceptance_path = path.with_name("acceptance.json")
+    if acceptance_path.is_file():
+        try:
+            acceptance = load_json_model(acceptance_path, AcceptanceCommit)
+            if acceptance.state_proposal.sha256 == sha256_file(path):
+                return {event.id for event in proposal.timeline_events}
+        except Exception:
+            pass
     apply_log_path = path.with_name("state_update_apply_log.json")
     if not apply_log_path.exists():
         return set()
@@ -937,14 +946,7 @@ def _validate_chapter_metadata_links(
     if metadata.status == "accepted":
         polished_path = root / metadata.polished_path if metadata.polished_path else chapter_dir / "polished.md"
         if not polished_path.exists():
-            report.error(path, "已认可章节缺少 polished.md")
-        else:
-            try:
-                front_matter = _read_markdown_metadata(polished_path)
-                if front_matter.get("status") != "accepted":
-                    report.error(path, "已认可 metadata 与 polished.md front matter status 不一致")
-            except Exception as exc:
-                report.error(path, f"无法读取已认可 polished.md 的 front matter（{exc.__class__.__name__}）")
+            report.error(path, "已认可章节缺少 accepted 正文")
         if metadata.accepted_at is None:
             report.error(path, "已认可章节 metadata 必须包含 accepted_at")
 

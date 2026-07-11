@@ -9,6 +9,8 @@ from pydantic import BaseModel
 import yaml
 
 from novel.core.gender import CharacterGenderValue, infer_character_gender
+from novel.core.artifact_store import sha256_file
+from novel.core.contracts import AcceptanceCommit
 from novel.core.io import load_json, load_json_model
 from novel.core.schemas import (
     AuditEvidence,
@@ -388,7 +390,12 @@ def _check_item_mentions_against_plan(snapshot: ConsistencySnapshot) -> list[Con
 
 
 def _check_state_update_old_values(snapshot: ConsistencySnapshot) -> list[ConsistencyFinding]:
-    if not snapshot.state or not snapshot.proposal or snapshot.apply_log:
+    if (
+        not snapshot.state
+        or not snapshot.proposal
+        or snapshot.apply_log
+        or _proposal_matches_accepted_commit(snapshot)
+    ):
         return []
     character_ids = {item.id for item in snapshot.characters.characters} if snapshot.characters else set()
     item_ids = {item.id for item in snapshot.items.items} if snapshot.items else set()
@@ -418,6 +425,21 @@ def _check_state_update_old_values(snapshot: ConsistencySnapshot) -> list[Consis
                 )
             )
     return findings
+
+
+def _proposal_matches_accepted_commit(snapshot: ConsistencySnapshot) -> bool:
+    if snapshot.chapter_number is None:
+        return False
+    chapter_dir = _chapter_dir(snapshot)
+    acceptance_path = chapter_dir / "acceptance.json"
+    proposal_path = chapter_dir / "state_update_proposal.json"
+    if not acceptance_path.is_file() or not proposal_path.is_file():
+        return False
+    try:
+        acceptance = load_json_model(acceptance_path, AcceptanceCommit)
+        return sha256_file(proposal_path) == acceptance.state_proposal.sha256
+    except Exception:
+        return False
 
 
 def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFinding]:
@@ -608,18 +630,24 @@ def _check_accepted_chapter_loop(snapshot: ConsistencySnapshot) -> list[Consiste
                     suggested_fix="检查低/中级别 audit 问题，或修订后重新运行 audit。",
                 )
             )
-    apply_path = snapshot.root / metadata.state_update_apply_log_path if metadata.state_update_apply_log_path else chapter_dir / "state_update_apply_log.json"
-    apply_log = _load_optional_model(apply_path, StateUpdateApplyLog)
-    if not apply_log or apply_log.status != "applied":
+    acceptance_path = chapter_dir / "acceptance.json"
+    accepted_path = chapter_dir / "accepted.md"
+    acceptance = _load_optional_model(acceptance_path, AcceptanceCommit)
+    acceptance_valid = bool(
+        acceptance
+        and accepted_path.is_file()
+        and sha256_file(accepted_path) == acceptance.accepted_content_sha256
+    )
+    if not acceptance_valid:
         findings.append(
             ConsistencyFinding(
                 id=f"cons_accepted_state_apply_{metadata.chapter_number:03d}",
                 severity="critical",
                 type="state_conflict",
-                description="已认可章节必须有已应用的 state update log。",
+                description="已认可章节必须有有效的 AcceptanceCommit 和 accepted.md hash。",
                 source=chapter_dir / "metadata.json",
-                quote=f"state_update_apply_log_path={metadata.state_update_apply_log_path or 'state_update_apply_log.json'}",
-                suggested_fix="认可章节前先运行 propose-state-update/apply-state-update。",
+                quote="acceptance.json/accepted.md missing or stale",
+                suggested_fix="通过 Session 或 RevisionSession transaction 重新接受章节。",
             )
         )
     return findings

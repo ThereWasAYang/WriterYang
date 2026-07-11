@@ -1,12 +1,5 @@
 {
   "$defs": {
-    "AcceptanceStatus": {
-      "enum": [
-        "committed"
-      ],
-      "title": "AcceptanceStatus",
-      "type": "string"
-    },
     "ArtifactKind": {
       "enum": [
         "plan",
@@ -72,14 +65,9 @@
       "title": "Schema Version",
       "type": "integer"
     },
-    "commit_id": {
-      "pattern": "^accept_[0-9a-f]{32}$",
-      "title": "Commit Id",
-      "type": "string"
-    },
-    "session_id": {
-      "minLength": 1,
-      "title": "Session Id",
+    "selection_id": {
+      "pattern": "^selection_[0-9a-f]{32}$",
+      "title": "Selection Id",
       "type": "string"
     },
     "chapter_number": {
@@ -87,46 +75,33 @@
       "title": "Chapter Number",
       "type": "integer"
     },
-    "candidate": {
+    "source_candidate": {
       "$ref": "#/$defs/ArtifactRef"
     },
-    "audit": {
-      "$ref": "#/$defs/ArtifactRef"
+    "start_block": {
+      "minimum": 1,
+      "title": "Start Block",
+      "type": "integer"
     },
-    "state_proposal": {
-      "$ref": "#/$defs/ArtifactRef"
+    "end_block": {
+      "minimum": 1,
+      "title": "End Block",
+      "type": "integer"
     },
-    "chapter_memory": {
-      "$ref": "#/$defs/ArtifactRef"
-    },
-    "pre_state_sha256": {
+    "selected_sha256": {
       "pattern": "^[0-9a-f]{64}$",
-      "title": "Pre State Sha256",
+      "title": "Selected Sha256",
       "type": "string"
     },
-    "pre_timeline_sha256": {
+    "prefix_sha256": {
       "pattern": "^[0-9a-f]{64}$",
-      "title": "Pre Timeline Sha256",
+      "title": "Prefix Sha256",
       "type": "string"
     },
-    "post_state_sha256": {
+    "suffix_sha256": {
       "pattern": "^[0-9a-f]{64}$",
-      "title": "Post State Sha256",
+      "title": "Suffix Sha256",
       "type": "string"
-    },
-    "post_timeline_sha256": {
-      "pattern": "^[0-9a-f]{64}$",
-      "title": "Post Timeline Sha256",
-      "type": "string"
-    },
-    "accepted_content_sha256": {
-      "pattern": "^[0-9a-f]{64}$",
-      "title": "Accepted Content Sha256",
-      "type": "string"
-    },
-    "status": {
-      "$ref": "#/$defs/AcceptanceStatus",
-      "default": "committed"
     },
     "created_at": {
       "format": "date-time",
@@ -135,20 +110,16 @@
     }
   },
   "required": [
-    "commit_id",
-    "session_id",
+    "selection_id",
     "chapter_number",
-    "candidate",
-    "audit",
-    "state_proposal",
-    "chapter_memory",
-    "pre_state_sha256",
-    "pre_timeline_sha256",
-    "post_state_sha256",
-    "post_timeline_sha256",
-    "accepted_content_sha256",
+    "source_candidate",
+    "start_block",
+    "end_block",
+    "selected_sha256",
+    "prefix_sha256",
+    "suffix_sha256",
     "created_at"
   ],
-  "title": "AcceptanceCommit",
+  "title": "SegmentSelection",
   "type": "object"
 }

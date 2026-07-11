@@ -29,7 +29,6 @@ from novel.core.schemas import (
     CreationArchiveManifest,
     CreationOutline,
     CreationOutlineChapter,
-    CreationScopeType,
     CreationSession,
     SessionRewriteAction,
     SessionAuditRevision,
@@ -73,7 +72,6 @@ class SessionStartOptions:
     root: Path
     user_intent: str
     chapter_range: tuple[int, ...]
-    segment_range: tuple[int, ...] | None = None
     provider_name: ProviderName = "config"
     force: bool = False
     use_search_context: bool = True
@@ -169,12 +167,9 @@ def start_session(options: SessionStartOptions) -> SessionResult:
     root = options.root.resolve()
     _validate_chapters(options.chapter_range)
     session_id = _new_session_id()
-    scope_type: CreationScopeType = "segments" if options.segment_range else "chapters"
     session = CreationSession(
         session_id=session_id,
-        scope_type=scope_type,
         chapter_range=list(options.chapter_range),
-        segment_range=list(options.segment_range) if options.segment_range else None,
         user_intent=options.user_intent.strip(),
         status="drafting_intent",
         outline_status="draft",
@@ -294,9 +289,6 @@ def run_session(options: SessionRunOptions) -> SessionResult:
         raise CreationSessionError(
             f"session cannot run content generation from status {session.status}/{session.content_status}"
         )
-    if session.scope_type == "segments":
-        return _run_segment_session(root, session, options)
-
     projection = initialize_projection(root, session.session_id)
     world_state_dir = projection_dir(root, session.session_id)
 
@@ -722,15 +714,7 @@ def _resolve_content_revision_route(
     session: CreationSession,
     options: SessionInstructionOptions,
 ) -> RevisionRouteRecord:
-    if session.scope_type == "segments":
-        decision = RevisionRouteDecision(
-            route="revision_patch",
-            reason="segment sessions are constrained to local text patches",
-            chapter_numbers=session.chapter_range,
-            instruction_for_revision=options.instruction or "按当前 session 的段落范围进行局部修订。",
-            risk_level="low",
-        )
-    elif options.from_audit:
+    if options.from_audit:
         decision = _audit_driven_revision_route(root, session, options.instruction)
     else:
         decision = route_revision_request(
@@ -779,7 +763,6 @@ def _session_route_summary(root: Path, session: CreationSession) -> str:
     latest_audits = "\n".join(f"- {path}" for path in session.audit_history[-5:]) or "无"
     return (
         f"session_id: {session.session_id}\n"
-        f"scope_type: {session.scope_type}\n"
         f"chapter_range: {session.chapter_range}\n"
         f"status: {session.status}/{session.content_status}\n"
         f"user_intent: {session.user_intent}\n"
@@ -1482,37 +1465,6 @@ def _workspace_path(root: Path, path_text: str) -> Path:
 
 def _same_path(left: Path, right: Path) -> bool:
     return left.resolve() == right.resolve()
-
-
-def _run_segment_session(root: Path, session: CreationSession, options: SessionRunOptions) -> SessionResult:
-    revisions: list[str] = []
-    for chapter_number in session.chapter_range:
-        provider = load_revision_provider(root, options.provider_name, target="polished")
-        result = revise_chapter(
-            ChapterRevisionOptions(
-                root=root,
-                chapter_number=chapter_number,
-                instruction=session.user_intent,
-                target="polished",
-                force=options.force,
-                use_search_context=options.use_search_context,
-                use_vector_context=options.use_vector_context,
-            ),
-            provider,
-            provider_name=options.provider_name,
-        )
-        revisions.append(_rel(root, result.output_path))
-    session = session.model_copy(
-        update={
-            "status": "needs_user_review",
-            "content_status": "needs_user_review",
-            "final_output_paths": revisions,
-            "revision_history": [*session.revision_history, *revisions],
-            "updated_at": utc_now(),
-        }
-    )
-    _write_session(root, session)
-    return SessionResult(session=session, session_path=_session_path(root, session.session_id), message="Segment revision is ready for user review.")
 
 
 def _generate_chapter_content(

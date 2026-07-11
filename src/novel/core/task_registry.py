@@ -23,7 +23,7 @@ TASK_REGISTRY: dict[TaskId, TaskDefinition] = {
     TaskId.PLAN: TaskDefinition(TaskId.PLAN, ProfileId.ARCHITECT, "planning_system", ArtifactKind.PLAN, ("canon", "state", "timeline", "accepted_chapters"), (ArtifactKind.PLAN,), "medium"),
     TaskId.WRITE: TaskDefinition(TaskId.WRITE, ProfileId.SCRIBE, "writer_system", ArtifactKind.CANDIDATE, ("approved_plan", "canon", "state", "timeline"), (ArtifactKind.CANDIDATE,), "medium"),
     TaskId.POLISH: TaskDefinition(TaskId.POLISH, ProfileId.SCRIBE, "polish_system", ArtifactKind.CANDIDATE, ("candidate", "style_guide"), (ArtifactKind.CANDIDATE,), "medium"),
-    TaskId.REVISION: TaskDefinition(TaskId.REVISION, ProfileId.SCRIBE, "revision_system", ArtifactKind.CANDIDATE, ("authorized_candidate", "authorized_issues", "authorized_scope"), (ArtifactKind.CANDIDATE,), "high"),
+    TaskId.REVISION: TaskDefinition(TaskId.REVISION, ProfileId.SCRIBE, "segment_revision_system", ArtifactKind.SEGMENT_PATCH, ("authorized_candidate", "segment_selection", "user_instruction"), (ArtifactKind.SEGMENT_PATCH,), "high"),
     TaskId.AUDIT: TaskDefinition(TaskId.AUDIT, ProfileId.ARCHITECT, "audit_system", ArtifactKind.AUDIT, ("candidate", "approved_plan", "canon", "state", "timeline"), (ArtifactKind.AUDIT,), "medium"),
     TaskId.STATE_UPDATE: TaskDefinition(TaskId.STATE_UPDATE, ProfileId.CLERK, "state_update_system", ArtifactKind.STATE_PROPOSAL, ("candidate", "passed_audit", "state", "timeline"), (ArtifactKind.STATE_PROPOSAL,), "high"),
     TaskId.CHAPTER_MEMORY: TaskDefinition(TaskId.CHAPTER_MEMORY, ProfileId.CLERK, "chapter_memory_system", ArtifactKind.CHAPTER_MEMORY, ("candidate", "passed_audit", "state_proposal"), (ArtifactKind.CHAPTER_MEMORY,), "medium"),

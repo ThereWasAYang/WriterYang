@@ -60,7 +60,7 @@ novel generate-chapter 1 --path ./qingdeng-inn --provider config --auto-accept
 ## Session 工作流
 
 ```bash
-novel session start --path ./qingdeng-inn --chapters 1 --intent "写第一章雨夜开场" --provider mock
+novel session start "写第一章雨夜开场" --path ./qingdeng-inn --chapters 1 --provider mock
 novel session revise-outline <session_id> --path ./qingdeng-inn --instruction "加强悬疑钩子" --provider mock
 novel session approve-outline <session_id> --path ./qingdeng-inn
 novel session run <session_id> --path ./qingdeng-inn --provider mock
@@ -72,6 +72,18 @@ novel session archive <session_id> --path ./qingdeng-inn
 Web UI 的创作工作台使用同一套 core session logic。CLI 适合自动化、调试和外部 Agent 调用。
 
 多章 Session 在接受前使用 `memory/sessions/<session_id>/projection/` 中的 state/timeline 投影。`session accept` 会在一个 transaction journal 中提交全部章节、canonical state/timeline、Chapter Memory 和 acceptance；不要用逐章接受代替多章 Session 提交。
+
+## Accepted 章节局部修订
+
+```bash
+novel revision-session blocks 1 --path ./qingdeng-inn
+novel revision-session start 1 --blocks 2-3 --instruction "让雨声和脚步声更紧迫" --path ./qingdeng-inn
+novel revision-session show <revision_session_id> --path ./qingdeng-inn
+novel revision-session run <revision_session_id> --path ./qingdeng-inn --provider mock
+novel revision-session accept <revision_session_id> --path ./qingdeng-inn
+```
+
+只可对已认可且仍为 canonical 最新章节的正文创建局部修订。`blocks` 返回稳定 block 编号、类型、预览和 hash；`start` 冻结授权范围；`run` 生成 structured patch、合成完整 candidate 并重新 Audit/构建 state projection；`accept` 事务性提交同一 candidate。Creation Session 不再接受 `--chapter` 或 `--segments`。
 
 ## 设定变更和项目管家
 

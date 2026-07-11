@@ -91,6 +91,87 @@
       "title": "AuditBinding",
       "type": "object"
     },
+    "RevisionSessionPhase": {
+      "enum": [
+        "awaiting_patch",
+        "running",
+        "awaiting_review",
+        "ready_to_commit",
+        "committing",
+        "committed",
+        "archived",
+        "failed_recoverable",
+        "cancelled"
+      ],
+      "title": "RevisionSessionPhase",
+      "type": "string"
+    },
+    "SegmentSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "selection_id": {
+          "pattern": "^selection_[0-9a-f]{32}$",
+          "title": "Selection Id",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "source_candidate": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "start_block": {
+          "minimum": 1,
+          "title": "Start Block",
+          "type": "integer"
+        },
+        "end_block": {
+          "minimum": 1,
+          "title": "End Block",
+          "type": "integer"
+        },
+        "selected_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selected Sha256",
+          "type": "string"
+        },
+        "prefix_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prefix Sha256",
+          "type": "string"
+        },
+        "suffix_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Suffix Sha256",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "selection_id",
+        "chapter_number",
+        "source_candidate",
+        "start_block",
+        "end_block",
+        "selected_sha256",
+        "prefix_sha256",
+        "suffix_sha256",
+        "created_at"
+      ],
+      "title": "SegmentSelection",
+      "type": "object"
+    },
     "StateProposalBinding": {
       "additionalProperties": false,
       "properties": {
@@ -137,12 +218,33 @@
       "title": "Schema Version",
       "type": "integer"
     },
+    "revision_session_id": {
+      "pattern": "^revision_session_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+      "title": "Revision Session Id",
+      "type": "string"
+    },
     "chapter_number": {
       "minimum": 1,
       "title": "Chapter Number",
       "type": "integer"
     },
-    "active_plan": {
+    "base_acceptance_commit_id": {
+      "minLength": 1,
+      "title": "Base Acceptance Commit Id",
+      "type": "string"
+    },
+    "instruction": {
+      "minLength": 1,
+      "title": "Instruction",
+      "type": "string"
+    },
+    "phase": {
+      "$ref": "#/$defs/RevisionSessionPhase"
+    },
+    "selection": {
+      "$ref": "#/$defs/SegmentSelection"
+    },
+    "patch": {
       "anyOf": [
         {
           "$ref": "#/$defs/ArtifactRef"
@@ -153,7 +255,7 @@
       ],
       "default": null
     },
-    "active_candidate": {
+    "candidate": {
       "anyOf": [
         {
           "$ref": "#/$defs/ArtifactRef"
@@ -164,7 +266,7 @@
       ],
       "default": null
     },
-    "active_audit": {
+    "audit": {
       "anyOf": [
         {
           "$ref": "#/$defs/AuditBinding"
@@ -175,7 +277,7 @@
       ],
       "default": null
     },
-    "active_state_proposal": {
+    "state_proposal": {
       "anyOf": [
         {
           "$ref": "#/$defs/StateProposalBinding"
@@ -186,16 +288,22 @@
       ],
       "default": null
     },
-    "active_acceptance": {
+    "projection_path": {
       "anyOf": [
         {
-          "$ref": "#/$defs/ArtifactRef"
+          "type": "string"
         },
         {
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "title": "Projection Path"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
     },
     "updated_at": {
       "format": "date-time",
@@ -204,9 +312,15 @@
     }
   },
   "required": [
+    "revision_session_id",
     "chapter_number",
+    "base_acceptance_commit_id",
+    "instruction",
+    "phase",
+    "selection",
+    "created_at",
     "updated_at"
   ],
-  "title": "ChapterLifecycle",
+  "title": "RevisionSession",
   "type": "object"
 }

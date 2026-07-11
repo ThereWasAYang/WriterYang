@@ -2,9 +2,11 @@
 
 ## 0.1.1 - 未发布
 
+- 以破坏性 schema v3 重建 Agent workflow 基础：Strict Contracts、Task Registry、immutable Artifact lineage、Creation Session state/timeline projection、transaction journal、全 Session 原子 acceptance 和 artifact-aware production export。
+- 新增独立 `revision-session` Segment Patch Workflow：稳定 Markdown block selection、structured `SegmentPatch`、范围外逐字节不变校验、重新 Audit/State Proposal/Chapter Memory，以及 transaction acceptance；删除 Creation Session 的 `scope_type`、`segment_range`、`--segments` 和旧 segment 执行分支。
 - 推广初期平台口径收敛为 macOS / Linux；Windows 适配暂缓，相关入口脚本保留为后续验收基础但不作为当前支持平台。
 - README 瘦身为项目入口索引，新增 `docs/CLI_COMMANDS.md` 承接详细 CLI 命令参考。
-- Web API 从单文件拆为 `src/novel/web_api/` 包，按 router、common、generation、config、memory、session、inspection 分域组织，保持 HTTP 路由和响应结构不变。
+- Web API 从单文件拆为 `src/novel/web_api/` 包，按 router、common、generation、config、memory、session、revision_session、inspection 分域组织。
 - Web 前端从单一 `app.js` 拆为多个无构建普通脚本，按状态/API、创作工作台、工作区、配置、渲染和启动绑定分域加载。
 - `core/memory_repair.py` 拆为 `core/memory_repair/` 包，保留原 public API，内部按 service、generation、apply、impact、preflight、validation 和 models 分层。
 - 拆分后的 `web_api` 与 `memory_repair` 模块恢复显式 import、静态 `__all__`、ruff 和 mypy 覆盖，避免拆分过渡期的星号导入和整包类型豁免长期化。
@@ -14,7 +16,7 @@
 - `runs/provider_usage.json` 改为根据新增 provider log 增量刷新；日志截断或替换时自动全量重算。
 - Web server 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整，并校验 `/api/*` 请求的本机 Host / Origin；GET API 读面也会拒绝非本机来源。
 - `novel.web_api` 包级出口移除无消费方的 `revise_content` / `revise_outline` 转口；内部 Web API 模块和 CLI 仍使用 core session 修订函数。
-- 增加 `novel migrate`，为项目工作区补齐 `schema_version`，覆盖 `project.yaml`、`config/agents.yaml` 和所有核心 JSON 文件。
+- 工作区直接升级为 schema v3；删除 migration 命令、旧 schema 兼容读取和过渡字段。
 - 增加结构化章节状态文件 `memory/chapters/{chapter}/metadata.json`。
 - `accept-chapter` 现在会写入章节 metadata，并继续保持 `polished.md` front matter 兼容。
 - `apply-state-update` 现在会写入 `state_update_apply_log.json`。

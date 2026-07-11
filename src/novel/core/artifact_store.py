@@ -26,6 +26,7 @@ _KIND_DIRECTORIES: dict[ArtifactKind, str] = {
     ArtifactKind.STATE_PROPOSAL: "state_proposals",
     ArtifactKind.CHAPTER_MEMORY: "chapter_memories",
     ArtifactKind.ACCEPTANCE: "acceptances",
+    ArtifactKind.SEGMENT_PATCH: "patches",
 }
 
 

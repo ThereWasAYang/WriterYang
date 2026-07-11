@@ -92,6 +92,9 @@ memory/
     {session_id}/plans/{NNN}/plan.md    # [运行时] 草稿章节计划 Markdown
     {session_id}/progress.json        # [运行时] Web UI 长任务阶段进度和协作式取消状态
     {session_id}/projection/          # [运行时] canonical base snapshot 与逐章 checkpoint
+  revision_sessions/        # [运行时] accepted 章节局部修订会话
+    {revision_session_id}/session.json
+    {revision_session_id}/projection/ # [运行时] revision commit 前 state/timeline 投影
   archive/                  # [运行时] session archive 后生成不可原地篡改归档
 runs/
   run_*.json                # [运行时] generate/session 工作流日志
@@ -144,7 +147,7 @@ exports/
 作者入口推荐使用 session/orchestrator：
 
 ```text
-inspire -> canon suggest/apply -> session start -> approve-outline -> session run -> user review -> session accept/archive -> export
+inspire -> canon suggest/apply -> session start -> approve-outline -> session run -> user review -> session accept/archive -> optional revision-session -> export
 ```
 
 用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能只靠硬编码关键词判断。可以保留关键词启发式作为兼容或 fallback，但 fallback 不得执行 apply、archive、accepted、state/timeline/canon 写入等高风险动作。主路径应由 orchestrator 编排层调用 `intent_router` task 输出结构化决策，并通过 schema 校验、明确错误提示和保守 fallback 保护风险动作。
@@ -154,6 +157,8 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 `session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 `polished.vN.md`，再提升为当前 `polished.md` 并重跑 audit；连续失败或问题明显来自章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。长任务必须写 `memory/sessions/{session_id}/progress.json`，记录阶段、章节、轮次和状态；取消只能写入 `cancel_requested`，在章节或修复轮安全边界生效，不能强行中断当前 LLM HTTP 调用。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 orchestrator 编排层调用 `intent_router` task 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“生成/提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成孤立版本文件。
 
 多章 Session 不得在运行阶段写 canonical state/timeline。`projection.py` 维护 session-local snapshot 和逐章 checkpoint；每次 State Proposal 生成后必须先由 `artifact_store.py` 冻结 lineage，再推进 projection。`session accept` 必须调用 `lifecycle.commit_creation_session()`，由 `transactions.py` 将全部章节与 canonical memory 作为一个 transaction 提交。新增代码不得恢复逐章 `accept_chapter()` 的 Session 循环。
+
+已认可章节局部修改必须走 `revision_workflow.py`，不能重新引入 Creation Session `segment_range`。Revision Agent 输出 `SegmentPatch`，不得输出整章并自行决定修改范围；`markdown_blocks.py` 的 deterministic applier 是范围授权事实源。当前 guard 只允许修订最新 accepted chapter，避免遗漏后续章节 rebase。接受必须复用 `transactions.py`，并让 candidate、Audit、State Proposal、Chapter Memory、Acceptance Commit 指向同一 SHA-256。
 
 正式导出只读取 `accepted.md`，并通过 `accepted_chapter_commit()` 验证完整 lineage。front matter 的 `status: accepted` 不再是生产导出授权。
 
@@ -183,6 +188,10 @@ novel session start "写第1章" --path <project> --chapters 1
 novel session revise-audit <session_id> <event_id> --path <project> --instruction "这段是回忆"
 novel session retry-rewrite <session_id> <event_id> --path <project>
 novel session undo-rewrite <session_id> <event_id> --path <project>
+novel revision-session blocks 1 --path <project>
+novel revision-session start 1 --blocks 2-4 --instruction "压缩节奏" --path <project>
+novel revision-session run <revision_session_id> --path <project>
+novel revision-session accept <revision_session_id> --path <project>
 novel ask "第2章 event_x 其实是回忆，不是当前行动" --path <project>
 novel memory-repair apply <repair_id> --path <project>
 novel plan-chapter 1 --path <project>

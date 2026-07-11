@@ -73,6 +73,7 @@ class StateUpdateProposeOptions:
     use_search_context: bool = False
     use_vector_context: bool | VectorContextMode = "auto"
     world_state_dir: Path | None = None
+    timeline_mode: Literal["append", "replace_chapter"] = "append"
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,7 @@ def propose_state_update(
     user_prompt = build_state_update_user_prompt(
         context=context,
         instruction=options.instruction,
+        timeline_mode=options.timeline_mode,
     )
     proposal, warnings = _generate_state_update_proposal_with_repair(provider, context, user_prompt, options)
 
@@ -522,6 +524,22 @@ def load_state_update_provider(
     )
 
 
+def load_revision_state_update_provider(
+    root: Path,
+    provider_name: str,
+    *,
+    chapter_number: int,
+    agent_config_path: Path | None = None,
+    model_name: str | None = None,
+) -> ModelProvider:
+    return create_agent_provider(
+        agent_config_path or default_agent_config_path(root),
+        "state_update",
+        overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
+        mock_response=default_mock_revision_state_update_proposal_json(root, chapter_number),
+    )
+
+
 def read_state_update_instruction(instruction: str | None, input_path: Path | None) -> str | None:
     if instruction and input_path:
         raise StateUpdateError("provide either --instruction or --input, not both")
@@ -537,6 +555,7 @@ def validate_state_update_proposal(
     proposal: StateUpdateProposal,
     *,
     check_existing_timeline_ids: bool,
+    timeline_mode: Literal["append", "replace_chapter"] = "append",
 ) -> list[str]:
     warnings: list[str] = []
     canon = load_canon_files(root)
@@ -553,6 +572,18 @@ def validate_state_update_proposal(
             raise StateUpdateError(f"state change {change.id} references missing entity: {change.entity_id}")
         _validate_state_change_field(change, character_ids, location_ids, item_ids)
 
+    reusable_historical_change_ids: set[str] = set()
+    if timeline_mode == "replace_chapter":
+        current_timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+        reusable_historical_change_ids = {
+            change_id
+            for event in current_timeline.events
+            if event.narrative_position
+            and event.narrative_position.chapter == proposal.chapter_number
+            for change_id in event.state_change_ids
+        }
+    proposed_change_ids = {change.id for change in proposal.state_changes}
+
     for event in proposal.timeline_events:
         if event.narrative_position is None:
             raise StateUpdateError(f"timeline event {event.id} narrative_position is required")
@@ -567,7 +598,9 @@ def validate_state_update_proposal(
                 raise StateUpdateError(
                     f"timeline event {event.id} references missing participant: {participant_id}"
                 )
-        missing_change_ids = sorted(set(event.state_change_ids) - {change.id for change in proposal.state_changes})
+        missing_change_ids = sorted(
+            set(event.state_change_ids) - proposed_change_ids - reusable_historical_change_ids
+        )
         if missing_change_ids:
             raise StateUpdateError(
                 f"timeline event {event.id} references missing state changes: {', '.join(missing_change_ids)}"
@@ -582,7 +615,7 @@ def validate_state_update_proposal(
         conflicts = sorted(existing_event_ids & {event.id for event in proposal.timeline_events})
         if conflicts:
             raise StateUpdateError(f"timeline event id conflict: {', '.join(conflicts)}")
-    _validate_proposed_timeline_monotonic(root, proposal)
+    _validate_proposed_timeline_monotonic(root, proposal, timeline_mode=timeline_mode)
 
     canon_report = validate_canon(root)
     for message in canon_report.errors:
@@ -608,12 +641,24 @@ def _validate_proposed_timeline_scene_bounds(root: Path, proposal: StateUpdatePr
             )
 
 
-def _validate_proposed_timeline_monotonic(root: Path, proposal: StateUpdateProposal) -> None:
+def _validate_proposed_timeline_monotonic(
+    root: Path,
+    proposal: StateUpdateProposal,
+    *,
+    timeline_mode: Literal["append", "replace_chapter"] = "append",
+) -> None:
     if not proposal.timeline_events:
         return
     timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    existing_events = timeline.events
+    if timeline_mode == "replace_chapter":
+        existing_events = [
+            event
+            for event in timeline.events
+            if not event.narrative_position or event.narrative_position.chapter != proposal.chapter_number
+        ]
     existing_max = max(
-        (_timeline_event_key(event) for event in timeline.events if event.narrative_position is not None),
+        (_timeline_event_key(event) for event in existing_events if event.narrative_position is not None),
         default=None,
     )
     previous = existing_max
@@ -776,7 +821,17 @@ def build_state_update_user_prompt(
     *,
     context: StateUpdateContext,
     instruction: str | None,
+    timeline_mode: Literal["append", "replace_chapter"] = "append",
 ) -> str:
+    revision_rules = ""
+    if timeline_mode == "replace_chapter":
+        revision_rules = (
+            "修订模式：\n"
+            "- Current state 已包含旧 accepted chapter 的影响；state_changes 只输出从当前值到修订后值的净差异。\n"
+            "- timeline_events 输出本章修订后的完整事件集合；提交时会替换本章旧事件，不是追加。\n"
+            "- 可以复用本章旧 timeline event id；没有变化时保持原事件。\n"
+            "- 不得重放本次未改变且已经生效的旧 state change。\n\n"
+        )
     return (
         f"项目：{context.project.title}\n"
         f"语言：{context.project.language}\n"
@@ -810,7 +865,8 @@ def build_state_update_user_prompt(
         "- narrative_position.scene 不得超过 ChapterPlan.scenes 的最大 scene_number。\n"
         "- 插叙、回忆、揭示旧事时，narrative_position 仍写正文出现位置，story_position 写故事世界时间。\n"
         "- 不要为了倒序/插叙把 narrative_position 倒退；如果无法判断 scene，宁可省略 scene 或写入 warnings。\n"
-        "- 新 timeline event 的 narrative_position 不能倒退到现有 timeline 的最后事件之前。\n\n"
+        "- append 模式下，新 timeline event 的 narrative_position 不能倒退到现有 timeline 的最后事件之前。\n\n"
+        f"{revision_rules}"
         f"{context.search_context}\n"
         f"ChapterPlan：\n{context.plan.model_dump_json(indent=2)}\n\n"
         f"AuditReport：\n{context.audit.model_dump_json(indent=2)}\n\n"
@@ -861,7 +917,12 @@ def _generate_state_update_proposal_with_repair(
     def parse_and_validate(content: str) -> tuple[StateUpdateProposal, tuple[str, ...]]:
         proposal = _parse_and_validate_state_update_response(content, options)
         proposal = _normalize_state_update_references(options.root, proposal)
-        warnings = validate_state_update_proposal(options.root, proposal, check_existing_timeline_ids=False)
+        warnings = validate_state_update_proposal(
+            options.root,
+            proposal,
+            check_existing_timeline_ids=False,
+            timeline_mode=options.timeline_mode,
+        )
         return proposal, tuple(warnings)
 
     try:
@@ -1083,6 +1144,25 @@ def default_mock_state_update_proposal_json(chapter_number: int = 1) -> str:
                 }
             ],
             "warnings": [],
+            "created_at": utc_now_iso(),
+        },
+        ensure_ascii=False,
+    )
+
+
+def default_mock_revision_state_update_proposal_json(root: Path, chapter_number: int) -> str:
+    timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    chapter_events = [
+        event.model_dump(mode="json")
+        for event in timeline.events
+        if event.narrative_position and event.narrative_position.chapter == chapter_number
+    ]
+    return json.dumps(
+        {
+            "chapter_number": chapter_number,
+            "state_changes": [],
+            "timeline_events": chapter_events,
+            "warnings": ["mock segment revision preserves existing state and timeline"],
             "created_at": utc_now_iso(),
         },
         ensure_ascii=False,

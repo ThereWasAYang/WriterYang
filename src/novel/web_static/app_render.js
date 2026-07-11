@@ -635,6 +635,10 @@
     $("sessionReviseAudit").addEventListener("click", () => runSessionAction("/api/session/revise-audit", rewriteControlPayload(), "纠正 Audit 理解并重新审核"));
     $("sessionRetryRewrite").addEventListener("click", () => runSessionAction("/api/session/retry-rewrite", rewriteControlPayload(), "根据新审核重新打回"));
     $("sessionUndoRewrite").addEventListener("click", () => runSessionAction("/api/session/undo-rewrite", rewriteControlPayload(), "撤回本次打回"));
+    $("revisionLoadBlocks").addEventListener("click", loadRevisionBlocks);
+    $("revisionStart").addEventListener("click", () => runRevisionAction("/api/revision-session/start", "创建局部修订范围"));
+    $("revisionRun").addEventListener("click", () => runRevisionAction("/api/revision-session/run", "生成并审核局部修订"));
+    $("revisionAccept").addEventListener("click", () => runRevisionAction("/api/revision-session/accept", "认可局部修订"));
     $("cancelSessionTask").addEventListener("click", cancelSessionTask);
     $("viewFile").addEventListener("click", viewFile);
     $("loadCompare").addEventListener("click", loadCompare);

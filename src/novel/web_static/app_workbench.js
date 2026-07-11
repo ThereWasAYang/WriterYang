@@ -157,6 +157,74 @@
       return payload;
     }
 
+    async function loadRevisionBlocks() {
+      return withBusy("加载修订 blocks", async () => {
+        const data = await apiGet("/api/revision-session/blocks", {
+          path: projectPath(),
+          chapter: chapterNumber(),
+        });
+        const blocks = data.blocks || [];
+        $("revisionBlocksPreview").textContent = blocks.length
+          ? blocks.map((block) => `${block.index}. [${block.kind}] ${block.preview}`).join("\n")
+          : "当前 accepted 章节没有可修订 block。";
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        setMessage(`已加载第 ${data.chapter_number} 章的 ${blocks.length} 个 Markdown block。`);
+        return data;
+      });
+    }
+
+    function revisionPayload() {
+      return {
+        path: projectPath(),
+        chapter: chapterNumber(),
+        start_block: Number($("revisionStartBlock").value),
+        end_block: Number($("revisionEndBlock").value),
+        instruction: $("instruction").value.trim(),
+        revision_session_id: $("revisionSessionId").value.trim(),
+        provider: $("provider").value,
+        use_search_context: $("useSearchContext").checked,
+        vector_context: $("vectorContextMode").value,
+        use_vector_context: $("useVectorContext").checked,
+      };
+    }
+
+    function renderRevisionSession(data = {}) {
+      const session = data.revision_session || {};
+      if (!session.revision_session_id) return;
+      $("revisionSessionId").value = session.revision_session_id;
+      $("revisionSessionPanel").innerHTML = `
+        <b>${escapeHtml(session.revision_session_id)}</b>
+        <div>phase: ${escapeHtml(session.phase || "")}</div>
+        <div>chapter: ${escapeHtml(session.chapter_number || "")}</div>
+        <div>blocks: ${escapeHtml(`${session.selection?.start_block || ""}-${session.selection?.end_block || ""}`)}</div>
+        <div>candidate: ${escapeHtml(session.candidate?.sha256 || "待生成")}</div>
+      `;
+    }
+
+    async function runRevisionAction(endpoint, label) {
+      const payload = revisionPayload();
+      if (endpoint !== "/api/revision-session/start" && !payload.revision_session_id) {
+        setMessage("请先创建或填写 Revision Session ID。", true);
+        $("revisionSessionId").focus();
+        return;
+      }
+      if (endpoint === "/api/revision-session/start" && !payload.instruction) {
+        setMessage("请先在聊天 / 指令框填写局部修订要求。", true);
+        $("instruction").focus();
+        return;
+      }
+      return withBusy(label, async () => {
+        const data = await apiPost(endpoint, payload);
+        renderRevisionSession(data);
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        if (endpoint === "/api/revision-session/run" || endpoint === "/api/revision-session/accept") {
+          await loadCompare();
+        }
+        await refreshAll({ silent: true });
+        setMessage(actionMessage(label, data));
+      });
+    }
+
     async function initProject() {
       return withBusy("初始化项目", async () => {
         const title = projectTitleValue();
@@ -852,4 +920,3 @@
       if (text.includes("outline") || $("sessionId").value.trim()) return "outline_discussion";
       return "pre_creation";
     }
-

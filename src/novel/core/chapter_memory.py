@@ -17,7 +17,7 @@ from novel.core.agent_output import (
 from novel.core.context_budget import project_context_budget
 from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
-from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.contracts import AcceptanceCommit, CURRENT_SCHEMA_VERSION
 from novel.core.plan_refs import (
     plan_focus_entity_ids,
     plan_timeline_event_ids,
@@ -269,13 +269,29 @@ def chapter_memory_freshness_warnings(
         actual_sha = _sha256(polished_path)
         if actual_sha != memory.source.polished_sha256:
             warnings.append("stale chapter memory: polished_sha256 does not match accepted polished.md")
-    try:
-        metadata = _read_markdown_front_matter_metadata(polished_path)
-        if metadata.get("status") != "accepted":
-            warnings.append("chapter memory source polished.md is not marked accepted")
-    except Exception as exc:
-        warnings.append(f"could not read source polished.md front matter: {exc}")
+    if not _memory_source_matches_acceptance(root, memory):
+        try:
+            metadata = _read_markdown_front_matter_metadata(polished_path)
+            if metadata.get("status") != "accepted":
+                warnings.append("chapter memory source has no accepted lifecycle binding")
+        except Exception as exc:
+            warnings.append(f"could not verify chapter memory source acceptance: {exc}")
     return warnings
+
+
+def _memory_source_matches_acceptance(root: Path, memory: ChapterMemory) -> bool:
+    acceptance_path = _chapter_dir(root, memory.chapter_number) / "acceptance.json"
+    if not acceptance_path.is_file():
+        return False
+    try:
+        acceptance = load_json_model(acceptance_path, AcceptanceCommit)
+    except Exception:
+        return False
+    return (
+        acceptance.chapter_number == memory.chapter_number
+        and acceptance.candidate.path == memory.source.polished_path
+        and acceptance.candidate.sha256 == memory.source.polished_sha256
+    )
 
 
 def load_chapter_memories(

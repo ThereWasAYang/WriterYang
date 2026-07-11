@@ -65,6 +65,7 @@ class ArtifactKind(StrEnum):
     STATE_PROPOSAL = "state_proposal"
     CHAPTER_MEMORY = "chapter_memory"
     ACCEPTANCE = "acceptance"
+    SEGMENT_PATCH = "segment_patch"
     STATE = "state"
     TIMELINE = "timeline"
 

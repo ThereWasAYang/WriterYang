@@ -39,6 +39,7 @@
 - `src/novel/cli_commands/project_system.py`
 - `src/novel/cli_commands/search.py`
 - `src/novel/cli_commands/session.py`
+- `src/novel/cli_commands/revision_session.py`
 - `src/novel/web_api/__init__.py`
 - `src/novel/web_api/common.py`
 - `src/novel/web_api/config.py`
@@ -49,6 +50,7 @@
 - `src/novel/web_api/memory.py`
 - `src/novel/web_api/router.py`
 - `src/novel/web_api/session.py`
+- `src/novel/web_api/revision_session.py`
 - `src/novel/web_server.py`
 - `src/novel/core/__init__.py`
 - `src/novel/core/agent_defaults.py`
@@ -96,6 +98,8 @@
 - `src/novel/core/provider_config.py`
 - `src/novel/core/providers.py`
 - `src/novel/core/revision.py`
+- `src/novel/core/revision_workflow.py`
+- `src/novel/core/markdown_blocks.py`
 - `src/novel/core/runtime_config.py`
 - `src/novel/core/schemas.py`
 - `src/novel/core/search.py`
@@ -214,6 +218,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_index_refresh()`：调用 `refresh_search_index()`，刷新关键词索引或显式刷新真实 embedding 向量，并返回最新 search status。
 - `_chapter_memory_generate()` / `_chapter_memory_rebuild()`：Web 端生成单章或批量补全 stale/missing ChapterMemory。
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
+- `_revision_*()`：accepted 章节 block 列表、Revision Session start/show/run/accept API；业务逻辑全部复用 `core/revision_workflow.py`。
 - `_session_progress_api()` / `_session_cancel()`：读取 `progress.json` 的脱敏进度摘要，并写入协作式取消请求；取消接口不走项目写锁，避免被正在运行的 `session run` 阻塞。
 - `_session_rewrite_event_summary()`：读取自动打回重写记录，供 Web Session 面板和轮询接口展示。
 - `_memory_repair_suggest()` / `_memory_repair_apply()` / `_settings_change_suggest()` / `_settings_change_answer()`：项目管家 proposal、设定变更澄清和 apply API，调用 `core/memory_repair/`，不在 Web 层直接 patch 文件。
@@ -237,7 +242,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 - 顶部主导航：主页、创作工作台、文风设置、小说状态管理、模型与检索配置、运行日志 / 项目文件。
 - 主页：项目路径输入、打开/刷新、项目检查、新建项目、项目初始引导、项目状态、章节列表和下一步提示。
-- 创作工作台：创作输入、Session 主流程、当前任务进度、协作式取消、自动打回记录、章节对照、章节编辑器、audit 定位和 revision diff。
+- 创作工作台：创作输入、Session 主流程、Accepted 章节局部修订、当前任务进度、协作式取消、自动打回记录、章节对照、章节编辑器、audit 定位和 revision diff。
 - 文风设置：编辑 `memory/style_guide.md`，也可输入自然语言文风方向并调用 `style_guide` Agent 生成草稿填入编辑器。
 - 小说状态管理：canon 摘要、状态/时间线、项目管家和后台管理动态。
 - 模型与检索配置：Profile 模型配置、FTS / embedding 状态和索引刷新。
@@ -995,6 +1000,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 - `common.py`：`StrictModel`、schema v3 常量、Task/Profile/Artifact 枚举。
 - `artifacts.py`：`ArtifactRef`、Audit/State Proposal binding 与 `ChapterLifecycle`。
 - `state.py`：projection checkpoint、`AcceptanceCommit` 与 transaction journal schema。
+- `revisions.py`：`SegmentSelection`、`SegmentPatch` 与独立 `RevisionSession` phase schema。
 - `sessions.py`：目标 Session phase 和合法 transition table。
 - `commands.py`、`decisions.py`、`tracing.py`：typed command、路由 proposal 和 workflow budget 契约。
 
@@ -1013,3 +1019,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 ### `src/novel/core/task_registry.py`
 
 集中记录当前四个 Profile 与 Task、Prompt、输出 artifact、上下文权限和风险等级的映射，避免文档与运行时职责表继续漂移。
+
+### `src/novel/core/markdown_blocks.py` 与 `src/novel/core/revision_workflow.py`
+
+`markdown_blocks.py` 解析 front matter 之外的 Markdown block，生成稳定 selection hash，并在合成 patch 时验证 source、selected、prefix、suffix 与范围外字节。`revision_workflow.py` 管理 accepted candidate selection、Revision Agent structured patch、candidate freeze、Audit、revision-mode State Proposal、projection、pending Chapter Memory 和 transaction acceptance。Creation Session 不再保存 `scope_type`/`segment_range`，也没有 segment 执行分支。

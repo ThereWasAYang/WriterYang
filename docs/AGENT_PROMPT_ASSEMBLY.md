@@ -431,6 +431,17 @@ Prompt 组装：
 
 Session 层是用户协作入口。它可以要求用户批准大纲和最终内容；底层内部 Agent 不能直接问用户。
 
+## 12.1 Segment Revision Task
+
+- Prompt：`prompts/segment_revision_system.txt`
+- Service：`core/revision_workflow.py`
+- Output schema：`SegmentPatch`
+- Profile：`scribe`
+
+Prompt 只向 Revision Agent 暴露 frozen `selection_id`、source hash、授权 block range、用户 instruction 和 selected Markdown。Agent 必须返回 replacement patch，不能返回整章、改变 block range、写 front matter 或假设自己拥有文件写权限。输出经过 strict JSON schema、repair retry 和 deterministic patch applier；candidate 合成、范围外 hash 校验、Audit、State Proposal、Chapter Memory 与 Acceptance 全由 core 完成。
+
+Creation Session 不再承载 segment scope；`revision_system.txt` 保留给未完成的全文/Session 内部改写路径，Task Registry 的正式 `revision` 输出契约已切换到 `segment_revision_system` / `SegmentPatch`。
+
 ## 13. Search Context、ChapterMemory 和 hidden truth
 
 `core/search.py::retrieve_context_bundle()` 返回 `ContextBundle`：

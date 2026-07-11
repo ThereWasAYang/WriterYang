@@ -9,16 +9,15 @@ from novel.core.validation import validate_canon, validate_project
 from novel.core.workspace import InitOptions, init_workspace
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
-from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
-from novel.core.polishing import ChapterPolishingOptions, polish_chapter
-from novel.core.auditing import ChapterAuditOptions, default_mock_audit_report_json, audit_chapter
 from novel.core.providers import MockProvider
-from novel.core.state_update import (
-    AcceptChapterOptions,
-    StateUpdateProposeOptions,
-    accept_chapter,
-    default_mock_state_update_proposal_json,
-    propose_state_update,
+from novel.core.session import (
+    SessionActionOptions,
+    SessionRunOptions,
+    SessionStartOptions,
+    accept_session,
+    approve_outline,
+    run_session,
+    start_session,
 )
 
 
@@ -711,7 +710,7 @@ def test_validate_reports_chapter_output_linkage_errors(tmp_path: Path) -> None:
     assert any("front matter chapter_number" in msg.message and "不一致" in msg.message for msg in report.errors)
 
 
-def test_validate_fails_accepted_chapter_with_blocking_audit_or_missing_state_apply(tmp_path: Path) -> None:
+def test_validate_fails_accepted_chapter_with_missing_acceptance(tmp_path: Path) -> None:
     root = _workspace_with_accepted_chapter(tmp_path)
     audit_path = root / "memory" / "chapters" / "001" / "audit.json"
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
@@ -728,19 +727,15 @@ def test_validate_fails_accepted_chapter_with_blocking_audit_or_missing_state_ap
         }
     ]
     audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (root / "memory" / "chapters" / "001" / "state_update_apply_log.json").unlink()
+    (root / "memory" / "chapters" / "001" / "acceptance.json").unlink()
 
     report = validate_project(root)
 
     assert not report.ok
-    assert any(
-        "已认可章节不能保留 medium、high 或 critical 级别的 audit 问题" in msg.message
-        for msg in report.errors
-    )
-    assert any("已认可章节必须有已应用的 state update log" in msg.message for msg in report.errors)
+    assert any("有效的 AcceptanceCommit" in msg.message for msg in report.errors)
 
 
-def test_validate_allows_accepted_chapter_with_non_blocking_audit_issues(tmp_path: Path) -> None:
+def test_validate_ignores_non_authoritative_working_audit_for_accepted_chapter(tmp_path: Path) -> None:
     root = _workspace_with_accepted_chapter(tmp_path)
     audit_path = root / "memory" / "chapters" / "001" / "audit.json"
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
@@ -761,7 +756,7 @@ def test_validate_allows_accepted_chapter_with_non_blocking_audit_issues(tmp_pat
     report = validate_project(root)
 
     assert report.ok
-    assert any("已认可章节的 audit 仍有非阻断问题" in msg.message for msg in report.warnings)
+    assert not any("已认可章节的 audit 仍有非阻断问题" in msg.message for msg in report.warnings)
 
 
 def test_validate_reports_hidden_truth_in_reader_visible_summary(tmp_path: Path) -> None:
@@ -810,27 +805,18 @@ def _workspace_with_accepted_chapter(tmp_path: Path) -> Path:
     proposal_path = tmp_path / "canon_proposal.json"
     proposal_path.write_text(default_mock_canon_proposal_json(), encoding="utf-8")
     assert apply_canon_proposal(root, proposal_path).validation_report.ok
-    plan_chapter(
-        ChapterPlanningOptions(root=root, chapter_number=1),
-        MockProvider(fake_response=default_mock_chapter_plan_json(1)),
+    started = start_session(
+        SessionStartOptions(
+            root=root,
+            user_intent="写第一章。",
+            chapter_range=(1,),
+            provider_name="mock",
+        )
     )
-    write_chapter_draft(
-        ChapterDraftingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="林澈进入旧车站。"),
-    )
-    polish_chapter(
-        ChapterPolishingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="林澈进入旧车站，雨声在身后合拢。"),
-    )
-    audit_chapter(
-        ChapterAuditOptions(root=root, chapter_number=1),
-        MockProvider(fake_response=default_mock_audit_report_json(1, "polished.md")),
-    )
-    propose_state_update(
-        StateUpdateProposeOptions(root=root, chapter_number=1),
-        MockProvider(fake_response=default_mock_state_update_proposal_json(1)),
-    )
-    accept_chapter(AcceptChapterOptions(root=root, chapter_number=1))
+    session_id = started.session.session_id
+    approve_outline(SessionActionOptions(root=root, session_id=session_id))
+    run_session(SessionRunOptions(root=root, session_id=session_id, provider_name="mock"))
+    accept_session(SessionActionOptions(root=root, session_id=session_id, provider_name="mock"))
     return root
 
 

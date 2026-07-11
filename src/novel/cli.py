@@ -39,6 +39,7 @@ from novel.cli_commands.project_system import (
 )
 from novel.cli_commands.search import _cmd_index, _cmd_search
 from novel.cli_commands.session import _cmd_session
+from novel.cli_commands.revision_session import _cmd_revision_session
 from novel.cli_shared import (
     _add_agent_runtime_args,
     _add_integration_args_recursive,
@@ -394,9 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
     session_start = session_subparsers.add_parser("start", help="Start a collaborative creation session")
     session_start.add_argument("intent", help="User intent for this creation session")
     session_start.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
-    session_start.add_argument("--chapters", default=None, help="Chapter range, for example 3 or 3-4.")
-    session_start.add_argument("--chapter", type=int, default=None, help="Single chapter for segment sessions.")
-    session_start.add_argument("--segments", default=None, help="Segment range for a chapter, for example 8-10.")
+    session_start.add_argument("--chapters", required=True, help="Chapter range, for example 3 or 3-4.")
     session_start.add_argument(
         "--provider",
         default="config",
@@ -521,6 +520,32 @@ def build_parser() -> argparse.ArgumentParser:
     session_archive.add_argument("session_id", help="Session id")
     session_archive.add_argument("--path", default=".", help="Workspace directory. Defaults to the current directory.")
     session_archive.add_argument("--force", action="store_true", help="Overwrite archive files.")
+
+    revision_session_parser = subparsers.add_parser(
+        "revision-session", help="Manage scoped revisions of accepted chapters"
+    )
+    revision_session_subparsers = revision_session_parser.add_subparsers(
+        dest="revision_session_command", required=True
+    )
+    revision_blocks = revision_session_subparsers.add_parser("blocks", help="List stable Markdown blocks")
+    revision_blocks.add_argument("chapter", type=int, help="Accepted chapter number")
+    revision_blocks.add_argument("--path", default=".", help="Workspace directory.")
+    revision_start = revision_session_subparsers.add_parser("start", help="Create a scoped revision session")
+    revision_start.add_argument("chapter", type=int, help="Accepted chapter number")
+    revision_start.add_argument("--blocks", required=True, help="Inclusive block range, for example 2-4.")
+    revision_start.add_argument("--instruction", required=True, help="Scoped revision instruction.")
+    revision_start.add_argument("--path", default=".", help="Workspace directory.")
+    revision_show = revision_session_subparsers.add_parser("show", help="Show a scoped revision session")
+    revision_show.add_argument("revision_session_id", help="Revision session id")
+    revision_show.add_argument("--path", default=".", help="Workspace directory.")
+    revision_run = revision_session_subparsers.add_parser("run", help="Generate and audit the scoped candidate")
+    revision_run.add_argument("revision_session_id", help="Revision session id")
+    revision_run.add_argument("--path", default=".", help="Workspace directory.")
+    revision_run.add_argument("--provider", default="config", help="Provider name.")
+    _add_search_context_args(revision_run, default_enabled=True)
+    revision_accept = revision_session_subparsers.add_parser("accept", help="Commit the audited scoped revision")
+    revision_accept.add_argument("revision_session_id", help="Revision session id")
+    revision_accept.add_argument("--path", default=".", help="Workspace directory.")
 
     status_parser = subparsers.add_parser("status", help="Show project status")
     status_parser.add_argument(
@@ -1251,6 +1276,7 @@ _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "chapter-memory": _cmd_chapter_memory,
     "ask": _cmd_ask,
     "session": _cmd_session,
+    "revision-session": _cmd_revision_session,
     "status": _cmd_status,
     "usage": _cmd_usage,
     "show": _cmd_show,

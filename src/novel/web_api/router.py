@@ -22,6 +22,7 @@ from .deps import (
     summarize_provider_usage,
     WorkspaceExistsError,
 )
+from novel.core.revision_workflow import RevisionWorkflowError
 
 from .common import (
     APIResponse,
@@ -63,6 +64,13 @@ from .inspection import (
     _audit_annotations, _file_tree, _list_chapters, _list_projects, _management_events,
     _provider_config_summary, _read_chapter_file, _read_workspace_file,
     _runs_summary, _state_timeline_summary, _workspace_diff,
+)
+from .revision_session import (
+    _revision_accept,
+    _revision_blocks_api,
+    _revision_run,
+    _revision_show_api,
+    _revision_start,
 )
 
 def handle_api_request(
@@ -140,6 +148,9 @@ def handle_api_request(
     except CreationSessionError as exc:
         log_failure(400, "session_error", exc)
         return _failure(400, "session_error", str(exc), request_id=request_id)
+    except RevisionWorkflowError as exc:
+        log_failure(400, "revision_error", exc)
+        return _failure(400, "revision_error", str(exc), request_id=request_id)
     except ValueError as exc:
         log_failure(400, "invalid_request", exc)
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
@@ -175,6 +186,8 @@ def _get_routes():
         "/api/session/latest": _session_latest_api,
         "/api/session/progress": _session_progress_api,
         "/api/session/rewrite-events": _session_rewrite_events_api,
+        "/api/revision-session/blocks": _revision_blocks_api,
+        "/api/revision-session": _revision_show_api,
         "/api/diff": lambda query: _workspace_diff(
             _root_from_query(query),
             query.get("left") or "",
@@ -262,6 +275,9 @@ def _post_routes() -> dict[str, PostRoute]:
         "/api/session/undo-rewrite": ("web session undo-rewrite", _session_undo_rewrite, True),
         "/api/session/accept": ("web session accept", _session_accept, True),
         "/api/session/archive": ("web session archive", _session_archive, True),
+        "/api/revision-session/start": ("web revision-session start", _revision_start, True),
+        "/api/revision-session/run": ("web revision-session run", _revision_run, True),
+        "/api/revision-session/accept": ("web revision-session accept", _revision_accept, True),
     }
 
 

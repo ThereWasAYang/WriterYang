@@ -1576,6 +1576,27 @@ memory/chapters/{NNN}/plan.md
 
 字段级结构请查看生成的 `schemas/creation_session.schema.json` 和 `schemas/creation_outline.schema.json`。
 
+### 25.1 Revision Session 持久化产物
+
+Accepted 章节的局部修订使用独立 workflow，不复用 Creation Session：
+
+```text
+memory/revision_sessions/{revision_session_id}/session.json
+memory/revision_sessions/{revision_session_id}/projection/current_state.json
+memory/revision_sessions/{revision_session_id}/projection/timeline.json
+memory/revision_sessions/{revision_session_id}/projection/projection.json
+memory/chapters/{NNN}/patches/segment_patch_art_{id}.json
+memory/chapters/{NNN}/candidates/candidate_art_{id}.md
+```
+
+- `SegmentSelection` 绑定 accepted source candidate、block range、selected/prefix/suffix SHA-256。
+- `SegmentPatch` 绑定 `selection_id`、source hash、授权 block range、replacement Markdown 和 addressed issue IDs。
+- `RevisionSession` 绑定 patch、合成后的完整 candidate、Audit、State Proposal 与 projection。
+- `AWAITING_REVIEW` 及之后阶段必须具有完整 patch/candidate/Audit/State Proposal refs。
+- 接受成功前旧 `accepted.md` 和 canonical state/timeline 不变；transaction 失败会回滚全部目标。
+
+字段级结构见 `schemas/segment_selection.schema.json`、`schemas/segment_patch.schema.json` 和 `schemas/revision_session.schema.json`。
+
 ---
 
 ## 26. 设定变更 / 记忆修复持久化产物

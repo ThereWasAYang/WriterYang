@@ -2568,7 +2568,6 @@ def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: P
     now = datetime.now(timezone.utc).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
-        scope_type="chapters",
         chapter_range=[1],
         user_intent="写第1章",
         status="needs_user_review",
@@ -3133,7 +3132,6 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
     now = datetime.now(timezone.utc).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
-        scope_type="chapters",
         chapter_range=[1],
         user_intent="写第1章",
         status="needs_revision",
@@ -3215,7 +3213,6 @@ def test_api_session_audit_summary_does_not_translate_old_english_audit_descript
     now = datetime.now(timezone.utc).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
-        scope_type="chapters",
         chapter_range=[1],
         user_intent="写第1章",
         status="needs_revision",
@@ -3246,7 +3243,6 @@ def test_api_session_rewrite_events_returns_summary_and_snapshot_path(tmp_path: 
     now = datetime.now(timezone.utc).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
-        scope_type="chapters",
         chapter_range=[1],
         user_intent="写第1章",
         status="needs_revision",
@@ -3327,7 +3323,6 @@ def test_api_session_rewrite_control_endpoints_pass_event_id(tmp_path: Path, mon
     now = datetime.now(timezone.utc).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
-        scope_type="chapters",
         chapter_range=[1],
         user_intent="写第1章",
         status="needs_revision",

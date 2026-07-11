@@ -126,14 +126,6 @@
       "title": "Session Id",
       "type": "string"
     },
-    "scope_type": {
-      "enum": [
-        "chapters",
-        "segments"
-      ],
-      "title": "Scope Type",
-      "type": "string"
-    },
     "chapter_range": {
       "items": {
         "type": "integer"
@@ -141,21 +133,6 @@
       "minItems": 1,
       "title": "Chapter Range",
       "type": "array"
-    },
-    "segment_range": {
-      "anyOf": [
-        {
-          "items": {
-            "type": "integer"
-          },
-          "type": "array"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Segment Range"
     },
     "user_intent": {
       "minLength": 1,
@@ -265,7 +242,6 @@
   },
   "required": [
     "session_id",
-    "scope_type",
     "chapter_range",
     "user_intent",
     "status",

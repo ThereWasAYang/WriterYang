@@ -277,6 +277,33 @@
             </div>
           </div>
 
+          <div id="revisionWorkflowPanel" class="panel">
+            <h2 style="margin-top: 0;">Accepted 章节局部修订</h2>
+            <p class="page-note">先加载稳定 Markdown block，再限定范围生成 patch；新 candidate 通过 Audit 后才可事务性替换 accepted 版本。</p>
+            <div class="actions">
+              <button id="revisionLoadBlocks">加载当前章节 blocks</button>
+            </div>
+            <div class="row" style="margin-top: 8px;">
+              <div>
+                <label for="revisionStartBlock">起始 block</label>
+                <input id="revisionStartBlock" type="number" min="1" value="1">
+              </div>
+              <div>
+                <label for="revisionEndBlock">结束 block</label>
+                <input id="revisionEndBlock" type="number" min="1" value="1">
+              </div>
+            </div>
+            <label for="revisionSessionId">Revision Session ID</label>
+            <input id="revisionSessionId" placeholder="revision_session_...">
+            <div class="actions" style="margin-top: 8px;">
+              <button id="revisionStart">创建修订范围</button>
+              <button id="revisionRun" class="primary">生成并审核</button>
+              <button id="revisionAccept">认可局部修订</button>
+            </div>
+            <pre id="revisionBlocksPreview" class="artifact-pre" style="margin-top: 10px;">尚未加载 block。</pre>
+            <div id="revisionSessionPanel" class="metric" style="margin-top: 10px;">未加载 Revision Session</div>
+          </div>
+
           <div class="panel">
             <details id="settingChangeDetails" class="workbench-collapsible">
               <summary>

@@ -67,7 +67,7 @@ novel init "青灯客栈" --path ./qingdeng-inn --no-guide
 novel inspire "雨夜客栈里，一盏青灯照出二十年前失踪剑客的影子。" --path ./qingdeng-inn --provider mock --overwrite
 novel canon suggest --path ./qingdeng-inn --provider mock --output ./qingdeng-canon.json
 novel canon apply ./qingdeng-canon.json --path ./qingdeng-inn
-novel session start --path ./qingdeng-inn --chapters 1 --intent "写第一章" --provider mock
+novel session start "写第一章" --path ./qingdeng-inn --chapters 1 --provider mock
 novel session approve-outline <session_id> --path ./qingdeng-inn
 novel session run <session_id> --path ./qingdeng-inn --provider mock
 novel session accept <session_id> --path ./qingdeng-inn
@@ -75,6 +75,8 @@ novel export markdown --path ./qingdeng-inn --force
 ```
 
 当前工作区 schema 为 v3。旧 schema 项目会被直接拒绝，不提供 migrate 命令。正式导出只读取带有效 `acceptance.json` 和 artifact lineage 的 `accepted.md`；未接受内容不能进入正式导出。
+
+已认可章节的局部修订使用独立 `revision-session`：先用 `blocks` 查看稳定 Markdown block，再 `start` 冻结范围、`run` 生成并审核 structured patch、`accept` 事务性提交。Creation Session 不再提供 `--segments` 入口。
 
 命令参考见 [CLI 命令参考](docs/CLI_COMMANDS.md)，Web UI 图文流程见 [Web UI 小白图文使用指南](docs/WEB_UI_USER_GUIDE.md)。
 
@@ -104,10 +106,10 @@ Web API 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BY
 
 | Profile | 默认用途 |
 | --- | --- |
-| `scribe` | 正文写作、润色和修订 |
-| `architect` | 灵感扩展、章节计划和结构化推理 |
-| `loremaster` | Canon、状态、时间线和一致性审核 |
-| `clerk` | 摘要、整理、轻量校验和辅助任务 |
+| `scribe` | 正文写作、润色和 scoped revision patch |
+| `architect` | 章节计划和一致性 Audit |
+| `loremaster` | 灵感、文风与 Canon proposal |
+| `clerk` | State Update、Chapter Memory、路由、Memory Repair 与 Setup |
 
 Provider 适配与 Agent logic 分离。`deepseek`、`zai` 和 OpenAI-compatible provider 的私有参数由 provider adapter 决定是否进入 payload；API Key 只读取环境变量或项目 `.env`，不要写入 YAML、JSON、Markdown 或日志。
 

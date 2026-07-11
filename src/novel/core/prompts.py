@@ -5,7 +5,7 @@ from importlib.resources import files
 import re
 
 
-PROMPT_VERSION = "2026-06-20"
+PROMPT_VERSION = "2026-07-11"
 
 PROMPT_VERSIONS: dict[str, str] = {
     "audit_repair_route_system": "2026-06-20",
@@ -21,6 +21,7 @@ PROMPT_VERSIONS: dict[str, str] = {
     "planning_system": "2026-06-05",
     "polish_system": "2026-06-05",
     "revision_system": "2026-06-05",
+    "segment_revision_system": "2026-07-11",
     "state_update_system": "2026-06-05",
     "style_guide_system": "2026-06-19",
     "writer_system": "2026-06-05",

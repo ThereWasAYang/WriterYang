@@ -8,6 +8,7 @@
         "state_proposal",
         "chapter_memory",
         "acceptance",
+        "segment_patch",
         "state",
         "timeline"
       ],

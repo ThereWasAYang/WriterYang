@@ -56,20 +56,18 @@ def test_session_start_creates_single_chapter_outline(tmp_path: Path) -> None:
     assert (session_dir / "outline_proposal.md").is_file()
 
 
-def test_session_start_supports_multi_chapter_and_segments(tmp_path: Path) -> None:
+def test_session_start_requires_chapter_creation_scope(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
-    code, _, stderr = _run_cli(
+    code, stdout, stderr = _run_cli(
         [
             "session",
             "start",
-            "重写第2章后三段",
+            "继续写第2章",
             "--path",
             str(root),
-            "--chapter",
+            "--chapters",
             "2",
-            "--segments",
-            "8-10",
             "--provider",
             "mock",
         ]
@@ -77,10 +75,9 @@ def test_session_start_supports_multi_chapter_and_segments(tmp_path: Path) -> No
 
     assert code == 0
     assert stderr == ""
+    assert "outline proposal generated" in stdout
     session = _latest_session(root)
-    assert session.scope_type == "segments"
     assert session.chapter_range == [2]
-    assert session.segment_range == [8, 9, 10]
 
 
 def test_session_run_requires_approved_outline(tmp_path: Path) -> None:

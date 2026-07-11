@@ -17,7 +17,6 @@ GenericStatus = Literal["active", "inactive", "resolved", "unresolved", "depreca
 TimelineEventRole = Literal["current_action", "flashback", "memory", "revelation", "summary", "backstory"]
 TimelineCertainty = Literal["certain", "inferred", "uncertain"]
 CharacterGender = Literal["男", "女", "未知"]
-CreationScopeType = Literal["chapters", "segments"]
 SessionRewriteAction = Literal["revision_rewrite", "plot_replan"]
 SessionRewriteStatus = Literal["started", "completed", "unresolved", "failed"]
 SessionRewriteUndoStatus = Literal["not_requested", "restored", "failed"]
@@ -769,9 +768,7 @@ class CreationArchiveEntry(FlexibleModel):
 
 class CreationSession(SchemaVersionedModel):
     session_id: str = Field(min_length=1, pattern=r"^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
-    scope_type: CreationScopeType
     chapter_range: list[int] = Field(min_length=1)
-    segment_range: list[int] | None = None
     user_intent: str = Field(min_length=1)
     status: CreationSessionStatus
     outline_status: CreationOutlineStatus = "draft"
@@ -790,8 +787,6 @@ class CreationSession(SchemaVersionedModel):
     def validate_scope_and_status(self) -> CreationSession:
         if sorted(set(self.chapter_range)) != self.chapter_range:
             raise ValueError("chapter_range 必须升序排列且去重")
-        if self.scope_type == "segments" and not self.segment_range:
-            raise ValueError("segment session 必须设置 segment_range")
         if self.status in {"outline_approved", "generating", "needs_revision", "needs_user_review", "accepted", "archived"}:
             if self.outline_status != "approved":
                 raise ValueError("approved 及之后状态的 session 必须满足 outline_status=approved")

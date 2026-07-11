@@ -56,13 +56,11 @@ from .inspection import _management_event_summary
 def _session_start(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
     chapter_range = parse_range(str(data.get("chapters") or data.get("chapter") or "1"))
-    segment_range = parse_range(str(data["segments"])) if data.get("segments") else None
     result = start_session(
         SessionStartOptions(
             root=root,
             user_intent=str(data.get("intent") or ""),
             chapter_range=chapter_range,
-            segment_range=segment_range,
             provider_name=str(data.get("provider") or "config"),
             force=bool(data.get("force")),
             use_search_context=bool(data.get("use_search_context", True)),

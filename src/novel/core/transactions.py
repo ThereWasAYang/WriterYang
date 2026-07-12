@@ -159,7 +159,7 @@ def rollback_transaction(
             journal_path,
             rolled_back,
             TransactionStatus.ROLLED_BACK,
-            error=str(exc),
+            error=_append_error(rolled_back.error, str(exc)),
         )
     return rolled_back
 
@@ -197,6 +197,12 @@ def _cleanup_transaction_payloads(journal_path: Path) -> None:
             shutil.rmtree(payload_dir)
         except OSError as exc:
             raise TransactionError(f"transaction payload cleanup failed for {payload_dir}: {exc}") from exc
+
+
+def _append_error(original: str | None, additional: str) -> str:
+    if not original:
+        return additional
+    return f"{original}; {additional}"
 
 
 def _write_status(

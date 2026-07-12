@@ -175,10 +175,10 @@
         <div>blocks: ${escapeHtml(`${session.selection?.start_block || ""}-${session.selection?.end_block || ""}`)}</div>
         <div>candidate: ${escapeHtml(session.candidate?.sha256 || "待生成")}</div>
       `;
-      const phase = session.phase || "";
-      $("revisionRun").disabled = !["awaiting_patch", "failed_recoverable"].includes(phase);
-      $("revisionAccept").disabled = phase !== "awaiting_review";
-      $("revisionCancel").disabled = !["awaiting_patch", "awaiting_review", "failed_recoverable"].includes(phase);
+      const allowed = new Set(Array.isArray(data.next_allowed_commands) ? data.next_allowed_commands : []);
+      $("revisionRun").disabled = !allowed.has("revision.run");
+      $("revisionAccept").disabled = !allowed.has("revision.accept");
+      $("revisionCancel").disabled = !allowed.has("revision.cancel");
     }
 
     async function loadRevisionSession() {

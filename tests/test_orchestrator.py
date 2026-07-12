@@ -36,7 +36,6 @@ def test_ask_creates_creation_session_and_outline(tmp_path: Path) -> None:
     code, stdout, stderr = _run_cli(
         [
             "ask",
-            "请为第1章生成章节计划",
             "--path",
             str(root),
             "--provider",
@@ -69,7 +68,6 @@ def test_ask_json_returns_session_id(tmp_path: Path) -> None:
     code, stdout, stderr = _run_cli(
         [
             "ask",
-            "请写第1章初稿",
             "--path",
             str(root),
             "--provider",
@@ -196,7 +194,6 @@ def test_ask_confirmation_dispatches_persisted_proposal_without_rerouting(
     code, stdout, stderr = _run_cli(
         [
             "ask",
-            "这段文本不会用于重新路由",
             "--path",
             str(root),
             "--confirm",
@@ -208,6 +205,42 @@ def test_ask_confirmation_dispatches_persisted_proposal_without_rerouting(
     assert stderr == ""
     assert "Ask status: executed" in stdout
     assert list((root / "memory" / "sessions").glob("session_*/session.json"))
+
+
+def test_ask_confirmation_rejects_ignored_request_text(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    proposed = propose_ask_command(
+        root,
+        "请为第1章生成章节计划",
+        provider_name="mock",
+        budget=default_workflow_budget(),
+    )
+
+    code, stdout, stderr = _run_cli(
+        [
+            "ask",
+            "不要静默忽略这段新请求",
+            "--path",
+            str(root),
+            "--confirm",
+            proposed.workflow_run_id,
+        ]
+    )
+
+    assert code == 1
+    assert stdout == ""
+    assert "不接受 request" in stderr
+    assert not list((root / "memory" / "sessions").glob("session_*/session.json"))
+
+
+def test_ask_requires_request_without_confirmation(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+
+    code, stdout, stderr = _run_cli(["ask", "--path", str(root), "--provider", "mock"])
+
+    assert code == 1
+    assert stdout == ""
+    assert "必须提供 request" in stderr
 
 
 def test_revision_route_decision_classifies_plot_replan(tmp_path: Path) -> None:

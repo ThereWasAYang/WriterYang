@@ -2728,6 +2728,11 @@ def test_frontend_basic_render() -> None:
     assert "apiFailureError(errorPayload" in app_js
     assert "error.detailText = apiErrorDetailText(error)" in app_js
     assert "throw apiFailureError(payload.error" in app_js
+    assert "data.next_allowed_commands" in app_js
+    assert 'allowed.has("revision.run")' in app_js
+    assert 'allowed.has("revision.accept")' in app_js
+    assert 'allowed.has("revision.cancel")' in app_js
+    assert 'phase !== "awaiting_review"' not in app_js
     assert "throw apiFailureError(data.error" in app_js
     assert 'setMessage(error.message, true, error.detailText || "")' in app_js
     assert 'if (button.id !== "messageDetails") button.disabled = disabled;' in app_js

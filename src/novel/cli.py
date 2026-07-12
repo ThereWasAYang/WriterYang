@@ -233,7 +233,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     ask_parser = subparsers.add_parser("ask", help="Ask the controlled orchestrator to run a task")
-    ask_parser.add_argument("request", help="Natural language task request")
+    ask_parser.add_argument(
+        "request",
+        nargs="?",
+        help="Natural language task request. Omit when using --confirm.",
+    )
     ask_parser.add_argument(
         "--path",
         default=".",

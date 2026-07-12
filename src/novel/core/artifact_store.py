@@ -260,7 +260,7 @@ def capture_working_chapter(
         producer_task_id=TaskId.POLISH,
         inputs=[plan, *snapshot_inputs],
     )
-    require_working_audit_matches_candidate(root, chapter_number)
+    require_audit_matches_candidate(root, chapter_number, candidate.sha256)
     audit_ref = _capture_or_reuse(
         store,
         existing.active_audit.audit if existing and existing.active_audit else None,
@@ -312,15 +312,24 @@ def capture_working_chapter(
 
 def require_working_audit_matches_candidate(root: Path, chapter_number: int) -> None:
     chapter_dir = root.resolve() / "memory" / "chapters" / f"{chapter_number:03d}"
+    require_audit_matches_candidate(root, chapter_number, sha256_file(chapter_dir / "polished.md"))
+
+
+def require_audit_matches_candidate(
+    root: Path,
+    chapter_number: int,
+    candidate_sha256: str,
+) -> None:
+    chapter_dir = root.resolve() / "memory" / "chapters" / f"{chapter_number:03d}"
     audit_report = load_json_model(chapter_dir / "audit.json", AuditReport)
     if audit_report.audited_file != "polished.md":
         raise AuditCandidateMismatchError(
             f"audit reviewed {audit_report.audited_file}, but chapter capture requires polished.md"
         )
-    candidate_sha256 = sha256_file(chapter_dir / "polished.md")
     if audit_report.audited_sha256 != candidate_sha256:
         raise AuditCandidateMismatchError(
-            "audit content hash does not match the working chapter candidate; rerun the audit"
+            "audit content hash does not match the chapter candidate; "
+            "start a revision for this chapter to run a new audit, or restore the manual edit"
         )
 
 

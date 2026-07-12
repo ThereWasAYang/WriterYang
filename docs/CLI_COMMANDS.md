@@ -81,7 +81,7 @@ novel revision-session cancel <revision_session_id> --path ./qingdeng-inn
 
 ```bash
 novel ask "第2章 event_wrong_current 其实是回忆，不是当前行动" --path ./qingdeng-inn --provider mock
-novel ask "第2章 event_wrong_current 其实是回忆，不是当前行动" --path ./qingdeng-inn --confirm <workflow_run_id>
+novel ask --path ./qingdeng-inn --confirm <workflow_run_id>
 novel memory-repair suggest "修正 timeline 中的错误事件定位" --path ./qingdeng-inn --provider mock
 novel memory-repair apply ./qingdeng-inn/memory/repairs/repair_xxx/proposal.json --path ./qingdeng-inn
 novel setting-change suggest "新增人物沈微" --path ./qingdeng-inn --provider mock
@@ -91,7 +91,7 @@ novel setting-change apply ./qingdeng-inn/memory/repairs/repair_xxx/proposal.jso
 
 设定变更和 memory repair 都先生成 proposal，不直接修改正式 memory；只有显式 apply 才会写入文件。失败时会写 apply log，并尝试从备份回滚。
 
-`novel ask` 默认只输出 strict `CommandProposal`，包含 command、风险、预计模型调用次数、确认要求和 `WorkflowBudget`。只读低风险 command 可自动执行；创建 Session、生成 repair proposal 等有成本动作，以及 apply、accept、Production Export 等高风险动作，都要用首次输出的 `workflow_run_id` 执行 `--confirm <workflow_run_id>`。确认路径直接加载 `runs/{workflow_run_id}/proposal.json` 并派发其中的 command，不会重新调用 intent router。可用 `--max-chapters`、`--max-agent-calls`、`--max-provider-attempts`、`--max-auto-revision-rounds`、`--max-input-tokens` 和 `--max-output-tokens` 限制整个 workflow。proposal 与 intent-router 调用会写入 `runs/{workflow_run_id}/`；`--dry-run` 只阻止 command 执行和 domain artifact 写入，不关闭审计 trace。
+`novel ask` 默认只输出 strict `CommandProposal`，包含 command、风险、预计模型调用次数、确认要求和 `WorkflowBudget`。只读低风险 command 可自动执行；创建 Session、生成 repair proposal 等有成本动作，以及 apply、accept、Production Export 等高风险动作，都要用首次输出的 `workflow_run_id` 执行 `novel ask --confirm <workflow_run_id>`。确认模式不接受 `request`，只加载 `runs/{workflow_run_id}/proposal.json` 并派发其中的 command，因此不会忽略新文本或重新调用 intent router。可用 `--max-chapters`、`--max-agent-calls`、`--max-provider-attempts`、`--max-auto-revision-rounds`、`--max-input-tokens` 和 `--max-output-tokens` 限制整个 workflow。proposal 与 intent-router 调用会写入 `runs/{workflow_run_id}/`；`--dry-run` 只阻止 command 执行和 domain artifact 写入，不关闭审计 trace。
 
 ## 搜索与上下文
 

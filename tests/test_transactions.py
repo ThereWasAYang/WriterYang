@@ -12,6 +12,7 @@ from novel.core.transactions import (
     commit_transaction,
     prepare_transaction,
     recover_incomplete_transactions,
+    rollback_transaction,
 )
 
 
@@ -74,3 +75,29 @@ def test_recovery_rolls_back_prepared_transaction(tmp_path: Path) -> None:
     assert len(recovered) == 1
     assert recovered[0].status == TransactionStatus.ROLLED_BACK
     assert target.read_text(encoding="utf-8") == "before"
+
+
+def test_rollback_preserves_original_error_when_payload_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "target.txt"
+    target.write_text("before", encoding="utf-8")
+    journal_path, _ = prepare_transaction(
+        tmp_path,
+        purpose="test rollback diagnostics",
+        mutations=[FileMutation(target, b"after")],
+    )
+
+    def reject_cleanup(path: Path) -> None:
+        raise TransactionError(f"transaction payload cleanup failed for {path.parent}")
+
+    monkeypatch.setattr("novel.core.transactions._cleanup_transaction_payloads", reject_cleanup)
+    journal = rollback_transaction(tmp_path, journal_path, error="original write failure")
+
+    assert journal.status == TransactionStatus.ROLLED_BACK
+    assert journal.error is not None
+    assert "original write failure" in journal.error
+    assert "payload cleanup failed" in journal.error
+    persisted = load_json_model(journal_path, TransactionJournal)
+    assert persisted.error == journal.error

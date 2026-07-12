@@ -256,6 +256,10 @@ def test_revision_session_web_api_returns_structured_selection(tmp_path: Path) -
     session = payload["data"]["revision_session"]  # type: ignore[index]
     assert session["phase"] == "awaiting_patch"
     assert session["selection"]["start_block"] == 2
+    assert payload["data"]["next_allowed_commands"] == [  # type: ignore[index]
+        "revision.run",
+        "revision.cancel",
+    ]
 
 
 def _accepted_workspace(tmp_path: Path, *, chapters: str) -> Path:

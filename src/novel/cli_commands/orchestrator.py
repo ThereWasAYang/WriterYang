@@ -17,6 +17,18 @@ from pydantic import ValidationError
 
 def _cmd_ask(args: argparse.Namespace) -> int:
     root = Path(args.path).expanduser().resolve()
+    if args.confirm and args.request is not None:
+        return _failure(
+            args,
+            "--confirm 只执行指定 workflow run 已落盘的 proposal，不接受 request；请移除 request 参数。",
+            error_type="invalid_arguments",
+        )
+    if not args.confirm and args.request is None:
+        return _failure(
+            args,
+            "未使用 --confirm 时必须提供 request。",
+            error_type="invalid_arguments",
+        )
     try:
         if args.confirm:
             proposal, prior_run = load_ask_command_proposal(root, args.confirm)

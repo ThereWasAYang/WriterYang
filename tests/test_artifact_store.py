@@ -4,8 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from novel.core.artifact_store import ArtifactStore, ArtifactStoreError, freshness_errors, resolve_project_path
+from novel.core.artifact_store import (
+    ArtifactStore,
+    ArtifactStoreError,
+    AuditCandidateMismatchError,
+    freshness_errors,
+    require_audit_matches_candidate,
+    resolve_project_path,
+)
 from novel.core.contracts import ArtifactKind, ChapterLifecycle, TaskId
+from novel.core.io import atomic_write_model_json
+from novel.core.schemas import AuditReport
 from novel.core.timeutil import utc_now
 
 
@@ -76,3 +85,26 @@ def test_freshness_errors_reports_modified_active_candidate(tmp_path: Path) -> N
 
     assert len(errors) == 1
     assert "stale artifact" in errors[0]
+
+
+def test_audit_binding_can_validate_frozen_candidate_without_rereading_working_file(
+    tmp_path: Path,
+) -> None:
+    chapter_dir = tmp_path / "memory" / "chapters" / "001"
+    atomic_write_model_json(
+        chapter_dir / "audit.json",
+        AuditReport(
+            chapter_number=1,
+            audited_file="polished.md",
+            audited_sha256="a" * 64,
+            overall_status="passed",
+            summary="审核通过。",
+            issues=[],
+            created_at=utc_now(),
+        ),
+    )
+
+    require_audit_matches_candidate(tmp_path, 1, "a" * 64)
+
+    with pytest.raises(AuditCandidateMismatchError, match="start a revision"):
+        require_audit_matches_candidate(tmp_path, 1, "b" * 64)

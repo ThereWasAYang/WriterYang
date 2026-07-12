@@ -101,7 +101,6 @@ def test_ask_confirm_executes_same_proposed_command_with_one_budget(tmp_path: Pa
     code, payload = _run_json_cli(
         [
             "ask",
-            "写第1章",
             "--path",
             str(root),
             "--provider",

@@ -70,7 +70,7 @@ def test_configure_default_provider_writes_env_and_yaml_without_secret(
     assert "thinking" not in captured["payload"]  # type: ignore[operator]
 
 
-def test_configure_default_provider_drops_legacy_inherited_profile_patch(tmp_path: Path) -> None:
+def test_configure_default_provider_preserves_explicit_inherited_profile_patch(tmp_path: Path) -> None:
     root = tmp_path / "novel"
     init_workspace(InitOptions(title="测试小说", root=root))
     agents_path = root / "config" / "agents.yaml"
@@ -100,14 +100,24 @@ def test_configure_default_provider_drops_legacy_inherited_profile_patch(tmp_pat
     )
 
     saved = load_yaml(agents_path)
-    assert saved["profiles"]["scribe"] == {"inherit_default": True}  # type: ignore[index]
-    assert saved["profiles"]["architect"] == {"inherit_default": True}  # type: ignore[index]
+    assert saved["profiles"]["scribe"] == {  # type: ignore[index]
+        "inherit_default": True,
+        "max_tokens": 24000,
+        "max_context_tokens": 128000,
+        "timeout_seconds": 180.0,
+    }
+    assert saved["profiles"]["architect"] == {  # type: ignore[index]
+        "inherit_default": True,
+        "max_tokens": 8192,
+        "max_context_tokens": 128000,
+        "timeout_seconds": 120.0,
+    }
     writer = resolve_agent_config(agents_path, "writer")
     audit = resolve_agent_config(agents_path, "audit")
-    assert writer.max_tokens == 3333
-    assert writer.max_context_tokens == 4444
-    assert audit.max_tokens == 3333
-    assert audit.max_context_tokens == 4444
+    assert writer.max_tokens == 24000
+    assert writer.max_context_tokens == 128000
+    assert audit.max_tokens == 8192
+    assert audit.max_context_tokens == 128000
 
 
 def test_project_env_is_used_by_provider_creation(tmp_path: Path, monkeypatch) -> None:

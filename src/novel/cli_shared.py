@@ -11,7 +11,12 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import cast
 
-from novel.core.agent_defaults import PROFILE_NAMES
+from novel.core.agent_defaults import (
+    DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
+    DEFAULT_AGENT_MAX_TOKENS,
+    DEFAULT_AGENT_TIMEOUT_SECONDS,
+    PROFILE_NAMES,
+)
 from novel.core.audit_localization import localize_audit_issue_for_author
 from novel.core.env import load_project_env
 from novel.core.management import load_management_events
@@ -21,9 +26,6 @@ from novel.core.provider_config import ProviderOverrides, describe_agent_provide
 from novel.core.security import redact_secret_text, scan_security
 from novel.core.setup_guide import (
     SetupGuideError,
-    configure_default_provider,
-    configure_embedding_provider,
-    configure_web_port,
     find_available_port,
     is_port_available,
 )
@@ -35,8 +37,14 @@ from novel.core.schemas import (
     VectorContextMode,
 )
 from novel.core.validation import validate_project
-from novel.core.command_bus import command_result_payload, dispatch_command, new_command_envelope
-from novel.core.contracts import PublicCommand, Surface
+from novel.core.command_bus import DomainError, command_result_payload, dispatch_command, new_command_envelope
+from novel.core.contracts import (
+    DefaultProviderSetupCommand,
+    EmbeddingProviderSetupCommand,
+    ProjectWebPortSetupCommand,
+    PublicCommand,
+    Surface,
+)
 
 ERROR_CODES = {
     "audit_error": "Audit generation or validation failed.",
@@ -397,19 +405,23 @@ def _run_init_setup_guide(root: Path) -> tuple[list[str], bool, int]:
             if not model:
                 print("模型名必填；没有模型名无法进行连通性测试。")
         try:
-            result = configure_default_provider(
+            result = _dispatch_setup_command(
                 root,
-                base_url=base_url,
-                api_key=api_key,
-                model=model,
-                provider="openai_compatible",
-                ping=True,
+                DefaultProviderSetupCommand(
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    max_context_tokens=DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
+                    max_tokens=DEFAULT_AGENT_MAX_TOKENS,
+                    timeout_seconds=DEFAULT_AGENT_TIMEOUT_SECONDS,
+                    max_retries=1,
+                ),
             )
         except SetupGuideError as exc:
             raise SetupGuideError(
                 f"默认 API 配置未保存，连通性测试失败：{exc}"
             ) from exc
-        output_lines.append(f"默认 API 连通性测试通过：{result.provider} / {result.model}")
+        output_lines.append(f"默认 API 连通性测试通过：{result.get('provider')} / {result.get('model')}")
         output_lines.append(
             "这组 API 配置已作为所有 profile 的默认配置；"
             "后续可编辑 config/agents.yaml 为 profile 覆盖模型能力参数，或为少数 task 覆盖思考模式、温度等业务参数。"
@@ -428,19 +440,18 @@ def _run_init_setup_guide(root: Path) -> tuple[list[str], bool, int]:
         if not embedding_api_key:
             raise SetupGuideError("embedding API Key must not be empty")
         try:
-            embedding_result = configure_embedding_provider(
+            embedding_result = _dispatch_setup_command(
                 root,
-                base_url=embedding_base_url,
-                api_key=embedding_api_key,
-                model=embedding_model,
-                provider="openai_compatible",
-                provider_name="configured",
-                ping=True,
+                EmbeddingProviderSetupCommand(
+                    base_url=embedding_base_url,
+                    api_key=embedding_api_key,
+                    model=embedding_model,
+                ),
             )
         except SetupGuideError as exc:
             raise SetupGuideError(f"Embedding 配置未保存，连通性测试失败：{exc}") from exc
         output_lines.append(
-            f"Embedding 连通性测试通过：{embedding_result.provider} / {embedding_result.model}"
+            f"Embedding 连通性测试通过：{embedding_result.get('provider')} / {embedding_result.get('model')}"
         )
     else:
         output_lines.append("已跳过 embedding API 配置；关键词/FTS 检索仍可用。")
@@ -457,10 +468,24 @@ def _run_init_setup_guide(root: Path) -> tuple[list[str], bool, int]:
             replacement = find_available_port(requested_port + 1 if requested_port < 65535 else 8765)
             print(f"端口 {requested_port} 已被占用，将改用 {replacement}。")
             requested_port = replacement
-        port_result = configure_web_port(root, requested_port=requested_port)
-        output_lines.append(f"CLI Web UI 默认端口已写入 project.yaml：{port_result.selected_port}")
+        port_result = _dispatch_setup_command(
+            root,
+            ProjectWebPortSetupCommand(requested_port=requested_port),
+        )
+        selected_port_value = port_result.get("selected_port")
+        if not isinstance(selected_port_value, int):
+            raise SetupGuideError("project web port command returned an invalid selected_port")
+        selected_port = selected_port_value
+        output_lines.append(f"CLI Web UI 默认端口已写入 project.yaml：{selected_port}")
         open_web = _prompt_yes_no("是否现在打开 Web UI？", default=True)
-        return output_lines, open_web, port_result.selected_port
+        return output_lines, open_web, selected_port
+
+
+def _dispatch_setup_command(root: Path, command: PublicCommand) -> dict[str, object]:
+    try:
+        return _dispatch_cli_command(argparse.Namespace(), root, command)
+    except DomainError as exc:
+        raise SetupGuideError(exc.message) from exc
 
 def _prompt_text(label: str, default: str) -> str:
     suffix = f" [{default}]" if default else ""

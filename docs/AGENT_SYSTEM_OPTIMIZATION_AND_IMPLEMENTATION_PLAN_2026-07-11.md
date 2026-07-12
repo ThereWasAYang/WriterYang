@@ -4,10 +4,9 @@
 >
 > 依据：`docs/AGENT_SYSTEM_DESIGN_REVIEW_2026-07-11.md`
 >
-> 文档性质：目标架构、破坏性重构策略、编码任务、测试矩阵与验收标准。
-> 本文只制定计划，不实施任何业务代码或配置修改。
+> 文档性质：目标架构、破坏性重构策略、编码任务、测试矩阵、验收标准与实施审计记录。
 
-> 实施进度（2026-07-11）：阶段 1–9 已全部落地。系统已具备 Strict Contracts、schema v3、Task/Prompt Registry、Artifact Store/freshness、Creation projection、transaction acceptance、Production/Preview 分离、独立 Segment Revision、Typed Command Bus、proposal-first Ask、Workflow Budget/Runtime、Context Authority、RevealAuthorization、Prompt/Audit Policy、统一 run/node/decision trace、metadata-first Model I/O、process identity + heartbeat lock 和 strict core mypy gate。旧 migration、handoff graph、keyword-only 高风险分类、flat run、编号正文版本与端到端低层 generation pipeline 已删除；本文后续任务表保留为实现审计依据。
+> 实施进度（2026-07-12）：阶段 1–9 与最终完成性审计均已落地。系统已具备 Strict Contracts、schema v3、Task/Prompt Registry、Artifact Store/freshness、Creation projection、transaction acceptance、Production/Preview 分离、独立 Segment Revision、Typed Command Bus、proposal-first Ask、Workflow Budget/Runtime、Context Authority、RevealAuthorization、Prompt/Audit Policy、统一 run/node/decision trace、metadata-first Model I/O、process identity + heartbeat lock 和 strict core mypy gate。最终审计进一步把 Inspiration、Canon、Chapter Memory、Index、Style Guide、编辑器 candidate、Provider/Embedding 配置、项目/Web 启动端口和 `schema export` 等残余写入口收敛到 typed command；Web route 不再重复持有 Command Bus 的项目锁，adapter 也不再重新导出 mutation service。旧 migration、handoff graph、keyword-only 高风险分类、flat run、编号正文版本与端到端低层 generation pipeline 已删除；本文后续任务表保留为实现审计依据。
 
 ## 一、规划结论
 
@@ -1204,6 +1203,17 @@ Artifact Lineage + Task Registry
 13. 任一用户操作可以从 run trace 还原完整决策和 artifact 链。
 14. 所有 state transition、transaction failure 和关键跨入口行为都有测试。
 15. 离线测试、Web E2E、lint、strict core type check、build 和 secret scan 全部通过。
+
+### 19.1 最终实施审计（2026-07-12）
+
+- 上述 15 项完成定义均已形成代码约束、测试或发布门禁；不存在以历史兼容为理由保留的双轨实现。
+- `PublicCommand` 对所有公开 mutation 使用 discriminator 严格区分；每个 command type 在 `COMMAND_HANDLERS` 中恰有一个 handler。
+- CLI、Web 与 Ask 只构造 command 和格式化结果。项目写锁、确认门、runtime trace、预算和领域错误映射均由 Command Bus 统一管理。
+- Web 仅为 `project.init` 保留 route 外层锁，因为目标工作区尚不存在；其余 command-backed POST route 均把锁归属交给 Command Bus。`session.cancel` 由 Command Bus 标记为受限的 unlocked runtime write。
+- Setup command 的 `api_key` 字段禁止 repr；明文只允许写入项目 `.env`，不会进入 API 响应、YAML、run/node/decision trace 或 Model I/O。
+- 生产 CLI 不再公开 Plot、Writer、Polish、Audit、State Update 等低层命令；相关 handler 仅存在于测试 harness，用于直接验证内部 Task，不构成产品入口。
+- JSON Schema 由当前 strict model 重新导出；文档、CLI/Web contract 和测试矩阵已同步刷新。
+- 旧模板 Profile 默认值识别/剥离 helper 已删除；当前配置只按 schema v3 的 `inherit_default` 与显式 patch 语义解析。
 
 ## 二十、推荐的实际开工顺序
 

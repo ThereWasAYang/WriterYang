@@ -3,17 +3,12 @@ from __future__ import annotations
 from .deps import (
     Path,
     CanonAppliedProposalRecord,
-    CanonSuggestOptions,
-    apply_canon_proposal,
     load_canon_applied_proposals,
-    load_canon_provider,
-    suggest_canon,
-    InspirationOptions,
-    load_inspiration_provider,
-    run_inspiration_agent,
-    is_default_inspiration_placeholder,
 )
 from novel.core.contracts import (
+    CanonApplyCommand,
+    CanonSuggestCommand,
+    InspirationGenerateCommand,
     SettingChangeAnswerCommand,
     SettingChangeApplyCommand,
     SettingChangeSuggestCommand,
@@ -21,7 +16,6 @@ from novel.core.contracts import (
 
 from .common import (
     WebAPIError,
-    _safe_workspace_file,
     _require_workspace,
     _root_from_query,
     _root_from_body,
@@ -38,70 +32,48 @@ from .common import (
 
 from .inspection import _management_event_summary
 def _inspire(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
-    provider = load_inspiration_provider(root, str(data.get("provider") or "config"))
     source_text = _optional_string(data.get("text")) or _optional_string(data.get("instruction"))
     if not source_text:
         raise WebAPIError("invalid_request", "inspiration text must not be empty", status=400)
-    inspiration_path = root / "memory" / "inspiration.md"
-    overwrite = bool(data.get("force")) or is_default_inspiration_placeholder(inspiration_path)
-    result = run_inspiration_agent(
-        InspirationOptions(
-            root=root,
+    return _dispatch_web_command(
+        data,
+        InspirationGenerateCommand(
             source_text=source_text,
             source_type="web_text",
             write_json=bool(data.get("write_json")),
-            overwrite=overwrite,
+            overwrite=bool(data.get("force")),
+            allow_default_placeholder=True,
+            provider_name=_optional_string(data.get("provider")) or "config",
             use_search_context=bool(data.get("use_search_context")),
             use_vector_context=_vector_context_mode(data),
         ),
-        provider,
     )
-    return {
-        "markdown_path": str(result.markdown_path),
-        "json_path": str(result.json_path) if result.json_path else None,
-    }
 
 
 def _canon_suggest(data: dict[str, object]) -> dict[str, object]:
     root = _root_from_body(data)
-    provider = load_canon_provider(root, str(data.get("provider") or "config"))
     output = _optional_string(data.get("output"))
-    output_path = _safe_workspace_file(root, output) if output else _default_canon_proposal_path(root)
-    result = suggest_canon(
-        CanonSuggestOptions(
-            root=root,
+    output_path = output or _relative(root, _default_canon_proposal_path(root))
+    return _dispatch_web_command(
+        data,
+        CanonSuggestCommand(
             output_path=output_path,
+            provider_name=_optional_string(data.get("provider")) or "config",
             use_search_context=bool(data.get("use_search_context")),
             use_vector_context=_vector_context_mode(data),
         ),
-        provider,
     )
-    return {
-        "output_path": str(result.output_path) if result.output_path else None,
-        "relative_path": _relative(root, result.output_path) if result.output_path else None,
-        "proposal": result.proposal.model_dump(mode="json"),
-    }
 
 
 def _canon_apply(data: dict[str, object]) -> dict[str, object]:
-    root = _root_from_body(data)
     proposal_file = _optional_string(data.get("proposal_file")) or _optional_string(data.get("proposal_path"))
     if not proposal_file:
         raise WebAPIError("invalid_request", "proposal_file is required", status=400)
-    proposal_path = _safe_workspace_file(root, proposal_file)
-    result = apply_canon_proposal(root, proposal_path)
-    return {
-        "proposal_path": str(proposal_path),
-        "apply_log": result.apply_log.model_dump(mode="json"),
-        "apply_log_path": str(result.apply_log_path),
-        "apply_log_relative_path": _relative(root, result.apply_log_path),
-        "proposal_snapshot_path": str(result.proposal_snapshot_path),
-        "proposal_snapshot_relative_path": _relative(root, result.proposal_snapshot_path),
-        "validation_ok": result.validation_report.ok,
-        "errors": [message.message for message in result.validation_report.errors],
-        "warnings": [message.message for message in result.validation_report.warnings],
-    }
+    return _dispatch_web_command(
+        data,
+        CanonApplyCommand(proposal_path=proposal_file),
+        confirmed=True,
+    )
 
 
 def _canon_applied_proposals(query: dict[str, str]) -> dict[str, object]:

@@ -189,11 +189,11 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 本地 JSON API 包，保留 `from novel.web_api import handle_api_request` 入口。核心模块：
 
-- `__init__.py`：导出 `handle_api_request()`、`_locked_write()`、`web_launcher` 和 `WebAPIError`，兼容仍在测试中使用的 monkeypatch 路径。
-- `router.py`：统一 API 入口、GET/POST 路由表、项目锁和失败日志。
+- `__init__.py`：导出 `handle_api_request()`、`_locked_write()`、`web_launcher` 和 `WebAPIError`；`_locked_write()` 仅保留给初始化特殊路径和测试故障注入。
+- `router.py`：统一 API 入口、GET/POST 路由表、HTTP/domain error 映射和失败日志；除尚未创建工作区的 `project.init` 外，mutation route 不在 adapter 重复加锁。
 - `envelope.py`：统一响应模型和 `_success()` / `_failure()` 导出。
 - `common.py`：响应 envelope、路径白名单、请求解析、provider usage 注入和共享 helper。
-- `generation.py`：章节计划、写作、润色、审核、导出、章节记忆和章节文件保存。
+- `generation.py`：构造 Production Export 与 Chapter Memory typed command；Plot/Writer/Polish/Audit 等低层 Task 不提供公开 Web route。
 - `config.py`：文风、provider/embedding 配置、项目初始化和 Web 初始引导。
 - `memory.py`：inspiration、canon、设定变更和项目管家 Web API。
 - `session.py`：Session start/revise/approve/run/cancel/accept/archive、进度和 rewrite event API。
@@ -202,7 +202,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 主要行为：
 
 - `handle_api_request()`：统一 API 入口；先解析 method/path/body，再通过 `_get_routes()` / `_post_routes()` 路由表分发到 handler。
-- `_locked_write()`：Web 写操作项目锁；锁、usage marker 和失败日志必须使用同一个 route root resolver。
+- `_locked_write()`：只用于 `project.init` 这类 Command Bus 无法对尚不存在工作区加锁的特殊入口；其他 mutation 的锁由 Command Bus 持有。
 - `_success()` / `_failure()`：统一 `{ok,data,error}` 响应结构。
 - `WebAPIError`：带稳定 code、HTTP status、details 的 API 异常。
 - `_runtime_summary()`：返回 Web server 当前 Python 路径、环境名和包版本，帮助确认 Web UI 是否运行在安装器创建的新环境。
@@ -210,19 +210,18 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 - `_list_projects()`：列出给定根目录下可打开的小说项目，不读取 `.env*`。
 - `get_project_status()` / `format_canon()` / `_list_chapters()`：分别支持项目状态、canon 摘要和章节列表 API。
 - `summarize_provider_usage()`：为 Web usage 面板返回 provider 调用和 token 统计。
-- `_init_project()`：Web 端初始化小说项目，调用 `init_workspace()`，不复制 workspace 创建逻辑。
-- `_inspire()`：Web 端生成 inspiration，调用 Inspiration service。
-- `_canon_suggest()` / `_canon_apply()`：Web 端 canon proposal 和 apply，调用 Canon service 并保持 proposal/apply 分离。
+- `_init_project()`：构造 `ProjectInitCommand`。
+- `_inspire()`：构造 `InspirationGenerateCommand`。
+- `_canon_suggest()` / `_canon_apply()`：构造 Canon typed command，并保持 proposal/apply 分离。
 - `_validate_project()` / `_validation_message_payload()`：只读项目检查 API，复用 `validate_project()`，返回 errors/warnings 摘要供 Web UI 显示。
 - `_search_api()`：Web 项目搜索入口，复用 `search_project()`；默认 FTS，只有 `use_vector=1` 才会触发真实 embedding 检索和必要的向量刷新。
-- `_plan_chapter()`、`_write_chapter()`、`_polish_chapter()`、`_audit_chapter()`、`_generate_chapter()`：调用对应 core service。
-- `_export_markdown()` / `_export_docx()`：调用 Markdown / DOCX export。
-- `_save_chapter_file()`：Web 编辑器保存章节版本，追加 revision log。
-- `_style_guide()` / `_save_style_guide()` / `_generate_style_guide()`：读取、保存和生成 `memory/style_guide.md` 草稿；生成接口调用 `core/style_guide.py`，只返回 Markdown 草稿，不直接写正式文件。
-- `_save_provider_config()`：保存非密钥 provider 配置，写前校验和备份。
-- `_setup_default_provider()` / `_setup_embedding()` / `_setup_web_port()`：Web 初始引导 API；默认 API 和 embedding 调用 `core/setup_guide.py`，启动器端口调用 `core/web_launcher.py`；真实 key 写项目 `.env`，响应只返回 env 名和测试结果。
+- `_export_markdown()` / `_export_docx()`：构造 Production Export typed command。
+- `_save_chapter_file()`：构造 `ChapterCandidateSaveCommand`；immutable candidate 与 revision log 由 core mutation service 写入。
+- `_style_guide()` / `_save_style_guide()` / `_generate_style_guide()`：读取文风，或构造 Style Guide typed command。
+- `_save_provider_config()`：构造 `AgentConfigUpdateCommand`；校验、继承解析、备份和原子写入位于 core。
+- `_setup_default_provider()` / `_setup_embedding()` / `_setup_web_port()`：构造 Setup typed command；真实 key 只写项目 `.env`，响应和 trace 不含明文；启动器配置/命令路径只由 core 从受控环境解析，不接受请求体绝对路径。
 - `_setup_recommend_port()` / `_setup_open_web()`：推荐可用端口并返回 Web UI URL；Web 场景不另起服务端。
-- `_index_refresh()`：调用 `refresh_search_index()`，刷新关键词索引或显式刷新真实 embedding 向量，并返回最新 search status。
+- `_index_refresh()`：构造 `IndexUpdateCommand`，刷新关键词索引或显式刷新真实 embedding 向量。
 - `_chapter_memory_generate()` / `_chapter_memory_rebuild()`：Web 端生成单章或批量补全 stale/missing ChapterMemory。
 - `_session_*()`：session start/revise/approve/run/accept/archive API。
 - `_revision_*()`：accepted 章节 block 列表、Revision Session start/show/run/accept API；业务逻辑全部复用 `core/revision_workflow.py`。
@@ -476,7 +475,6 @@ Embedding provider：
 - `DEFAULT_AGENT_CONFIG`：顶层 `default` API 推荐默认值，只包含 provider/model/env 和容量类字段。
 - `PROFILE_NAMES`：允许配置的 4 个能力 profile。
 - `TASK_TO_PROFILE`：task 到 profile 的固定映射。
-- `PROFILE_CONFIG_DEFAULTS`：旧模板曾注入的 profile 容量默认值，仅用于迁移时识别并剥离 legacy patch，不再作为现行默认来源。
 - `TASK_BUSINESS_DEFAULTS`：各 task 的 `temperature`、`thinking`、`reasoning` 业务默认值。
 - `inherited_profile_config_patch()`：生成 `inherit_default: true` 的 profile patch，用于 workspace 初始化、setup guide 和 Web API 保存；不写字段时完整跟随 `default`。
 
@@ -1038,7 +1036,11 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 
 ### `src/novel/core/command_bus.py`
 
-注册公开 typed command handler，统一 confirmation gate、项目锁、CLI/Web 结果结构与 `DomainError`。Session、Revision、Memory/Setting Change、Preview 和 Production Export 的 adapter 不再自行调用领域 mutation service。
+注册所有公开 typed command handler，统一 confirmation gate、项目锁、CLI/Web/Ask 结果结构、workflow runtime 与 `DomainError`。覆盖 Session、Revision、Memory/Setting Change、Preview、Production Export、Inspiration、Canon、Chapter Memory、Index、Style Guide、编辑器 candidate、Agent/Embedding 配置、端口和 schema export；adapter 不自行调用 mutation service。
+
+### `src/novel/core/workspace_mutations.py` 与 `src/novel/core/config_mutations.py`
+
+`workspace_mutations.py` 集中处理 Style Guide 保存和 Web 编辑器 immutable chapter candidate/revision log。`config_mutations.py` 集中处理 Agent 配置 patch 清洗、继承解析、Provider 参数校验、备份、原子写入和 secret config 校验。两者只由 Command Bus handler 调用。
 
 ### `src/novel/core/budget.py`
 

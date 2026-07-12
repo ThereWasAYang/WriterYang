@@ -390,9 +390,6 @@
           port: Number($("setupWebPort").value || "8765"),
           ...currentWebEndpointPayload(),
         };
-        if (runtimeSummary.launcher_config_path) {
-          payload.launcher_config_path = runtimeSummary.launcher_config_path;
-        }
         const data = await apiPost("/api/setup/web-port", payload);
         $("setupWebPort").value = data.selected_port;
         setSetupStatus(data.message || `Web UI 启动器端口已保存：${data.url}`);

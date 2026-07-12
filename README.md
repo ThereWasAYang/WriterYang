@@ -103,6 +103,8 @@ Web UI 使用同一套 core logic，不会把真实 API Key 返回到前端。�
 
 Web API 默认限制 POST 请求体为 32MB，可用 `WRITERYANG_WEB_MAX_BODY_BYTES` 调整。Web server 还会校验 `/api/*` 请求的本机 Host / Origin，避免非本机页面读取或写入本地项目内容。
 
+CLI、Web 和自然语言 `ask` 共用 strict typed command 与同一 Command Bus。Adapter 只解析输入和格式化响应；确认门、项目锁、预算、trace、领域错误和 mutation service 调用都在 core 层完成。Inspiration、Canon、Chapter Memory、索引、文风、章节候选稿、Provider/Embedding 配置及端口配置也遵循这一规则，不存在 Web/CLI 私有写入旁路。
+
 ## 模型配置
 
 真实创作建议在 `config/agents.yaml` 配置顶层 `default`，让各 profile 通过 `inherit_default: true` 继承。离线测试使用命令行 `--provider mock` 覆盖。

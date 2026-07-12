@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal, Union
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from novel.core.contracts.artifacts import ArtifactRef
 from novel.core.contracts.common import SchemaV3Model, Surface
@@ -175,6 +175,145 @@ class SearchCommand(SchemaV3Model):
     embedding_config_path: str | None = None
 
 
+class InspirationGenerateCommand(SchemaV3Model):
+    type: Literal["inspiration.generate"] = "inspiration.generate"
+    source_text: str = Field(min_length=1)
+    source_type: str = Field(default="user_text", min_length=1)
+    write_json: bool = False
+    overwrite: bool = False
+    allow_default_placeholder: bool = False
+    provider_name: str = "config"
+    agent_config_path: str | None = None
+    model_name: str | None = None
+    use_search_context: bool = False
+    use_vector_context: VectorContextMode = "auto"
+
+
+class CanonSuggestCommand(SchemaV3Model):
+    type: Literal["canon.suggest"] = "canon.suggest"
+    output_path: str | None = None
+    provider_name: str = "config"
+    agent_config_path: str | None = None
+    model_name: str | None = None
+    use_search_context: bool = False
+    use_vector_context: VectorContextMode = "auto"
+
+
+class CanonApplyCommand(SchemaV3Model):
+    type: Literal["canon.apply"] = "canon.apply"
+    proposal_path: str = Field(min_length=1)
+
+
+class ChapterMemoryGenerateCommand(SchemaV3Model):
+    type: Literal["chapter_memory.generate"] = "chapter_memory.generate"
+    chapter_number: int = Field(ge=1)
+    force: bool = False
+    provider_name: str = "config"
+    agent_config_path: str | None = None
+    model_name: str | None = None
+
+
+class ChapterMemoryRebuildCommand(SchemaV3Model):
+    type: Literal["chapter_memory.rebuild"] = "chapter_memory.rebuild"
+    mode: Literal["missing", "missing_or_stale", "all"] = "missing_or_stale"
+    provider_name: str = "config"
+    agent_config_path: str | None = None
+    model_name: str | None = None
+
+
+class IndexUpdateCommand(SchemaV3Model):
+    type: Literal["index.rebuild", "index.refresh"]
+    embedding_provider_name: str = "config"
+    embedding_config_path: str | None = None
+    with_embeddings: bool = False
+
+
+class StyleGuideSaveCommand(SchemaV3Model):
+    type: Literal["style_guide.save"] = "style_guide.save"
+    content: str = Field(min_length=1)
+
+
+class StyleGuideGenerateCommand(SchemaV3Model):
+    type: Literal["style_guide.generate"] = "style_guide.generate"
+    instruction: str = Field(min_length=1)
+    provider_name: str = "config"
+    agent_config_path: str | None = None
+    model_name: str | None = None
+    include_project_context: bool = True
+    include_existing_style: bool = True
+
+
+class ChapterCandidateSaveCommand(SchemaV3Model):
+    type: Literal["chapter_candidate.save"] = "chapter_candidate.save"
+    chapter_number: int = Field(ge=1)
+    target: Literal["draft", "polished"]
+    source_file: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+    instruction: str | None = None
+
+
+class AgentConfigUpdateCommand(SchemaV3Model):
+    type: Literal["agent_config.update"] = "agent_config.update"
+    default: dict[str, object] | None = None
+    profiles: dict[str, dict[str, object]] = Field(default_factory=dict)
+    tasks: dict[str, dict[str, object]] = Field(default_factory=dict)
+    clear_profiles: list[str] = Field(default_factory=list)
+    clear_tasks: list[str] = Field(default_factory=list)
+
+
+class DefaultProviderSetupCommand(SchemaV3Model):
+    type: Literal["setup.default_provider"] = "setup.default_provider"
+    provider: str = "openai_compatible"
+    base_url: str = Field(min_length=1)
+    api_key: str = Field(min_length=1, repr=False)
+    model: str = Field(min_length=1)
+    max_context_tokens: int = Field(ge=1)
+    max_tokens: int = Field(ge=1)
+    timeout_seconds: float = Field(gt=0)
+    max_retries: int = Field(ge=0)
+    ping: bool = True
+
+
+class EmbeddingProviderSetupCommand(SchemaV3Model):
+    type: Literal["setup.embedding_provider"] = "setup.embedding_provider"
+    skip: bool = False
+    provider: str = "openai_compatible"
+    provider_name: str = "configured"
+    base_url: str = ""
+    api_key: str = Field(default="", repr=False)
+    model: str = ""
+    dimensions: int | None = Field(default=None, ge=1)
+    batch_size: int | None = Field(default=None, ge=1)
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    max_retries: int = Field(default=1, ge=0)
+    ping: bool = True
+
+    @model_validator(mode="after")
+    def require_connection_fields_unless_skipped(self) -> EmbeddingProviderSetupCommand:
+        if not self.skip and not all((self.base_url.strip(), self.api_key.strip(), self.model.strip())):
+            raise ValueError("base_url, api_key, and model are required unless skip is true")
+        return self
+
+
+class ProjectWebPortSetupCommand(SchemaV3Model):
+    type: Literal["setup.project_web_port"] = "setup.project_web_port"
+    requested_port: int = Field(ge=1, le=65535)
+    host: str = Field(default="127.0.0.1", min_length=1)
+
+
+class WebLauncherConfigCommand(SchemaV3Model):
+    type: Literal["setup.web_launcher"] = "setup.web_launcher"
+    host: str = Field(default="127.0.0.1", min_length=1)
+    requested_port: int = Field(ge=1, le=65535)
+    current_host: str | None = None
+    current_port: int | None = Field(default=None, ge=1, le=65535)
+
+
+class SchemaExportCommand(SchemaV3Model):
+    type: Literal["schema.export"] = "schema.export"
+    output_path: str = Field(min_length=1)
+
+
 PublicCommand = Annotated[
     Union[
         SessionStartCommand,
@@ -194,6 +333,21 @@ PublicCommand = Annotated[
         ProjectValidateCommand,
         ProjectShowCommand,
         SearchCommand,
+        InspirationGenerateCommand,
+        CanonSuggestCommand,
+        CanonApplyCommand,
+        ChapterMemoryGenerateCommand,
+        ChapterMemoryRebuildCommand,
+        IndexUpdateCommand,
+        StyleGuideSaveCommand,
+        StyleGuideGenerateCommand,
+        ChapterCandidateSaveCommand,
+        AgentConfigUpdateCommand,
+        DefaultProviderSetupCommand,
+        EmbeddingProviderSetupCommand,
+        ProjectWebPortSetupCommand,
+        WebLauncherConfigCommand,
+        SchemaExportCommand,
     ],
     Field(discriminator="type"),
 ]

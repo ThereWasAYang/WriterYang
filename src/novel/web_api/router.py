@@ -115,7 +115,18 @@ def handle_api_request(
         log_failure(exc.status, exc.code, exc)
         return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
     except DomainError as exc:
-        status = 409 if exc.code in {"project_locked", "confirmation_required", "workspace_exists"} else 400
+        if exc.code in {
+            "archived_content_read_only",
+            "confirmation_required",
+            "port_unavailable",
+            "project_locked",
+            "workspace_exists",
+        }:
+            status = 409
+        elif exc.code == "forbidden_file":
+            status = 403
+        else:
+            status = 400
         log_failure(status, exc.code, exc)
         return _failure(status, exc.code, exc.message, request_id=request_id, details=exc.details)
     except ProjectLockError as exc:
@@ -251,24 +262,24 @@ def _post_routes() -> dict[str, PostRoute]:
         "/api/export/markdown": ("web export markdown", _export_markdown, False),
         "/api/export/docx": ("web export docx", _export_docx, False),
         "/api/preview/package": ("web preview package", _preview_package, False),
-        "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, True),
-        "/api/style-guide": ("web style guide save", _save_style_guide, True),
-        "/api/style-guide/generate": ("web style guide generate", _generate_style_guide, True),
-        "/api/provider-config": ("web provider config", _save_provider_config, True),
-        "/api/index/refresh": ("web index refresh", _index_refresh, True),
+        "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, False),
+        "/api/style-guide": ("web style guide save", _save_style_guide, False),
+        "/api/style-guide/generate": ("web style guide generate", _generate_style_guide, False),
+        "/api/provider-config": ("web provider config", _save_provider_config, False),
+        "/api/index/refresh": ("web index refresh", _index_refresh, False),
         "/api/init-project": ("web init project", _init_project, True, _init_project_root_from_body),
-        "/api/setup/default-provider": ("web setup default provider", _setup_default_provider, True),
-        "/api/setup/embedding": ("web setup embedding", _setup_embedding, True),
-        "/api/setup/web-port": ("web setup web port", _setup_web_port, True),
+        "/api/setup/default-provider": ("web setup default provider", _setup_default_provider, False),
+        "/api/setup/embedding": ("web setup embedding", _setup_embedding, False),
+        "/api/setup/web-port": ("web setup web port", _setup_web_port, False),
         "/api/setup/open-web": ("web setup open web", _setup_open_web, False),
-        "/api/inspire": ("web inspire", _inspire, True),
-        "/api/canon/suggest": ("web canon suggest", _canon_suggest, True),
-        "/api/canon/apply": ("web canon apply", _canon_apply, True),
+        "/api/inspire": ("web inspire", _inspire, False),
+        "/api/canon/suggest": ("web canon suggest", _canon_suggest, False),
+        "/api/canon/apply": ("web canon apply", _canon_apply, False),
         "/api/settings/change/suggest": ("web setting change suggest", _settings_change_suggest, False),
         "/api/settings/change/answer": ("web setting change answer", _settings_change_answer, False),
         "/api/settings/change/apply": ("web setting change apply", _settings_change_apply, False),
-        "/api/chapter-memory/generate": ("web chapter memory generate", _chapter_memory_generate, True),
-        "/api/chapter-memory/rebuild": ("web chapter memory rebuild", _chapter_memory_rebuild, True),
+        "/api/chapter-memory/generate": ("web chapter memory generate", _chapter_memory_generate, False),
+        "/api/chapter-memory/rebuild": ("web chapter memory rebuild", _chapter_memory_rebuild, False),
         "/api/session/start": ("web session start", _session_start, False),
         "/api/session/revise-outline": ("web session revise-outline", _session_revise_outline, False),
         "/api/session/approve-outline": ("web session approve-outline", _session_approve_outline, False),

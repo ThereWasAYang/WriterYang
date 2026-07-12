@@ -1,5 +1,66 @@
 {
   "$defs": {
+    "AgentConfigUpdateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "agent_config.update",
+          "default": "agent_config.update",
+          "title": "Type",
+          "type": "string"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "profiles": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Profiles",
+          "type": "object"
+        },
+        "tasks": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Tasks",
+          "type": "object"
+        },
+        "clear_profiles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Clear Profiles",
+          "type": "array"
+        },
+        "clear_tasks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Clear Tasks",
+          "type": "array"
+        }
+      },
+      "title": "AgentConfigUpdateCommand",
+      "type": "object"
+    },
     "BudgetUsage": {
       "additionalProperties": false,
       "properties": {
@@ -46,6 +107,581 @@
         }
       },
       "title": "BudgetUsage",
+      "type": "object"
+    },
+    "CanonApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "canon.apply",
+          "default": "canon.apply",
+          "title": "Type",
+          "type": "string"
+        },
+        "proposal_path": {
+          "minLength": 1,
+          "title": "Proposal Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_path"
+      ],
+      "title": "CanonApplyCommand",
+      "type": "object"
+    },
+    "CanonSuggestCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "canon.suggest",
+          "default": "canon.suggest",
+          "title": "Type",
+          "type": "string"
+        },
+        "output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Path"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        },
+        "use_search_context": {
+          "default": false,
+          "title": "Use Search Context",
+          "type": "boolean"
+        },
+        "use_vector_context": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Use Vector Context",
+          "type": "string"
+        }
+      },
+      "title": "CanonSuggestCommand",
+      "type": "object"
+    },
+    "ChapterCandidateSaveCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "chapter_candidate.save",
+          "default": "chapter_candidate.save",
+          "title": "Type",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "target": {
+          "enum": [
+            "draft",
+            "polished"
+          ],
+          "title": "Target",
+          "type": "string"
+        },
+        "source_file": {
+          "minLength": 1,
+          "title": "Source File",
+          "type": "string"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction"
+        }
+      },
+      "required": [
+        "chapter_number",
+        "target",
+        "source_file",
+        "content"
+      ],
+      "title": "ChapterCandidateSaveCommand",
+      "type": "object"
+    },
+    "ChapterMemoryGenerateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "chapter_memory.generate",
+          "default": "chapter_memory.generate",
+          "title": "Type",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        }
+      },
+      "required": [
+        "chapter_number"
+      ],
+      "title": "ChapterMemoryGenerateCommand",
+      "type": "object"
+    },
+    "ChapterMemoryRebuildCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "chapter_memory.rebuild",
+          "default": "chapter_memory.rebuild",
+          "title": "Type",
+          "type": "string"
+        },
+        "mode": {
+          "default": "missing_or_stale",
+          "enum": [
+            "missing",
+            "missing_or_stale",
+            "all"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        }
+      },
+      "title": "ChapterMemoryRebuildCommand",
+      "type": "object"
+    },
+    "DefaultProviderSetupCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setup.default_provider",
+          "default": "setup.default_provider",
+          "title": "Type",
+          "type": "string"
+        },
+        "provider": {
+          "default": "openai_compatible",
+          "title": "Provider",
+          "type": "string"
+        },
+        "base_url": {
+          "minLength": 1,
+          "title": "Base Url",
+          "type": "string"
+        },
+        "api_key": {
+          "minLength": 1,
+          "title": "Api Key",
+          "type": "string"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "max_context_tokens": {
+          "minimum": 1,
+          "title": "Max Context Tokens",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "minimum": 1,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_retries": {
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "ping": {
+          "default": true,
+          "title": "Ping",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "base_url",
+        "api_key",
+        "model",
+        "max_context_tokens",
+        "max_tokens",
+        "timeout_seconds",
+        "max_retries"
+      ],
+      "title": "DefaultProviderSetupCommand",
+      "type": "object"
+    },
+    "EmbeddingProviderSetupCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setup.embedding_provider",
+          "default": "setup.embedding_provider",
+          "title": "Type",
+          "type": "string"
+        },
+        "skip": {
+          "default": false,
+          "title": "Skip",
+          "type": "boolean"
+        },
+        "provider": {
+          "default": "openai_compatible",
+          "title": "Provider",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "configured",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "base_url": {
+          "default": "",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "api_key": {
+          "default": "",
+          "title": "Api Key",
+          "type": "string"
+        },
+        "model": {
+          "default": "",
+          "title": "Model",
+          "type": "string"
+        },
+        "dimensions": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimensions"
+        },
+        "batch_size": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Size"
+        },
+        "timeout_seconds": {
+          "default": 30.0,
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_retries": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "ping": {
+          "default": true,
+          "title": "Ping",
+          "type": "boolean"
+        }
+      },
+      "title": "EmbeddingProviderSetupCommand",
+      "type": "object"
+    },
+    "IndexUpdateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "enum": [
+            "index.rebuild",
+            "index.refresh"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "embedding_provider_name": {
+          "default": "config",
+          "title": "Embedding Provider Name",
+          "type": "string"
+        },
+        "embedding_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Embedding Config Path"
+        },
+        "with_embeddings": {
+          "default": false,
+          "title": "With Embeddings",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "IndexUpdateCommand",
+      "type": "object"
+    },
+    "InspirationGenerateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "inspiration.generate",
+          "default": "inspiration.generate",
+          "title": "Type",
+          "type": "string"
+        },
+        "source_text": {
+          "minLength": 1,
+          "title": "Source Text",
+          "type": "string"
+        },
+        "source_type": {
+          "default": "user_text",
+          "minLength": 1,
+          "title": "Source Type",
+          "type": "string"
+        },
+        "write_json": {
+          "default": false,
+          "title": "Write Json",
+          "type": "boolean"
+        },
+        "overwrite": {
+          "default": false,
+          "title": "Overwrite",
+          "type": "boolean"
+        },
+        "allow_default_placeholder": {
+          "default": false,
+          "title": "Allow Default Placeholder",
+          "type": "boolean"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        },
+        "use_search_context": {
+          "default": false,
+          "title": "Use Search Context",
+          "type": "boolean"
+        },
+        "use_vector_context": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Use Vector Context",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_text"
+      ],
+      "title": "InspirationGenerateCommand",
       "type": "object"
     },
     "MemoryRepairApplyCommand": {
@@ -405,6 +1041,39 @@
       "title": "ProjectValidateCommand",
       "type": "object"
     },
+    "ProjectWebPortSetupCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setup.project_web_port",
+          "default": "setup.project_web_port",
+          "title": "Type",
+          "type": "string"
+        },
+        "requested_port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Requested Port",
+          "type": "integer"
+        },
+        "host": {
+          "default": "127.0.0.1",
+          "minLength": 1,
+          "title": "Host",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requested_port"
+      ],
+      "title": "ProjectWebPortSetupCommand",
+      "type": "object"
+    },
     "RevisionBlocksCommand": {
       "additionalProperties": false,
       "properties": {
@@ -523,6 +1192,32 @@
         "instruction"
       ],
       "title": "RevisionStartCommand",
+      "type": "object"
+    },
+    "SchemaExportCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "schema.export",
+          "default": "schema.export",
+          "title": "Type",
+          "type": "string"
+        },
+        "output_path": {
+          "minLength": 1,
+          "title": "Output Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output_path"
+      ],
+      "title": "SchemaExportCommand",
       "type": "object"
     },
     "SearchCommand": {
@@ -1003,6 +1698,97 @@
       "title": "SettingChangeSuggestCommand",
       "type": "object"
     },
+    "StyleGuideGenerateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "style_guide.generate",
+          "default": "style_guide.generate",
+          "title": "Type",
+          "type": "string"
+        },
+        "instruction": {
+          "minLength": 1,
+          "title": "Instruction",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        },
+        "include_project_context": {
+          "default": true,
+          "title": "Include Project Context",
+          "type": "boolean"
+        },
+        "include_existing_style": {
+          "default": true,
+          "title": "Include Existing Style",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "instruction"
+      ],
+      "title": "StyleGuideGenerateCommand",
+      "type": "object"
+    },
+    "StyleGuideSaveCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "style_guide.save",
+          "default": "style_guide.save",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "title": "StyleGuideSaveCommand",
+      "type": "object"
+    },
     "Surface": {
       "enum": [
         "cli",
@@ -1012,6 +1798,65 @@
       ],
       "title": "Surface",
       "type": "string"
+    },
+    "WebLauncherConfigCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setup.web_launcher",
+          "default": "setup.web_launcher",
+          "title": "Type",
+          "type": "string"
+        },
+        "host": {
+          "default": "127.0.0.1",
+          "minLength": 1,
+          "title": "Host",
+          "type": "string"
+        },
+        "requested_port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Requested Port",
+          "type": "integer"
+        },
+        "current_host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Host"
+        },
+        "current_port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Port"
+        }
+      },
+      "required": [
+        "requested_port"
+      ],
+      "title": "WebLauncherConfigCommand",
+      "type": "object"
     },
     "WorkflowBudget": {
       "additionalProperties": false,
@@ -1124,8 +1969,17 @@
     "command": {
       "discriminator": {
         "mapping": {
+          "agent_config.update": "#/$defs/AgentConfigUpdateCommand",
+          "canon.apply": "#/$defs/CanonApplyCommand",
+          "canon.suggest": "#/$defs/CanonSuggestCommand",
+          "chapter_candidate.save": "#/$defs/ChapterCandidateSaveCommand",
+          "chapter_memory.generate": "#/$defs/ChapterMemoryGenerateCommand",
+          "chapter_memory.rebuild": "#/$defs/ChapterMemoryRebuildCommand",
           "export.docx": "#/$defs/ProductionExportCommand",
           "export.markdown": "#/$defs/ProductionExportCommand",
+          "index.rebuild": "#/$defs/IndexUpdateCommand",
+          "index.refresh": "#/$defs/IndexUpdateCommand",
+          "inspiration.generate": "#/$defs/InspirationGenerateCommand",
           "memory_repair.apply": "#/$defs/MemoryRepairApplyCommand",
           "memory_repair.suggest": "#/$defs/MemoryRepairSuggestCommand",
           "preview.package": "#/$defs/PreviewPackageCommand",
@@ -1138,6 +1992,7 @@
           "revision.run": "#/$defs/RevisionCommand",
           "revision.show": "#/$defs/RevisionCommand",
           "revision.start": "#/$defs/RevisionStartCommand",
+          "schema.export": "#/$defs/SchemaExportCommand",
           "search": "#/$defs/SearchCommand",
           "session.accept": "#/$defs/SessionCommand",
           "session.approve_outline": "#/$defs/SessionCommand",
@@ -1153,7 +2008,13 @@
           "session.undo_rewrite": "#/$defs/SessionCommand",
           "setting_change.answer": "#/$defs/SettingChangeAnswerCommand",
           "setting_change.apply": "#/$defs/SettingChangeApplyCommand",
-          "setting_change.suggest": "#/$defs/SettingChangeSuggestCommand"
+          "setting_change.suggest": "#/$defs/SettingChangeSuggestCommand",
+          "setup.default_provider": "#/$defs/DefaultProviderSetupCommand",
+          "setup.embedding_provider": "#/$defs/EmbeddingProviderSetupCommand",
+          "setup.project_web_port": "#/$defs/ProjectWebPortSetupCommand",
+          "setup.web_launcher": "#/$defs/WebLauncherConfigCommand",
+          "style_guide.generate": "#/$defs/StyleGuideGenerateCommand",
+          "style_guide.save": "#/$defs/StyleGuideSaveCommand"
         },
         "propertyName": "type"
       },
@@ -1208,6 +2069,51 @@
         },
         {
           "$ref": "#/$defs/SearchCommand"
+        },
+        {
+          "$ref": "#/$defs/InspirationGenerateCommand"
+        },
+        {
+          "$ref": "#/$defs/CanonSuggestCommand"
+        },
+        {
+          "$ref": "#/$defs/CanonApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/ChapterMemoryGenerateCommand"
+        },
+        {
+          "$ref": "#/$defs/ChapterMemoryRebuildCommand"
+        },
+        {
+          "$ref": "#/$defs/IndexUpdateCommand"
+        },
+        {
+          "$ref": "#/$defs/StyleGuideSaveCommand"
+        },
+        {
+          "$ref": "#/$defs/StyleGuideGenerateCommand"
+        },
+        {
+          "$ref": "#/$defs/ChapterCandidateSaveCommand"
+        },
+        {
+          "$ref": "#/$defs/AgentConfigUpdateCommand"
+        },
+        {
+          "$ref": "#/$defs/DefaultProviderSetupCommand"
+        },
+        {
+          "$ref": "#/$defs/EmbeddingProviderSetupCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectWebPortSetupCommand"
+        },
+        {
+          "$ref": "#/$defs/WebLauncherConfigCommand"
+        },
+        {
+          "$ref": "#/$defs/SchemaExportCommand"
         }
       ],
       "title": "Command"

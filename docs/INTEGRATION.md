@@ -18,6 +18,7 @@ novel status --project ./rain-station --json --quiet
 - 不要抓取人类可读文本。
 - 不要把真实 API Key 作为 CLI 参数传入；请使用 `config/agents.yaml` 中声明的环境变量名。
 - 真实项目应配置 `config/agents.yaml` 顶层 `default` API，并默认传 `--provider config`；`--provider mock` 只用于外部工具的离线测试。
+- 所有公开写操作都通过同一 strict typed Command Bus；成功 JSON 会携带 `command_type`、`command_id`、`request_id`、`workflow_run_id`、`changed_paths` 和累计 `budget_usage`，外部 Agent 不应绕过 CLI/Web 直接调用 mutation service。
 
 ## 稳定命令
 

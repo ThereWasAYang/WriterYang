@@ -215,7 +215,7 @@ def test_api_style_guide_save_writes_fixed_file_and_backup(tmp_path: Path) -> No
     assert data["backup_path"]
     assert style_path.read_text(encoding="utf-8") == "新文风。\n"
     assert (root / str(data["backup_path"])).read_text(encoding="utf-8") == "旧文风。\n"
-    assert list((root / "memory").glob("style_guide.md.bak_*.web_style_guide"))
+    assert list((root / "memory").glob("style_guide.md.bak_*.style_guide"))
     assert (root / ".env").read_text(encoding="utf-8") == "SECRET=1\n"
 
 
@@ -335,6 +335,17 @@ def test_api_setup_default_provider_writes_env_and_does_not_leak_secret(tmp_path
     agents_yaml = (root / "config" / "agents.yaml").read_text(encoding="utf-8")
     assert "WRITERYANG_DEFAULT_API_KEY" in agents_yaml
     assert secret not in agents_yaml
+    leaked_paths: list[str] = []
+    for path in root.rglob("*"):
+        if not path.is_file() or path.name == ".env":
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if secret in content:
+            leaked_paths.append(path.relative_to(root).as_posix())
+    assert leaked_paths == []
     agents = load_yaml(root / "config" / "agents.yaml")
     assert "temperature" not in agents["default"]  # type: ignore[operator]
     assert "reasoning" not in agents["default"]  # type: ignore[operator]
@@ -461,7 +472,6 @@ def test_api_setup_recommend_and_save_port(tmp_path: Path, monkeypatch) -> None:
                 "port": selected,
                 "current_host": "127.0.0.1",
                 "current_port": 8765,
-                "launcher_config_path": str(config_path),
             }
         ),
     )
@@ -496,7 +506,6 @@ def test_api_setup_web_port_rejects_unavailable_port(tmp_path: Path, monkeypatch
                 "port": 9011,
                 "current_host": "127.0.0.1",
                 "current_port": 8765,
-                "launcher_config_path": str(config_path),
             }
         ),
     )
@@ -524,7 +533,6 @@ def test_api_setup_web_port_allows_current_server_port(tmp_path: Path, monkeypat
                 "port": 9012,
                 "current_host": "localhost",
                 "current_port": 9012,
-                "launcher_config_path": str(config_path),
             }
         ),
     )
@@ -949,7 +957,7 @@ def test_api_provider_config_default_capacity_updates_inherited_profiles(tmp_pat
     assert resolve_agent_config(config_path, "audit").max_context_tokens == 5678
 
 
-def test_api_provider_config_default_save_drops_legacy_profile_patch(tmp_path: Path) -> None:
+def test_api_provider_config_default_save_preserves_explicit_profile_patch(tmp_path: Path) -> None:
     root = _workspace_ready_for_generation(tmp_path)
     config_path = root / "config" / "agents.yaml"
     agents = load_yaml(config_path)
@@ -976,11 +984,24 @@ def test_api_provider_config_default_save_drops_legacy_profile_patch(tmp_path: P
 
     assert status == 200
     content = payload["data"]["config"]["content"]  # type: ignore[index]
-    for profile_name in ("scribe", "architect"):
-        assert content["profiles"][profile_name] == {"inherit_default": True}  # type: ignore[index]
-        effective = payload["data"]["effective_profiles"][profile_name]["config"]  # type: ignore[index]
-        assert effective["max_tokens"] == 4321
-        assert effective["max_context_tokens"] == 8765
+    assert content["profiles"]["scribe"] == {  # type: ignore[index]
+        "inherit_default": True,
+        "max_tokens": 24000,
+        "max_context_tokens": 128000,
+        "timeout_seconds": 180.0,
+    }
+    assert content["profiles"]["architect"] == {  # type: ignore[index]
+        "inherit_default": True,
+        "max_tokens": 8192,
+        "max_context_tokens": 128000,
+        "timeout_seconds": 120.0,
+    }
+    scribe = payload["data"]["effective_profiles"]["scribe"]["config"]  # type: ignore[index]
+    architect = payload["data"]["effective_profiles"]["architect"]["config"]  # type: ignore[index]
+    assert scribe["max_tokens"] == 24000
+    assert scribe["max_context_tokens"] == 128000
+    assert architect["max_tokens"] == 8192
+    assert architect["max_context_tokens"] == 128000
 
 
 def test_api_provider_config_default_capacity_keeps_explicit_inherited_patch(tmp_path: Path) -> None:
@@ -1778,15 +1799,18 @@ def test_api_inspire_and_canon_web_endpoints(tmp_path: Path) -> None:
 
     assert inspire_status == 200
     assert inspire_payload["ok"] is True
+    assert inspire_payload["data"]["command_type"] == "inspiration.generate"  # type: ignore[index]
     assert (root / "memory" / "inspiration.json").is_file()
     assert suggest_status == 200
     assert suggest_payload["ok"] is True
+    assert suggest_payload["data"]["command_type"] == "canon.suggest"  # type: ignore[index]
     assert str(proposal_path).startswith("runs/canon_proposal_")
     assert read_status == 200
     assert read_payload["data"]["path"] == proposal_path  # type: ignore[index]
     assert '"characters"' in read_payload["data"]["content"]  # type: ignore[index]
     assert "旧车站" in read_payload["data"]["content"]  # type: ignore[index]
     assert apply_status == 200
+    assert apply_payload["data"]["command_type"] == "canon.apply"  # type: ignore[index]
     assert apply_payload["data"]["validation_ok"] is True  # type: ignore[index]
     apply_data = apply_payload["data"]  # type: ignore[assignment]
     assert str(apply_data["apply_log_relative_path"]).startswith("memory/canon/applied_proposals/")
@@ -1872,14 +1896,14 @@ def test_api_inspire_refuses_to_overwrite_user_inspiration_without_force(tmp_pat
 
     assert status == 400
     assert payload["ok"] is False
-    assert payload["error"]["code"] == "operation_failed"  # type: ignore[index]
+    assert payload["error"]["code"] == "inspiration_error"  # type: ignore[index]
     assert "用户已经写好的灵感" in inspiration_path.read_text(encoding="utf-8")
     app_log = root / "runs" / "app.log"
     assert app_log.is_file()
     log_text = app_log.read_text(encoding="utf-8")
     assert "web_api_failure" in log_text
-    assert "traceback" in log_text
-    assert "InspirationError" in log_text
+    assert "traceback" not in log_text
+    assert "DomainError" in log_text
 
 
 def test_api_setting_change_memory_repair_suggest_apply_and_management_events(tmp_path: Path) -> None:

@@ -224,14 +224,14 @@ novel export markdown --path <project>
 
 推荐流程：
 
-1. 在 `core/` 新增或扩展 service，定义 options/result dataclass。
-2. service 中完成读取、校验、provider 调用、文件写入和返回结果。
-3. 在 `cli.py::build_parser()` 增加子命令和参数。
-4. 在对应 `cli_commands/` 模块新增 `_cmd_<name>()` handler；跨命令通用 helper 放 `cli_shared.py`。
-5. 在 `cli.py::_COMMAND_HANDLERS` 登记 handler，不要把新分支直接塞回 `main()`。
-6. 如果命令写项目文件，用 `_command_lock()` 包住。
-7. 支持已有集成参数：`--path` / `--project`、`--json`、`--quiet`。
-8. 写 CLI 测试，覆盖成功、缺失文件、默认不覆盖、JSON 输出。
+1. 在 `core/contracts/commands.py` 定义 strict typed command，并加入 `PublicCommand` discriminator union。
+2. 在 `core/command_bus.py` 注册唯一 handler；handler 调用领域 service，返回统一 `CommandResult`、changed paths/artifacts 和 next commands。
+3. 在 `core/` 新增或扩展 service；Provider adapter、Agent logic、文件 mutation 继续分层。
+4. 在 `cli.py::build_parser()` 增加子命令和参数。
+5. 在对应 `cli_commands/` 模块新增薄 `_cmd_<name>()`：只读取参数、构造 command、调用 `_dispatch_cli_command()` 并格式化结果。
+6. 在 `cli.py::_COMMAND_HANDLERS` 登记 handler，不要把新分支直接塞回 `main()`。
+7. 写锁由 Command Bus 统一持有，不在 CLI adapter 再用 `_command_lock()`；只读 command 加入 `READ_ONLY_COMMANDS`，确有并发语义要求的受限写入才加入 `UNLOCKED_WRITE_COMMANDS`。
+8. 支持已有集成参数：`--path` / `--project`、`--json`、`--quiet`，并写 core/CLI/Web contract 测试。
 
 CLI 输出约定：
 
@@ -245,15 +245,15 @@ Web API 在 `src/novel/web_api/`。新增接口时：
 
 1. 在 `router.py` 的 `_get_routes()` / `_post_routes()` 注册路径，不要继续扩大 method/path 条件链。
 2. 请求体读取使用 `_json_body()`。
-3. 项目根目录解析使用 `_root_from_query()`、`_root_from_body()` 或 route 专用 root resolver；写锁、usage marker 和失败日志要使用同一解析结果。
+3. 项目根目录解析使用 `_root_from_query()`、`_root_from_body()` 或 route 专用 root resolver；失败日志必须使用同一解析结果。
 4. 成功返回 `_success(data)`；失败返回 `_failure(...)`。
-5. 写操作用 `_locked_write()`，并复用 core service。协作式取消这类需要在长任务持锁期间生效的请求可以不走项目写锁，但必须只写受限的运行态文件，并由 core service 校验 session id。
+5. 写操作必须构造 `PublicCommand` 并调用 `_dispatch_web_command()`；route 的 `locked` 保持 `False`，由 Command Bus 统一加锁。只有 `project.init` 这类目标工作区尚不存在的特殊入口可使用 `_locked_write()`。协作式取消由 Command Bus 的受限 unlocked policy 管理。
 6. 不要把真实 API Key、Authorization、env value 返回前端。
 7. 前端只调用 API，不复制业务逻辑。
 
-现有 Web 搜索、导出和用量展示都只是 core service 的薄包装：`/api/search` 调用 `core/search.search_project()`，`/api/export/markdown` 和 `/api/export/docx` 调用 `core/exporting`，`/api/usage` 调用 `core/usage.summarize_provider_usage()`。后续扩展这些能力时也应保持同样分层。
+现有 Web query 是 core read service 的薄包装，例如 `/api/search` 和 `/api/usage`；所有 mutation 都提交 typed command，例如 `/api/export/markdown`、`/api/export/docx`、Session、Canon、Style Guide、配置和索引。后续扩展必须保持同样分层。
 
-如果 API 保存文件，必须复用 core 的文件安全语义：默认不覆盖、版本化保存、必要备份、项目锁。
+如果 API 保存文件，必须由 Command Bus handler 调用 core mutation service，并复用默认不覆盖、immutable artifact、必要备份、原子写入和 path guard 语义。
 
 ## 7.1 异常和错误处理约定
 
@@ -393,7 +393,7 @@ python scripts/check_local.py
 重构前先确认：
 
 - CLI 和 Web 是否仍共用 core service。
-- 是否改变了 workspace 文件格式；若改变，需要 migration 和 JSON Schema。
+- 是否改变了 workspace 文件格式；若改变，直接更新当前 schema、JSON Schema 和 fixture，不增加历史兼容层。
 - 是否改变 Agent 输出；若改变，需要 schema、prompt、repair、validation 和 tests。
 - 是否改变写文件路径；若改变，需要默认不覆盖、atomic write、backup、lock。
 - 是否改变 provider payload；若改变，需要 mock 测试和不泄漏 API Key 测试。

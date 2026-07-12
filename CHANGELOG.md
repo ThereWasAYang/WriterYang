@@ -4,6 +4,9 @@
 
 - 以破坏性 schema v3 重建 Agent workflow 基础：Strict Contracts、Task Registry、immutable Artifact lineage、Creation Session state/timeline projection、transaction journal、全 Session 原子 acceptance 和 artifact-aware production export。
 - 公开 CLI/Web/Ask 领域 workflow 统一进入 Typed Command Bus；Ask 改为 proposal-first，Creation/Revision 使用 workflow-wide budget 并跨 human gate 续写同一 trace。
+- Typed Command Bus 覆盖全部公开写入口，包括 Inspiration、Canon、Chapter Memory、Index、Style Guide、编辑器 immutable candidate、Agent/Embedding 配置、项目/Web 端口与 JSON Schema 导出；Web adapter 不再重复加锁或直接调用 mutation service。
+- Setup typed command 对 API Key 使用 secret-safe contract；明文只写项目 `.env`，不会进入响应、配置 YAML 或 workflow trace。
+- 删除旧模板 Profile 默认值识别与自动剥离逻辑；当前 `inherit_default` Profile 的显式容量 patch 按现行 schema 原样保留，不再执行历史配置清理。
 - Search 改为 authority/lifecycle allowlist，Prompt 使用 untrusted workspace delimiter；hidden truth 只能由已批准 `RevealAuthorization` 精确放行，Audit 自动修复要求强证据与可执行 source layer。
 - Run/Node/Decision trace 统一记录 request、parent request、session、surface、Task/Profile、prompt/policy hash、budget、retry 与 artifact lineage；Provider call 和 Model I/O 使用相同关联字段。
 - Project lock 增加 lock id、PID、process start time、host、workflow/command 和 heartbeat；stale lock 回收会写本地审计事件，不再仅按锁创建时间判断。

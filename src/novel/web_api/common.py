@@ -17,21 +17,14 @@ from .deps import (
     Field,
     __version__,
     PROFILE_NAMES,
-    TASK_ONLY_CONFIG_FIELDS,
     TASK_TO_PROFILE,
     load_project_env,
-    atomic_write_model_json,
-    backup_if_exists,
     load_json,
-    load_json_model,
     load_yaml,
-    new_request_id,
     utc_timestamp,
     web_launcher,
     AgentsConfig,
     PolishMode,
-    RevisionLog,
-    RevisionRecord,
     VectorContextMode,
     MemoryChangeStage,
     redact_secret_text,
@@ -227,85 +220,6 @@ def _locate_quote(content: str, quote: str) -> dict[str, int] | None:
 
 def _compact_text(value: str) -> str:
     return re.sub(r"[^\w\u4e00-\u9fff]+", "", value).lower()
-
-
-def _is_allowed_chapter_version_name(file_name: str, target: str) -> bool:
-    return file_name == f"{target}.md"
-
-
-def _new_revision_id() -> str:
-    return new_request_id("revision")
-
-
-def _append_web_revision_log(path: Path, chapter_number: int, record: RevisionRecord) -> None:
-    if path.exists():
-        log = load_json_model(path, RevisionLog)
-        if log.chapter_number != chapter_number:
-            raise WebAPIError("invalid_revision_log", "revision_log chapter_number does not match", status=400)
-    else:
-        log = RevisionLog(chapter_number=chapter_number, revisions=[])
-    updated = log.model_copy(update={"revisions": [*log.revisions, record]})
-    backup_if_exists(path, reason="web_revision_log")
-    atomic_write_model_json(path, updated)
-
-
-def _is_archived_chapter(root: Path, chapter_number: int) -> bool:
-    archive_dir = root / "memory" / "archive"
-    if not archive_dir.exists():
-        return False
-    chapter_fragment = f"chapters/{chapter_number:03d}/"
-    for manifest_path in archive_dir.glob("session_*/manifest.json"):
-        try:
-            data = load_json(manifest_path)
-        except Exception:
-            continue
-        if not isinstance(data, dict):
-            continue
-        entries = data.get("entries")
-        if isinstance(entries, list) and any(chapter_fragment in str(item) for item in entries):
-            return True
-        if chapter_fragment in json.dumps(data, ensure_ascii=False):
-            return True
-    return False
-
-
-def _clean_agent_config_patch(
-    patch: dict[object, object],
-    *,
-    allow_task_only_fields: bool = True,
-) -> dict[str, object]:
-    allowed = {
-        "inherit_default",
-        "provider",
-        "model",
-        "base_url_env",
-        "api_key_env",
-        "reasoning",
-        "thinking",
-        "max_context_tokens",
-        "max_tokens",
-        "temperature",
-        "timeout_seconds",
-        "max_retries",
-        "json_response_format",
-    }
-    cleaned: dict[str, object] = {}
-    for key, value in patch.items():
-        key_text = str(key)
-        if key_text not in allowed:
-            raise WebAPIError("invalid_provider_config_field", f"field is not editable: {key_text}", status=400)
-        if not allow_task_only_fields and key_text in TASK_ONLY_CONFIG_FIELDS:
-            raise WebAPIError(
-                "invalid_provider_config_field",
-                f"default/profile config field is task-only: {key_text}; use tasks.<task> overrides",
-                status=400,
-            )
-        if key_text in {"api_key", "token", "secret"}:
-            raise WebAPIError("unsafe_config_secret", "raw secret fields are not allowed", status=400)
-        if key_text == "inherit_default" and not isinstance(value, bool):
-            raise WebAPIError("invalid_provider_config_field", "inherit_default must be a boolean", status=400)
-        cleaned[key_text] = value
-    return cleaned
 
 
 def _is_safe_tree_path(rel_path: str, path: Path) -> bool:
@@ -593,11 +507,6 @@ __all__ = [
     "_safe_workspace_file",
     "_locate_quote",
     "_compact_text",
-    "_is_allowed_chapter_version_name",
-    "_new_revision_id",
-    "_append_web_revision_log",
-    "_is_archived_chapter",
-    "_clean_agent_config_patch",
     "_is_safe_tree_path",
     "_is_safe_file_rel_path",
     "_require_workspace",

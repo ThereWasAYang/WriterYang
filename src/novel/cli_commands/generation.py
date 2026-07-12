@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from typing import Literal
@@ -14,12 +13,7 @@ from novel.core.auditing import (
     read_audit_instruction,
 )
 from novel.core.canon import (
-    CanonError,
-    CanonSuggestOptions,
-    apply_canon_proposal,
     format_canon_validation_report,
-    load_canon_provider,
-    suggest_canon,
 )
 from novel.core.drafting import (
     ChapterDraftingOptions,
@@ -30,10 +24,7 @@ from novel.core.drafting import (
 )
 from novel.core.inspiration import (
     InspirationError,
-    InspirationOptions,
-    load_inspiration_provider,
     read_inspiration_input,
-    run_inspiration_agent,
 )
 from novel.core.planning import (
     ChapterPlanningOptions,
@@ -65,7 +56,12 @@ from novel.core.exporting import (
     parse_chapter_selector,
 )
 from novel.core.command_bus import DomainError
-from novel.core.contracts import ProductionExportCommand
+from novel.core.contracts import (
+    CanonApplyCommand,
+    CanonSuggestCommand,
+    InspirationGenerateCommand,
+    ProductionExportCommand,
+)
 from novel.core.inspection import (
     ProjectReadError,
     format_canon,
@@ -100,41 +96,33 @@ def _cmd_inspire(args: argparse.Namespace) -> int:
             )
             return 0
         source_text, source_type = read_inspiration_input(args.text, args.input)
-        provider = load_inspiration_provider(
+        payload = _dispatch_cli_command(
+            args,
             root,
-            args.provider,
-            agent_config_path=args.agent_config,
-            model_name=args.model,
+            InspirationGenerateCommand(
+                source_text=source_text,
+                source_type=source_type,
+                write_json=args.json,
+                overwrite=args.overwrite,
+                provider_name=args.provider,
+                agent_config_path=str(args.agent_config) if args.agent_config else None,
+                model_name=args.model,
+                use_search_context=args.use_search_context,
+                use_vector_context=_vector_context_mode_from_args(args),
+            ),
         )
-        with _command_lock(args, root, "inspire"):
-            result = run_inspiration_agent(
-                InspirationOptions(
-                    root=root,
-                    source_text=source_text,
-                    source_type=source_type,
-                    write_json=args.json,
-                    overwrite=args.overwrite,
-                    use_search_context=args.use_search_context,
-                    use_vector_context=_vector_context_mode_from_args(args),
-                ),
-                provider,
-            )
-    except ProjectLockError as exc:
-        return _failure(args, str(exc), error_type="project_locked")
-    except InspirationError as exc:
-        return _failure(args, str(exc), error_type="inspiration_error")
-    except Exception as exc:
-        return _failure(args, f"inspiration generation failed: {exc}", error_type="inspiration_error")
+    except (DomainError, InspirationError) as exc:
+        error_type = exc.code if isinstance(exc, DomainError) else "inspiration_error"
+        return _failure(args, str(exc), error_type=error_type)
 
-    lines = [f"Wrote inspiration markdown: {result.markdown_path}"]
-    if result.json_path:
-        lines.append(f"Wrote inspiration JSON: {result.json_path}")
+    lines = [f"Wrote inspiration markdown: {payload.get('markdown_path')}"]
+    if payload.get("json_path"):
+        lines.append(f"Wrote inspiration JSON: {payload.get('json_path')}")
     return _success(
         args,
         {
+            **payload,
             "command": "inspire",
-            "markdown_path": str(result.markdown_path),
-            "json_path": str(result.json_path) if result.json_path else None,
         },
         lines,
     )
@@ -153,71 +141,72 @@ def _cmd_canon(args: argparse.Namespace) -> int:
                     ("canon",),
                 )
                 return 0
-            provider = load_canon_provider(
+            payload = _dispatch_cli_command(
+                args,
                 root,
-                args.provider,
-                agent_config_path=args.agent_config,
-                model_name=args.model,
+                CanonSuggestCommand(
+                    output_path=str(args.output) if args.output else None,
+                    provider_name=args.provider,
+                    agent_config_path=str(args.agent_config) if args.agent_config else None,
+                    model_name=args.model,
+                    use_search_context=args.use_search_context,
+                    use_vector_context=_vector_context_mode_from_args(args),
+                ),
             )
-            with _command_lock(args, root, "canon suggest", enabled=args.output is not None):
-                suggest_result = suggest_canon(
-                    CanonSuggestOptions(
-                        root=root,
-                        output_path=args.output,
-                        use_search_context=args.use_search_context,
-                        use_vector_context=_vector_context_mode_from_args(args),
-                    ),
-                    provider,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except CanonError as exc:
-            return _failure(args, str(exc), error_type="canon_error")
-        except Exception as exc:
-            return _failure(args, f"canon suggestion failed: {exc}", error_type="canon_error")
+        except DomainError as exc:
+            return _failure(args, exc.message, error_type=exc.code)
 
         if _wants_json(args):
             _print_json(
                 {
                     "ok": True,
                     "command": "canon suggest",
-                    "output_path": str(suggest_result.output_path) if suggest_result.output_path else None,
-                    "proposal": json.loads(suggest_result.proposal_json),
+                    **payload,
                 }
             )
             return 0
         if _quiet(args):
             return 0
-        if suggest_result.output_path:
-            print(f"Wrote canon proposal: {suggest_result.output_path}")
+        if payload.get("output_path"):
+            print(f"Wrote canon proposal: {payload.get('output_path')}")
         else:
-            print(suggest_result.proposal_json, end="")
+            print(str(payload.get("proposal_json") or ""), end="")
         return 0
 
     if args.canon_command == "apply":
         try:
-            with _command_lock(args, root, "canon apply"):
-                apply_result = apply_canon_proposal(root, args.proposal_file)
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except CanonError as exc:
-            return _failure(args, str(exc), error_type="canon_error")
+            payload = _dispatch_cli_command(
+                args,
+                root,
+                CanonApplyCommand(proposal_path=str(args.proposal_file)),
+                confirmed=True,
+            )
+        except DomainError as exc:
+            return _failure(args, exc.message, error_type=exc.code)
+        validation_ok = bool(payload.get("validation_ok"))
         if _wants_json(args):
             _print_json(
                 {
-                    "ok": apply_result.validation_report.ok,
+                    "ok": validation_ok,
                     "command": "canon apply",
-                    "validation": _validation_payload(apply_result.validation_report),
-                    "apply_log_path": str(apply_result.apply_log_path),
-                    "proposal_snapshot_path": str(apply_result.proposal_snapshot_path),
+                    **payload,
                 }
             )
-            return 0 if apply_result.validation_report.ok else 1
+            return 0 if validation_ok else 1
         if not _quiet(args):
-            print(format_canon_validation_report(apply_result.validation_report))
-            print(f"Canon apply log: {apply_result.apply_log_path}")
-            print(f"Canon proposal snapshot: {apply_result.proposal_snapshot_path}")
-        return 0 if apply_result.validation_report.ok else 1
+            errors_value = payload.get("errors")
+            errors = errors_value if isinstance(errors_value, list) else []
+            warnings_value = payload.get("warnings")
+            warnings = warnings_value if isinstance(warnings_value, list) else []
+            for message in errors:
+                print(f"error: {message}")
+            for message in warnings:
+                print(f"warning: {message}")
+            if validation_ok:
+                print("Canon validation passed")
+            print(f"Canon apply log: {payload.get('apply_log_path')}")
+            print(f"Canon proposal snapshot: {payload.get('proposal_snapshot_path')}")
+        return 0 if validation_ok else 1
 
     if args.canon_command == "validate":
         report = validate_canon(root)

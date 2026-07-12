@@ -50,29 +50,6 @@ DEFAULT_AGENT_CONFIG: dict[str, object] = {
     "json_response_format": "auto",
 }
 
-PROFILE_CONFIG_DEFAULTS: dict[str, dict[str, object]] = {
-    "scribe": {
-        "max_context_tokens": 128000,
-        "max_tokens": 24000,
-        "timeout_seconds": 180.0,
-    },
-    "architect": {
-        "max_context_tokens": 128000,
-        "max_tokens": 8192,
-        "timeout_seconds": 120.0,
-    },
-    "loremaster": {
-        "max_context_tokens": 64000,
-        "max_tokens": 8192,
-        "timeout_seconds": 120.0,
-    },
-    "clerk": {
-        "max_context_tokens": 64000,
-        "max_tokens": 8192,
-        "timeout_seconds": 90.0,
-    },
-}
-
 TASK_BUSINESS_DEFAULTS: dict[str, dict[str, object]] = {
     "intent_router": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.3},
     "inspiration": {"reasoning": "medium", "thinking": {"type": "disabled"}, "temperature": 0.8},
@@ -93,11 +70,6 @@ def default_agent_config() -> dict[str, object]:
     return deepcopy(DEFAULT_AGENT_CONFIG)
 
 
-def profile_config_defaults(profile_name: str) -> dict[str, object]:
-    """Return legacy profile defaults used only to strip old generated patches."""
-    return deepcopy(PROFILE_CONFIG_DEFAULTS.get(profile_name, {}))
-
-
 def task_business_defaults(task_name: str) -> dict[str, object]:
     return deepcopy(TASK_BUSINESS_DEFAULTS.get(task_name, {}))
 
@@ -110,24 +82,6 @@ def inherited_profile_config_patch(
     if current:
         patch.update(profile_inherited_patch_fields(current))
     return patch
-
-
-def drop_legacy_profile_default_patch(
-    profile_name: str,
-    current: Mapping[str, object] | None,
-) -> dict[str, object] | None:
-    """Drop old template profile defaults so inherited profiles can follow default."""
-    if not current:
-        return None
-    legacy_defaults = profile_config_defaults(profile_name)
-    cleaned: dict[str, object] = {}
-    for key, value in current.items():
-        if key == "inherit_default":
-            continue
-        if key in legacy_defaults and legacy_defaults[key] == value:
-            continue
-        cleaned[key] = deepcopy(value)
-    return cleaned
 
 
 def config_patch_fields(config: Mapping[str, object]) -> dict[str, object]:

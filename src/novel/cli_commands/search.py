@@ -3,79 +3,47 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from novel.core.search import SearchError, rebuild_search_index, refresh_search_index, search_index_status
+from novel.core.search import search_index_status
 from novel.core.command_bus import DomainError
-from novel.core.contracts import SearchCommand
-from novel.core.locking import ProjectLockError
+from novel.core.contracts import IndexUpdateCommand, SearchCommand
 from novel.cli_shared import (
     _success,
     _failure,
-    _command_lock,
     _dispatch_cli_command,
 )
 
 def _cmd_index(args: argparse.Namespace) -> int:
-    if args.index_command == "rebuild":
+    if args.index_command in {"rebuild", "refresh"}:
         try:
-            with _command_lock(args, Path(args.path), "index rebuild"):
-                result = rebuild_search_index(
-                    Path(args.path),
+            payload = _dispatch_cli_command(
+                args,
+                Path(args.path),
+                IndexUpdateCommand(
+                    type=f"index.{args.index_command}",  # type: ignore[arg-type]
                     embedding_provider_name=args.embedding_provider,
-                    embedding_config_path=args.embedding_config,
+                    embedding_config_path=str(args.embedding_config) if args.embedding_config else None,
                     with_embeddings=args.with_embeddings,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except SearchError as exc:
-            return _failure(args, str(exc), error_type="search_error")
+                ),
+            )
+        except DomainError as exc:
+            return _failure(args, exc.message, error_type=exc.code)
+        action = "Rebuilt" if args.index_command == "rebuild" else "Refreshed"
+        details = []
+        if args.index_command == "refresh":
+            details.append(
+                f"Changed: {payload.get('refreshed_count')}; deleted: {payload.get('deleted_count')}"
+            )
         return _success(
             args,
             {
-                "command": "index rebuild",
-                "index_path": str(result.index_path),
-                "sqlite_path": str(result.sqlite_path),
-                "manifest_path": str(result.manifest_path),
-                "document_count": result.document_count,
-                "embedding_document_count": result.embedding_document_count,
-                "with_embeddings": result.with_embeddings,
+                **payload,
+                "command": f"index {args.index_command}",
             },
             [
-                f"Rebuilt search index: {result.index_path}",
-                f"Documents: {result.document_count}",
-                f"Embedding vectors: {result.embedding_document_count}",
-            ],
-        )
-    if args.index_command == "refresh":
-        try:
-            with _command_lock(args, Path(args.path), "index refresh"):
-                result = refresh_search_index(
-                    Path(args.path),
-                    embedding_provider_name=args.embedding_provider,
-                    embedding_config_path=args.embedding_config,
-                    with_embeddings=args.with_embeddings,
-                )
-        except ProjectLockError as exc:
-            return _failure(args, str(exc), error_type="project_locked")
-        except SearchError as exc:
-            return _failure(args, str(exc), error_type="search_error")
-        return _success(
-            args,
-            {
-                "command": "index refresh",
-                "index_path": str(result.index_path),
-                "sqlite_path": str(result.sqlite_path),
-                "manifest_path": str(result.manifest_path),
-                "document_count": result.document_count,
-                "refreshed_count": result.refreshed_count,
-                "deleted_count": result.deleted_count,
-                "embedding_document_count": result.embedding_document_count,
-                "with_embeddings": result.with_embeddings,
-            },
-            [
-                f"Refreshed search index: {result.index_path}",
-                f"Documents: {result.document_count}",
-                f"Changed: {result.refreshed_count}; deleted: {result.deleted_count}",
-                f"Embedding vectors: {result.embedding_document_count}",
+                f"{action} search index: {payload.get('index_path')}",
+                f"Documents: {payload.get('document_count')}",
+                *details,
+                f"Embedding vectors: {payload.get('embedding_document_count')}",
             ],
         )
     if args.index_command == "status":

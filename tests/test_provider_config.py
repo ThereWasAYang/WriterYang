@@ -10,7 +10,6 @@ from tests.internal_task_cli import run_test_cli
 from novel.core.agent_defaults import (
     PROFILE_NAMES,
     TASK_TO_PROFILE,
-    drop_legacy_profile_default_patch,
 )
 from novel.core.provider_config import (
     ProviderOverrides,
@@ -258,21 +257,6 @@ def test_missing_profile_uses_default_without_profile_defaults(tmp_path: Path) -
     assert config.api_key_env == "DEFAULT_API_KEY"
     assert config.max_tokens == 8192
     assert config.temperature == 0.5
-
-
-def test_drop_legacy_profile_default_patch_strips_template_values() -> None:
-    cleaned = drop_legacy_profile_default_patch(
-        "scribe",
-        {
-            "inherit_default": True,
-            "max_tokens": 24000,
-            "max_context_tokens": 128000,
-            "timeout_seconds": 180.0,
-            "model": "explicit-scribe-model",
-        },
-    )
-
-    assert cleaned == {"model": "explicit-scribe-model"}
 
 
 def test_missing_profile_inherits_default_capacity_without_profile_defaults(tmp_path: Path) -> None:

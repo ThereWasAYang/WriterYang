@@ -7,21 +7,19 @@ from typing import cast
 
 from novel.core.chapter_memory import (
     ChapterMemoryError,
-    ChapterMemoryOptions,
     accepted_chapter_numbers,
     chapter_memory_path,
-    generate_chapter_memory,
-    load_chapter_memory_provider,
 )
 from novel.core.command_bus import DomainError
 from novel.core.contracts import (
+    ChapterMemoryGenerateCommand,
+    ChapterMemoryRebuildCommand,
     MemoryRepairApplyCommand,
     MemoryRepairSuggestCommand,
     SettingChangeAnswerCommand,
     SettingChangeApplyCommand,
     SettingChangeSuggestCommand,
 )
-from novel.core.locking import ProjectLockError
 from novel.core.schemas import (
     MemoryChangeStage,
 )
@@ -35,7 +33,6 @@ from novel.cli_shared import (
     _success,
     _failure,
     _print_json,
-    _command_lock,
     _dispatch_cli_command,
 )
 
@@ -217,35 +214,28 @@ def _cmd_chapter_memory(args: argparse.Namespace) -> int:
                     ("chapter_memory",),
                 )
                 return 0
-            with _command_lock(args, root, "chapter-memory generate"):
-                provider_warnings: list[str] = []
-                provider = None
-                try:
-                    provider = load_chapter_memory_provider(
-                        root,
-                        args.provider,
-                        chapter_number=args.chapter_number,
-                        agent_config_path=args.agent_config,
-                        model_name=args.model,
-                    )
-                except Exception as exc:
-                    provider_warnings.append(f"chapter memory provider unavailable; using deterministic fallback: {exc}")
-                result = generate_chapter_memory(
-                    ChapterMemoryOptions(root=root, chapter_number=args.chapter_number, force=args.force),
-                    provider,
-                    initial_warnings=tuple(provider_warnings),
-                )
+            payload = _dispatch_cli_command(
+                args,
+                root,
+                ChapterMemoryGenerateCommand(
+                    chapter_number=args.chapter_number,
+                    force=args.force,
+                    provider_name=args.provider,
+                    agent_config_path=str(args.agent_config) if args.agent_config else None,
+                    model_name=args.model,
+                ),
+            )
+            warnings_value = payload.get("warnings")
+            warnings = warnings_value if isinstance(warnings_value, list) else []
             return _success(
                 args,
                 {
+                    **payload,
                     "command": "chapter-memory generate",
-                    "chapter_number": args.chapter_number,
-                    "memory_path": str(result.memory_path),
-                    "warnings": list(result.warnings),
                 },
                 [
-                    *(f"warning: {warning}" for warning in result.warnings),
-                    f"Wrote chapter memory: {result.memory_path}",
+                    *(f"warning: {warning}" for warning in warnings),
+                    f"Wrote chapter memory: {payload.get('memory_path')}",
                 ],
             )
 
@@ -259,57 +249,41 @@ def _cmd_chapter_memory(args: argparse.Namespace) -> int:
                     ("chapter_memory",),
                 )
                 return 0
-            written: list[str] = []
-            warnings: list[str] = []
-            with _command_lock(args, root, "chapter-memory rebuild"):
-                for chapter_number in _accepted_chapter_numbers(root):
-                    path = chapter_memory_path(root, chapter_number)
-                    if args.missing_only and path.exists():
-                        continue
-                    try:
-                        provider_warnings = []
-                        provider = None
-                        try:
-                            provider = load_chapter_memory_provider(
-                                root,
-                                args.provider,
-                                chapter_number=chapter_number,
-                                agent_config_path=args.agent_config,
-                                model_name=args.model,
-                            )
-                        except Exception as exc:
-                            provider_warnings.append(
-                                f"chapter {chapter_number}: chapter memory provider unavailable; "
-                                f"using deterministic fallback: {exc}"
-                            )
-                        result = generate_chapter_memory(
-                            ChapterMemoryOptions(root=root, chapter_number=chapter_number, force=True),
-                            provider,
-                            initial_warnings=tuple(provider_warnings),
-                        )
-                        written.append(str(result.memory_path))
-                        warnings.extend(result.warnings)
-                    except Exception as exc:
-                        warnings.append(f"chapter {chapter_number}: {exc}")
+            payload = _dispatch_cli_command(
+                args,
+                root,
+                ChapterMemoryRebuildCommand(
+                    mode="missing" if args.missing_only else "all",
+                    provider_name=args.provider,
+                    agent_config_path=str(args.agent_config) if args.agent_config else None,
+                    model_name=args.model,
+                ),
+            )
+            written_value = payload.get("written")
+            written = written_value if isinstance(written_value, list) else []
+            warning_value = payload.get("warnings")
+            warnings = warning_value if isinstance(warning_value, list) else []
+            written_paths = [
+                str(item.get("memory_path"))
+                for item in written
+                if isinstance(item, dict) and item.get("memory_path")
+            ]
             return _success(
                 args,
                 {
+                    **payload,
                     "command": "chapter-memory rebuild",
-                    "written": written,
-                    "warnings": warnings,
                 },
                 [
                     *(f"warning: {warning}" for warning in warnings),
-                    f"Rebuilt chapter memories: {len(written)}",
-                    *(f"Wrote: {path}" for path in written),
+                    f"Rebuilt chapter memories: {len(written_paths)}",
+                    *(f"Wrote: {path}" for path in written_paths),
                 ],
             )
-    except ProjectLockError as exc:
-        return _failure(args, str(exc), error_type="project_locked")
+    except DomainError as exc:
+        return _failure(args, exc.message, error_type=exc.code)
     except ChapterMemoryError as exc:
         return _failure(args, str(exc), error_type="chapter_memory_error")
-    except Exception as exc:
-        return _failure(args, f"chapter memory operation failed: {exc}", error_type="chapter_memory_error")
     return _failure(args, f"unknown chapter-memory command: {args.chapter_memory_command}", code=2)
 
 def _accepted_chapter_numbers(root: Path) -> list[int]:

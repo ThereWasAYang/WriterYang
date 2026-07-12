@@ -28,6 +28,7 @@ from novel.core.workspace import InitOptions, init_workspace
 from novel.core.session import SessionStartOptions, start_session
 from novel.web_api import handle_api_request
 from novel.web_api.common import _dispatch_web_query_command
+from novel.web_api.router import _post_routes
 
 
 def test_command_contracts_forbid_unknown_fields() -> None:
@@ -73,6 +74,22 @@ def test_every_public_command_type_has_exactly_one_handler() -> None:
         "project.validate",
         "project.show",
         "search",
+        "schema.export",
+        "inspiration.generate",
+        "canon.suggest",
+        "canon.apply",
+        "chapter_memory.generate",
+        "chapter_memory.rebuild",
+        "index.rebuild",
+        "index.refresh",
+        "style_guide.save",
+        "style_guide.generate",
+        "chapter_candidate.save",
+        "agent_config.update",
+        "setup.default_provider",
+        "setup.embedding_provider",
+        "setup.project_web_port",
+        "setup.web_launcher",
     }
     assert set(COMMAND_HANDLERS) == command_types
 
@@ -167,6 +184,49 @@ def test_low_level_web_generation_routes_are_not_public(tmp_path: Path, path: st
     )
     assert status == 404
     assert payload["error"]["code"] == "not_found"  # type: ignore[index]
+
+
+def test_web_mutation_routes_delegate_locking_to_command_bus() -> None:
+    routes = _post_routes()
+    command_backed_paths = {
+        "/api/export/markdown",
+        "/api/export/docx",
+        "/api/preview/package",
+        "/api/save-chapter-file",
+        "/api/style-guide",
+        "/api/style-guide/generate",
+        "/api/provider-config",
+        "/api/index/refresh",
+        "/api/setup/default-provider",
+        "/api/setup/embedding",
+        "/api/setup/web-port",
+        "/api/inspire",
+        "/api/canon/suggest",
+        "/api/canon/apply",
+        "/api/settings/change/suggest",
+        "/api/settings/change/answer",
+        "/api/settings/change/apply",
+        "/api/chapter-memory/generate",
+        "/api/chapter-memory/rebuild",
+        "/api/session/start",
+        "/api/session/revise-outline",
+        "/api/session/approve-outline",
+        "/api/session/run",
+        "/api/session/cancel",
+        "/api/session/revise-content",
+        "/api/session/revise-audit",
+        "/api/session/retry-rewrite",
+        "/api/session/undo-rewrite",
+        "/api/session/accept",
+        "/api/session/archive",
+        "/api/revision-session/start",
+        "/api/revision-session/run",
+        "/api/revision-session/accept",
+    }
+
+    assert command_backed_paths <= routes.keys()
+    for path in command_backed_paths:
+        assert routes[path][2] is False, path
 
 
 def _workspace_with_chapter(tmp_path: Path) -> Path:

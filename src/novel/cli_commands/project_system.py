@@ -13,11 +13,11 @@ from novel.core.inspection import (
 from novel.core.command_bus import DomainError
 from novel.core.contracts import (
     ProjectInitCommand,
+    SchemaExportCommand,
     ProjectShowCommand,
     ProjectStatusCommand,
     ProjectValidateCommand,
 )
-from novel.core.json_schema import export_json_schemas
 from novel.core.setup_guide import (
     SetupGuideError,
 )
@@ -137,16 +137,21 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 def _cmd_schema(args: argparse.Namespace) -> int:
     if args.schema_command == "export":
-        paths = export_json_schemas(args.output)
+        try:
+            payload = _dispatch_cli_command(
+                args,
+                Path.cwd(),
+                SchemaExportCommand(output_path=str(args.output)),
+            )
+        except DomainError as exc:
+            return _failure(args, exc.message, error_type=exc.code)
         return _success(
             args,
             {
                 "command": "schema export",
-                "output": str(args.output),
-                "schema_count": len(paths),
-                "files": [str(path) for path in paths],
+                **payload,
             },
-            [f"Wrote {len(paths)} JSON Schema file(s) to {args.output}"],
+            [f"Wrote {payload['schema_count']} JSON Schema file(s) to {payload['output']}"],
         )
     return _failure(args, f"unknown schema command: {args.schema_command}", code=2)
 

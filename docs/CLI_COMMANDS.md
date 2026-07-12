@@ -60,6 +60,8 @@ novel session archive <session_id> --path ./qingdeng-inn
 
 Web UI 与 CLI 都把 typed command 交给同一 Command Bus。CLI 只负责输入和结果格式化，Web 只负责 HTTP envelope 与界面展示。
 
+这一约束覆盖所有公开写操作，而不只覆盖 Session：Inspiration、Canon、Chapter Memory、索引、文风、编辑器 candidate、Provider/Embedding 配置、项目/Web 端口、Preview/Export 与 `schema export` 都有 strict command type 和唯一 core handler。项目锁、确认门和领域错误不在 CLI handler 重复实现。
+
 多章 Session 在接受前使用 `memory/sessions/<session_id>/projection/` 中的 state/timeline 投影。`session accept` 会在一个 transaction journal 中提交全部章节、canonical state/timeline、Chapter Memory 和 acceptance；不要用逐章接受代替多章 Session 提交。
 
 ## Accepted 章节局部修订

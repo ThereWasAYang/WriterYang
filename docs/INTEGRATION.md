@@ -58,8 +58,10 @@ novel chapter-memory rebuild --project ./rain-station --provider config --missin
 novel export markdown --project ./rain-station --json --quiet
 novel export docx --project ./rain-station --json --quiet
 novel ask "请为第1章生成章节计划" --path ./rain-station --provider config --json --quiet
-novel ask "请为第1章生成章节计划" --path ./rain-station --provider config --confirm --json --quiet
-novel ask "第2章 event_x 其实是回忆，不是当前行动" --path ./rain-station --confirm --json --quiet
+novel ask "请为第1章生成章节计划" --path ./rain-station --provider config --json --quiet
+novel ask "请为第1章生成章节计划" --path ./rain-station --confirm <workflow_run_id> --json --quiet
+novel ask "第2章 event_x 其实是回忆，不是当前行动" --path ./rain-station --json --quiet
+novel ask "第2章 event_x 其实是回忆，不是当前行动" --path ./rain-station --confirm <workflow_run_id> --json --quiet
 novel memory-repair apply repair_20260530_010101_000001 --project ./rain-station --json --quiet
 novel session start "写第1章" --chapters 1 --project ./rain-station --provider config --json --quiet
 novel session show <session_id> --project ./rain-station --json --quiet
@@ -121,7 +123,7 @@ Web API 也提供同等修复入口：`POST /api/chapter-memory/generate` 生成
 }
 ```
 
-`ask` 的默认成功结果为 `status=proposed`，`proposal.command` 是 typed public command，且包含 `risk`、`estimated_model_calls`、`requires_confirmation` 与 `budget`。添加 `--confirm` 后，执行结果位于 `execution`，proposal 与 execution 共用同一个 `workflow_run_id` 和累计 `budget_usage`。Creation/Revision Session 后续 command 会从 session 恢复该 ID 与预算，在 `runs/{workflow_run_id}/` 下继续追加 trace。
+`ask` 的默认成功结果为 `status=proposed`，`proposal.command` 是 typed public command，且包含 `risk`、`estimated_model_calls`、`requires_confirmation` 与 `budget`。添加 `--confirm <workflow_run_id>` 后，CLI 直接加载该 run 的 `proposal.json`，执行结果位于 `execution`；确认不会重新路由，proposal 与 execution 共用同一个 `workflow_run_id` 和累计 `budget_usage`。Creation/Revision Session 后续 command 会从 session 恢复该 ID 与预算，在 `runs/{workflow_run_id}/` 下继续追加 trace。
 
 失败命令返回 `ok: false`：
 

@@ -14,6 +14,7 @@ from novel.core.contracts import (
     TaskId,
 )
 from novel.core.io import atomic_write_bytes, atomic_write_model_json, load_json_model
+from novel.core.schemas import AuditReport
 from novel.core.timeutil import utc_now
 from novel.core.task_registry import prompt_registry_entry, require_task_write_permission
 from novel.core.workflow_runtime import active_trace_metadata, register_runtime_artifact
@@ -21,6 +22,10 @@ from novel.core.workflow_runtime import active_trace_metadata, register_runtime_
 
 class ArtifactStoreError(RuntimeError):
     """Raised when an immutable artifact cannot be stored or verified."""
+
+
+class AuditCandidateMismatchError(ArtifactStoreError):
+    """Raised when a persisted audit does not bind the working candidate bytes."""
 
 
 _KIND_DIRECTORIES: dict[ArtifactKind, str] = {
@@ -255,6 +260,7 @@ def capture_working_chapter(
         producer_task_id=TaskId.POLISH,
         inputs=[plan, *snapshot_inputs],
     )
+    require_working_audit_matches_candidate(root, chapter_number)
     audit_ref = _capture_or_reuse(
         store,
         existing.active_audit.audit if existing and existing.active_audit else None,
@@ -304,6 +310,20 @@ def capture_working_chapter(
     return lifecycle
 
 
+def require_working_audit_matches_candidate(root: Path, chapter_number: int) -> None:
+    chapter_dir = root.resolve() / "memory" / "chapters" / f"{chapter_number:03d}"
+    audit_report = load_json_model(chapter_dir / "audit.json", AuditReport)
+    if audit_report.audited_file != "polished.md":
+        raise AuditCandidateMismatchError(
+            f"audit reviewed {audit_report.audited_file}, but chapter capture requires polished.md"
+        )
+    candidate_sha256 = sha256_file(chapter_dir / "polished.md")
+    if audit_report.audited_sha256 != candidate_sha256:
+        raise AuditCandidateMismatchError(
+            "audit content hash does not match the working chapter candidate; rerun the audit"
+        )
+
+
 def _capture_or_reuse(
     store: ArtifactStore,
     existing: ArtifactRef | None,
@@ -318,15 +338,7 @@ def _capture_or_reuse(
     if existing is not None and existing.kind == kind and existing.sha256 == source_hash:
         try:
             store.verify(existing)
-            lineage = ArtifactLineage(
-                output=existing,
-                inputs=inputs,
-                task_id=producer_task_id,
-                workflow_run_id=active_trace_metadata().workflow_run_id or f"run_{'0' * 32}",
-                prompt_hash=prompt_registry_entry(producer_task_id).template_hash,
-                policy_version=prompt_registry_entry(producer_task_id).policy_hash,
-            )
-            store.write_lineage(lineage)
+            store.load_lineage(existing)
             return existing
         except ArtifactStoreError:
             pass
@@ -347,6 +359,16 @@ def freshness_errors(root: Path, lifecycle: ChapterLifecycle) -> list[str]:
         refs.append(lifecycle.active_audit.audit)
         if lifecycle.active_audit.candidate != lifecycle.active_candidate:
             errors.append("audit -> candidate binding does not match active candidate")
+        else:
+            try:
+                audit_report = load_json_model(
+                    resolve_project_path(root, lifecycle.active_audit.audit.path),
+                    AuditReport,
+                )
+                if audit_report.audited_sha256 != lifecycle.active_audit.candidate.sha256:
+                    errors.append("audit report content hash does not match active candidate")
+            except Exception as exc:
+                errors.append(f"cannot verify audit report content binding: {exc}")
     if lifecycle.active_state_proposal:
         refs.append(lifecycle.active_state_proposal.proposal)
         if lifecycle.active_state_proposal.candidate != lifecycle.active_candidate:

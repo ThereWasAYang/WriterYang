@@ -153,7 +153,7 @@ def test_real_deepseek_ask_intent_decision(tmp_path: Path, user_request: str, ex
     assert '"agent_name": "orchestrator"' not in model_io_text
 
 
-def test_real_deepseek_audit_repair_route_manual_review_for_unstructured_issue(tmp_path: Path) -> None:
+def test_audit_repair_route_blocks_unstructured_issue_before_real_provider_call(tmp_path: Path) -> None:
     env = _real_env_or_skip()
     if env.get("WRITERYANG_REAL_PROVIDER") != "deepseek":
         pytest.skip("DeepSeek audit repair route smoke requires DeepSeek env in .env.real")
@@ -161,6 +161,7 @@ def test_real_deepseek_audit_repair_route_manual_review_for_unstructured_issue(t
     report = AuditReport(
         chapter_number=1,
         audited_file="polished.md",
+        audited_sha256="0000000000000000000000000000000000000000000000000000000000000000",
         overall_status="needs_revision",
         summary="存在一个证据不足的问题。",
         issues=[
@@ -179,8 +180,12 @@ def test_real_deepseek_audit_repair_route_manual_review_for_unstructured_issue(t
 
     decision = route_audit_repair(root, report, provider_name="config")
 
-    assert decision.route in {"manual_review", "writer_rewrite", "revision_rewrite", "plot_replan"}
-    assert decision.source == "model"
+    assert decision.route == "manual_review"
+    assert decision.source == "deterministic"
+    model_io_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "runs" / "model_io").glob("*.json")
+    )
+    assert '"task": "audit_repair_route"' not in model_io_text
 
 
 def test_real_deepseek_setting_change_clarifies_then_generates_pointer_proposal(tmp_path: Path) -> None:

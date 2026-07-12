@@ -126,6 +126,7 @@ from novel.core.revision_workflow import (
     RevisionWorkflowError,
     RevisionSessionResult,
     accept_revision_session,
+    cancel_revision_session,
     list_revision_blocks,
     run_revision_session,
     show_revision_session,
@@ -1406,7 +1407,7 @@ def _handle_revision_start(envelope: CommandEnvelope, root: Path) -> CommandResu
     return _revision_command_result(envelope, value)
 
 
-@_handler("revision.show", "revision.run", "revision.accept")
+@_handler("revision.show", "revision.run", "revision.accept", "revision.cancel")
 def _handle_revision_command(envelope: CommandEnvelope, root: Path) -> CommandResult:
     command = envelope.command
     if not isinstance(command, RevisionCommand):
@@ -1423,8 +1424,12 @@ def _handle_revision_command(envelope: CommandEnvelope, root: Path) -> CommandRe
                 use_vector_context=command.use_vector_context,
             )
         )
-    else:
+    elif command.type == "revision.accept":
         value = accept_revision_session(
+            RevisionActionOptions(root=root, revision_session_id=command.revision_session_id)
+        )
+    else:
+        value = cancel_revision_session(
             RevisionActionOptions(root=root, revision_session_id=command.revision_session_id)
         )
     return _revision_command_result(envelope, value)
@@ -1433,9 +1438,9 @@ def _handle_revision_command(envelope: CommandEnvelope, root: Path) -> CommandRe
 def _revision_command_result(envelope: CommandEnvelope, value: RevisionSessionResult) -> CommandResult:
     session = value.session
     allowed = {
-        "awaiting_patch": ["revision.run"],
-        "failed_recoverable": ["revision.run"],
-        "awaiting_review": ["revision.accept"],
+        "awaiting_patch": ["revision.run", "revision.cancel"],
+        "failed_recoverable": ["revision.run", "revision.cancel"],
+        "awaiting_review": ["revision.accept", "revision.cancel"],
     }.get(session.phase.value, [])
     return _result(
         envelope,

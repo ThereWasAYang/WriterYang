@@ -61,6 +61,7 @@ def test_every_public_command_type_has_exactly_one_handler() -> None:
         "revision.show",
         "revision.run",
         "revision.accept",
+        "revision.cancel",
         "export.markdown",
         "export.docx",
         "preview.package",
@@ -238,8 +239,7 @@ def _workspace_with_chapter(tmp_path: Path) -> Path:
     chapter_dir = root / "memory" / "chapters" / "001"
     chapter_dir.mkdir(parents=True, exist_ok=True)
     chapter_dir.joinpath("polished.md").write_text(
-        "---\nchapter_number: 1\ntitle: 雨夜旧车站\nstatus: polished\n---\n\n"
-        "雨落在站台上。\n\n林夏抬头看见旧钟。\n",
+        "---\nchapter_number: 1\ntitle: 雨夜旧车站\nstatus: polished\n---\n\n雨落在站台上。\n\n林夏抬头看见旧钟。\n",
         encoding="utf-8",
     )
     return root

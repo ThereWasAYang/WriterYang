@@ -26,9 +26,24 @@ from novel.core.workspace import InitOptions, init_workspace
 
 def test_ask_creates_creation_session_and_outline(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
+    proposed = propose_ask_command(
+        root,
+        "请为第1章生成章节计划",
+        provider_name="mock",
+        budget=default_workflow_budget(),
+    )
 
     code, stdout, stderr = _run_cli(
-        ["ask", "请为第1章生成章节计划", "--path", str(root), "--provider", "mock", "--confirm"]
+        [
+            "ask",
+            "请为第1章生成章节计划",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+            "--confirm",
+            proposed.workflow_run_id,
+        ]
     )
 
     assert code == 0
@@ -44,9 +59,26 @@ def test_ask_creates_creation_session_and_outline(tmp_path: Path) -> None:
 
 def test_ask_json_returns_session_id(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
+    proposed = propose_ask_command(
+        root,
+        "请写第1章初稿",
+        provider_name="mock",
+        budget=default_workflow_budget(),
+    )
 
     code, stdout, stderr = _run_cli(
-        ["ask", "请写第1章初稿", "--path", str(root), "--provider", "mock", "--confirm", "--json", "--quiet"]
+        [
+            "ask",
+            "请写第1章初稿",
+            "--path",
+            str(root),
+            "--provider",
+            "mock",
+            "--confirm",
+            proposed.workflow_run_id,
+            "--json",
+            "--quiet",
+        ]
     )
 
     assert code == 0
@@ -143,6 +175,39 @@ def test_ask_proposal_writes_structured_workflow_trace_not_legacy_flat_log(tmp_p
     assert len(run_dirs) == 1
     assert (run_dirs[0] / "run.json").is_file()
     assert (run_dirs[0] / "proposal.json").is_file()
+
+
+def test_ask_confirmation_dispatches_persisted_proposal_without_rerouting(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready(tmp_path)
+    proposed = propose_ask_command(
+        root,
+        "请为第1章生成章节计划",
+        provider_name="mock",
+        budget=default_workflow_budget(),
+    )
+
+    def reject_reroute(*args, **kwargs):
+        raise AssertionError("confirmation must not call the intent router again")
+
+    monkeypatch.setattr("novel.cli_commands.orchestrator.propose_ask_command", reject_reroute)
+    code, stdout, stderr = _run_cli(
+        [
+            "ask",
+            "这段文本不会用于重新路由",
+            "--path",
+            str(root),
+            "--confirm",
+            proposed.workflow_run_id,
+        ]
+    )
+
+    assert code == 0
+    assert stderr == ""
+    assert "Ask status: executed" in stdout
+    assert list((root / "memory" / "sessions").glob("session_*/session.json"))
 
 
 def test_revision_route_decision_classifies_plot_replan(tmp_path: Path) -> None:
@@ -459,6 +524,7 @@ def _audit_report(*, issue: AuditIssue) -> AuditReport:
     return AuditReport(
         chapter_number=1,
         audited_file="polished.md",
+        audited_sha256="0000000000000000000000000000000000000000000000000000000000000000",
         overall_status="needs_revision",
         summary="blocked",
         issues=[issue],

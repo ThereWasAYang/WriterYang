@@ -12,6 +12,7 @@ from novel.core.agent_output import (
     AgentInvocationContext,
     AgentOutputContract,
 )
+from novel.core.artifact_store import sha256_file
 from novel.core.audit_localization import (
     CANON_REFERENCE_SUGGESTED_FIX,
     localize_audit_report_for_author,
@@ -98,6 +99,7 @@ class AuditContext:
     project: ProjectConfig
     plan: ChapterPlan
     audited_document: DraftDocument
+    audited_sha256: str
     audited_body: str
     draft_body: str
     polished_body: str
@@ -137,7 +139,10 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         raise AuditError(f"{audited_path} is missing; run novel write-chapter or polish-chapter first")
     _refuse_existing(audit_path, options.force)
 
-    context = load_audit_context(root, options)
+    audited_sha256 = sha256_file(audited_path)
+    context = load_audit_context(root, options, audited_sha256=audited_sha256)
+    if sha256_file(audited_path) != audited_sha256:
+        raise AuditError("audited chapter changed while the audit context was being loaded; retry the audit")
     precheck = run_deterministic_prechecks(root, options, context)
     context = _with_deterministic_summary(context, precheck)
 
@@ -147,7 +152,13 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         strict=options.strict,
         focus=options.focus,
     )
-    provider_report = _generate_audit_report_with_repair(provider, context, user_prompt, root)
+    provider_report = _generate_audit_report_with_repair(
+        provider,
+        context,
+        user_prompt,
+        root,
+        audited_sha256=audited_sha256,
+    )
     provider_report = _maybe_rerun_audit_with_recalled_context(
         root=root,
         options=options,
@@ -197,7 +208,10 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
         passed_checks=precheck.passed_checks,
         chapter_number=options.chapter_number,
         audited_file=options.audited_file,
+        audited_sha256=audited_sha256,
     )
+    if sha256_file(audited_path) != audited_sha256:
+        raise AuditError("audited chapter changed before audit persistence; retry the audit")
     if options.force:
         backup_if_exists(audit_path, reason="force")
     atomic_write_model_json(audit_path, report)
@@ -214,7 +228,12 @@ def audit_chapter(options: ChapterAuditOptions, provider: ModelProvider) -> Chap
     )
 
 
-def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext:
+def load_audit_context(
+    root: Path,
+    options: ChapterAuditOptions,
+    *,
+    audited_sha256: str,
+) -> AuditContext:
     chapter_dir = root / "memory" / "chapters" / f"{options.chapter_number:03d}"
     project = load_yaml_model(root / "project.yaml", ProjectConfig)
     plan = load_json_model(chapter_dir / "plan.json", ChapterPlan)
@@ -246,6 +265,7 @@ def load_audit_context(root: Path, options: ChapterAuditOptions) -> AuditContext
         project=project,
         plan=plan,
         audited_document=audited_document,
+        audited_sha256=audited_sha256,
         audited_body=audited_document.body,
         draft_body=draft_body,
         polished_body=polished_body,
@@ -466,7 +486,8 @@ def build_audit_user_prompt(
         f"审核重点：{', '.join(focus) if focus else '全部'}\n"
         f"用户额外审核要求：{instruction or '无'}\n\n"
         "请输出严格 JSON，符合 AuditReport schema，至少包含：\n"
-        "chapter_number, audited_file, overall_status, summary, issues, passed_checks, created_at, need_context。\n"
+        "chapter_number, audited_file, audited_sha256, overall_status, summary, issues, passed_checks, "
+        "created_at, need_context。\n"
         "issues 每项必须包含 id, severity, type, category, description, evidence, suggested_fix, source_layer, "
         "blocking_reason, evidence_strength, is_hard_blocker, confidence。\n\n"
         "字段约束：\n"
@@ -479,6 +500,7 @@ def build_audit_user_prompt(
         "- is_hard_blocker 只有在问题会阻止当前 candidate 安全进入后续流程时才为 true，并填写 blocking_reason。\n"
         "- confidence 为 0 到 1；证据不足或 source_layer 不明时不得高于 0.74。\n"
         "- overall_status 只能是 passed, needs_revision, blocked。\n\n"
+        f"- audited_sha256 必须原样返回：{context.audited_sha256}。\n\n"
         "Severity policy：\n"
         "- critical：会导致章节无法继续使用的问题，例如重大设定矛盾、主角死亡但后文当作未死亡、章节编号错乱。\n"
         "- high：明显影响连续性的问题，例如物品位置错误、角色知道了不该知道的信息、提前揭示重大隐藏真相。\n"
@@ -547,7 +569,13 @@ def _maybe_rerun_audit_with_recalled_context(
         focus=focus,
         recalled_context=recalled_context,
     )
-    return _generate_audit_report_with_repair(provider, context, rerun_prompt, root)
+    return _generate_audit_report_with_repair(
+        provider,
+        context,
+        rerun_prompt,
+        root,
+        audited_sha256=report.audited_sha256,
+    )
 
 
 def _resolve_audit_context_requests(
@@ -610,7 +638,7 @@ def _write_audit_recall_log(root: Path, chapter_number: int, entries: list[dict[
     )
 
 
-def parse_audit_report(content: str) -> AuditReport:
+def parse_audit_report(content: str, *, audited_sha256: str) -> AuditReport:
     try:
         json_text = extract_json_object(content)
     except JsonExtractionError as exc:
@@ -620,7 +648,10 @@ def parse_audit_report(content: str) -> AuditReport:
     except json.JSONDecodeError as exc:
         raise AuditError(f"provider did not return valid AuditReport JSON: {exc}") from exc
     try:
-        return localize_audit_report_for_author(AuditReport.model_validate(_normalize_audit_report_data(data)))
+        normalized = _normalize_audit_report_data(data)
+        if isinstance(normalized, dict):
+            normalized["audited_sha256"] = audited_sha256
+        return localize_audit_report_for_author(AuditReport.model_validate(normalized))
     except ValidationError as exc:
         raise AuditError(f"provider returned invalid AuditReport: {exc}") from exc
 
@@ -630,6 +661,8 @@ def _generate_audit_report_with_repair(
     context: AuditContext,
     user_prompt: str,
     root: Path,
+    *,
+    audited_sha256: str,
 ) -> AuditReport:
     request = ModelRequest(
         system_prompt=build_audit_system_prompt(),
@@ -661,7 +694,7 @@ def _generate_audit_report_with_repair(
                 chapter_number=context.plan.chapter_number,
             ),
             contract=contract,
-            parse=parse_audit_report,
+            parse=lambda content: parse_audit_report(content, audited_sha256=audited_sha256),
             repair_prompt=lambda invalid_output, error: _repair_prompt(
                 schema_name="AuditReport",
                 invalid_output=invalid_output,
@@ -805,6 +838,7 @@ def combine_audit_reports(
     passed_checks: tuple[str, ...],
     chapter_number: int,
     audited_file: AuditedFile,
+    audited_sha256: str,
 ) -> AuditReport:
     issues = list(precheck_issues) + list(provider_report.issues)
     status = _status_for_issues(issues, provider_report.overall_status)
@@ -817,6 +851,7 @@ def combine_audit_reports(
         AuditReport(
             chapter_number=chapter_number,
             audited_file=audited_file,
+            audited_sha256=audited_sha256,
             overall_status=status,
             summary=summary,
             issues=issues,

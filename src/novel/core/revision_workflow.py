@@ -68,12 +68,12 @@ from novel.core.schemas import (
 )
 from novel.core.state_update import (
     StateUpdateProposeOptions,
-    _validate_applied_state,
-    _validate_applied_timeline,
-    _validate_state_change_old_values,
     apply_state_changes_to_state,
     load_revision_state_update_provider,
     propose_state_update,
+    validate_applied_state,
+    validate_applied_timeline,
+    validate_state_change_old_values,
 )
 from novel.core.structured_generation import JsonRepairExhaustedError, generate_json_with_repair
 from novel.core.timeutil import utc_now, utc_timestamp
@@ -236,6 +236,8 @@ def run_revision_session(options: RevisionRunOptions) -> RevisionSessionResult:
             producer_task_id=TaskId.AUDIT,
             inputs=[candidate_ref],
         )
+        if audit_result.report.audited_sha256 != candidate_ref.sha256:
+            raise RevisionWorkflowError("revision audit content hash does not match the generated candidate")
         audit_binding = AuditBinding(
             audit=audit_ref,
             candidate=candidate_ref,
@@ -368,6 +370,8 @@ def accept_revision_session(options: RevisionActionOptions) -> RevisionSessionRe
         raise RevisionWorkflowError("chapter lifecycle or active plan is missing")
     plan = load_json_model(resolve_project_path(root, lifecycle.active_plan.path), ChapterPlan)
     audit = load_json_model(resolve_project_path(root, session.audit.audit.path), AuditReport)
+    if audit.audited_sha256 != session.candidate.sha256:
+        raise RevisionWorkflowError("reviewed audit content hash does not match revision candidate")
     proposal = load_json_model(
         resolve_project_path(root, session.state_proposal.proposal.path),
         StateUpdateProposal,
@@ -503,6 +507,53 @@ def accept_revision_session(options: RevisionActionOptions) -> RevisionSessionRe
     )
 
 
+def cancel_revision_session(options: RevisionActionOptions) -> RevisionSessionResult:
+    """Cancel a pending scoped revision and restore the accepted working set."""
+
+    root = options.root.resolve()
+    recover_incomplete_transactions(root)
+    session = load_revision_session(root, options.revision_session_id)
+    if session.phase not in {
+        RevisionSessionPhase.AWAITING_PATCH,
+        RevisionSessionPhase.AWAITING_REVIEW,
+        RevisionSessionPhase.FAILED_RECOVERABLE,
+    }:
+        raise RevisionWorkflowError(f"revision session cannot be cancelled from phase {session.phase.value}")
+    try:
+        accepted = accepted_chapter_commit(root, session.chapter_number)
+    except LifecycleError as exc:
+        raise RevisionWorkflowError(str(exc)) from exc
+    store = ArtifactStore(root)
+    cancelled = _transition_revision_session(session, RevisionSessionPhase.CANCELLED)
+    chapter_dir = _chapter_dir(root, session.chapter_number)
+    mutations = [
+        FileMutation(chapter_dir / "polished.md", store.read_bytes(accepted.candidate)),
+        FileMutation(chapter_dir / "audit.json", store.read_bytes(accepted.audit)),
+        FileMutation(
+            chapter_dir / "state_update_proposal.json",
+            store.read_bytes(accepted.state_proposal),
+        ),
+        FileMutation(
+            revision_session_path(root, session.revision_session_id),
+            (cancelled.model_dump_json(indent=2) + "\n").encode("utf-8"),
+        ),
+    ]
+    journal_path, _ = prepare_transaction(
+        root,
+        purpose=f"cancel scoped revision {session.revision_session_id}",
+        mutations=mutations,
+    )
+    try:
+        commit_transaction(root, journal_path)
+    except TransactionError as exc:
+        raise RevisionWorkflowError(str(exc)) from exc
+    return RevisionSessionResult(
+        session=cancelled,
+        session_path=revision_session_path(root, cancelled.revision_session_id),
+        message="Scoped revision cancelled; working files restored from accepted artifacts.",
+    )
+
+
 def show_revision_session(root: Path, revision_session_id: str) -> RevisionSessionResult:
     session = load_revision_session(root, revision_session_id)
     return RevisionSessionResult(
@@ -631,7 +682,7 @@ def _build_revision_projection(
     timeline_source = root / "memory" / "state" / "timeline.json"
     state = load_json_model(state_source, EntityState)
     timeline = load_json_model(timeline_source, TimelineFile)
-    _validate_state_change_old_values(state, proposal.state_changes, root)
+    validate_state_change_old_values(state, proposal.state_changes, root)
     updated_state = apply_state_changes_to_state(state, proposal.state_changes, root)
     preserved_events = [
         event
@@ -639,8 +690,8 @@ def _build_revision_projection(
         if not event.narrative_position or event.narrative_position.chapter != session.chapter_number
     ]
     updated_timeline = TimelineFile(events=[*preserved_events, *proposal.timeline_events])
-    _validate_applied_state(updated_state)
-    _validate_applied_timeline(root, updated_timeline)
+    validate_applied_state(updated_state)
+    validate_applied_timeline(root, updated_timeline)
     directory = (
         root
         / "memory"

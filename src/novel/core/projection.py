@@ -8,10 +8,10 @@ from novel.core.io import atomic_write_model_json, load_json_model
 from novel.core.schemas import EntityState, StateUpdateProposal, TimelineFile
 from novel.core.state_update import (
     StateUpdateError,
-    _validate_applied_state,
-    _validate_applied_timeline,
-    _validate_state_change_old_values,
     apply_state_changes_to_state,
+    validate_applied_state,
+    validate_applied_timeline,
+    validate_state_change_old_values,
 )
 from novel.core.timeutil import utc_now
 
@@ -94,11 +94,11 @@ def advance_projection(
     state = load_json_model(state_path, EntityState)
     timeline = load_json_model(timeline_path, TimelineFile)
     try:
-        _validate_state_change_old_values(state, proposal.state_changes, root)
+        validate_state_change_old_values(state, proposal.state_changes, root)
         updated_state = apply_state_changes_to_state(state, proposal.state_changes, root)
         updated_timeline = TimelineFile(events=[*timeline.events, *proposal.timeline_events])
-        _validate_applied_state(updated_state)
-        _validate_applied_timeline(root, updated_timeline)
+        validate_applied_state(updated_state)
+        validate_applied_timeline(root, updated_timeline)
     except StateUpdateError as exc:
         raise ProjectionError(f"chapter {proposal.chapter_number} cannot advance projection: {exc}") from exc
 

@@ -394,9 +394,12 @@ Journal 记录：
 
 项目启动和任何写 command 执行前检查未结束 journal：
 
-- 能证明所有 post-hash 已完成时补写 `COMMITTED`；
-- 否则按 journal 自动 rollback；
+- 当前实现采用保守恢复语义：`PREPARED`、`APPLYING`、`ROLLING_BACK` 一律按 journal 自动 rollback，
+  不根据 post-hash 推断并补写 `COMMITTED`；这等价于把缺少提交标记的接受视为未发生，用户可安全重试；
 - rollback 失败才进入 `RECOVERY_REQUIRED`，阻止新的写操作。
+
+成功提交或回滚后删除 `staged/` 与 `backups/` 正文副本，只保留 `journal.json` 作为审计记录；
+恢复扫描也会补清理历史终态事务的残留 payload。
 
 ## 七、Segment Revision 重新设计
 

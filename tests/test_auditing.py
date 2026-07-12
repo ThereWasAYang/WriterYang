@@ -528,6 +528,7 @@ def test_parse_audit_report_normalizes_issue_id_and_string_evidence() -> None:
     payload = {
         "chapter_number": 1,
         "audited_file": "polished.md",
+        "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "overall_status": "needs_revision",
         "summary": "发现一处连续性问题。",
         "issues": [
@@ -544,7 +545,7 @@ def test_parse_audit_report_normalizes_issue_id_and_string_evidence() -> None:
         "created_at": "2026-05-22T00:00:00Z",
     }
 
-    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False), audited_sha256="0" * 64)
 
     assert report.issues[0].id == "iss_2_1"
     assert report.issues[0].evidence[0].source == "polished.md"
@@ -562,7 +563,7 @@ def test_parse_audit_report_normalizes_audited_file_aliases() -> None:
         "created_at": "2026-05-22T00:00:00Z",
     }
 
-    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False), audited_sha256="0" * 64)
 
     assert report.audited_file == "polished.md"
 
@@ -571,6 +572,7 @@ def test_parse_audit_report_does_not_downgrade_subjective_words_alone() -> None:
     payload = {
         "chapter_number": 2,
         "audited_file": "polished.md",
+        "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "overall_status": "needs_revision",
         "summary": "模型把低确定性建议标成 medium。",
         "issues": [
@@ -587,7 +589,7 @@ def test_parse_audit_report_does_not_downgrade_subjective_words_alone() -> None:
         "created_at": "2026-05-22T00:00:00Z",
     }
 
-    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False), audited_sha256="0" * 64)
 
     assert report.overall_status == "needs_revision"
     assert report.issues[0].severity == "medium"
@@ -597,6 +599,7 @@ def test_parse_audit_report_downgrades_weak_low_confidence_issue_to_low() -> Non
     payload = {
         "chapter_number": 2,
         "audited_file": "polished.md",
+        "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "overall_status": "needs_revision",
         "summary": "模型把低确定性建议标成 medium。",
         "issues": [
@@ -616,7 +619,7 @@ def test_parse_audit_report_downgrades_weak_low_confidence_issue_to_low() -> Non
         "created_at": "2026-05-22T00:00:00Z",
     }
 
-    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False), audited_sha256="0" * 64)
 
     assert report.overall_status == "passed"
     assert report.issues[0].severity == "low"
@@ -626,6 +629,7 @@ def test_parse_audit_report_keeps_hard_medium_issue_blocking() -> None:
     payload = {
         "chapter_number": 2,
         "audited_file": "polished.md",
+        "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "overall_status": "needs_revision",
         "summary": "具体状态冲突。",
         "issues": [
@@ -642,7 +646,7 @@ def test_parse_audit_report_keeps_hard_medium_issue_blocking() -> None:
         "created_at": "2026-05-22T00:00:00Z",
     }
 
-    report = parse_audit_report(json.dumps(payload, ensure_ascii=False))
+    report = parse_audit_report(json.dumps(payload, ensure_ascii=False), audited_sha256="0" * 64)
 
     assert report.overall_status == "needs_revision"
     assert report.issues[0].severity == "medium"
@@ -653,6 +657,7 @@ def test_low_only_audit_issues_are_passed_and_displayed(tmp_path: Path) -> None:
     payload = {
         "chapter_number": 1,
         "audited_file": "polished.md",
+        "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "overall_status": "needs_revision",
         "summary": "只有轻微风格建议。",
         "issues": [
@@ -687,6 +692,7 @@ def test_audit_chapter_repairs_invalid_provider_report_once(tmp_path: Path) -> N
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "passed",
             "summary": "状态不合法。",
             "issues": [
@@ -760,6 +766,7 @@ def test_parse_audit_report_normalizes_passed_with_high_to_needs_revision() -> N
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "passed",
             "summary": "Invalid mock report.",
             "issues": [
@@ -778,7 +785,7 @@ def test_parse_audit_report_normalizes_passed_with_high_to_needs_revision() -> N
         ensure_ascii=False,
     )
 
-    report = parse_audit_report(report_json)
+    report = parse_audit_report(report_json, audited_sha256="0" * 64)
 
     assert report.overall_status == "needs_revision"
     assert report.issues[0].severity == "high"

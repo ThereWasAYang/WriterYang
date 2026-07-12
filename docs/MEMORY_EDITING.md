@@ -118,3 +118,8 @@ Timeline 记录故事世界中已经确定存在的事件，包括尚未正文�
 3. 如果改了 canon，运行 `novel canon validate --path <project>`。
 4. 如果改了已认可章节正文，运行 `novel revision-session start/run` 生成范围受控的 candidate 并重新 Audit。
 5. 确认无阻塞问题后执行 `revision-session accept`，再重新 export。
+6. 如果不接受局部修订，执行 `revision-session cancel`；系统会从 acceptance 血缘恢复工作文件，不要手工寻找 backup。
+
+Acceptance 中的 ChapterMemory 由已验证的 plan、candidate、Audit、State Update 与 projected timeline 确定性构建，
+不会在提交时调用摘要模型。需要模型摘要时，应显式运行独立的 `chapter-memory generate` 命令，并继续把
+canon、current state、timeline 与 accepted 正文视为权威事实源。

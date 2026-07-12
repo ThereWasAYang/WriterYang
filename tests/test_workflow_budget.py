@@ -93,6 +93,11 @@ def test_ask_proposes_costly_session_before_execution(tmp_path: Path) -> None:
 
 def test_ask_confirm_executes_same_proposed_command_with_one_budget(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
+    proposed_code, proposed = _run_json_cli(
+        ["ask", "写第1章", "--path", str(root), "--provider", "mock", "--json"]
+    )
+    assert proposed_code == 0
+    workflow_run_id = proposed["workflow_run_id"]
     code, payload = _run_json_cli(
         [
             "ask",
@@ -102,13 +107,14 @@ def test_ask_confirm_executes_same_proposed_command_with_one_budget(tmp_path: Pa
             "--provider",
             "mock",
             "--confirm",
+            str(workflow_run_id),
             "--json",
         ]
     )
     assert code == 0
     assert payload["status"] == "executed"
     assert payload["execution"]["command_type"] == "session.start"
-    assert payload["execution"]["workflow_run_id"] == payload["workflow_run_id"]
+    assert payload["execution"]["workflow_run_id"] == workflow_run_id
     assert payload["budget_usage"]["model_calls"] >= 1
     run_dir = root / "runs" / str(payload["workflow_run_id"])
     run = load_json_model(run_dir / "run.json", WorkflowRun)

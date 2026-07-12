@@ -227,9 +227,9 @@ def apply_state_update(options: StateUpdateApplyOptions) -> StateUpdateApplyResu
     updated_state = apply_state_changes_to_state(state, proposal.state_changes, root)
     updated_timeline = TimelineFile(events=[*timeline.events, *proposal.timeline_events])
 
-    _validate_state_change_old_values(state, proposal.state_changes, root)
-    _validate_applied_state(updated_state)
-    _validate_applied_timeline(root, updated_timeline)
+    validate_state_change_old_values(state, proposal.state_changes, root)
+    validate_applied_state(updated_state)
+    validate_applied_timeline(root, updated_timeline)
 
     state_backup = backup_file(state_path, reason="state_update")
     timeline_backup = backup_file(timeline_path, reason="state_update")
@@ -1226,7 +1226,7 @@ def _apply_model_field(target: Any, field: str, value: Any, change_id: str) -> N
     setattr(target, field, value)
 
 
-def _validate_applied_state(state: EntityState) -> None:
+def validate_applied_state(state: EntityState) -> None:
     for item in state.item_states:
         if item.holder_id and item.location_id:
             raise StateUpdateError(f"item {item.entity_id} has both holder_id and location_id")
@@ -1249,7 +1249,7 @@ def _validate_applied_state(state: EntityState) -> None:
             character_possessions[item_id] = character.entity_id
 
 
-def _validate_state_change_old_values(
+def validate_state_change_old_values(
     state: EntityState,
     changes: list[StateChange],
     root: Path,
@@ -1275,7 +1275,7 @@ def _validate_state_change_old_values(
             )
 
 
-def _validate_applied_timeline(root: Path, timeline: TimelineFile) -> None:
+def validate_applied_timeline(root: Path, timeline: TimelineFile) -> None:
     seen: set[str] = set()
     duplicates: set[str] = set()
     for event in timeline.events:

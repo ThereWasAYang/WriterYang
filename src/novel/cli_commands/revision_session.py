@@ -64,6 +64,11 @@ def _cmd_revision_session(args: argparse.Namespace) -> int:
                 type="revision.accept",
                 revision_session_id=args.revision_session_id,
             )
+        elif action == "cancel":
+            command = RevisionCommand(
+                type="revision.cancel",
+                revision_session_id=args.revision_session_id,
+            )
         else:
             raise DomainError("unknown_command", f"unknown revision-session command: {action}")
         payload = _dispatch_cli_command(args, root, command, confirmed=action == "accept")

@@ -328,6 +328,7 @@ def _write_chapter_and_audit_fixture(root: Path) -> None:
             {
                 "chapter_number": 1,
                 "audited_file": "polished.md",
+                "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
                 "overall_status": "needs_revision",
                 "summary": "fixture issue",
                 "issues": [

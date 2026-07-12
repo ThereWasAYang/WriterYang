@@ -69,6 +69,7 @@ from .inspection import (
 from .revision_session import (
     _revision_accept,
     _revision_blocks_api,
+    _revision_cancel,
     _revision_run,
     _revision_show_api,
     _revision_start,
@@ -294,6 +295,7 @@ def _post_routes() -> dict[str, PostRoute]:
         "/api/revision-session/start": ("web revision-session start", _revision_start, False),
         "/api/revision-session/run": ("web revision-session run", _revision_run, False),
         "/api/revision-session/accept": ("web revision-session accept", _revision_accept, False),
+        "/api/revision-session/cancel": ("web revision-session cancel", _revision_cancel, False),
     }
 
 

@@ -1287,6 +1287,7 @@ memory/chapters/{chapter_number}/audit.json
 {
   "chapter_number": 6,
   "audited_file": "polished.md",
+  "audited_sha256": "4d7c...（64 位 SHA-256）",
   "overall_status": "needs_revision",
   "summary": "本章整体符合剧情方向，但存在一个物品状态矛盾。",
   "issues": [
@@ -1326,6 +1327,7 @@ memory/chapters/{chapter_number}/audit.json
 
 - `chapter_number`
 - `audited_file`
+- `audited_sha256`
 - `overall_status`
 - `summary`
 - `issues`
@@ -1364,6 +1366,7 @@ memory/chapters/{chapter_number}/audit.json
 Validation 规则：
 
 - 如果 `overall_status` 是 `passed`，不应存在 `high` 或 `critical` issue。
+- `audited_sha256` 必须与 Audit 实际读取的 `audited_file` 字节一致；capture、accept 和 freshness 校验都会拒绝旧 Audit 为新 candidate 背书。
 - 自动修复只接受 `source_layer` 明确、`evidence_strength=strong`、`is_hard_blocker=true`、`blocking_reason` 非空、`confidence>=0.75` 且具有具体 evidence 的 issue；其他问题只允许人工复核。
 - 除非 issue type 纯粹用于提示信息，否则每个 issue 都应包含修复建议。
 
@@ -1391,6 +1394,7 @@ summary、剧情节拍、角色知识变化、state change、timeline event ID�
   `reader_visible`。
 - `source.polished_sha256` 应匹配已 accepted 的 `polished.md`；过期 memory
   应产生 warning，且不应静默替代 source verification。
+- Creation Session 和 Revision Session 在 acceptance transaction 前使用已验证的 plan、candidate、Audit、State Update 与 projected timeline 确定性构建 ChapterMemory，不调用摘要模型；独立的 `chapter-memory generate` 仍是显式模型生成命令。两条路径 schema 相同，`generation_status` 和 `warnings` 会说明来源。
 
 ### 21.2 ContextBundle 与 SearchDocument metadata
 

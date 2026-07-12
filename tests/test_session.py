@@ -7,7 +7,7 @@ from pathlib import Path
 
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.artifact_store import load_lifecycle
+from novel.core.artifact_store import load_lifecycle, sha256_file
 from novel.core.io import atomic_write_model_json, load_json_model
 from novel.core.schemas import (
     AuditReport,
@@ -247,6 +247,7 @@ def test_session_auto_repair_treats_medium_issues_as_blocking() -> None:
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "needs_revision",
             "summary": "中等级别问题需要自动修复。",
             "issues": [
@@ -469,6 +470,7 @@ def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, mo
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "needs_revision",
             "summary": "需要修复正文。",
             "issues": [
@@ -493,6 +495,7 @@ def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, mo
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "passed",
             "summary": "已通过。",
             "issues": [],
@@ -553,6 +556,7 @@ def test_session_auto_replan_records_rewrite_event(tmp_path: Path, monkeypatch) 
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "needs_revision",
             "summary": "计划层问题。",
             "issues": [
@@ -577,6 +581,7 @@ def test_session_auto_replan_records_rewrite_event(tmp_path: Path, monkeypatch) 
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "passed",
             "summary": "已通过。",
             "issues": [],
@@ -624,6 +629,7 @@ def test_session_unresolved_auto_repair_marks_rewrite_event_unresolved(tmp_path:
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "needs_revision",
             "summary": "仍有问题。",
             "issues": [
@@ -694,6 +700,7 @@ def test_session_stops_as_needs_revision_after_unresolved_audit(tmp_path: Path, 
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "needs_revision",
             "summary": "仍有问题。",
             "issues": [
@@ -767,6 +774,7 @@ def test_session_revise_content_keeps_needs_revision_when_reaudit_blocks(tmp_pat
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "needs_revision",
             "summary": "仍有阻断问题。",
             "issues": [
@@ -845,6 +853,7 @@ def test_session_revise_content_routes_writer_rewrite(tmp_path: Path, monkeypatc
             {
                 "chapter_number": 1,
                 "audited_file": "polished.md",
+                "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
                 "overall_status": "passed",
                 "summary": "通过。",
                 "issues": [],
@@ -870,6 +879,111 @@ def test_session_revise_content_routes_writer_rewrite(tmp_path: Path, monkeypatc
     assert "加强压迫感" in seen["instruction"]
     assert result.session.revision_route_history[-1].decision.route == "writer_rewrite"
     assert result.session.final_output_paths[-1].endswith("polished.md")
+
+
+def test_session_resume_reaudits_when_polished_changes_after_completed_audit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    original_propose = session_module._propose_state
+    calls = 0
+
+    def fail_first_proposal(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("injected state update outage")
+        return original_propose(*args, **kwargs)
+
+    monkeypatch.setattr(session_module, "_propose_state", fail_first_proposal)
+    with pytest.raises(RuntimeError, match="injected state update outage"):
+        session_module.run_session(
+            SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock")
+        )
+    failed = session_module.load_session(root, session.session_id)
+    assert failed.chapter_runs[1].audit.value == "completed"
+
+    polished_path = root / "memory" / "chapters" / "001" / "polished.md"
+    polished_path.write_text(
+        polished_path.read_text(encoding="utf-8") + "\n【已在恢复前人工修改】\n",
+        encoding="utf-8",
+    )
+
+    resumed = session_module.run_session(
+        SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock")
+    )
+
+    assert resumed.session.phase.value == "awaiting_content_review"
+    report = load_json_model(root / "memory" / "chapters" / "001" / "audit.json", AuditReport)
+    assert report.audited_sha256 == sha256_file(polished_path)
+    assert resumed.session.chapter_runs[1].audit.value == "completed"
+
+
+def test_session_revision_uses_interleaved_projection_for_later_chapter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1-2章", "--path", str(root), "--chapters", "1,2", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
+    chapter_one_lifecycle = load_lifecycle(root, 1)
+    assert chapter_one_lifecycle and chapter_one_lifecycle.active_candidate
+    chapter_one_lineage_path = root / f"{chapter_one_lifecycle.active_candidate.path}.lineage.json"
+    chapter_one_lineage_before = chapter_one_lineage_path.read_bytes()
+    seen: dict[str, tuple[int, list[str]]] = {}
+    original_revision = session_module.revise_chapter
+    original_audit = session_module._audit_chapter_content
+
+    monkeypatch.setattr(
+        session_module,
+        "route_revision_request",
+        lambda *args, **kwargs: RevisionRouteDecision(
+            route="revision_patch",
+            reason="只修订后序章节。",
+            chapter_numbers=[2],
+            instruction_for_revision="只调整第2章措辞。",
+            risk_level="low",
+        ),
+    )
+
+    def projection_snapshot(world_state_dir: Path) -> tuple[int, list[str]]:
+        state = load_json_model(world_state_dir / "current_state.json", EntityState)
+        character = next(item for item in state.character_states if item.entity_id == "char_lin_che")
+        return state.story_position.latest_chapter, character.possessions
+
+    def capture_revision(options, provider, **kwargs):
+        assert options.world_state_dir is not None
+        seen["revision"] = projection_snapshot(options.world_state_dir)
+        return original_revision(options, provider, **kwargs)
+
+    def capture_audit(*args, **kwargs):
+        seen["audit"] = projection_snapshot(kwargs["world_state_dir"])
+        return original_audit(*args, **kwargs)
+
+    monkeypatch.setattr(session_module, "revise_chapter", capture_revision)
+    monkeypatch.setattr(session_module, "_audit_chapter_content", capture_audit)
+
+    result = session_module.revise_content(
+        SessionInstructionOptions(
+            root=root,
+            session_id=session.session_id,
+            instruction="只调整第2章措辞。",
+            provider_name="mock",
+        )
+    )
+
+    assert result.session.phase.value == "awaiting_content_review"
+    assert seen["revision"] == (1, ["item_broken_ticket"])
+    assert seen["audit"] == (1, ["item_broken_ticket"])
+    checkpoints = load_projection(root, session.session_id).checkpoints
+    assert [item.chapter_number for item in checkpoints] == [1, 2]
+    assert chapter_one_lineage_path.read_bytes() == chapter_one_lineage_before
 
 
 def test_revision_failure_persists_recoverable_node_and_resumes(tmp_path: Path, monkeypatch) -> None:
@@ -953,6 +1067,7 @@ def test_session_revise_content_routes_plot_replan(tmp_path: Path, monkeypatch) 
             {
                 "chapter_number": 1,
                 "audited_file": "polished.md",
+                "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
                 "overall_status": "passed",
                 "summary": "通过。",
                 "issues": [],
@@ -1042,6 +1157,7 @@ def test_session_undo_rewrite_restores_snapshot_and_reaudits(tmp_path: Path, mon
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "passed",
             "summary": "复审通过。",
             "issues": [],

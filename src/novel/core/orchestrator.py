@@ -28,9 +28,10 @@ from novel.core.contracts import (
     Surface,
     TaskId,
     WorkflowBudget,
+    WorkflowRun,
 )
 from novel.core.context_policy import render_untrusted_workspace_data
-from novel.core.io import atomic_write_model_json
+from novel.core.io import atomic_write_model_json, load_json_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import (
@@ -71,6 +72,27 @@ class AskCommandProposalResult:
     budget_usage: BudgetUsage
     intent: AskIntentDecision
     request_id: str
+
+
+def load_ask_command_proposal(root: Path, workflow_run_id: str) -> tuple[CommandProposal, WorkflowRun]:
+    """Load the exact persisted ask proposal selected for confirmation."""
+
+    if not re.fullmatch(r"run_[0-9a-f]{32}", workflow_run_id):
+        raise OrchestratorError("invalid workflow_run_id for ask confirmation")
+    run_dir = root.resolve() / "runs" / workflow_run_id
+    proposal_path = run_dir / "proposal.json"
+    run_path = run_dir / "run.json"
+    if not proposal_path.is_file() or not run_path.is_file():
+        raise OrchestratorError(f"ask proposal not found for workflow run: {workflow_run_id}")
+    proposal = load_json_model(proposal_path, CommandProposal)
+    run = load_json_model(run_path, WorkflowRun)
+    if run.workflow_run_id != workflow_run_id or run.surface is not Surface.ASK:
+        raise OrchestratorError("workflow run is not an ask proposal")
+    if proposal.command is None:
+        raise OrchestratorError("ask proposal is not executable; answer its clarification request first")
+    if proposal.budget != run.budget:
+        raise OrchestratorError("ask proposal budget does not match its workflow run")
+    return proposal, run
 
 
 def propose_ask_command(

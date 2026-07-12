@@ -30,6 +30,8 @@ def test_transaction_commits_all_files(tmp_path: Path) -> None:
     assert journal.status == TransactionStatus.COMMITTED
     assert left.read_text(encoding="utf-8") == "new-left"
     assert right.read_text(encoding="utf-8") == "new-right"
+    assert not (journal_path.parent / "staged").exists()
+    assert not (journal_path.parent / "backups").exists()
 
 
 def test_transaction_rolls_back_every_target_after_injected_failure(tmp_path: Path) -> None:
@@ -54,6 +56,8 @@ def test_transaction_rolls_back_every_target_after_injected_failure(tmp_path: Pa
     assert right.read_text(encoding="utf-8") == "old-right"
     journal = load_json_model(journal_path, TransactionJournal)
     assert journal.status == TransactionStatus.ROLLED_BACK
+    assert not (journal_path.parent / "staged").exists()
+    assert not (journal_path.parent / "backups").exists()
 
 
 def test_recovery_rolls_back_prepared_transaction(tmp_path: Path) -> None:

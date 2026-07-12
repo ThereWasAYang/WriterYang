@@ -607,6 +607,7 @@ def test_validate_reports_invalid_chapter_plan_and_audit(tmp_path: Path) -> None
         {
             "chapter_number": 1,
             "audited_file": "polished.md",
+            "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
             "overall_status": "passed",
             "summary": "有严重问题但被标为通过。",
             "issues": [

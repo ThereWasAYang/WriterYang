@@ -1073,7 +1073,8 @@
           "enum": [
             "revision.show",
             "revision.run",
-            "revision.accept"
+            "revision.accept",
+            "revision.cancel"
           ],
           "title": "Type",
           "type": "string"
@@ -1906,6 +1907,7 @@
               "project.validate": "#/$defs/ProjectValidateCommand",
               "revision.accept": "#/$defs/RevisionCommand",
               "revision.blocks": "#/$defs/RevisionBlocksCommand",
+              "revision.cancel": "#/$defs/RevisionCommand",
               "revision.run": "#/$defs/RevisionCommand",
               "revision.show": "#/$defs/RevisionCommand",
               "revision.start": "#/$defs/RevisionStartCommand",

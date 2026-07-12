@@ -722,6 +722,7 @@ def _write_blocked_audit(root: Path) -> None:
             {
                 "chapter_number": 1,
                 "audited_file": "polished.md",
+                "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
                 "overall_status": "blocked",
                 "summary": "存在重大连续性问题。",
                 "issues": [

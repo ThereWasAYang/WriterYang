@@ -175,6 +175,31 @@
         <div>blocks: ${escapeHtml(`${session.selection?.start_block || ""}-${session.selection?.end_block || ""}`)}</div>
         <div>candidate: ${escapeHtml(session.candidate?.sha256 || "待生成")}</div>
       `;
+      const phase = session.phase || "";
+      $("revisionRun").disabled = !["awaiting_patch", "failed_recoverable"].includes(phase);
+      $("revisionAccept").disabled = phase !== "awaiting_review";
+      $("revisionCancel").disabled = !["awaiting_patch", "awaiting_review", "failed_recoverable"].includes(phase);
+    }
+
+    async function loadRevisionSession() {
+      const revisionSessionId = $("revisionSessionId").value.trim();
+      if (!revisionSessionId) {
+        setMessage("请先填写 Revision Session ID。", true);
+        $("revisionSessionId").focus();
+        return;
+      }
+      const data = await withBusy("加载局部修订 Session", async () => {
+        const data = await apiGet("/api/revision-session", {
+          path: projectPath(),
+          revision_session_id: revisionSessionId,
+        });
+        renderRevisionSession(data);
+        $("fileViewer").textContent = JSON.stringify(data, null, 2);
+        setMessage(actionMessage("加载局部修订 Session", data));
+        return data;
+      });
+      if (data) renderRevisionSession(data);
+      return data;
     }
 
     async function runRevisionAction(endpoint, label) {
@@ -189,16 +214,19 @@
         $("instruction").focus();
         return;
       }
-      return withBusy(label, async () => {
+      const data = await withBusy(label, async () => {
         const data = await apiPost(endpoint, payload);
         renderRevisionSession(data);
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
-        if (endpoint === "/api/revision-session/run" || endpoint === "/api/revision-session/accept") {
+        if (["/api/revision-session/run", "/api/revision-session/accept", "/api/revision-session/cancel"].includes(endpoint)) {
           await loadCompare();
         }
         await refreshAll({ silent: true });
         setMessage(actionMessage(label, data));
+        return data;
       });
+      if (data) renderRevisionSession(data);
+      return data;
     }
 
     async function initProject() {

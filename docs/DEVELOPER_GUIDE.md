@@ -157,7 +157,7 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 
 用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能靠硬编码关键词判断。模型不可用时只允许只读 fallback 或显式命令指引；不得由 fallback 生成 mutation command。主路径由 orchestrator 决策层调用 `intent_router` task 输出结构化决策，并通过 strict schema、confidence gate 和确认门保护风险动作。
 
-`novel ask` 先由 orchestrator 调用 `intent_router` 输出 `AskIntentDecision`，再转换成 strict `CommandProposal`。默认只展示 command、范围、风险和 workflow budget；只读低风险 command 可自动执行，其他 command 必须由 `--confirm` 明确确认后交给 Command Bus。proposal 节点、intent-router 模型节点和确认后的 command 共用同一个 `workflow_run_id`。自然语言中的“确认/应用 repair”在 fallback 场景不会执行，必须使用显式 `novel memory-repair apply <repair_id>`。
+`novel ask` 先由 orchestrator 调用 `intent_router` 输出 `AskIntentDecision`，再转换成 strict `CommandProposal`。默认只展示 command、范围、风险和 workflow budget；只读低风险 command 可自动执行，其他 command 必须由 `--confirm <workflow_run_id>` 明确确认后交给 Command Bus。确认路径加载该 run 已落盘的 proposal，不会重新调用 router；proposal 节点、intent-router 模型节点和确认后的 command 共用同一个 `workflow_run_id`。自然语言中的“确认/应用 repair”在 fallback 场景不会执行，必须使用显式 `novel memory-repair apply <repair_id>`。
 
 `core/budget.py` 使用 context-local `WorkflowBudgetTracker` 贯穿 intent router、Command Bus、Provider 和 Session/Revision。Provider 每次逻辑调用、HTTP 重试和已知 token usage 都会计数；自动修订每进入一轮也会计数。Creation/Revision Session 将 budget 与累计 usage 持久化，后续命令不得重置预算。超限统一返回可恢复 `budget_exceeded`，且失败 checkpoint 仍保存已消费额度。
 

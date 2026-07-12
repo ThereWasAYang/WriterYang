@@ -257,8 +257,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask_parser.add_argument(
         "--confirm",
-        action="store_true",
-        help="Execute the proposed command after reviewing its scope and budget.",
+        metavar="WORKFLOW_RUN_ID",
+        help="Execute the exact persisted proposal from the selected workflow run.",
     )
     ask_parser.add_argument(
         "--max-agent-calls",
@@ -567,6 +567,11 @@ def build_parser() -> argparse.ArgumentParser:
     revision_accept = revision_session_subparsers.add_parser("accept", help="Commit the audited scoped revision")
     revision_accept.add_argument("revision_session_id", help="Revision session id")
     revision_accept.add_argument("--path", default=".", help="Workspace directory.")
+    revision_cancel = revision_session_subparsers.add_parser(
+        "cancel", help="Cancel the revision and restore the accepted working files"
+    )
+    revision_cancel.add_argument("revision_session_id", help="Revision session id")
+    revision_cancel.add_argument("--path", default=".", help="Workspace directory.")
 
     status_parser = subparsers.add_parser("status", help="Show project status")
     status_parser.add_argument(

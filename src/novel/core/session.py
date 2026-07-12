@@ -9,7 +9,11 @@ from typing import Callable
 import yaml
 
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
-from novel.core.artifact_store import capture_working_chapter
+from novel.core.artifact_store import (
+    AuditCandidateMismatchError,
+    capture_working_chapter,
+    require_working_audit_matches_candidate,
+)
 from novel.core.budget import consume_auto_revision_round
 from novel.core.contracts import (
     ChapterNodeState,
@@ -413,6 +417,22 @@ def run_session(options: SessionRunOptions) -> SessionResult:
             if session.chapter_runs[chapter_number].state_update is ChapterNodeStatus.COMPLETED:
                 continue
 
+            if session.chapter_runs[chapter_number].audit is ChapterNodeStatus.COMPLETED:
+                try:
+                    require_working_audit_matches_candidate(root, chapter_number)
+                except AuditCandidateMismatchError:
+                    run = session.chapter_runs[chapter_number].model_copy(
+                        update={
+                            "audit": ChapterNodeStatus.STALE,
+                            "state_update": ChapterNodeStatus.STALE,
+                        }
+                    )
+                    session = _validated_session_copy(
+                        session,
+                        chapter_runs={**session.chapter_runs, chapter_number: run},
+                    )
+                    _write_session(root, session)
+
             def chapter_node_callback(
                 node: str,
                 status: ChapterNodeStatus,
@@ -668,7 +688,24 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 use_vector_context=options.use_vector_context,
                 world_state_dir=world_state_dir,
             )
-            projection = _capture_and_advance_projection(root, session, chapter_number, projection)
+            try:
+                projection = _capture_and_advance_projection(root, session, chapter_number, projection)
+            except AuditCandidateMismatchError:
+                session = _validated_session_copy(
+                    session,
+                    chapter_runs={
+                        **session.chapter_runs,
+                        chapter_number: session.chapter_runs[chapter_number].model_copy(
+                            update={
+                                "audit": ChapterNodeStatus.STALE,
+                                "state_update": ChapterNodeStatus.STALE,
+                            }
+                        ),
+                    },
+                )
+                _write_session(root, session)
+                active_node = None
+                raise
             update_node(chapter_number, "state_update", ChapterNodeStatus.COMPLETED)
             _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
 
@@ -772,7 +809,6 @@ def _revise_content_impl(options: SessionInstructionOptions) -> SessionResult:
     revisions: list[str] = []
     audits: list[str] = list(session.audit_history)
     final_outputs: list[str] = list(session.final_output_paths)
-    hard_issue_chapters: list[int] = []
     protected_hashes = {
         chapter_number: _sha256(_chapter_dir(root, chapter_number) / "polished.md")
         for chapter_number in session.chapter_range
@@ -780,7 +816,14 @@ def _revise_content_impl(options: SessionInstructionOptions) -> SessionResult:
     }
     projection = initialize_projection(root, session.session_id, force=True)
     world_state_dir = projection_dir(root, session.session_id)
-    for chapter_number in authorized_chapters:
+    for chapter_number in session.chapter_range:
+        if chapter_number not in authorized_chapters:
+            if _sha256(_chapter_dir(root, chapter_number) / "polished.md") != protected_hashes[chapter_number]:
+                raise CreationSessionError(
+                    f"revision changed chapter outside authorized scope: {chapter_number}"
+                )
+            projection = _capture_and_advance_projection(root, session, chapter_number, projection)
+            continue
         if route.route == "plot_replan":
             output_path = _replan_and_rewrite_chapter(
                 root,
@@ -790,6 +833,7 @@ def _revise_content_impl(options: SessionInstructionOptions) -> SessionResult:
                 route.instruction_for_plot or options.instruction or "",
                 use_search_context=options.use_search_context,
                 use_vector_context=options.use_vector_context,
+                world_state_dir=world_state_dir,
             )
         elif route.route == "writer_rewrite":
             output_path = _rewrite_chapter_with_writer(
@@ -799,6 +843,7 @@ def _revise_content_impl(options: SessionInstructionOptions) -> SessionResult:
                 route.instruction_for_writer or options.instruction or "",
                 use_search_context=options.use_search_context,
                 use_vector_context=options.use_vector_context,
+                world_state_dir=world_state_dir,
             )
         else:
             provider = load_revision_provider(root, options.provider_name, target="polished")
@@ -847,7 +892,64 @@ def _revise_content_impl(options: SessionInstructionOptions) -> SessionResult:
         )
         _write_session(root, session)
         if _has_hard_issues(_load_audit(root, chapter_number)):
-            hard_issue_chapters.append(chapter_number)
+            changed_outside_scope = [
+                protected_chapter
+                for protected_chapter, expected_hash in protected_hashes.items()
+                if _sha256(_chapter_dir(root, protected_chapter) / "polished.md") != expected_hash
+            ]
+            if changed_outside_scope:
+                raise CreationSessionError(
+                    f"revision changed chapters outside authorized scope: {changed_outside_scope}"
+                )
+            session = _transition_session(
+                session,
+                SessionPhase.AWAITING_CONTENT_REVIEW,
+                revision_history=list(dict.fromkeys([*session.revision_history, *revisions])),
+                revision_route_history=[*session.revision_route_history, route_record],
+                audit_history=list(dict.fromkeys(audits)),
+                final_output_paths=list(dict.fromkeys(final_outputs)),
+            )
+            _write_session(root, session)
+            return SessionResult(
+                session=session,
+                session_path=_session_path(root, session.session_id),
+                message=f"Content revised, but chapter {chapter_number} still needs revision after audit.",
+            )
+
+        _propose_state(
+            root,
+            chapter_number,
+            session,
+            options.provider_name,
+            force=True,
+            use_search_context=options.use_search_context,
+            use_vector_context=options.use_vector_context,
+            world_state_dir=world_state_dir,
+        )
+        session = _set_chapter_node(
+            session,
+            chapter_number,
+            "state_update",
+            ChapterNodeStatus.COMPLETED,
+            last_completed_node=f"chapter:{chapter_number}:state_update",
+        )
+        try:
+            projection = _capture_and_advance_projection(root, session, chapter_number, projection)
+        except AuditCandidateMismatchError:
+            session = _validated_session_copy(
+                session,
+                chapter_runs={
+                    **session.chapter_runs,
+                    chapter_number: session.chapter_runs[chapter_number].model_copy(
+                        update={
+                            "audit": ChapterNodeStatus.STALE,
+                            "state_update": ChapterNodeStatus.STALE,
+                        }
+                    ),
+                },
+            )
+            _write_session(root, session)
+            raise
 
     changed_outside_scope = [
         chapter_number
@@ -856,44 +958,6 @@ def _revise_content_impl(options: SessionInstructionOptions) -> SessionResult:
     ]
     if changed_outside_scope:
         raise CreationSessionError(f"revision changed chapters outside authorized scope: {changed_outside_scope}")
-
-    if hard_issue_chapters:
-        session = _transition_session(
-            session,
-            SessionPhase.AWAITING_CONTENT_REVIEW,
-            revision_history=list(dict.fromkeys([*session.revision_history, *revisions])),
-            revision_route_history=[*session.revision_route_history, route_record],
-            audit_history=list(dict.fromkeys(audits)),
-            final_output_paths=list(dict.fromkeys(final_outputs)),
-        )
-        _write_session(root, session)
-        chapters = ", ".join(str(number) for number in hard_issue_chapters)
-        return SessionResult(
-            session=session,
-            session_path=_session_path(root, session.session_id),
-            message=f"Content revised, but chapter(s) {chapters} still need revision after audit.",
-        )
-
-    for chapter_number in session.chapter_range:
-        if chapter_number in authorized_chapters:
-            _propose_state(
-                root,
-                chapter_number,
-                session,
-                options.provider_name,
-                force=True,
-                use_search_context=options.use_search_context,
-                use_vector_context=options.use_vector_context,
-                world_state_dir=world_state_dir,
-            )
-            session = _set_chapter_node(
-                session,
-                chapter_number,
-                "state_update",
-                ChapterNodeStatus.COMPLETED,
-                last_completed_node=f"chapter:{chapter_number}:state_update",
-            )
-        projection = _capture_and_advance_projection(root, session, chapter_number, projection)
 
     session = _transition_session(
         session,
@@ -991,6 +1055,7 @@ def _replan_and_rewrite_chapter(
     *,
     use_search_context: bool,
     use_vector_context: bool | VectorContextMode,
+    world_state_dir: Path,
 ) -> Path:
     planning_provider = load_planning_provider(root, provider_name, chapter_number=chapter_number)
     plan_chapter(
@@ -1001,6 +1066,7 @@ def _replan_and_rewrite_chapter(
             force=True,
             use_search_context=use_search_context,
             use_vector_context=use_vector_context,
+            world_state_dir=world_state_dir,
         ),
         planning_provider,
     )
@@ -1012,6 +1078,7 @@ def _replan_and_rewrite_chapter(
         f"{_session_instruction(session)}\n\n基于重写后的 ChapterPlan 写作。用户剧情级修改意见：{instruction}",
         use_search_context=use_search_context,
         use_vector_context=use_vector_context,
+        world_state_dir=world_state_dir,
     )
 
 
@@ -1023,6 +1090,7 @@ def _rewrite_chapter_with_writer(
     *,
     use_search_context: bool,
     use_vector_context: bool | VectorContextMode,
+    world_state_dir: Path,
 ) -> Path:
     draft_provider = load_drafting_provider(root, provider_name)
     write_chapter_draft(
@@ -1033,6 +1101,7 @@ def _rewrite_chapter_with_writer(
             force=True,
             use_search_context=use_search_context,
             use_vector_context=use_vector_context,
+            world_state_dir=world_state_dir,
         ),
         draft_provider,
     )
@@ -1045,6 +1114,7 @@ def _rewrite_chapter_with_writer(
             force=True,
             use_search_context=use_search_context,
             use_vector_context=use_vector_context,
+            world_state_dir=world_state_dir,
         ),
         polish_provider,
     )

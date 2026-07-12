@@ -35,6 +35,7 @@ from novel.core.structured_generation import (
     generate_json_with_repair,
 )
 from novel.core.validation import ValidationReport
+from novel.core.world_state import resolve_world_state_paths
 
 
 class PlanningError(RuntimeError):
@@ -50,6 +51,7 @@ class ChapterPlanningOptions:
     use_search_context: bool = False
     use_vector_context: bool | VectorContextMode = "auto"
     output_dir: Path | None = None
+    world_state_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -76,8 +78,9 @@ def plan_chapter(options: ChapterPlanningOptions, provider: ModelProvider) -> Ch
     project = load_yaml_model(root / "project.yaml", ProjectConfig)
     canon = load_canon_files(root)
     _require_canon(canon)
-    state = load_json_model(root / "memory" / "state" / "current_state.json", EntityState)
-    timeline = load_json_model(root / "memory" / "state" / "timeline.json", TimelineFile)
+    state_path, timeline_path = resolve_world_state_paths(root, options.world_state_dir)
+    state = load_json_model(state_path, EntityState)
+    timeline = load_json_model(timeline_path, TimelineFile)
     inspiration_md = (root / "memory" / "inspiration.md").read_text(encoding="utf-8")
     inspiration_json = _read_optional_text(root / "memory" / "inspiration.json")
     style_guide = _read_optional_text(root / "memory" / "style_guide.md")

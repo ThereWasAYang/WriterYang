@@ -857,6 +857,7 @@ def test_api_audit_annotations_locate_evidence_quote(tmp_path: Path) -> None:
             {
                 "chapter_number": 1,
                 "audited_file": "polished.md",
+                "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
                 "overall_status": "needs_revision",
                 "summary": "发现问题。",
                 "issues": [
@@ -3178,6 +3179,7 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
             {
                 "chapter_number": 1,
                 "audited_file": "polished.md",
+                "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
                 "overall_status": "needs_revision",
                 "summary": "仍有阻断问题。",
                 "issues": [
@@ -3256,6 +3258,7 @@ def test_api_session_audit_summary_does_not_translate_old_english_audit_descript
             {
                 "chapter_number": 1,
                 "audited_file": "polished.md",
+                "audited_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
                 "overall_status": "passed",
                 "summary": "Old audit report.",
                 "issues": [
@@ -3718,6 +3721,7 @@ def _write_test_acceptance_lineage(root: Path, chapter_number: int, chapter_dir:
                 "schema_version": 3,
                 "chapter_number": chapter_number,
                 "audited_file": "polished.md",
+                "audited_sha256": candidate.sha256,
                 "overall_status": "passed",
                 "summary": "通过。",
                 "issues": [],

@@ -342,7 +342,9 @@ issue 等级：
 1. 点击“认可本次创作”。
 2. 点击“归档”。
 
-认可会应用本次状态和时间线更新，把章节标记为 accepted，并 best-effort 生成 ChapterMemory。归档会把 approved outline、最终正文、audit、state update、ChapterMemory 和 manifest 保存到 archive，并记录文件 hash；归档是快照打包，不会改变 ChapterMemory 的 `accepted` 状态。
+认可会应用本次状态和时间线更新，把章节标记为 accepted，并根据已验证的 plan、candidate、Audit、State Update 与 projected timeline 确定性构建 ChapterMemory；提交过程中不会额外调用摘要模型。归档会把 approved outline、最终正文、audit、state update、ChapterMemory 和 manifest 保存到 archive，并记录文件 hash；归档是快照打包，不会改变 ChapterMemory 的 `accepted` 状态。
+
+局部修订进入“待审核”或“可恢复失败”后，如果决定不接受，可填写 Revision Session ID、点击“加载修订 Session”，再点击“放弃并恢复”。系统会把 Revision Session 置为 cancelled，并从当前 acceptance 的 immutable artifact 原子恢复正文、Audit 和 State Update proposal。
 
 归档后，后续流程不能在没有你许可的情况下改这次内容。
 

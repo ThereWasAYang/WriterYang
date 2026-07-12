@@ -1135,6 +1135,7 @@ class AuditIssue(FlexibleModel):
 class AuditReport(SchemaVersionedModel):
     chapter_number: int = Field(ge=1)
     audited_file: str = Field(min_length=1)
+    audited_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     overall_status: Literal["passed", "needs_revision", "blocked"]
     summary: str = Field(min_length=1)
     issues: list[AuditIssue]

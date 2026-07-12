@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 from typing import Callable
 import uuid
 
@@ -114,7 +115,17 @@ def commit_transaction(
                 f"transaction failed and rollback also failed: {rollback_exc}"
             ) from exc
         raise TransactionError(f"transaction failed and was rolled back: {exc}") from exc
-    return _write_status(journal_path, journal, TransactionStatus.COMMITTED)
+    committed = _write_status(journal_path, journal, TransactionStatus.COMMITTED)
+    try:
+        _cleanup_transaction_payloads(journal_path)
+    except TransactionError as exc:
+        committed = _write_status(
+            journal_path,
+            committed,
+            TransactionStatus.COMMITTED,
+            error=str(exc),
+        )
+    return committed
 
 
 def rollback_transaction(
@@ -140,7 +151,17 @@ def rollback_transaction(
             atomic_write_bytes(target, content)
         else:
             target.unlink(missing_ok=True)
-    return _write_status(journal_path, journal, TransactionStatus.ROLLED_BACK, error=error)
+    rolled_back = _write_status(journal_path, journal, TransactionStatus.ROLLED_BACK, error=error)
+    try:
+        _cleanup_transaction_payloads(journal_path)
+    except TransactionError as exc:
+        rolled_back = _write_status(
+            journal_path,
+            rolled_back,
+            TransactionStatus.ROLLED_BACK,
+            error=str(exc),
+        )
+    return rolled_back
 
 
 def recover_incomplete_transactions(root: Path) -> list[TransactionJournal]:
@@ -159,7 +180,23 @@ def recover_incomplete_transactions(root: Path) -> list[TransactionJournal]:
             recovered.append(
                 rollback_transaction(root, journal_path, error="recovered incomplete transaction")
             )
+        elif journal.status in {TransactionStatus.COMMITTED, TransactionStatus.ROLLED_BACK}:
+            try:
+                _cleanup_transaction_payloads(journal_path)
+            except TransactionError:
+                continue
     return recovered
+
+
+def _cleanup_transaction_payloads(journal_path: Path) -> None:
+    for name in ("staged", "backups"):
+        payload_dir = journal_path.parent / name
+        if not payload_dir.exists():
+            continue
+        try:
+            shutil.rmtree(payload_dir)
+        except OSError as exc:
+            raise TransactionError(f"transaction payload cleanup failed for {payload_dir}: {exc}") from exc
 
 
 def _write_status(

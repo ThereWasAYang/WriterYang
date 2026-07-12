@@ -737,6 +737,8 @@ def _validate_single_chapter_output(
                 report.error(audit_path, f"audited_file 不存在：{audit.audited_file}")
             else:
                 _validate_chapter_markdown(report, audited_file, plan, audit.chapter_number)
+                if sha256_file(audited_file) != audit.audited_sha256:
+                    report.error(audit_path, "audited_sha256 与当前 audited_file 内容不一致，Audit 已过期")
         except ValidationError as exc:
             _add_validation_error(report, audit_path, exc)
         except Exception as exc:

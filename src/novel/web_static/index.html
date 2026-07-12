@@ -286,9 +286,11 @@
             <label for="revisionSessionId">Revision Session ID</label>
             <input id="revisionSessionId" placeholder="revision_session_...">
             <div class="actions" style="margin-top: 8px;">
+              <button id="revisionShow">加载修订 Session</button>
               <button id="revisionStart">创建修订范围</button>
-              <button id="revisionRun" class="primary">生成并审核</button>
-              <button id="revisionAccept">认可局部修订</button>
+              <button id="revisionRun" class="primary" disabled>生成并审核</button>
+              <button id="revisionAccept" disabled>认可局部修订</button>
+              <button id="revisionCancel" class="danger" disabled>放弃并恢复</button>
             </div>
             <pre id="revisionBlocksPreview" class="artifact-pre" style="margin-top: 10px;">尚未加载 block。</pre>
             <div id="revisionSessionPanel" class="metric" style="margin-top: 10px;">未加载 Revision Session</div>

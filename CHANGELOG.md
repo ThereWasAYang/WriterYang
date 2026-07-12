@@ -2,6 +2,7 @@
 
 ## 0.1.1 - 未发布
 
+- 闭环 Agent 重构复审遗留项：Audit 强绑定正文 SHA-256，多章修订按 projection 交错推进，Revision Session 支持放弃并恢复，Ask 确认直接派发已展示 proposal，事务终态清理正文副本，并固定 immutable lineage 与确定性 ChapterMemory 语义。
 - 完成 Agent 系统最终审计遗留项闭环：Creation Session 删除 `status/outline_status/content_status`，真实执行统一使用 `SessionPhase + ChapterNodeState`，支持失败节点持久化和定向恢复。
 - Revision route 在解析和执行两层强制 `chapter_numbers` scope；非只读 Ask 增加 confidence gate，模型路由失败不再用关键词选择写 executor。
 - Artifact Store 强制 Task 写权限与显式 deterministic/user authority；Context Policy 强制 Task 读 authority；Workflow Runtime 拒绝 workflow definition 外 Task。

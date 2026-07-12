@@ -61,3 +61,13 @@ def _revision_accept(data: dict[str, object]) -> dict[str, object]:
         ),
         confirmed=True,
     )
+
+
+def _revision_cancel(data: dict[str, object]) -> dict[str, object]:
+    return _dispatch_web_command(
+        data,
+        RevisionCommand(
+            type="revision.cancel",
+            revision_session_id=_required_string(data.get("revision_session_id"), "revision_session_id"),
+        ),
+    )

@@ -332,6 +332,7 @@ def _write_polished(root: Path, chapter_number: int, title: str, status: str, bo
             "schema_version": 3,
             "chapter_number": chapter_number,
             "audited_file": "polished.md",
+            "audited_sha256": candidate.sha256,
             "overall_status": "passed",
             "summary": "通过。",
             "issues": [],

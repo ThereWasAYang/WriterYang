@@ -214,6 +214,11 @@
       "title": "Audited File",
       "type": "string"
     },
+    "audited_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Audited Sha256",
+      "type": "string"
+    },
     "overall_status": {
       "enum": [
         "passed",
@@ -258,6 +263,7 @@
   "required": [
     "chapter_number",
     "audited_file",
+    "audited_sha256",
     "overall_status",
     "summary",
     "issues",

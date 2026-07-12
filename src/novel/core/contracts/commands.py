@@ -66,7 +66,7 @@ class RevisionStartCommand(SchemaV3Model):
 
 
 class RevisionCommand(SchemaV3Model):
-    type: Literal["revision.show", "revision.run", "revision.accept"]
+    type: Literal["revision.show", "revision.run", "revision.accept", "revision.cancel"]
     revision_session_id: str = Field(min_length=1)
     provider_name: str = "config"
     use_search_context: bool = True

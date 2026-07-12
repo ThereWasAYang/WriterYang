@@ -1,7 +1,7 @@
 {
   "$defs": {
     "Location": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -79,7 +79,7 @@
       "type": "object"
     },
     "LocationRule": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "anyOf": [
@@ -115,7 +115,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

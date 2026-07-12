@@ -92,16 +92,15 @@
     }
 
     function sessionHasGeneratedContent(session = {}) {
-      const generatedStatuses = new Set(["needs_revision", "needs_user_review", "accepted"]);
+      const generatedPhases = new Set([
+        "awaiting_content_review", "revising", "ready_to_commit", "committing", "committed", "failed_recoverable",
+      ]);
       return Boolean((session.final_output_paths || []).length)
-        || generatedStatuses.has(session.status)
-        || generatedStatuses.has(session.content_status);
+        || generatedPhases.has(session.phase);
     }
 
     function sessionNeedsOutlineApproval(session = {}) {
-      return session.outline_status !== "approved"
-        || session.status === "drafting_intent"
-        || session.status === "outline_proposed";
+      return ["drafting_outline", "awaiting_outline_approval"].includes(session.phase);
     }
 
     async function showSessionGeneratedContentIfAvailable(session = {}, options = {}) {
@@ -122,7 +121,6 @@
           force: $("forceWrites").checked,
           vector_context: $("vectorContextMode").value,
           use_search_context: $("useSearchContext").checked,
-          use_vector_context: $("useVectorContext").checked,
           polish_mode: $("autoPolish").checked ? "auto" : "single_pass",
         };
       if (options.includeSessionId !== false) payload.session_id = $("sessionId").value.trim();
@@ -163,7 +161,6 @@
         provider: $("provider").value,
         use_search_context: $("useSearchContext").checked,
         vector_context: $("vectorContextMode").value,
-        use_vector_context: $("useVectorContext").checked,
       };
     }
 
@@ -407,7 +404,6 @@
         write_json: false,
         use_search_context: $("useSearchContext").checked,
         vector_context: $("vectorContextMode").value,
-        use_vector_context: $("useVectorContext").checked,
       };
     }
 
@@ -470,9 +466,8 @@
     function outlinePreviewFileFor(session = {}) {
       const sessionId = session.session_id || $("sessionId").value.trim();
       if (!sessionId) return "";
-      const isApproved = session.outline_status === "approved"
-        || session.status === "outline_approved"
-        || Boolean(session.approved_outline_path);
+      const isApproved = Boolean(session.approved_outline_path)
+        && !["drafting_outline", "awaiting_outline_approval"].includes(session.phase);
       const fileName = isApproved ? "approved_outline.md" : "outline_proposal.md";
       return `memory/sessions/${sessionId}/${fileName}`;
     }
@@ -619,7 +614,6 @@
           provider: $("provider").value,
           use_search_context: $("useSearchContext").checked,
           vector_context: $("vectorContextMode").value,
-          use_vector_context: $("useVectorContext").checked,
         });
         if (data.relative_path) $("canonProposalPath").value = data.relative_path;
         $("fileViewer").textContent = JSON.stringify(data, null, 2);
@@ -759,7 +753,6 @@
           sync_session: Boolean(options.syncSession),
           use_search_context: $("useSearchContext").checked,
           vector_context: $("vectorContextMode").value,
-          use_vector_context: $("useVectorContext").checked,
           polish_mode: $("autoPolish").checked ? "auto" : "single_pass",
         });
         $("fileViewer").textContent = JSON.stringify(data, null, 2);

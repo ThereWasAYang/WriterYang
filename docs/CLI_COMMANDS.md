@@ -44,7 +44,7 @@ novel session start "写第一章雨夜开场" --path ./qingdeng-inn --chapters 
 
 Plot、Writer、Polish、Audit 和 State Update 都是 workflow runtime 内部 Task，不再提供 `plan-chapter`、`write-chapter`、`polish-chapter`、`audit-chapter`、`state-update` 或 `generate-chapter` 公开命令。这样可确保大纲审批、Audit、State/Timeline 更新和 Acceptance Commit 不会被绕过。
 
-`novel canon show --path ...` 是当前推荐的 Canon 查看命令；如旧脚本仍使用兼容别名，应逐步改为该命令。
+`novel canon show --path ...` 是 Canon 的唯一查看命令；项目不保留历史命令别名。
 
 ## Session 工作流
 

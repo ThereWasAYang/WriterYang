@@ -24,16 +24,21 @@ class FileMutation:
 FaultInjector = Callable[[int, TransactionEntry], None]
 
 
+def new_transaction_id() -> str:
+    return f"tx_{uuid.uuid4().hex}"
+
+
 def prepare_transaction(
     root: Path,
     *,
     purpose: str,
     mutations: list[FileMutation],
+    transaction_id: str | None = None,
 ) -> tuple[Path, TransactionJournal]:
     root = root.resolve()
     if not mutations:
         raise TransactionError("transaction requires at least one mutation")
-    transaction_id = f"tx_{uuid.uuid4().hex}"
+    transaction_id = transaction_id or new_transaction_id()
     transaction_dir = root / "transactions" / transaction_id
     entries: list[TransactionEntry] = []
     seen: set[Path] = set()

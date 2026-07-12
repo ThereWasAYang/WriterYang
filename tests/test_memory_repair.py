@@ -46,19 +46,19 @@ def test_ask_memory_repair_creates_proposal_without_modifying_timeline(tmp_path:
 
     code, stdout, stderr = _run_cli(
         [
-            "ask",
+            "memory-repair",
+            "suggest",
             "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
             "--path",
             str(root),
             "--provider",
             "mock",
-            "--confirm",
         ]
     )
 
     assert code == 0
     assert stderr == ""
-    assert "Ask status: executed" in stdout
+    assert "Memory repair proposal:" in stdout
     assert timeline_path.read_text(encoding="utf-8") == before
     proposals = list((root / "memory" / "repairs").glob("repair_*/proposal.json"))
     assert len(proposals) == 1
@@ -129,13 +129,13 @@ def test_ask_memory_repair_apply_refuses_fallback_natural_language_apply(tmp_pat
     root = _workspace_with_timeline_event(tmp_path)
     code, _, _ = _run_cli(
         [
-            "ask",
+            "memory-repair",
+            "suggest",
             "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
             "--path",
             str(root),
             "--provider",
             "mock",
-            "--confirm",
         ]
     )
     assert code == 0
@@ -162,13 +162,13 @@ def test_memory_repair_apply_command_updates_timeline_and_writes_event(tmp_path:
     root = _workspace_with_timeline_event(tmp_path)
     code, _, _ = _run_cli(
         [
-            "ask",
+            "memory-repair",
+            "suggest",
             "第2章 event_wrong_current 这个事件其实是回忆，不是当前行动",
             "--path",
             str(root),
             "--provider",
             "mock",
-            "--confirm",
         ]
     )
     assert code == 0

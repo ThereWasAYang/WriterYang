@@ -329,10 +329,8 @@ def _memory_change_followups(
     session_chapters = _session_chapters(session_data)
     affected_chapters = sorted(set(impact.affected_chapters) | ({chapter_number} if chapter_number else set()))
     if session_data:
-        status = str(session_data.get("status") or "")
-        outline_status = str(session_data.get("outline_status") or "")
-        content_status = str(session_data.get("content_status") or "")
-        if status in {"accepted", "archived"} or content_status in {"accepted", "archived"}:
+        phase = str(session_data.get("phase") or "")
+        if phase in {"committed", "archived"}:
             actions.append(
                 MemoryChangeFollowupAction(
                     action="start_revision_session",
@@ -342,7 +340,7 @@ def _memory_change_followups(
                     reason="当前 session 已认可或归档；设定变更不会静默改写既有章节。",
                 )
             )
-        elif content_status == "not_started":
+        elif phase in {"drafting_outline", "awaiting_outline_approval", "ready_to_run"}:
             actions.append(
                 MemoryChangeFollowupAction(
                     action="revise_outline",
@@ -352,7 +350,7 @@ def _memory_change_followups(
                     reason="设定变更发生在大纲阶段，需要基于最新 memory 重生成 outline proposal。",
                 )
             )
-            if outline_status == "approved":
+            if phase == "ready_to_run":
                 actions.append(
                     MemoryChangeFollowupAction(
                         action="reapprove_outline",
@@ -362,7 +360,7 @@ def _memory_change_followups(
                         reason="原大纲已批准，重生成后需要用户重新批准。",
                     )
                 )
-        elif content_status in {"needs_user_review", "needs_revision"} or stage == "content_review":
+        elif phase in {"awaiting_content_review", "failed_recoverable"} or stage == "content_review":
             actions.extend(
                 [
                     MemoryChangeFollowupAction(

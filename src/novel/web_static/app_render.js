@@ -190,7 +190,7 @@
       if (data.message) parts.push(data.message);
       if (data.session) {
         parts.push(`session=${data.session.session_id}`);
-        parts.push(`status=${data.session.status}/${data.session.content_status}`);
+        parts.push(`phase=${data.session.phase}`);
       }
       if (Array.isArray(data.audit_summary)) {
         const blocking = data.audit_summary.reduce((count, item) => count + (item.blocking_issue_count || 0), 0);
@@ -239,9 +239,7 @@
       $("sessionPanel").innerHTML = `
         <span>Session</span>
         <b>${escapeHtml(session.session_id)}</b>
-        <div>status: ${escapeHtml(session.status || "")}</div>
-        <div>outline: ${escapeHtml(session.outline_status || "")}</div>
-        <div>content: ${escapeHtml(session.content_status || "")}</div>
+        <div>phase: ${escapeHtml(session.phase || "")}</div>
         <div>chapters: ${escapeHtml((session.chapter_range || []).join(", "))}</div>
         <div>${escapeHtml(data.message || "")}</div>
         ${renderRevisionRouteSummary(data.revision_route || (session.revision_route_history || []).slice(-1)[0])}
@@ -426,17 +424,20 @@
           text = "下一步：项目检查通过。可以继续创建 Session、写作或导出。";
         }
       } else if (session.session_id) {
-        if (session.status === "outline_proposed" || session.outline_status === "proposed") {
+        if (session.phase === "awaiting_outline_approval") {
           text = "下一步：查看大纲。不满意就在聊天 / 指令框写修改意见并点击“修改大纲”；满意后点击“批准大纲”。";
-        } else if (session.status === "outline_approved" || session.outline_status === "approved" && session.content_status === "not_started") {
+        } else if (session.phase === "ready_to_run") {
           text = "下一步：点击“开始写作”，系统会自动完成写作、润色、审核和状态更新 proposal。";
-        } else if (session.content_status === "needs_revision" || session.status === "needs_revision") {
-          text = "下一步：查看 Audit 摘要。硬伤优先点击“按 Audit 修订内容”；主观意见写入聊天 / 指令框后点击“按用户意见修订内容”。";
-        } else if (session.content_status === "needs_user_review" || session.status === "needs_user_review") {
+        } else if (session.phase === "awaiting_content_review") {
           text = "下一步：查看 polished/audit。满意后点击“认可本次创作”，再点击“归档”。";
-        } else if (session.status === "accepted") {
+        } else if (session.phase === "failed_recoverable") {
+          const failureNode = session.failure_node || "";
+          text = failureNode.startsWith("revision")
+            ? "下一步：查看失败节点和已完成 checkpoint；修正输入或配置后，使用对应的内容修订、Audit 复审、重试或撤销命令恢复。"
+            : "下一步：查看失败节点和已完成 checkpoint；修正输入或配置后点击“开始写作”从失败节点恢复。";
+        } else if (session.phase === "committed") {
           text = "下一步：点击“归档”冻结本次创作；之后可以导出 Markdown。";
-        } else if (session.status === "archived") {
+        } else if (session.phase === "archived") {
           text = "下一步：本次创作已归档。可以继续新建 Session 或导出 Markdown。";
         }
       } else if (status.title) {

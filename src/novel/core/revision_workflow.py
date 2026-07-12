@@ -32,6 +32,7 @@ from novel.core.contracts import (
     SegmentPatch,
     SessionProjection,
     StateProposalBinding,
+    TaskId,
     ensure_revision_phase_transition,
 )
 from novel.core.io import (
@@ -82,6 +83,7 @@ from novel.core.transactions import (
     commit_transaction,
     prepare_transaction,
     recover_incomplete_transactions,
+    new_transaction_id,
 )
 from novel.core.workflow_runtime import bind_active_session_id
 
@@ -195,12 +197,16 @@ def run_revision_session(options: RevisionRunOptions) -> RevisionSessionResult:
             kind=ArtifactKind.SEGMENT_PATCH,
             content=(patch.model_dump_json(indent=2) + "\n").encode("utf-8"),
             suffix=".json",
+            producer_task_id=TaskId.REVISION,
+            inputs=[running.selection.source_candidate],
         )
         candidate_ref = store.create(
             chapter_number=running.chapter_number,
             kind=ArtifactKind.CANDIDATE,
             content=applied.markdown.encode("utf-8"),
             suffix=".md",
+            producer_task_id=TaskId.REVISION,
+            inputs=[running.selection.source_candidate, patch_ref],
         )
         chapter_dir = _chapter_dir(root, running.chapter_number)
         backup_if_exists(chapter_dir / "polished.md", reason="segment_revision_working")
@@ -227,6 +233,8 @@ def run_revision_session(options: RevisionRunOptions) -> RevisionSessionResult:
             chapter_number=running.chapter_number,
             kind=ArtifactKind.AUDIT,
             source=audit_result.audit_path,
+            producer_task_id=TaskId.AUDIT,
+            inputs=[candidate_ref],
         )
         audit_binding = AuditBinding(
             audit=audit_ref,
@@ -274,6 +282,8 @@ def run_revision_session(options: RevisionRunOptions) -> RevisionSessionResult:
             chapter_number=running.chapter_number,
             kind=ArtifactKind.STATE_PROPOSAL,
             source=proposal_result.proposal_path,
+            producer_task_id=TaskId.STATE_UPDATE,
+            inputs=[candidate_ref, audit_ref],
         )
         state_hash = sha256_file(root / "memory" / "state" / "current_state.json")
         timeline_hash = sha256_file(root / "memory" / "state" / "timeline.json")
@@ -397,10 +407,14 @@ def accept_revision_session(options: RevisionActionOptions) -> RevisionSessionRe
         kind=ArtifactKind.CHAPTER_MEMORY,
         content=memory_bytes,
         suffix=".json",
+        producer_task_id=TaskId.CHAPTER_MEMORY,
+        inputs=[session.candidate, session.audit.audit, session.state_proposal.proposal],
     )
+    transaction_id = new_transaction_id()
     acceptance = AcceptanceCommit(
         commit_id=f"accept_{uuid.uuid4().hex}",
         session_id=session.revision_session_id,
+        transaction_id=transaction_id,
         chapter_number=session.chapter_number,
         candidate=session.candidate,
         audit=session.audit.audit,
@@ -419,6 +433,9 @@ def accept_revision_session(options: RevisionActionOptions) -> RevisionSessionRe
         kind=ArtifactKind.ACCEPTANCE,
         content=acceptance_bytes,
         suffix=".json",
+        authority="deterministic",
+        inputs=[session.candidate, session.audit.audit, session.state_proposal.proposal, memory_ref],
+        policy_version="transaction-acceptance-v3",
     )
     updated_lifecycle = lifecycle.model_copy(
         update={
@@ -426,6 +443,14 @@ def accept_revision_session(options: RevisionActionOptions) -> RevisionSessionRe
             "active_audit": session.audit,
             "active_state_proposal": session.state_proposal,
             "active_acceptance": acceptance_ref,
+            "lineages": [
+                *lifecycle.lineages,
+                store.load_lineage(session.candidate),
+                store.load_lineage(session.audit.audit),
+                store.load_lineage(session.state_proposal.proposal),
+                store.load_lineage(memory_ref),
+                store.load_lineage(acceptance_ref),
+            ],
             "updated_at": utc_now(),
         }
     )
@@ -465,6 +490,7 @@ def accept_revision_session(options: RevisionActionOptions) -> RevisionSessionRe
         root,
         purpose=f"accept scoped revision {session.revision_session_id}",
         mutations=mutations,
+        transaction_id=transaction_id,
     )
     try:
         commit_transaction(root, journal_path)

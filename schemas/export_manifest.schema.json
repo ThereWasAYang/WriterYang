@@ -1,7 +1,7 @@
 {
   "$defs": {
     "ExportRecord": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "minLength": 1,
@@ -68,7 +68,7 @@
       "type": "object"
     },
     "ExportSourceChapter": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "chapter_number": {
           "minimum": 1,
@@ -99,6 +99,11 @@
         "acceptance_commit_id": {
           "minLength": 1,
           "title": "Acceptance Commit Id",
+          "type": "string"
+        },
+        "transaction_id": {
+          "pattern": "^tx_[0-9a-f]{32}$",
+          "title": "Transaction Id",
           "type": "string"
         },
         "candidate_artifact_id": {
@@ -138,6 +143,7 @@
         "accepted",
         "sha256",
         "acceptance_commit_id",
+        "transaction_id",
         "candidate_artifact_id",
         "audit_artifact_id",
         "state_proposal_artifact_id",
@@ -148,7 +154,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

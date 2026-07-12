@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from novel.core.contracts import SessionPhase
 from novel.core.schemas import MemoryRepairProposal, PolishMode, VectorContextMode
 from novel.core.session import (
     SessionInstructionOptions,
@@ -34,7 +35,7 @@ def sync_setting_change_session(options: SettingChangeFollowupOptions) -> dict[s
             "reason": f"could not load session: {exc}",
             "session_id": options.session_id,
         }
-    if session.status in {"accepted", "archived"} or session.content_status in {"accepted", "archived"}:
+    if session.phase in {SessionPhase.COMMITTED, SessionPhase.ARCHIVED}:
         return {
             "status": "manual_review",
             "reason": "accepted or archived sessions are not rewritten automatically",
@@ -46,7 +47,7 @@ def sync_setting_change_session(options: SettingChangeFollowupOptions) -> dict[s
         f"影响分析：{options.proposal.impact.summary if options.proposal.impact else '无'}"
     )
     try:
-        if session.content_status == "not_started":
+        if session.phase in {SessionPhase.AWAITING_OUTLINE_APPROVAL, SessionPhase.READY_TO_RUN}:
             result = revise_outline(_instruction_options(options, instruction))
             return {
                 "status": "synced",
@@ -54,7 +55,7 @@ def sync_setting_change_session(options: SettingChangeFollowupOptions) -> dict[s
                 "session": result.session.model_dump(mode="json"),
                 "session_path": str(result.session_path),
             }
-        if session.content_status in {"needs_user_review", "needs_revision"}:
+        if session.phase is SessionPhase.AWAITING_CONTENT_REVIEW:
             result = revise_content(_instruction_options(options, instruction))
             return {
                 "status": "synced",
@@ -64,7 +65,7 @@ def sync_setting_change_session(options: SettingChangeFollowupOptions) -> dict[s
             }
         return {
             "status": "manual_review",
-            "reason": f"session status {session.status}/{session.content_status} is not safe for automatic sync",
+            "reason": f"session phase {session.phase.value} is not safe for automatic sync",
             "session_id": options.session_id,
         }
     except Exception as exc:

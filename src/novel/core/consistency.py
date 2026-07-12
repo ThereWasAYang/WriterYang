@@ -52,6 +52,7 @@ class ConsistencyFinding:
             id=self.id,
             severity=self.severity,
             type=self.type,
+            category="consistency_violation",
             description=self.description,
             evidence=[AuditEvidence(source=str(self.source), quote=self.quote)],
             suggested_fix=self.suggested_fix,

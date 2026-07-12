@@ -29,11 +29,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--skip-build", action="store_true", help="Skip build and twine checks.")
     parser.add_argument("--keep-going", action="store_true", help="Continue after a failed check.")
-    parser.add_argument(
-        "--strict-mypy",
-        action="store_true",
-        help="Compatibility flag; mypy is always a blocking check.",
-    )
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without running them.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable output.")
     args = parser.parse_args(argv)

@@ -104,7 +104,7 @@ def test_developer_docs_cover_memory_search_errors_and_tools() -> None:
         "/api/usage",
         "_get_routes()",
         "_post_routes()",
-        "--strict-mypy",
+        "mypy 始终是阻断式检查",
         "mypy src scripts",
         "Agent 输出不合约",
         "ProviderError",

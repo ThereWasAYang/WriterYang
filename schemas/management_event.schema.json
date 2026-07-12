@@ -1,5 +1,5 @@
 {
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

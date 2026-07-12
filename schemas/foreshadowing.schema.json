@@ -1,7 +1,7 @@
 {
   "$defs": {
     "ForeshadowingThread": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -117,7 +117,7 @@
       "type": "object"
     },
     "PlannedPayoff": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "chapter": {
           "minimum": 1,
@@ -137,7 +137,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

@@ -82,6 +82,8 @@ def save_chapter_candidate(
         kind=ArtifactKind.CANDIDATE,
         content=(content.rstrip() + "\n").encode("utf-8"),
         suffix=".md",
+        authority="user",
+        policy_version="user-editor-v3",
     )
     output_path = root / output_ref.path
     record = RevisionRecord(

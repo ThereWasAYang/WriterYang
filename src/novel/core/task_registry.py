@@ -117,7 +117,7 @@ TASK_REGISTRY: dict[TaskId, TaskDefinition] = {
         ProfileId.SCRIBE,
         "polish_system",
         ArtifactKind.CANDIDATE,
-        ("approved_plan", "candidate", "canonical"),
+        ("canonical", "approved_plan", "accepted_chapter", "chapter_memory", "candidate"),
         (ArtifactKind.CANDIDATE,),
         "medium",
         "polish_reveal_guard",
@@ -128,8 +128,16 @@ TASK_REGISTRY: dict[TaskId, TaskDefinition] = {
         ProfileId.SCRIBE,
         "segment_revision_system",
         ArtifactKind.SEGMENT_PATCH,
-        ("authorized_candidate", "segment_selection", "user_instruction"),
-        (ArtifactKind.SEGMENT_PATCH,),
+        (
+            "canonical",
+            "approved_plan",
+            "accepted_chapter",
+            "chapter_memory",
+            "authorized_candidate",
+            "segment_selection",
+            "user_instruction",
+        ),
+        (ArtifactKind.SEGMENT_PATCH, ArtifactKind.CANDIDATE),
         "high",
         "revision_reveal_guard",
         "authorized_patch",
@@ -139,7 +147,7 @@ TASK_REGISTRY: dict[TaskId, TaskDefinition] = {
         ProfileId.ARCHITECT,
         "audit_system",
         ArtifactKind.AUDIT,
-        ("candidate", "approved_plan", "canonical", "accepted_chapter", "chapter_memory"),
+        ("canonical", "approved_plan", "accepted_chapter", "chapter_memory", "workflow", "candidate"),
         (ArtifactKind.AUDIT,),
         "medium",
         "audit_single_candidate",
@@ -150,7 +158,7 @@ TASK_REGISTRY: dict[TaskId, TaskDefinition] = {
         ProfileId.CLERK,
         "state_update_system",
         ArtifactKind.STATE_PROPOSAL,
-        ("candidate", "passed_audit", "canonical"),
+        ("canonical", "approved_plan", "accepted_chapter", "chapter_memory", "workflow", "candidate", "passed_audit"),
         (ArtifactKind.STATE_PROPOSAL,),
         "high",
         "state_commit_ready",
@@ -194,6 +202,15 @@ TASK_REGISTRY: dict[TaskId, TaskDefinition] = {
 
 def task_definition(task_id: TaskId | str) -> TaskDefinition:
     return TASK_REGISTRY[TaskId(task_id)]
+
+
+def require_task_write_permission(task_id: TaskId | str, kind: ArtifactKind) -> TaskDefinition:
+    definition = task_definition(task_id)
+    if kind not in definition.writable_artifacts:
+        raise PermissionError(
+            f"task {definition.task_id.value} cannot write artifact kind {kind.value}"
+        )
+    return definition
 
 
 AGENT_TASK_IDS: dict[str, TaskId] = {

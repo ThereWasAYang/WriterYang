@@ -1,7 +1,7 @@
 {
   "$defs": {
     "AuditRecallConfig": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "default": true,
@@ -27,7 +27,7 @@
       "type": "object"
     },
     "CanonDriftConfig": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "default": true,
@@ -39,7 +39,7 @@
       "type": "object"
     },
     "ChapterMemoryConfig": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "default": true,
@@ -68,7 +68,7 @@
       "type": "object"
     },
     "ContextBudgetConfig": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "default": false,
@@ -103,7 +103,7 @@
       "type": "object"
     },
     "Narration": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "pov": {
           "title": "Pov",
@@ -122,7 +122,7 @@
       "type": "object"
     },
     "PolishConfig": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "mode": {
           "default": "single_pass",
@@ -139,7 +139,7 @@
       "type": "object"
     },
     "TargetLength": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "type": {
           "anyOf": [
@@ -171,7 +171,7 @@
       "type": "object"
     },
     "WebConfig": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "default_port": {
           "default": 8765,
@@ -185,7 +185,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

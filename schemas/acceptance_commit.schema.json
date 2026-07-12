@@ -82,6 +82,11 @@
       "title": "Session Id",
       "type": "string"
     },
+    "transaction_id": {
+      "pattern": "^tx_[0-9a-f]{32}$",
+      "title": "Transaction Id",
+      "type": "string"
+    },
     "chapter_number": {
       "minimum": 1,
       "title": "Chapter Number",
@@ -137,6 +142,7 @@
   "required": [
     "commit_id",
     "session_id",
+    "transaction_id",
     "chapter_number",
     "candidate",
     "audit",

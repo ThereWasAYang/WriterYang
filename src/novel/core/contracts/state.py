@@ -44,6 +44,7 @@ class AcceptanceStatus(StrEnum):
 class AcceptanceCommit(SchemaV3Model):
     commit_id: str = Field(pattern=r"^accept_[0-9a-f]{32}$")
     session_id: str = Field(min_length=1)
+    transaction_id: str = Field(pattern=r"^tx_[0-9a-f]{32}$")
     chapter_number: int = Field(ge=1)
     candidate: ArtifactRef
     audit: ArtifactRef

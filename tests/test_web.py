@@ -19,7 +19,9 @@ from novel.core.contracts import (
     AuditBinding,
     ChapterLifecycle,
     StateProposalBinding,
+    TaskId,
 )
+from novel.core.contracts.sessions import ChapterNodeState, ChapterNodeStatus, SessionPhase
 from novel.core.io import atomic_write_model_json, load_json_model, load_yaml
 from novel.core.planning import default_mock_chapter_plan_json
 from novel.core.provider_config import resolve_agent_config
@@ -58,6 +60,20 @@ def _frontend_js() -> str:
         assert asset is not None, script_path
         chunks.append(asset[0].decode("utf-8"))
     return "\n".join(chunks)
+
+
+def _reviewable_chapter_runs(*chapter_numbers: int) -> dict[int, ChapterNodeState]:
+    return {
+        chapter_number: ChapterNodeState(
+            chapter_number=chapter_number,
+            plan=ChapterNodeStatus.COMPLETED,
+            write=ChapterNodeStatus.COMPLETED,
+            polish=ChapterNodeStatus.COMPLETED,
+            audit=ChapterNodeStatus.COMPLETED,
+            state_update=ChapterNodeStatus.COMPLETED,
+        )
+        for chapter_number in chapter_numbers
+    }
 
 
 def test_api_status_endpoint(tmp_path: Path) -> None:
@@ -1267,7 +1283,7 @@ def test_api_session_start_endpoint_creates_outline(tmp_path: Path) -> None:
     assert status == 200
     assert payload["ok"] is True
     session = payload["data"]["session"]  # type: ignore[index]
-    assert session["status"] == "outline_proposed"
+    assert session["phase"] == "awaiting_outline_approval"
     assert (root / "memory" / "sessions" / session["session_id"] / "outline_proposal.md").is_file()
 
     outline_rel = f"memory/sessions/{session['session_id']}/outline_proposal.md"
@@ -1293,7 +1309,7 @@ def test_api_session_start_endpoint_creates_outline(tmp_path: Path) -> None:
     )
 
     assert approve_status == 200
-    assert approve_payload["data"]["session"]["outline_status"] == "approved"  # type: ignore[index]
+    assert approve_payload["data"]["session"]["phase"] == "ready_to_run"  # type: ignore[index]
     assert approved_read_status == 200
     assert approved_read_payload["data"]["path"] == approved_rel  # type: ignore[index]
     assert "# Creation Session" in approved_read_payload["data"]["content"]  # type: ignore[index]
@@ -1397,7 +1413,7 @@ def test_api_session_approve_promotes_plan_and_respects_force(tmp_path: Path) ->
     promoted_plan = json.loads((chapter_dir / "plan.json").read_text(encoding="utf-8"))
 
     assert approve_status == 200
-    assert approve_payload["data"]["session"]["outline_status"] == "approved"  # type: ignore[index]
+    assert approve_payload["data"]["session"]["phase"] == "ready_to_run"  # type: ignore[index]
     assert approved_outline["chapters"][0]["plan_path"] == "memory/chapters/001/plan.json"
     assert promoted_plan["title"] != "旧正式计划"
     assert list(chapter_dir.glob("plan.json.bak_*"))
@@ -1451,7 +1467,7 @@ def test_api_session_latest_prefers_generated_session_and_handles_empty_project(
     assert newer_outline_status == 200
     assert latest_status == 200
     assert latest_payload["data"]["session"]["session_id"] == generated_session_id  # type: ignore[index]
-    assert latest_payload["data"]["session"]["content_status"] == "needs_user_review"  # type: ignore[index]
+    assert latest_payload["data"]["session"]["phase"] == "awaiting_content_review"  # type: ignore[index]
     assert newest_status == 200
     assert newest_payload["data"]["session"]["session_id"] == newer_outline_id  # type: ignore[index]
 
@@ -2619,9 +2635,8 @@ def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: P
         session_id=session_id,
         chapter_range=[1],
         user_intent="写第1章",
-        status="needs_user_review",
-        outline_status="approved",
-        content_status="needs_user_review",
+        phase=SessionPhase.AWAITING_CONTENT_REVIEW,
+        chapter_runs=_reviewable_chapter_runs(1),
         approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
         final_output_paths=["memory/chapters/001/polished.md"],
         created_at=now,
@@ -2961,7 +2976,7 @@ def test_frontend_basic_render() -> None:
     assert 'id="refreshFtsIndex"' in html
     assert 'id="refreshEmbeddingIndex"' in html
     assert 'id="useSearchContext"' in html
-    assert 'id="useVectorContext"' in html
+    assert 'id="useVectorContext"' not in html
     assert 'id="forceWrites"' in html
     assert 'id="planChapter"' not in html
     assert 'id="writeChapter"' not in html
@@ -3076,7 +3091,7 @@ def test_frontend_basic_render() -> None:
     assert "Embedding API 已保存，但语义向量索引刷新失败" in app_js
     assert "vectorContextMode" in html
     assert "vector_context" in app_js
-    assert "use_vector_context" in app_js
+    assert "use_vector_context" not in app_js
     assert "autoPolish" in html
     assert 'polish_mode: $("autoPolish").checked ? "auto" : "single_pass"' in app_js
     assert "当前无法使用基于 embedding 的语义检索" in app_js
@@ -3184,9 +3199,8 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
         session_id=session_id,
         chapter_range=[1],
         user_intent="写第1章",
-        status="needs_revision",
-        outline_status="approved",
-        content_status="needs_revision",
+        phase=SessionPhase.AWAITING_CONTENT_REVIEW,
+        chapter_runs=_reviewable_chapter_runs(1),
         approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
         created_at=now,
         updated_at=now,
@@ -3268,9 +3282,8 @@ def test_api_session_audit_summary_does_not_translate_old_english_audit_descript
         session_id=session_id,
         chapter_range=[1],
         user_intent="写第1章",
-        status="needs_revision",
-        outline_status="approved",
-        content_status="needs_revision",
+        phase=SessionPhase.AWAITING_CONTENT_REVIEW,
+        chapter_runs=_reviewable_chapter_runs(1),
         approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
         created_at=now,
         updated_at=now,
@@ -3297,9 +3310,8 @@ def test_api_session_rewrite_events_returns_summary_and_snapshot_path(tmp_path: 
         session_id=session_id,
         chapter_range=[1],
         user_intent="写第1章",
-        status="needs_revision",
-        outline_status="approved",
-        content_status="needs_revision",
+        phase=SessionPhase.AWAITING_CONTENT_REVIEW,
+        chapter_runs=_reviewable_chapter_runs(1),
         approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
         created_at=now,
         updated_at=now,
@@ -3377,9 +3389,8 @@ def test_api_session_rewrite_control_endpoints_pass_event_id(tmp_path: Path, mon
         session_id=session_id,
         chapter_range=[1],
         user_intent="写第1章",
-        status="needs_revision",
-        outline_status="approved",
-        content_status="needs_revision",
+        phase=SessionPhase.AWAITING_CONTENT_REVIEW,
+        chapter_runs=_reviewable_chapter_runs(1),
         approved_outline_path=f"memory/sessions/{session_id}/approved_outline.json",
         created_at=now,
         updated_at=now,
@@ -3690,6 +3701,7 @@ def _write_test_acceptance_lineage(root: Path, chapter_number: int, chapter_dir:
         chapter_number=chapter_number,
         kind=ArtifactKind.PLAN,
         source=chapter_dir / "plan.json",
+        producer_task_id=TaskId.PLAN,
     )
     candidate_content = (chapter_dir / "polished.md").read_bytes()
     candidate = store.create(
@@ -3697,6 +3709,8 @@ def _write_test_acceptance_lineage(root: Path, chapter_number: int, chapter_dir:
         kind=ArtifactKind.CANDIDATE,
         content=candidate_content,
         suffix=".md",
+        producer_task_id=TaskId.POLISH,
+        inputs=[plan],
     )
     audit_content = (
         json.dumps(
@@ -3719,22 +3733,29 @@ def _write_test_acceptance_lineage(root: Path, chapter_number: int, chapter_dir:
         kind=ArtifactKind.AUDIT,
         content=audit_content,
         suffix=".json",
+        producer_task_id=TaskId.AUDIT,
+        inputs=[candidate, plan],
     )
     proposal = store.create(
         chapter_number=chapter_number,
         kind=ArtifactKind.STATE_PROPOSAL,
         content=b"{}\n",
         suffix=".json",
+        producer_task_id=TaskId.STATE_UPDATE,
+        inputs=[candidate, audit],
     )
     memory = store.create(
         chapter_number=chapter_number,
         kind=ArtifactKind.CHAPTER_MEMORY,
         content=b"{}\n",
         suffix=".json",
+        producer_task_id=TaskId.CHAPTER_MEMORY,
+        inputs=[candidate, audit, proposal],
     )
     snapshot_hash = "0" * 64
     acceptance = AcceptanceCommit(
         commit_id=f"accept_{uuid.uuid4().hex}",
+        transaction_id=f"tx_{uuid.uuid4().hex}",
         session_id="session_20260523_000000_000001",
         chapter_number=chapter_number,
         candidate=candidate,
@@ -3754,6 +3775,8 @@ def _write_test_acceptance_lineage(root: Path, chapter_number: int, chapter_dir:
         kind=ArtifactKind.ACCEPTANCE,
         content=acceptance_content,
         suffix=".json",
+        authority="deterministic",
+        inputs=[candidate, audit, proposal, memory],
     )
     write_lifecycle(
         root,
@@ -3775,6 +3798,7 @@ def _write_test_acceptance_lineage(root: Path, chapter_number: int, chapter_dir:
                 base_timeline_sha256=snapshot_hash,
             ),
             active_acceptance=acceptance_ref,
+            lineages=[store.load_lineage(ref) for ref in (plan, candidate, audit, proposal, memory, acceptance_ref)],
             updated_at=utc_now(),
         ),
     )

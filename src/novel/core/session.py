@@ -5,12 +5,19 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+from typing import Callable
 import yaml
 
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.artifact_store import capture_working_chapter
 from novel.core.budget import consume_auto_revision_round
-from novel.core.contracts import SessionProjection
+from novel.core.contracts import (
+    ChapterNodeState,
+    ChapterNodeStatus,
+    SessionPhase,
+    SessionProjection,
+    validate_session_transition,
+)
 from novel.core.drafting import ChapterDraftingOptions, load_drafting_provider, write_chapter_draft
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.lifecycle import LifecycleError, commit_creation_session
@@ -19,7 +26,7 @@ from novel.core.orchestrator import route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
 from novel.core.polishing import read_markdown_with_front_matter
-from novel.core.projection import advance_projection, initialize_projection, projection_dir
+from novel.core.projection import advance_projection, initialize_projection, projection_dir, projection_paths
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
 from novel.core.runtime_config import normalize_polish_mode, project_polish_mode
 from novel.core.security import redact_secret_text
@@ -165,6 +172,51 @@ class _TransactionAttempt:
     backup_path: Path | None = None
 
 
+def _validated_session_copy(session: CreationSession, **updates: object) -> CreationSession:
+    payload = session.model_dump(mode="python")
+    payload.update(updates)
+    return CreationSession.model_validate(payload)
+
+
+def _transition_session(
+    session: CreationSession,
+    target: SessionPhase,
+    **updates: object,
+) -> CreationSession:
+    validate_session_transition(session.phase, target)
+    return _validated_session_copy(
+        session,
+        phase=target,
+        updated_at=utc_now(),
+        **updates,
+    )
+
+
+def _set_chapter_node(
+    session: CreationSession,
+    chapter_number: int,
+    node: str,
+    status: ChapterNodeStatus,
+    *,
+    last_completed_node: str | None = None,
+) -> CreationSession:
+    current = session.chapter_runs[chapter_number]
+    if node not in ChapterNodeState.model_fields:
+        raise CreationSessionError(f"unknown chapter node: {node}")
+    run_payload = current.model_dump(mode="python")
+    run_payload[node] = status
+    run = ChapterNodeState.model_validate(run_payload)
+    chapter_runs = dict(session.chapter_runs)
+    chapter_runs[chapter_number] = run
+    return _validated_session_copy(
+        session,
+        chapter_runs=chapter_runs,
+        last_completed_node=last_completed_node or session.last_completed_node,
+        failure_node=None if status is not ChapterNodeStatus.FAILED else node,
+        updated_at=utc_now(),
+    )
+
+
 def start_session(options: SessionStartOptions) -> SessionResult:
     root = options.root.resolve()
     _validate_chapters(options.chapter_range)
@@ -174,9 +226,11 @@ def start_session(options: SessionStartOptions) -> SessionResult:
         session_id=session_id,
         chapter_range=list(options.chapter_range),
         user_intent=options.user_intent.strip(),
-        status="drafting_intent",
-        outline_status="draft",
-        content_status="not_started",
+        phase=SessionPhase.DRAFTING_OUTLINE,
+        chapter_runs={
+            chapter_number: ChapterNodeState(chapter_number=chapter_number)
+            for chapter_number in options.chapter_range
+        },
         created_at=utc_now(),
         updated_at=utc_now(),
     )
@@ -215,12 +269,22 @@ def revise_outline(options: SessionInstructionOptions) -> SessionResult:
     root = options.root.resolve()
     session = load_session(root, options.session_id)
     _ensure_session_mutable(root, session)
-    if session.status == "archived":
-        raise CreationSessionError("archived sessions cannot be revised")
+    if session.phase not in {SessionPhase.AWAITING_OUTLINE_APPROVAL, SessionPhase.READY_TO_RUN}:
+        raise CreationSessionError(f"outline cannot be revised from phase {session.phase.value}")
+    if session.phase is SessionPhase.READY_TO_RUN:
+        session = _transition_session(
+            session,
+            SessionPhase.DRAFTING_OUTLINE,
+            approved_outline_path=None,
+            chapter_runs={
+                number: ChapterNodeState(chapter_number=number)
+                for number in session.chapter_range
+            },
+        )
     if not options.instruction or not options.instruction.strip():
         raise CreationSessionError("outline revision requires --instruction")
     merged_intent = f"{session.user_intent}\n\n用户对大纲的修改意见：{options.instruction.strip()}"
-    session = session.model_copy(update={"user_intent": merged_intent, "updated_at": utc_now()})
+    session = _validated_session_copy(session, user_intent=merged_intent, updated_at=utc_now())
     session = _write_outline_proposal(
         root,
         session,
@@ -239,6 +303,8 @@ def approve_outline(options: SessionActionOptions) -> SessionResult:
     root = options.root.resolve()
     session = load_session(root, options.session_id)
     _ensure_session_mutable(root, session)
+    if session.phase is not SessionPhase.AWAITING_OUTLINE_APPROVAL:
+        raise CreationSessionError(f"outline cannot be approved from phase {session.phase.value}")
     proposal_json = _session_dir(root, session.session_id) / "outline_proposal.json"
     proposal_md = _session_dir(root, session.session_id) / "outline_proposal.md"
     if not proposal_json.exists() or not proposal_md.exists():
@@ -249,13 +315,16 @@ def approve_outline(options: SessionActionOptions) -> SessionResult:
     _refuse_existing(approved_json, options.force)
     _refuse_existing(approved_md, options.force)
     approved_outline, writes = _prepare_promoted_outline_plan_writes(root, proposal, force=options.force)
-    session = session.model_copy(
-        update={
-            "status": "outline_approved",
-            "outline_status": "approved",
-            "approved_outline_path": _rel(root, approved_json),
-            "updated_at": utc_now(),
-        }
+    approved_runs = {
+        chapter_number: run.model_copy(update={"plan": ChapterNodeStatus.COMPLETED})
+        for chapter_number, run in session.chapter_runs.items()
+    }
+    session = _transition_session(
+        session,
+        SessionPhase.READY_TO_RUN,
+        approved_outline_path=_rel(root, approved_json),
+        chapter_runs=approved_runs,
+        last_completed_node="outline_approval",
     )
     approval_backup_reason = "force" if options.force else None
     writes.extend(
@@ -285,18 +354,19 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     root = options.root.resolve()
     session = load_session(root, options.session_id)
     _ensure_session_mutable(root, session)
-    if session.outline_status != "approved" or session.status in {"drafting_intent", "outline_proposed"}:
-        raise CreationSessionError("approve the outline before running content generation")
-    if _session_has_generated_content(session):
+    if session.phase not in {SessionPhase.READY_TO_RUN, SessionPhase.FAILED_RECOVERABLE}:
+        if session.phase is SessionPhase.AWAITING_OUTLINE_APPROVAL:
+            raise CreationSessionError("approve the outline before running content generation")
+        if session.phase is SessionPhase.AWAITING_CONTENT_REVIEW:
+            raise CreationSessionError("session content is already generated and awaiting review")
+        raise CreationSessionError(f"session cannot run content generation from phase {session.phase.value}")
+    if session.phase is SessionPhase.FAILED_RECOVERABLE and session.failure_node and session.failure_node.startswith(
+        "revision"
+    ):
+        raise CreationSessionError("resume this failed revision with the matching revision command")
+    if session.phase is SessionPhase.READY_TO_RUN and _session_has_generated_content(session):
         raise CreationSessionError(
             "session content is already generated; review, revise, accept, or archive it instead of running content generation"
-        )
-    if session.status not in {"outline_approved", "generating"} or session.content_status not in {
-        "not_started",
-        "generating",
-    }:
-        raise CreationSessionError(
-            f"session cannot run content generation from status {session.status}/{session.content_status}"
         )
     projection = initialize_projection(root, session.session_id)
     world_state_dir = projection_dir(root, session.session_id)
@@ -304,18 +374,53 @@ def run_session(options: SessionRunOptions) -> SessionResult:
     max_rounds = options.max_auto_revision_rounds
     if max_rounds is None:
         max_rounds = session.max_auto_revision_rounds
-    session = session.model_copy(
-        update={"status": "generating", "content_status": "generating", "updated_at": utc_now()}
+    session = _transition_session(
+        session,
+        SessionPhase.RUNNING,
+        failure_node=None,
+        failure_message=None,
+        resume_count=session.resume_count + (1 if session.phase is SessionPhase.FAILED_RECOVERABLE else 0),
     )
     _write_session(root, session)
     _start_session_progress(root, session.session_id, message="Session 写作任务已开始。")
 
-    final_outputs: list[str] = []
-    audits: list[str] = []
-    revisions: list[str] = []
+    final_outputs: list[str] = list(session.final_output_paths)
+    audits: list[str] = list(session.audit_history)
+    revisions: list[str] = list(session.revision_history)
+    active_chapter: int | None = None
+    active_node: str | None = None
+
+    def update_node(chapter_number: int, node: str, status: ChapterNodeStatus) -> None:
+        nonlocal session, active_node
+        active_node = node
+        completed_name = f"chapter:{chapter_number}:{node}" if status is ChapterNodeStatus.COMPLETED else None
+        session = _set_chapter_node(
+            session,
+            chapter_number,
+            node,
+            status,
+            last_completed_node=completed_name,
+        )
+        _write_session(root, session)
     try:
         _raise_if_session_cancel_requested(root, session)
         for chapter_number in session.chapter_range:
+            active_chapter = chapter_number
+            if any(item.chapter_number == chapter_number for item in projection.checkpoints):
+                if session.chapter_runs[chapter_number].state_update is not ChapterNodeStatus.COMPLETED:
+                    update_node(chapter_number, "state_update", ChapterNodeStatus.COMPLETED)
+                continue
+            if session.chapter_runs[chapter_number].state_update is ChapterNodeStatus.COMPLETED:
+                continue
+
+            def chapter_node_callback(
+                node: str,
+                status: ChapterNodeStatus,
+                *,
+                selected_chapter: int = chapter_number,
+            ) -> None:
+                update_node(selected_chapter, node, status)
+
             _record_session_progress(
                 root,
                 session.session_id,
@@ -331,23 +436,22 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 chapter_number,
                 session,
                 options.provider_name,
-                force=options.force,
+                force=options.force or session.resume_count > 0,
                 use_search_context=options.use_search_context,
                 use_vector_context=options.use_vector_context,
                 polish_mode=options.polish_mode,
                 world_state_dir=world_state_dir,
+                chapter_run=session.chapter_runs[chapter_number],
+                node_callback=chapter_node_callback,
             )
             if generated_audit is False:
                 final_outputs.append(_rel(root, _chapter_dir(root, chapter_number) / "draft.md"))
-                session = session.model_copy(
-                    update={
-                        "status": "needs_revision",
-                        "content_status": "needs_user_review",
-                        "final_output_paths": final_outputs,
-                        "audit_history": [*session.audit_history, *audits],
-                        "revision_history": [*session.revision_history, *revisions],
-                        "updated_at": utc_now(),
-                    }
+                session = _transition_session(
+                    session,
+                    SessionPhase.AWAITING_CONTENT_REVIEW,
+                    final_output_paths=list(dict.fromkeys(final_outputs)),
+                    audit_history=list(dict.fromkeys(audits)),
+                    revision_history=list(dict.fromkeys(revisions)),
                 )
                 _write_session(root, session)
                 _record_session_progress(
@@ -523,15 +627,12 @@ def run_session(options: SessionRunOptions) -> SessionResult:
             audits.append(_rel(root, audit_path))
             final_outputs.append(_rel(root, _chapter_dir(root, chapter_number) / "polished.md"))
             if _has_hard_issues(audit_report):
-                session = session.model_copy(
-                    update={
-                        "status": "needs_revision",
-                        "content_status": "needs_revision",
-                        "final_output_paths": final_outputs,
-                        "audit_history": [*session.audit_history, *audits],
-                        "revision_history": [*session.revision_history, *revisions],
-                        "updated_at": utc_now(),
-                    }
+                session = _transition_session(
+                    session,
+                    SessionPhase.AWAITING_CONTENT_REVIEW,
+                    final_output_paths=list(dict.fromkeys(final_outputs)),
+                    audit_history=list(dict.fromkeys(audits)),
+                    revision_history=list(dict.fromkeys(revisions)),
                 )
                 _write_session(root, session)
                 _record_session_progress(
@@ -556,6 +657,7 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 chapter_number=chapter_number,
             )
             _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
+            update_node(chapter_number, "state_update", ChapterNodeStatus.RUNNING)
             _propose_state(
                 root,
                 chapter_number,
@@ -567,17 +669,15 @@ def run_session(options: SessionRunOptions) -> SessionResult:
                 world_state_dir=world_state_dir,
             )
             projection = _capture_and_advance_projection(root, session, chapter_number, projection)
+            update_node(chapter_number, "state_update", ChapterNodeStatus.COMPLETED)
             _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
 
-        session = session.model_copy(
-            update={
-                "status": "needs_user_review",
-                "content_status": "needs_user_review",
-                "final_output_paths": final_outputs,
-                "audit_history": [*session.audit_history, *audits],
-                "revision_history": [*session.revision_history, *revisions],
-                "updated_at": utc_now(),
-            }
+        session = _transition_session(
+            session,
+            SessionPhase.AWAITING_CONTENT_REVIEW,
+            final_output_paths=list(dict.fromkeys(final_outputs)),
+            audit_history=list(dict.fromkeys(audits)),
+            revision_history=list(dict.fromkeys(revisions)),
         )
         _write_session(root, session)
         _record_session_progress(
@@ -602,6 +702,23 @@ def run_session(options: SessionRunOptions) -> SessionResult:
             message=str(exc) or "Session 任务已取消。",
         )
     except Exception as exc:
+        if active_chapter is not None and active_node in ChapterNodeState.model_fields:
+            session = _set_chapter_node(
+                session,
+                active_chapter,
+                active_node,
+                ChapterNodeStatus.FAILED,
+            )
+        session = _transition_session(
+            session,
+            SessionPhase.FAILED_RECOVERABLE,
+            failure_node=(f"chapter:{active_chapter}:{active_node}" if active_chapter and active_node else "session.run"),
+            failure_message=redact_secret_text(str(exc)),
+            final_output_paths=list(dict.fromkeys(final_outputs)),
+            audit_history=list(dict.fromkeys(audits)),
+            revision_history=list(dict.fromkeys(revisions)),
+        )
+        _write_session(root, session)
         _record_session_progress(
             root,
             session.session_id,
@@ -613,23 +730,57 @@ def run_session(options: SessionRunOptions) -> SessionResult:
         raise
 
 
-def revise_content(options: SessionInstructionOptions) -> SessionResult:
+def _revise_content_impl(options: SessionInstructionOptions) -> SessionResult:
     root = options.root.resolve()
     session = load_session(root, options.session_id)
     _ensure_session_mutable(root, session)
-    if session.content_status not in {"needs_user_review", "needs_revision"}:
+    recoverable_revision = (
+        session.phase is SessionPhase.FAILED_RECOVERABLE
+        and bool(session.failure_node and session.failure_node.startswith("revision"))
+    )
+    if session.phase is not SessionPhase.AWAITING_CONTENT_REVIEW and not recoverable_revision:
         raise CreationSessionError("content can be revised only after generation has produced reviewable content")
     if not options.from_audit and not (options.instruction and options.instruction.strip()):
         raise CreationSessionError("content revision requires --instruction or --from-audit")
     route_record = _resolve_content_revision_route(root, session, options)
     route = route_record.decision
+    if route.route == "manual_review":
+        raise CreationSessionError(
+            "revision routing confidence is insufficient; clarify whether this is a plot replan, full rewrite, or scoped patch"
+        )
+    authorized_chapters = sorted(set(route.chapter_numbers))
+    if not authorized_chapters:
+        raise CreationSessionError("revision route must authorize at least one chapter")
+    unauthorized = sorted(set(authorized_chapters) - set(session.chapter_range))
+    if unauthorized:
+        raise CreationSessionError(f"revision route escaped session chapter range: {unauthorized}")
+    session = _transition_session(session, SessionPhase.REVISING)
+    for chapter_number in authorized_chapters:
+        run = session.chapter_runs[chapter_number].model_copy(
+            update={
+                "write": ChapterNodeStatus.STALE,
+                "polish": ChapterNodeStatus.STALE,
+                "audit": ChapterNodeStatus.STALE,
+                "state_update": ChapterNodeStatus.STALE,
+            }
+        )
+        session = _validated_session_copy(
+            session,
+            chapter_runs={**session.chapter_runs, chapter_number: run},
+        )
+    _write_session(root, session)
     revisions: list[str] = []
-    audits: list[str] = []
-    final_outputs: list[str] = []
+    audits: list[str] = list(session.audit_history)
+    final_outputs: list[str] = list(session.final_output_paths)
     hard_issue_chapters: list[int] = []
+    protected_hashes = {
+        chapter_number: _sha256(_chapter_dir(root, chapter_number) / "polished.md")
+        for chapter_number in session.chapter_range
+        if chapter_number not in authorized_chapters
+    }
     projection = initialize_projection(root, session.session_id, force=True)
     world_state_dir = projection_dir(root, session.session_id)
-    for chapter_number in session.chapter_range:
+    for chapter_number in authorized_chapters:
         if route.route == "plot_replan":
             output_path = _replan_and_rewrite_chapter(
                 root,
@@ -668,7 +819,7 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
             )
             revisions.append(_rel(root, result.output_path))
             output_path = _promote_revision_to_polished(root, chapter_number, result.output_path)
-        final_outputs.append(_rel(root, output_path))
+        final_outputs = _with_replaced_output(final_outputs, root, output_path)
         _retire_state_update_proposal(root, chapter_number)
         _audit_chapter_content(
             root,
@@ -682,20 +833,38 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
         )
         audit_path = _chapter_dir(root, chapter_number) / "audit.json"
         audits.append(_rel(root, audit_path))
+        run = session.chapter_runs[chapter_number].model_copy(
+            update={
+                "write": ChapterNodeStatus.COMPLETED,
+                "polish": ChapterNodeStatus.COMPLETED,
+                "audit": ChapterNodeStatus.COMPLETED,
+            }
+        )
+        session = _validated_session_copy(
+            session,
+            chapter_runs={**session.chapter_runs, chapter_number: run},
+            last_completed_node=f"chapter:{chapter_number}:audit",
+        )
+        _write_session(root, session)
         if _has_hard_issues(_load_audit(root, chapter_number)):
             hard_issue_chapters.append(chapter_number)
 
+    changed_outside_scope = [
+        chapter_number
+        for chapter_number, expected_hash in protected_hashes.items()
+        if _sha256(_chapter_dir(root, chapter_number) / "polished.md") != expected_hash
+    ]
+    if changed_outside_scope:
+        raise CreationSessionError(f"revision changed chapters outside authorized scope: {changed_outside_scope}")
+
     if hard_issue_chapters:
-        session = session.model_copy(
-            update={
-                "status": "needs_revision",
-                "content_status": "needs_revision",
-                "revision_history": [*session.revision_history, *revisions],
-                "revision_route_history": [*session.revision_route_history, route_record],
-                "audit_history": [*session.audit_history, *audits],
-                "final_output_paths": final_outputs,
-                "updated_at": utc_now(),
-            }
+        session = _transition_session(
+            session,
+            SessionPhase.AWAITING_CONTENT_REVIEW,
+            revision_history=list(dict.fromkeys([*session.revision_history, *revisions])),
+            revision_route_history=[*session.revision_route_history, route_record],
+            audit_history=list(dict.fromkeys(audits)),
+            final_output_paths=list(dict.fromkeys(final_outputs)),
         )
         _write_session(root, session)
         chapters = ", ".join(str(number) for number in hard_issue_chapters)
@@ -706,28 +875,33 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
         )
 
     for chapter_number in session.chapter_range:
-        _propose_state(
-            root,
-            chapter_number,
-            session,
-            options.provider_name,
-            force=True,
-            use_search_context=options.use_search_context,
-            use_vector_context=options.use_vector_context,
-            world_state_dir=world_state_dir,
-        )
+        if chapter_number in authorized_chapters:
+            _propose_state(
+                root,
+                chapter_number,
+                session,
+                options.provider_name,
+                force=True,
+                use_search_context=options.use_search_context,
+                use_vector_context=options.use_vector_context,
+                world_state_dir=world_state_dir,
+            )
+            session = _set_chapter_node(
+                session,
+                chapter_number,
+                "state_update",
+                ChapterNodeStatus.COMPLETED,
+                last_completed_node=f"chapter:{chapter_number}:state_update",
+            )
         projection = _capture_and_advance_projection(root, session, chapter_number, projection)
 
-    session = session.model_copy(
-        update={
-            "status": "needs_user_review",
-            "content_status": "needs_user_review",
-            "revision_history": [*session.revision_history, *revisions],
-            "revision_route_history": [*session.revision_route_history, route_record],
-            "audit_history": [*session.audit_history, *audits],
-            "final_output_paths": final_outputs,
-            "updated_at": utc_now(),
-        }
+    session = _transition_session(
+        session,
+        SessionPhase.AWAITING_CONTENT_REVIEW,
+        revision_history=list(dict.fromkeys([*session.revision_history, *revisions])),
+        revision_route_history=[*session.revision_route_history, route_record],
+        audit_history=list(dict.fromkeys(audits)),
+        final_output_paths=list(dict.fromkeys(final_outputs)),
     )
     _write_session(root, session)
     return SessionResult(
@@ -735,6 +909,14 @@ def revise_content(options: SessionInstructionOptions) -> SessionResult:
         session_path=_session_path(root, session.session_id),
         message=f"Content revised, audited, and ready for user review. Route: {route.route}.",
     )
+
+
+def revise_content(options: SessionInstructionOptions) -> SessionResult:
+    try:
+        return _revise_content_impl(options)
+    except Exception as exc:
+        _mark_revising_session_failed(options.root, options.session_id, "revision.content", exc)
+        raise
 
 
 def _resolve_content_revision_route(
@@ -792,7 +974,7 @@ def _session_route_summary(root: Path, session: CreationSession) -> str:
     return (
         f"session_id: {session.session_id}\n"
         f"chapter_range: {session.chapter_range}\n"
-        f"status: {session.status}/{session.content_status}\n"
+        f"phase: {session.phase.value}\n"
         f"user_intent: {session.user_intent}\n"
         f"final_outputs:\n{final_outputs}\n"
         f"recent_audits:\n{latest_audits}\n"
@@ -908,11 +1090,18 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
     root = options.root.resolve()
     session = load_session(root, options.session_id)
     _ensure_session_mutable(root, session)
-    if session.content_status != "needs_user_review":
+    if session.phase not in {SessionPhase.AWAITING_CONTENT_REVIEW, SessionPhase.READY_TO_COMMIT}:
         raise CreationSessionError("session content must be ready for user review before acceptance")
+    if session.phase is SessionPhase.AWAITING_CONTENT_REVIEW:
+        session = _transition_session(session, SessionPhase.READY_TO_COMMIT)
+    session = _transition_session(session, SessionPhase.COMMITTING)
+    _write_session(root, session)
     try:
         session = commit_creation_session(root, session, _session_path(root, session.session_id))
     except (LifecycleError, TransactionError) as exc:
+        recovering = _transition_session(session, SessionPhase.RECOVERING, failure_node="acceptance", failure_message=str(exc))
+        ready = _transition_session(recovering, SessionPhase.READY_TO_COMMIT)
+        _write_session(root, ready)
         raise CreationSessionError(str(exc)) from exc
     for chapter_number in session.chapter_range:
         record_management_event(
@@ -935,10 +1124,10 @@ def accept_session(options: SessionActionOptions) -> SessionResult:
 def archive_session(options: SessionActionOptions) -> SessionResult:
     root = options.root.resolve()
     session = load_session(root, options.session_id)
-    if session.status not in {"accepted", "archived"}:
+    if session.phase not in {SessionPhase.COMMITTED, SessionPhase.ARCHIVED}:
         raise CreationSessionError("accept the session before archiving it")
     archive_dir = root / "memory" / "archive" / session.session_id
-    if archive_dir.exists() and session.status == "archived" and not options.force:
+    if archive_dir.exists() and session.phase is SessionPhase.ARCHIVED and not options.force:
         raise CreationSessionError("session is already archived")
     archive_dir.mkdir(parents=True, exist_ok=True)
     entries: list[CreationArchiveEntry] = []
@@ -964,24 +1153,30 @@ def archive_session(options: SessionActionOptions) -> SessionResult:
     if options.force:
         backup_if_exists(manifest_path, reason="archive")
     atomic_write_model_json(manifest_path, manifest)
-    session = session.model_copy(
-        update={
-            "status": "archived",
-            "content_status": "archived",
-            "archive_paths": [_rel(root, archive_dir), _rel(root, manifest_path)],
-            "updated_at": utc_now(),
-        }
-    )
+    if session.phase is SessionPhase.COMMITTED:
+        session = _transition_session(
+            session,
+            SessionPhase.ARCHIVED,
+            archive_paths=[_rel(root, archive_dir), _rel(root, manifest_path)],
+        )
+    else:
+        session = _validated_session_copy(
+            session,
+            archive_paths=[_rel(root, archive_dir), _rel(root, manifest_path)],
+            updated_at=utc_now(),
+        )
     _write_session(root, session)
     return SessionResult(
         session=session, session_path=_session_path(root, session.session_id), message="Session archived."
     )
 
 
-def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
+def _revise_audit_impl(options: SessionRewriteControlOptions) -> SessionResult:
     root, session, event = _load_rewrite_control_context(options)
     if not options.instruction or not options.instruction.strip():
         raise CreationSessionError("audit revision requires --instruction")
+    session = _prepare_rewrite_control(session, event.chapter_number)
+    _write_session(root, session)
     snapshot_path = _event_snapshot_path(root, event)
     chapter_number = event.chapter_number
     polished_path = _chapter_dir(root, chapter_number) / "polished.md"
@@ -1030,12 +1225,12 @@ def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
         use_search_context=options.use_search_context,
         use_vector_context=options.use_vector_context,
     )
-    session = session.model_copy(
-        update={
-            **status_update,
-            "audit_history": [*session.audit_history, _rel(root, audit_path)],
-            "updated_at": utc_now(),
-        }
+    session = _finish_rewrite_control(session, chapter_number, audit_report)
+    session = _transition_session(
+        session,
+        SessionPhase.AWAITING_CONTENT_REVIEW,
+        **status_update,
+        audit_history=[*session.audit_history, _rel(root, audit_path)],
     )
     _write_session(root, session)
     return SessionResult(
@@ -1043,8 +1238,10 @@ def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
     )
 
 
-def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
+def _undo_rewrite_impl(options: SessionRewriteControlOptions) -> SessionResult:
     root, session, event = _load_rewrite_control_context(options)
+    session = _prepare_rewrite_control(session, event.chapter_number)
+    _write_session(root, session)
     snapshot_path = _event_snapshot_path(root, event)
     chapter_number = event.chapter_number
     polished_path = _chapter_dir(root, chapter_number) / "polished.md"
@@ -1082,12 +1279,12 @@ def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         use_search_context=options.use_search_context,
         use_vector_context=options.use_vector_context,
     )
-    session = session.model_copy(
-        update={
-            **status_update,
-            "audit_history": [*session.audit_history, _rel(root, audit_path)],
-            "updated_at": utc_now(),
-        }
+    session = _finish_rewrite_control(session, chapter_number, audit_report)
+    session = _transition_session(
+        session,
+        SessionPhase.AWAITING_CONTENT_REVIEW,
+        **status_update,
+        audit_history=[*session.audit_history, _rel(root, audit_path)],
     )
     _write_session(root, session)
     return SessionResult(
@@ -1097,12 +1294,14 @@ def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
     )
 
 
-def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
+def _retry_rewrite_impl(options: SessionRewriteControlOptions) -> SessionResult:
     root, session, event = _load_rewrite_control_context(options)
     chapter_number = event.chapter_number
     audit_report = _load_audit(root, chapter_number)
     if not _has_hard_issues(audit_report):
         raise CreationSessionError("latest audit has no medium/high/critical issue to retry rewrite")
+    session = _prepare_rewrite_control(session, event.chapter_number)
+    _write_session(root, session)
     new_revisions: list[str] = []
     if event.action == "plot_replan":
         _retire_state_update_proposal(root, chapter_number)
@@ -1171,13 +1370,13 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         use_search_context=options.use_search_context,
         use_vector_context=options.use_vector_context,
     )
-    session = session.model_copy(
-        update={
-            **status_update,
-            "audit_history": [*session.audit_history, _rel(root, _chapter_dir(root, chapter_number) / "audit.json")],
-            "revision_history": [*session.revision_history, *new_revisions],
-            "updated_at": utc_now(),
-        }
+    session = _finish_rewrite_control(session, chapter_number, audit_report)
+    session = _transition_session(
+        session,
+        SessionPhase.AWAITING_CONTENT_REVIEW,
+        **status_update,
+        audit_history=[*session.audit_history, _rel(root, _chapter_dir(root, chapter_number) / "audit.json")],
+        revision_history=[*session.revision_history, *new_revisions],
     )
     _write_session(root, session)
     return SessionResult(
@@ -1185,6 +1384,79 @@ def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
         session_path=_session_path(root, session.session_id),
         message="Rewrite retried from latest audit.",
     )
+
+
+def revise_audit(options: SessionRewriteControlOptions) -> SessionResult:
+    return _run_rewrite_control(options, "revision.audit", _revise_audit_impl)
+
+
+def undo_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
+    return _run_rewrite_control(options, "revision.undo", _undo_rewrite_impl)
+
+
+def retry_rewrite(options: SessionRewriteControlOptions) -> SessionResult:
+    return _run_rewrite_control(options, "revision.retry", _retry_rewrite_impl)
+
+
+def _run_rewrite_control(
+    options: SessionRewriteControlOptions,
+    failure_node: str,
+    operation: Callable[[SessionRewriteControlOptions], SessionResult],
+) -> SessionResult:
+    try:
+        return operation(options)
+    except Exception as exc:
+        _mark_revising_session_failed(options.root, options.session_id, failure_node, exc)
+        raise
+
+
+def _prepare_rewrite_control(session: CreationSession, chapter_number: int) -> CreationSession:
+    session = _transition_session(session, SessionPhase.REVISING)
+    run = session.chapter_runs[chapter_number].model_copy(
+        update={
+            "polish": ChapterNodeStatus.STALE,
+            "audit": ChapterNodeStatus.STALE,
+            "state_update": ChapterNodeStatus.STALE,
+        }
+    )
+    return _validated_session_copy(session, chapter_runs={**session.chapter_runs, chapter_number: run})
+
+
+def _finish_rewrite_control(
+    session: CreationSession,
+    chapter_number: int,
+    audit_report: AuditReport,
+) -> CreationSession:
+    run = session.chapter_runs[chapter_number].model_copy(
+        update={
+            "polish": ChapterNodeStatus.COMPLETED,
+            "audit": ChapterNodeStatus.COMPLETED,
+            "state_update": (
+                ChapterNodeStatus.STALE if _has_hard_issues(audit_report) else ChapterNodeStatus.COMPLETED
+            ),
+        }
+    )
+    return _validated_session_copy(
+        session,
+        chapter_runs={**session.chapter_runs, chapter_number: run},
+        last_completed_node=f"chapter:{chapter_number}:audit",
+    )
+
+
+def _mark_revising_session_failed(root: Path, session_id: str, failure_node: str, exc: Exception) -> None:
+    try:
+        session = load_session(root.resolve(), session_id)
+        if session.phase is not SessionPhase.REVISING:
+            return
+        session = _transition_session(
+            session,
+            SessionPhase.FAILED_RECOVERABLE,
+            failure_node=failure_node,
+            failure_message=redact_secret_text(str(exc)),
+        )
+        _write_session(root.resolve(), session)
+    except Exception:
+        return
 
 
 def load_session(root: Path, session_id: str) -> CreationSession:
@@ -1207,7 +1479,7 @@ def find_latest_active_session(root: Path, prefer_generated: bool = True) -> Ses
             session = load_json_model(path, CreationSession)
         except Exception:
             continue
-        if session.status == "archived" or session.content_status == "archived":
+        if session.phase is SessionPhase.ARCHIVED:
             continue
         sessions.append(session)
     if not sessions:
@@ -1222,12 +1494,14 @@ def find_latest_active_session(root: Path, prefer_generated: bool = True) -> Ses
 
 
 def _session_has_generated_content(session: CreationSession) -> bool:
-    generated_statuses = {"needs_revision", "needs_user_review", "accepted"}
-    return (
-        bool(session.final_output_paths)
-        or session.status in generated_statuses
-        or session.content_status in generated_statuses
-    )
+    return bool(session.final_output_paths) or session.phase in {
+        SessionPhase.AWAITING_CONTENT_REVIEW,
+        SessionPhase.REVISING,
+        SessionPhase.READY_TO_COMMIT,
+        SessionPhase.COMMITTING,
+        SessionPhase.COMMITTED,
+        SessionPhase.FAILED_RECOVERABLE,
+    }
 
 
 def load_rewrite_events(root: Path, session_id: str) -> list[SessionRewriteEvent]:
@@ -1243,6 +1517,12 @@ def _load_rewrite_control_context(
     root = options.root.resolve()
     session = load_session(root, options.session_id)
     _ensure_session_mutable(root, session)
+    recoverable_revision = (
+        session.phase is SessionPhase.FAILED_RECOVERABLE
+        and bool(session.failure_node and session.failure_node.startswith("revision"))
+    )
+    if session.phase is not SessionPhase.AWAITING_CONTENT_REVIEW and not recoverable_revision:
+        raise CreationSessionError(f"rewrite control is not allowed from phase {session.phase.value}")
     event = _find_rewrite_event(root, session.session_id, options.event_id)
     return root, session, event
 
@@ -1261,8 +1541,6 @@ def _session_status_after_manual_rewrite(
 ) -> dict[str, object]:
     if _has_hard_issues(audit_report):
         return {
-            "status": "needs_revision",
-            "content_status": "needs_revision",
             "final_output_paths": _with_replaced_output(session.final_output_paths, root, final_output_path),
         }
     _retire_state_update_proposal(root, chapter_number)
@@ -1276,8 +1554,6 @@ def _session_status_after_manual_rewrite(
         use_vector_context=use_vector_context,
     )
     return {
-        "status": "needs_user_review",
-        "content_status": "needs_user_review",
         "final_output_paths": _with_replaced_output(session.final_output_paths, root, final_output_path),
     }
 
@@ -1331,13 +1607,11 @@ def _write_outline_proposal(
     session_dir = _session_dir(root, session.session_id)
     atomic_write_model_json(session_dir / "outline_proposal.json", outline)
     atomic_write_text(session_dir / "outline_proposal.md", _render_outline_markdown(outline))
-    return session.model_copy(
-        update={
-            "status": "outline_proposed",
-            "outline_status": "proposed",
-            "updated_at": utc_now(),
-        }
-    )
+    if session.phase is SessionPhase.DRAFTING_OUTLINE:
+        return _transition_session(session, SessionPhase.AWAITING_OUTLINE_APPROVAL)
+    if session.phase is not SessionPhase.AWAITING_OUTLINE_APPROVAL:
+        raise CreationSessionError(f"outline proposal cannot be written from phase {session.phase.value}")
+    return _validated_session_copy(session, updated_at=utc_now())
 
 
 def _prepare_promoted_outline_plan_writes(
@@ -1521,30 +1795,37 @@ def _generate_chapter_content(
     use_vector_context: bool | VectorContextMode,
     polish_mode: PolishMode | None = None,
     world_state_dir: Path | None = None,
+    chapter_run: ChapterNodeState | None = None,
+    node_callback: Callable[[str, ChapterNodeStatus], None] | None = None,
 ) -> bool:
     mode = _effective_session_polish_mode(root, polish_mode)
     instruction = _session_instruction(session)
-    draft_provider = load_drafting_provider(root, provider_name)
-    _record_session_progress(
-        root,
-        session.session_id,
-        status="running",
-        stage="draft",
-        message=f"正在生成第 {chapter_number} 章草稿。",
-        chapter_number=chapter_number,
-    )
-    write_chapter_draft(
-        ChapterDraftingOptions(
-            root=root,
+    run = chapter_run or ChapterNodeState(chapter_number=chapter_number)
+    notify = node_callback or (lambda _node, _status: None)
+    if run.write is not ChapterNodeStatus.COMPLETED:
+        notify("write", ChapterNodeStatus.RUNNING)
+        draft_provider = load_drafting_provider(root, provider_name)
+        _record_session_progress(
+            root,
+            session.session_id,
+            status="running",
+            stage="draft",
+            message=f"正在生成第 {chapter_number} 章草稿。",
             chapter_number=chapter_number,
-            instruction=instruction,
-            force=force,
-            use_search_context=use_search_context,
-            use_vector_context=use_vector_context,
-            world_state_dir=world_state_dir,
-        ),
-        draft_provider,
-    )
+        )
+        write_chapter_draft(
+            ChapterDraftingOptions(
+                root=root,
+                chapter_number=chapter_number,
+                instruction=instruction,
+                force=force,
+                use_search_context=use_search_context,
+                use_vector_context=use_vector_context,
+                world_state_dir=world_state_dir,
+            ),
+            draft_provider,
+        )
+        notify("write", ChapterNodeStatus.COMPLETED)
     _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
     if mode == "review_gate":
         _record_session_progress(
@@ -1556,7 +1837,8 @@ def _generate_chapter_content(
             chapter_number=chapter_number,
         )
         return False
-    if mode == "auto":
+    if run.polish is not ChapterNodeStatus.COMPLETED and mode == "auto":
+        notify("polish", ChapterNodeStatus.RUNNING)
         polish_provider = load_polishing_provider(root, provider_name)
         _record_session_progress(
             root,
@@ -1578,7 +1860,9 @@ def _generate_chapter_content(
             ),
             polish_provider,
         )
-    else:
+        notify("polish", ChapterNodeStatus.COMPLETED)
+    elif run.polish is not ChapterNodeStatus.COMPLETED:
+        notify("polish", ChapterNodeStatus.RUNNING)
         _record_session_progress(
             root,
             session.session_id,
@@ -1588,28 +1872,32 @@ def _generate_chapter_content(
             chapter_number=chapter_number,
         )
         _promote_draft_to_polished(root, chapter_number, force=force)
+        notify("polish", ChapterNodeStatus.COMPLETED)
     _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
-    audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
-    _record_session_progress(
-        root,
-        session.session_id,
-        status="running",
-        stage="audit",
-        message=f"正在审核第 {chapter_number} 章。",
-        chapter_number=chapter_number,
-    )
-    audit_chapter(
-        ChapterAuditOptions(
-            root=root,
+    if run.audit is not ChapterNodeStatus.COMPLETED:
+        notify("audit", ChapterNodeStatus.RUNNING)
+        audit_provider = load_audit_provider(root, provider_name, chapter_number=chapter_number)
+        _record_session_progress(
+            root,
+            session.session_id,
+            status="running",
+            stage="audit",
+            message=f"正在审核第 {chapter_number} 章。",
             chapter_number=chapter_number,
-            instruction=instruction,
-            force=force,
-            use_search_context=use_search_context,
-            use_vector_context=use_vector_context,
-            world_state_dir=world_state_dir,
-        ),
-        audit_provider,
-    )
+        )
+        audit_chapter(
+            ChapterAuditOptions(
+                root=root,
+                chapter_number=chapter_number,
+                instruction=instruction,
+                force=force,
+                use_search_context=use_search_context,
+                use_vector_context=use_vector_context,
+                world_state_dir=world_state_dir,
+            ),
+            audit_provider,
+        )
+        notify("audit", ChapterNodeStatus.COMPLETED)
     _raise_if_session_cancel_requested(root, session, chapter_number=chapter_number)
     return True
 
@@ -1893,11 +2181,14 @@ def _capture_and_advance_projection(
         _chapter_dir(root, chapter_number) / "state_update_proposal.json",
         StateUpdateProposal,
     )
+    base_state_path, base_timeline_path = projection_paths(root, projection)
     lifecycle = capture_working_chapter(
         root,
         chapter_number,
         base_state_sha256=projection.current_state_sha256,
         base_timeline_sha256=projection.current_timeline_sha256,
+        base_state_path=base_state_path,
+        base_timeline_path=base_timeline_path,
     )
     proposal_ref = lifecycle.active_state_proposal.proposal if lifecycle.active_state_proposal else None
     return advance_projection(
@@ -2076,18 +2367,12 @@ def _cancelled_session_result(
     revisions: list[str],
     message: str,
 ) -> SessionResult:
-    partial_outputs = _session_has_partial_outputs(root, session)
     updates: dict[str, object] = {
-        "updated_at": utc_now(),
         "final_output_paths": _merge_relative_paths(session.final_output_paths, final_outputs),
         "audit_history": [*session.audit_history, *audits],
         "revision_history": [*session.revision_history, *revisions],
     }
-    if partial_outputs or final_outputs or audits or revisions:
-        updates.update({"status": "needs_revision", "content_status": "needs_revision"})
-    else:
-        updates.update({"status": "outline_approved", "content_status": "not_started"})
-    updated = session.model_copy(update=updates)
+    updated = _transition_session(session, SessionPhase.CANCELLED, **updates)
     _write_session(root, updated)
     _record_session_progress(
         root,
@@ -2258,7 +2543,7 @@ def _load_audit(root: Path, chapter_number: int) -> AuditReport:
 
 def _ensure_session_mutable(root: Path, session: CreationSession) -> None:
     archive_dir = root / "memory" / "archive" / session.session_id
-    if session.status == "archived" or archive_dir.exists():
+    if session.phase is SessionPhase.ARCHIVED or archive_dir.exists():
         raise CreationSessionError("archived sessions are immutable; create a new revision session instead")
 
 

@@ -1,7 +1,7 @@
 {
   "$defs": {
     "CreationArchiveEntry": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "source_path": {
           "minLength": 1,
@@ -35,7 +35,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

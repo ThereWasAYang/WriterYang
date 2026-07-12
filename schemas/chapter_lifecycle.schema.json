@@ -15,6 +15,67 @@
       "title": "ArtifactKind",
       "type": "string"
     },
+    "ArtifactLineage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "output": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "workflow_run_id": {
+          "minLength": 1,
+          "title": "Workflow Run Id",
+          "type": "string"
+        },
+        "prompt_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Hash"
+        },
+        "policy_version": {
+          "minLength": 1,
+          "title": "Policy Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output",
+        "workflow_run_id",
+        "policy_version"
+      ],
+      "title": "ArtifactLineage",
+      "type": "object"
+    },
     "ArtifactRef": {
       "additionalProperties": false,
       "properties": {
@@ -128,6 +189,24 @@
       ],
       "title": "StateProposalBinding",
       "type": "object"
+    },
+    "TaskId": {
+      "enum": [
+        "inspiration",
+        "style_guide",
+        "canon",
+        "plan",
+        "write",
+        "polish",
+        "revision",
+        "audit",
+        "state_update",
+        "chapter_memory",
+        "intent_router",
+        "memory_repair"
+      ],
+      "title": "TaskId",
+      "type": "string"
     }
   },
   "additionalProperties": false,
@@ -196,6 +275,13 @@
         }
       ],
       "default": null
+    },
+    "lineages": {
+      "items": {
+        "$ref": "#/$defs/ArtifactLineage"
+      },
+      "title": "Lineages",
+      "type": "array"
     },
     "updated_at": {
       "format": "date-time",

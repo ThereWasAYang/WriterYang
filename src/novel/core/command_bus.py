@@ -288,6 +288,13 @@ def dispatch_command(envelope: CommandEnvelope) -> CommandResult:
                     request_id=envelope.request_id,
                     parent_request_id=envelope.parent_request_id,
                     session_id=_command_session_id(envelope.command),
+                    workflow_type=(
+                        "creation_session"
+                        if command_type.startswith("session.")
+                        else "revision_session"
+                        if command_type.startswith("revision.")
+                        else None
+                    ),
                 ) as runtime:
                     result = runtime.execute_node(
                         name=f"command:{command_type}",
@@ -1338,11 +1345,11 @@ def _session_command_result(envelope: CommandEnvelope, value: SessionResult) -> 
 
 
 def allowed_session_commands(session: CreationSession) -> list[str]:
-    if session.status == "outline_proposed":
+    if session.phase.value == "awaiting_outline_approval":
         return ["session.revise_outline", "session.approve_outline"]
-    if session.status == "outline_approved":
+    if session.phase.value == "ready_to_run":
         return ["session.run"]
-    if session.status in {"needs_revision", "needs_user_review"}:
+    if session.phase.value == "awaiting_content_review":
         return [
             "session.revise_content",
             "session.revise_audit",
@@ -1350,10 +1357,22 @@ def allowed_session_commands(session: CreationSession) -> list[str]:
             "session.undo_rewrite",
             "session.accept",
         ]
-    if session.status == "accepted":
+    if session.phase.value == "ready_to_commit":
+        return ["session.accept", "session.revise_content"]
+    if session.phase.value == "committed":
         return ["session.archive"]
-    if session.status in {"generating"}:
+    if session.phase.value in {"running", "revising"}:
         return ["session.cancel"]
+    if session.phase.value == "failed_recoverable":
+        if session.failure_node == "revision.content":
+            return ["session.revise_content", "session.show", "session.cancel"]
+        if session.failure_node == "revision.audit":
+            return ["session.revise_audit", "session.show", "session.cancel"]
+        if session.failure_node == "revision.retry":
+            return ["session.retry_rewrite", "session.show", "session.cancel"]
+        if session.failure_node == "revision.undo":
+            return ["session.undo_rewrite", "session.show", "session.cancel"]
+        return ["session.run", "session.show", "session.cancel"]
     return []
 
 

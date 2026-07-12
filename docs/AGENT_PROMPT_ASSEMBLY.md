@@ -386,11 +386,11 @@ Prompt 组装：
 行为：
 
 - `decide_ask_intent()` 调用 `intent_router` task provider 输出 `AskIntentDecision`，`propose_ask_command()` 再把它转换为 strict `CommandProposal`；CLI 默认不执行中高风险 proposal。
-- 模型路由不可用时只允许显式、保守、低置信度 fallback：只读查询可直接提议，创作、导出和 memory repair 仅生成 proposal；apply、accept、archive、state/timeline/canon 写入不得由 fallback 执行。
+- 模型路由不可用时只允许显式、保守 fallback：只读 status/show 可提议；带 repair ID 的请求只返回显式 `memory-repair apply` 指引；创作、导出、memory repair 与其他 mutation 不生成可执行 command。
 - 旧 `OrchestratorPlan`、handoff graph、`classify_request()` 和直接 service executor 已删除；确认后的 typed command 统一交给 Command Bus 和静态 workflow runtime。
 - dry-run 只输出 `CommandProposal`，不执行 command 或写 domain artifact；仍在 `runs/{workflow_run_id}/` 保存 proposal trace 和必要的模型 I/O 审计记录。
 - 用户对已生成内容提出修改意见时，`route_revision_request()` 调用 `intent_router` task provider 输出 `RevisionRouteDecision` JSON；路由只能是 `plot_replan`、`writer_rewrite`、`revision_patch`。
-- 路由输出解析或 Pydantic 校验失败时会 repair retry 一次；仍失败则保守 fallback 为 `writer_rewrite`，只有明确局部语句替换才 fallback 为 `revision_patch`。
+- 路由输出解析或 Pydantic 校验失败时会 repair retry 一次；仍失败固定返回 `manual_review`，不允许用关键词选择 Plot、Writer 或 Revision executor。
 - route decision 会写入 session 的 `revision_route_history`，并通过 Web UI/CLI 展示。
 - 当请求被识别为 memory repair 时，orchestrator 作为项目管家调用 `core/memory_repair/`：先生成 `MemoryRepairDecision`，再写 `MemoryRepairProposal`，不直接修改正式 memory；用户确认后通过显式 `memory-repair apply` 或结构化 `memory_repair_apply` 决策再 apply。
 - memory repair 不是创意生成。它只读取项目文件、生成白名单 JSON Pointer operations、写 proposal/apply log，并通过 `management_events.jsonl` 通知用户后台记忆刷新。
@@ -424,9 +424,11 @@ Prompt 组装：
 4. `run_session()` 默认调用 Writer，把 `draft.md` 提升为 `polished.md` 后 Audit；配置 `polish.mode=auto` 或前端开启“自动润色”时才运行 Polish Agent。medium/high/critical issue 触发自动修复循环。每次打回前先记录 `rewrite_events.json`，并保存被打回的 `polished.md` 快照。正文问题先冻结为 immutable candidate，再提升该精确 artifact 为当前 `polished.md` 后重审；连续失败或计划层问题会回退 Plot Agent 重写本章计划。
 5. `revise_audit()` 用用户纠正意见重新审核被打回原文，写入 `audit_revision_history`。
 6. `retry_rewrite()` 基于最新 audit 再次执行正文修订或重写计划；`undo_rewrite()` 恢复被打回快照并重审。
-7. `revise_content()` 处理作者反馈或 audit issue。用户反馈先由 orchestrator 编排层调用 `intent_router` task 判定：剧情级修改重写 plan 并重新 writer/polish/audit；写作实现级修改保留 plan、重写 draft/polished/audit；局部表达修改才调用 Revision Agent 生成版本稿并提升当前稿。audit 通过后重建 state proposal，仍有 medium/high/critical 时保持 `needs_revision`。
-8. `accept_session()` 应用 state update 并标记 accepted。
-9. `archive_session()` 复制本次创作文件并写 sha256 manifest。
+7. `revise_content()` 处理作者反馈或 audit issue。用户反馈先由 `intent_router` 输出 strict `RevisionRouteDecision`；执行只覆盖 `chapter_numbers` 授权子集，并在完成后校验范围外正文 hash。audit 通过后重建 state proposal，仍有阻断问题时返回内容审阅 phase。
+8. `accept_session()` 经 `ready_to_commit -> committing -> committed` 应用 state update；transaction 失败进入 `recovering` 并回到可重试提交 phase。
+9. `archive_session()` 经 `committed -> archived` 复制本次创作文件并写 sha256 manifest。
+
+`CreationSession` 不再保存 `status/outline_status/content_status`，只保存一个 `phase` 和逐章 `chapter_runs`。生成、修订、取消、恢复和归档都必须通过 transition table；失败时记录 `failure_node`，恢复命令由失败 node 决定。
 
 Session 层是用户协作入口。它可以要求用户批准大纲和最终内容；底层内部 Agent 不能直接问用户。
 

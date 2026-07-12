@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.command_bus import dispatch_command, new_command_envelope
 from novel.core.contracts import (
     SessionCommand,
     SessionStartCommand,
     Surface,
+    TaskId,
     WorkflowNodeRun,
     WorkflowDecision,
     WorkflowRun,
@@ -18,7 +21,7 @@ from novel.core.io import load_json_model
 from novel.core.orchestrator import propose_ask_command
 from novel.core.providers import LoggingModelProvider, MockProvider
 from novel.core.task_registry import prompt_registry_entry
-from novel.core.workflow_runtime import WORKFLOW_DEFINITIONS
+from novel.core.workflow_runtime import WORKFLOW_DEFINITIONS, workflow_runtime_scope
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -30,6 +33,8 @@ def test_static_workflow_definitions_cover_creation_and_revision_nodes() -> None
         "writer",
         "polish",
         "audit",
+        "route",
+        "revision",
         "state_update",
         "chapter_memory",
         "acceptance",
@@ -41,6 +46,26 @@ def test_static_workflow_definitions_cover_creation_and_revision_nodes() -> None
         "state_update",
         "acceptance",
     ]
+
+
+def test_runtime_rejects_task_not_declared_by_workflow(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    with workflow_runtime_scope(
+        root=root,
+        workflow_run_id="run_00000000000000000000000000000001",
+        command_id="cmd_00000000000000000000000000000001",
+        surface=Surface.CLI,
+        budget=default_workflow_budget(),
+        request_id="req_00000000000000000000000000000001",
+        workflow_type="revision_session",
+    ) as runtime:
+        with pytest.raises(RuntimeError, match="not authorized"):
+            runtime.execute_node(
+                name="model:canon",
+                node_type="model",
+                task_id=TaskId.CANON,
+                function=lambda: None,
+            )
 
 
 def test_command_and_model_nodes_share_trace_and_parentage(tmp_path: Path) -> None:

@@ -128,7 +128,7 @@ def _workspace_with_generated_chapter(tmp_path: Path) -> Path:
     )
     approve_outline(SessionActionOptions(root=root, session_id=started.session.session_id))
     result = run_session(SessionRunOptions(root=root, session_id=started.session.session_id, provider_name="mock"))
-    assert result.session.content_status == "needs_user_review"
+    assert result.session.phase.value == "awaiting_content_review"
     return root
 
 

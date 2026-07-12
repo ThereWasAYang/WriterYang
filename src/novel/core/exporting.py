@@ -57,6 +57,7 @@ class ExportedChapter:
     path: Path
     document: DraftDocument
     acceptance_commit_id: str
+    transaction_id: str
     candidate_artifact_id: str
     audit_artifact_id: str
     state_proposal_artifact_id: str
@@ -186,6 +187,7 @@ def collect_export_chapters(options: MarkdownExportOptions, root: Path) -> tuple
                 path=path,
                 document=document,
                 acceptance_commit_id=acceptance.commit_id,
+                transaction_id=acceptance.transaction_id,
                 candidate_artifact_id=acceptance.candidate.artifact_id,
                 audit_artifact_id=acceptance.audit.artifact_id,
                 state_proposal_artifact_id=acceptance.state_proposal.artifact_id,
@@ -287,6 +289,7 @@ def update_export_manifest(
                 accepted=True,
                 sha256=_sha256_file(chapter.path),
                 acceptance_commit_id=chapter.acceptance_commit_id,
+                transaction_id=chapter.transaction_id,
                 candidate_artifact_id=chapter.candidate_artifact_id,
                 audit_artifact_id=chapter.audit_artifact_id,
                 state_proposal_artifact_id=chapter.state_proposal_artifact_id,

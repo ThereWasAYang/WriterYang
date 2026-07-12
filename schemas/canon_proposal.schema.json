@@ -1,7 +1,7 @@
 {
   "$defs": {
     "Ability": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "name": {
           "title": "Name",
@@ -32,7 +32,7 @@
       "type": "object"
     },
     "Character": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -155,7 +155,7 @@
       "type": "object"
     },
     "ForeshadowingThread": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -271,7 +271,7 @@
       "type": "object"
     },
     "HiddenTruth": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -344,7 +344,7 @@
       "type": "object"
     },
     "Item": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -415,7 +415,7 @@
       "type": "object"
     },
     "Location": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -493,7 +493,7 @@
       "type": "object"
     },
     "LocationRule": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "anyOf": [
@@ -529,7 +529,7 @@
       "type": "object"
     },
     "PlannedPayoff": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "chapter": {
           "minimum": 1,
@@ -549,7 +549,7 @@
       "type": "object"
     },
     "PlannedReveal": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "chapter": {
           "minimum": 1,
@@ -576,7 +576,7 @@
       "type": "object"
     },
     "Relationship": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "target_id": {
           "title": "Target Id",
@@ -619,7 +619,7 @@
       "type": "object"
     },
     "Secret": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "title": "Id",
@@ -660,7 +660,7 @@
       "type": "object"
     },
     "SpecialProperty": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "description": {
           "title": "Description",
@@ -684,7 +684,7 @@
       "type": "object"
     },
     "WorldRule": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -735,7 +735,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

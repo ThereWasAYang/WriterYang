@@ -158,7 +158,7 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 ### `src/novel/cli_commands/`
 
-- `project_system.py`：`init`、`validate`、`migrate`、`schema`、`completion`、`doctor`、`status`、`usage`、`show`、`web`。
+- `project_system.py`：`init`、`validate`、`schema`、`completion`、`doctor`、`status`、`usage`、`show`、`web`。
 - `search.py`：`index`、`search`。
 - `memory.py`：`memory-repair`、`setting-change`、`chapter-memory`。
 - `orchestrator.py`：`ask`。
@@ -323,7 +323,7 @@ Core 包标记文件。当前不导出业务 API；调用方应从具体 service
 
 辅助：
 
-- `FlexibleModel`：允许模型兼容额外字段。
+- `FlexibleModel`：schema v3 持久化与领域模型基类，未知字段默认拒绝。Provider 常见低风险形状差异必须在解析边界显式归一化，不能静默透传。
 - `SchemaVersionedModel`：统一 `schema_version`。
 - `_require_unique_values()`：Pydantic validator 使用的唯一性检查。
 - `json_dumps_compact()`：紧凑 JSON 序列化。
@@ -766,10 +766,10 @@ orchestrator 项目管家修复 proposal 包，保留 `from novel.core.memory_re
 - `decide_ask_intent()` / `parse_ask_intent_decision()`：调用 `intent_router` task provider 输出 `AskIntentDecision`，作为 `novel ask` 主路径。
 - `route_revision_request()`：调用 `intent_router` task provider 输出 `RevisionRouteDecision`，用于把用户修订意见分为 `plot_replan`、`writer_rewrite`、`revision_patch`。
 - `route_audit_repair()` / `parse_audit_repair_route_decision()`：调用 `intent_router` task provider 或结构化确定性规则输出 `AuditRepairRouteDecision`，用于 Audit 后自动打回分流。
-- `parse_revision_route_decision()`：解析和归一化路由 JSON；失败时由 `route_revision_request()` repair retry 一次，仍失败则保守 fallback。
+- `parse_revision_route_decision()`：解析和归一化路由 JSON，同时拒绝未知控制字段和越权章节；失败时由 `route_revision_request()` repair retry 一次，仍失败固定转 `manual_review`。
 - `load_intent_router_provider()`：读取 `intent_router` task 配置，创建带 model I/O 日志的 provider。
 - `build_revision_route_user_prompt()`：组装修订路由判定 prompt。
-- 模型不可用时的 Ask fallback 只识别显式低风险请求并降低置信度；不存在通用 keyword classifier，也不会执行高风险动作。
+- 模型不可用时的 Ask fallback 只识别显式只读请求或给出 repair ID 的显式命令指引；不存在通用 mutation keyword classifier，也不会执行高风险动作。非只读 intent 低于 confidence gate 时不生成可执行 command。
 
 ### `core/workflow_runtime.py`
 
@@ -1012,7 +1012,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 
 ### `src/novel/core/artifact_store.py`
 
-创建不可变章节 artifact，执行 project-relative path guard、SHA-256 校验、working output 冻结和 `lifecycle.json` freshness 诊断。
+创建不可变章节 artifact，执行 project-relative path guard、Task 写权限、SHA-256 校验、working output 冻结、lineage sidecar 写入和 `lifecycle.json` freshness 诊断。Agent producer 必须使用已注册 `TaskId`；模型外写入必须显式声明 `deterministic` 或 `user` authority。
 
 ### `src/novel/core/projection.py` 与 `src/novel/core/world_state.py`
 
@@ -1024,7 +1024,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 
 ### `src/novel/core/task_registry.py`
 
-集中记录当前四个 Profile 与 Task、Prompt、输出 artifact、Context Policy、Prompt Policy、上下文权限和风险等级的映射。`prompt_registry_entry()` 生成 template/policy hash 供 WorkflowNode trace 使用；`render_profile_registry_markdown()` 是 README Profile/Task 表的单一来源。Setup 仅保留 Provider connectivity 工具，不再登记为 Agent Task。
+集中记录当前四个 Profile 与 Task、Prompt、输出 artifact、Context Policy、Prompt Policy、上下文权限和风险等级的映射。Artifact Store 调用 `require_task_write_permission()` 强制写权限，Context Policy 交叉校验 `readable_authorities`，Workflow Runtime 拒绝 definition 外 Task。`prompt_registry_entry()` 生成 template/policy hash 供 WorkflowNode 和 ArtifactLineage 使用；`render_profile_registry_markdown()` 是 README Profile/Task 表的单一来源。Setup 仅保留 Provider connectivity 工具，不再登记为 Agent Task。
 
 ### `src/novel/core/markdown_blocks.py` 与 `src/novel/core/revision_workflow.py`
 

@@ -6,7 +6,7 @@
 >
 > 文档性质：目标架构、破坏性重构策略、编码任务、测试矩阵、验收标准与实施审计记录。
 
-> 实施进度（2026-07-12）：阶段 1–9 与最终完成性审计均已落地。系统已具备 Strict Contracts、schema v3、Task/Prompt Registry、Artifact Store/freshness、Creation projection、transaction acceptance、Production/Preview 分离、独立 Segment Revision、Typed Command Bus、proposal-first Ask、Workflow Budget/Runtime、Context Authority、RevealAuthorization、Prompt/Audit Policy、统一 run/node/decision trace、metadata-first Model I/O、process identity + heartbeat lock 和 strict core mypy gate。最终审计进一步把 Inspiration、Canon、Chapter Memory、Index、Style Guide、编辑器 candidate、Provider/Embedding 配置、项目/Web 启动端口和 `schema export` 等残余写入口收敛到 typed command；Web route 不再重复持有 Command Bus 的项目锁，adapter 也不再重新导出 mutation service。旧 migration、handoff graph、keyword-only 高风险分类、flat run、编号正文版本与端到端低层 generation pipeline 已删除；本文后续任务表保留为实现审计依据。
+> 实施进度（2026-07-12）：阶段 1–9、最终完成性审计及审计遗留项闭环均已落地。Creation Session 已删除三套旧状态字段，真实执行只使用 `SessionPhase + ChapterNodeState`；Revision 章节 scope、low-confidence gate、保守 fallback、strict control contract、Task 读写权限、Workflow Task 授权、完整 Artifact Lineage、Acceptance transaction binding、固定 Audit 分类和 Prompt Policy 均已形成运行时约束。系统同时具备 schema v3、Creation projection、transaction acceptance、Production/Preview 分离、独立 Segment Revision、Typed Command Bus、Workflow Budget、统一 trace、metadata-first Model I/O、heartbeat lock 和 strict core mypy gate。旧 migration、命令别名、handoff graph、keyword-only 高风险执行分类、flat run、编号正文版本与低层 generation pipeline 均已删除；本文后续任务表保留为实现审计依据。
 
 ## 一、规划结论
 
@@ -1207,6 +1207,11 @@ Artifact Lineage + Task Registry
 ### 19.1 最终实施审计（2026-07-12）
 
 - 上述 15 项完成定义均已形成代码约束、测试或发布门禁；不存在以历史兼容为理由保留的双轨实现。
+- Creation Session 只持久化 `phase + chapter_runs`，所有 gate、运行、修订、提交、恢复、取消与归档均通过 transition table；失败节点决定唯一恢复命令。
+- Revision route 的章节集合在解析和执行两层校验，执行后重新核对范围外正文 hash；未知 control field 会被 strict schema 拒绝。
+- 非只读 Ask 低于置信度阈值时只能澄清；模型路由失败不再由关键词选择写 executor，Revision 固定转 `manual_review`。
+- Artifact Store 强制 Task 写权限，Context Policy 强制 Task 读 authority，Workflow Runtime 拒绝 definition 外 Task。
+- state/timeline snapshot、Plan、Candidate、Audit、State Proposal、Chapter Memory、Acceptance 和 Export 已形成带 workflow run、Prompt/Policy hash 与 transaction ID 的完整 DAG。
 - `PublicCommand` 对所有公开 mutation 使用 discriminator 严格区分；每个 command type 在 `COMMAND_HANDLERS` 中恰有一个 handler。
 - CLI、Web 与 Ask 只构造 command 和格式化结果。项目写锁、确认门、runtime trace、预算和领域错误映射均由 Command Bus 统一管理。
 - Web 仅为 `project.init` 保留 route 外层锁，因为目标工作区尚不存在；其余 command-backed POST route 均把锁归属交给 Command Bus。`session.cancel` 由 Command Bus 标记为受限的 unlocked runtime write。

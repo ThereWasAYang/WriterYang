@@ -61,6 +61,9 @@ class OrchestratorError(RuntimeError):
     """Raised when controlled orchestration cannot proceed safely."""
 
 
+MIN_EXECUTABLE_INTENT_CONFIDENCE = 0.65
+
+
 @dataclass(frozen=True)
 class AskCommandProposalResult:
     proposal: CommandProposal
@@ -109,6 +112,16 @@ def propose_ask_command(
                 )
                 estimated_calls = _estimate_command_model_calls(command)
                 clarification = intent.user_message if command is None else None
+                if (
+                    command is not None
+                    and not isinstance(command, ProjectStatusCommand)
+                    and intent.confidence < MIN_EXECUTABLE_INTENT_CONFIDENCE
+                ):
+                    clarification = (
+                        f"意图置信度 {intent.confidence:.2f} 低于执行阈值 "
+                        f"{MIN_EXECUTABLE_INTENT_CONFIDENCE:.2f}；请明确操作类型和范围。"
+                    )
+                    command = None
                 if command is not None and tracker.usage.model_calls + estimated_calls > budget.max_model_calls:
                     clarification = (
                         f"预计还需 {estimated_calls} 次模型调用，但 workflow 剩余预算不足；"
@@ -240,7 +253,16 @@ def decide_ask_intent(
     if not instruction:
         raise OrchestratorError("ask intent requires a non-empty request")
     if provider is None and _intent_router_uses_mock(root, provider_name):
-        return _fallback_ask_intent_decision(instruction)
+        fallback = _fallback_ask_intent_decision(instruction)
+        if fallback.task != "unknown" or _extract_repair_id(instruction):
+            return fallback
+        return AskIntentDecision(
+            task="session_start",
+            reason="explicit mock provider emits a deterministic structured creation decision",
+            chapter_range=list(_chapters_from_request(instruction) or (1,)),
+            confidence=1.0,
+            source="mock",
+        )
     route_provider = provider or load_intent_router_provider(root, provider_name)
     user_prompt = build_ask_intent_user_prompt(instruction)
     model_request = ModelRequest(
@@ -413,48 +435,9 @@ def _fallback_ask_intent_decision(request: str) -> AskIntentDecision:
             user_message=f"请使用显式命令应用 repair：novel memory-repair apply {repair_id}",
             source="fallback",
         )
-    if _contains_any(
-        text,
-        ("修复记忆", "纠正记忆", "时间线错", "状态错", "记忆错", "其实是回忆", "不是当前行动"),
-    ):
-        return AskIntentDecision(
-            task="memory_repair_suggest",
-            reason="fallback recognized an explicit memory repair request; proposal only, no apply",
-            chapter_range=list(_chapters_from_request(request)),
-            confidence=0.35,
-            source="fallback",
-        )
-    if _contains_any(text, ("导出 markdown", "导出项目", "export markdown", "export project")):
-        return AskIntentDecision(
-            task="export",
-            reason="fallback recognized an explicit export request",
-            confidence=0.4,
-            source="fallback",
-        )
-    if _contains_any(
-        text,
-        (
-            "开始创作",
-            "开始写作",
-            "创建章节",
-            "生成章节计划",
-            "生成章节大纲",
-            "写第",
-            "续写第",
-            "start session",
-            "write chapter",
-        ),
-    ):
-        return AskIntentDecision(
-            task="session_start",
-            reason="fallback recognized an explicit creation-session request",
-            chapter_range=list(_chapters_from_request(request)),
-            confidence=0.3,
-            source="fallback",
-        )
     return AskIntentDecision(
         task="unknown",
-        reason="fallback could not safely classify request",
+        reason="fallback does not classify write or mutation requests without a structured model decision",
         confidence=0.1,
         user_message="无法安全判断请求类型，请补充要创作、修复记忆、导出还是查看状态。",
         source="fallback",
@@ -477,7 +460,15 @@ def route_revision_request(
     if not chapters:
         chapters = [1]
     if provider is None and provider_name.lower() == "mock":
-        return _trace_revision_decision(_fallback_revision_route_decision(instruction, chapter_numbers=chapters))
+        return _trace_revision_decision(
+            RevisionRouteDecision(
+                route="revision_patch",
+                reason="mock structured route uses the narrowest authorized revision executor",
+                chapter_numbers=chapters,
+                instruction_for_revision=instruction,
+                risk_level="low",
+            )
+        )
     route_provider = provider or load_intent_router_provider(root, provider_name)
     user_prompt = build_revision_route_user_prompt(
         instruction,
@@ -702,9 +693,16 @@ def parse_audit_repair_route_decision(
         raise OrchestratorError("provider returned AuditRepairRouteDecision as a non-object JSON value")
     normalized = _normalize_audit_repair_route_payload(data, audit_report=audit_report)
     try:
-        return AuditRepairRouteDecision.model_validate(normalized)
+        decision = AuditRepairRouteDecision.model_validate(normalized)
     except ValidationError as exc:
         raise OrchestratorError(f"provider returned invalid AuditRepairRouteDecision: {exc}") from exc
+    if decision.chapter_number != audit_report.chapter_number:
+        raise OrchestratorError("audit repair route chapter does not match audited chapter")
+    known_issue_ids = {issue.id for issue in audit_report.issues}
+    unknown_issue_ids = sorted(set(decision.issue_ids) - known_issue_ids)
+    if unknown_issue_ids:
+        raise OrchestratorError(f"audit repair route referenced unknown issue ids: {unknown_issue_ids}")
+    return decision
 
 
 def _normalize_audit_repair_route_payload(data: dict[str, object], *, audit_report: AuditReport) -> dict[str, object]:
@@ -713,14 +711,14 @@ def _normalize_audit_repair_route_payload(data: dict[str, object], *, audit_repo
     aliases = {
         "replan": "plot_replan",
         "plot": "plot_replan",
-        "writer": "writer_rewrite",
-        "rewrite": "writer_rewrite",
+        "writer": "revision_rewrite",
+        "rewrite": "revision_rewrite",
         "revision": "revision_rewrite",
         "revise": "revision_rewrite",
         "manual": "manual_review",
     }
     route = aliases.get(route, route)
-    if route not in {"plot_replan", "writer_rewrite", "revision_rewrite", "manual_review"}:
+    if route not in {"plot_replan", "revision_rewrite", "manual_review"}:
         raise OrchestratorError(f"unknown audit repair route: {route or '<empty>'}")
     normalized["route"] = route
     normalized["reason"] = str(normalized.get("reason") or "audit repair route decision")
@@ -753,7 +751,7 @@ def _audit_repair_route_repair_prompt(*, invalid_output: str, error: str) -> str
     return (
         "上一次输出不能被解析为 AuditRepairRouteDecision。\n"
         f"错误：{error[:REPAIR_ERROR_LIMIT]}\n\n"
-        "请重新只输出 JSON object。route 只能是 plot_replan / writer_rewrite / revision_rewrite / manual_review。\n"
+        "请重新只输出 JSON object。route 只能是 plot_replan / revision_rewrite / manual_review。\n"
         f"上一次输出：\n{invalid_output[:REPAIR_INVALID_OUTPUT_LIMIT]}\n"
     )
 
@@ -838,9 +836,13 @@ def parse_revision_route_decision(
         data, fallback_instruction=fallback_instruction, chapter_numbers=chapter_numbers
     )
     try:
-        return RevisionRouteDecision.model_validate(data)
+        decision = RevisionRouteDecision.model_validate(data)
     except ValidationError as exc:
         raise OrchestratorError(f"provider returned invalid RevisionRouteDecision: {exc}") from exc
+    unauthorized = sorted(set(decision.chapter_numbers) - set(chapter_numbers))
+    if unauthorized:
+        raise OrchestratorError(f"revision route escaped authorized chapters: {unauthorized}")
+    return decision
 
 
 def _revision_route_repair_prompt(*, invalid_output: str, error: str) -> str:
@@ -892,7 +894,7 @@ def _normalize_revision_route_payload(
         "local_patch": "revision_patch",
     }
     route = aliases.get(route, route)
-    if route not in {"plot_replan", "writer_rewrite", "revision_patch"}:
+    if route not in {"plot_replan", "writer_rewrite", "revision_patch", "manual_review"}:
         raise OrchestratorError(f"unknown revision route: {route or '<empty>'}")
     normalized = dict(data)
     normalized["route"] = route
@@ -906,8 +908,8 @@ def _normalize_revision_route_payload(
         "plot_replan": "instruction_for_plot",
         "writer_rewrite": "instruction_for_writer",
         "revision_patch": "instruction_for_revision",
-    }[route]
-    if not str(normalized.get(instruction_key) or "").strip():
+    }.get(route)
+    if instruction_key and not str(normalized.get(instruction_key) or "").strip():
         normalized[instruction_key] = fallback_instruction
     for key in ("instruction_for_plot", "instruction_for_writer", "instruction_for_revision"):
         if key != instruction_key and normalized.get(key) == "":
@@ -920,46 +922,12 @@ def _fallback_revision_route_decision(
     *,
     chapter_numbers: tuple[int, ...] | list[int] | None = None,
 ) -> RevisionRouteDecision:
-    text = user_instruction.lower()
     chapters = list(chapter_numbers or _chapters_from_request(user_instruction) or (1,))
-    if _looks_like_local_expression_patch(text):
-        return RevisionRouteDecision(
-            route="revision_patch",
-            reason="fallback: request looks like a local wording replacement",
-            chapter_numbers=chapters,
-            instruction_for_revision=user_instruction.strip(),
-            risk_level="low",
-        )
-    if _contains_any(
-        text,
-        (
-            "核心剧情",
-            "剧情走向",
-            "结尾",
-            "大纲",
-            "场景结构",
-            "人物动机",
-            "背叛",
-            "死亡",
-            "真相",
-            "身份",
-            "揭示",
-            "改成主角",
-        ),
-    ):
-        return RevisionRouteDecision(
-            route="plot_replan",
-            reason="fallback: request appears to change plot structure or core story facts",
-            chapter_numbers=chapters,
-            instruction_for_plot=user_instruction.strip(),
-            risk_level="high",
-        )
     return RevisionRouteDecision(
-        route="writer_rewrite",
-        reason="fallback: request affects execution, prose, pacing, characterization, or emphasis",
+        route="manual_review",
+        reason="structured revision routing failed; keyword heuristics are not authorized to select a write executor",
         chapter_numbers=chapters,
-        instruction_for_writer=user_instruction.strip(),
-        risk_level="medium",
+        risk_level="high",
     )
 
 
@@ -1002,34 +970,3 @@ def _normalize_chapter_numbers(value: object, fallback: list[int]) -> list[int]:
         if number > 0 and number not in values:
             values.append(number)
     return values or fallback or [1]
-
-
-def _looks_like_local_expression_patch(text: str) -> bool:
-    has_local_marker = _contains_any(
-        text,
-        (
-            "这句",
-            "这句话",
-            "这段话",
-            "第三段",
-            "第二段",
-            "第一段",
-            "某一句",
-            "个别语句",
-            "局部",
-            "表达方式",
-        ),
-    )
-    has_replace_marker = _contains_any(text, ("改成", "改为", "替换", "换成", "用", "改写为"))
-    has_quote = any(marker in text for marker in ("“", "”", '"', "'", "「", "」"))
-    plot_markers = (
-        "核心剧情",
-        "剧情走向",
-        "大纲",
-        "人物动机",
-        "场景结构",
-        "真相",
-        "身份",
-        "伏笔",
-    )
-    return (has_local_marker or has_quote) and has_replace_marker and not _contains_any(text, plot_markers)

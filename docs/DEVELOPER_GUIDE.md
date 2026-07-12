@@ -136,7 +136,7 @@ exports/
 项目不再维护给外部 coding Agent 阅读的仓库级技能层；自动化和第三方 Agent 应使用稳定 CLI 契约。确定性脚本放在 `scripts/`，只组合 CLI/API，不复制 core 业务逻辑。脚本用于本地安装、质量门禁、smoke、排障、provider ping、Web UI 验证和截图生成，不作为小说生成 prompt 的一部分：
 
 - `install_writeryang.py`：一键创建独立 conda/venv 环境，并用 editable 模式安装工具，确保源码更新后重启 Web UI 即可生效。
-- `check_local.py`：本地复现 CI 质量门禁。mypy 是阻断式检查；`--strict-mypy` 保留为兼容旧命令的显式写法。
+- `check_local.py`：本地复现 CI 质量门禁。mypy 始终是阻断式检查，不提供可绕过或历史兼容开关。
 - `install_git_hooks.py`：设置 `core.hooksPath=.githooks`，让 tracked pre-push hook 在推送前运行 `python scripts/check_local.py`。可用 `--dry-run` 预览；确需跳过时使用 `WRITERYANG_SKIP_PRE_PUSH=1 git push`。
 - `smoke_session.py`：用 CLI 跑完整 mock/config Session smoke；真实 provider 可传 `--model`，脚本会把模型写入临时项目 default 配置，避免 Session 子命令沿用模板占位模型。
 - `debug_bundle.py`：生成脱敏排障包。它会移除已知密钥值，但 bundle 仍可能包含小说正文、隐藏设定和模型 I/O 摘要，不应外发或提交。
@@ -155,7 +155,7 @@ exports/
 inspire -> canon suggest/apply -> session start -> approve-outline -> session run -> user review -> session accept/archive -> optional revision-session -> export
 ```
 
-用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能靠硬编码关键词判断。模型不可用时只允许显式、低置信度、proposal-only 的保守 fallback；不得执行 apply、archive、accepted、state/timeline/canon 写入。主路径由 orchestrator 决策层调用 `intent_router` task 输出结构化决策，并通过 schema 校验和确认门保护风险动作。
+用户自然语言输入不能假定规范。作者可能随手输入、遗漏上下文、使用口语、缩写或错别字。任何高风险路由，例如“这次修改应回到 Plot、Writer/Polish 还是 Revision”“是否修改 timeline/state/canon”“是否接受/归档”，都不能靠硬编码关键词判断。模型不可用时只允许只读 fallback 或显式命令指引；不得由 fallback 生成 mutation command。主路径由 orchestrator 决策层调用 `intent_router` task 输出结构化决策，并通过 strict schema、confidence gate 和确认门保护风险动作。
 
 `novel ask` 先由 orchestrator 调用 `intent_router` 输出 `AskIntentDecision`，再转换成 strict `CommandProposal`。默认只展示 command、范围、风险和 workflow budget；只读低风险 command 可自动执行，其他 command 必须由 `--confirm` 明确确认后交给 Command Bus。proposal 节点、intent-router 模型节点和确认后的 command 共用同一个 `workflow_run_id`。自然语言中的“确认/应用 repair”在 fallback 场景不会执行，必须使用显式 `novel memory-repair apply <repair_id>`。
 
@@ -163,9 +163,9 @@ inspire -> canon suggest/apply -> session start -> approve-outline -> session ru
 
 `core/workflow_runtime.py` 把公开 command 和内部模型调用记录为同一棵节点树，输出到 `runs/{workflow_run_id}/`。Creation/Revision Session 同时持久化 `workflow_run_id`，因此 outline approval、人工 review、accept 等跨 human gate 命令会继续写入同一个 run，而不是创建互不关联的日志。新增 Agent 调用必须经 Task Registry 解析 Task/Profile，并让 Provider 自动写入预算快照和 prompt hash。
 
-`session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 immutable candidate artifact，经受控提升为当前 `polished.md` 后重跑 audit；连续失败或结构化证据明确指向章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。长任务必须写 `memory/sessions/{session_id}/progress.json`，记录阶段、章节、轮次和状态；取消只能写入 `cancel_requested`，在章节或修复轮安全边界生效，不能强行中断当前 LLM HTTP 调用。超过轮数时 session 状态应停在 `needs_revision`，不要继续显示 `generating`。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 orchestrator 编排层调用 `intent_router` task 输出 `RevisionRouteDecision`：剧情级修改走 Plot replan，写作实现级修改走 Writer/Polish rewrite，只有低风险局部表达修改走 Revision patch；随后都必须执行“冻结 candidate -> 提升当前稿 -> 重审 -> 重建 state proposal”语义，不能只生成无 lineage 的孤立文件。
+`session run` 的自动修复分两层：正文实现问题先通过 Revision Agent 生成 immutable candidate artifact，经受控提升为当前 `polished.md` 后重跑 audit；连续失败或结构化证据明确指向章节计划时，回退 Plot Agent 重写本章 `plan.json` 后重新生成正文。每次自动打回必须写入 `memory/sessions/{session_id}/rewrite_events.json`，并把打回前的 `polished.md` 快照写入 `memory/sessions/{session_id}/rejections/`。长任务必须写 `progress.json`，取消只在安全边界生效。超过轮数或 Audit 仍阻断时 phase 停在 `awaiting_content_review`；运行异常进入 `failed_recoverable` 并保存失败 node。用户或 Web UI 调用 `session revise-content` 后，用户意见必须先经 `intent_router` 输出 `RevisionRouteDecision`，且执行只能覆盖 `chapter_numbers` 授权子集；随后都必须执行“冻结 candidate -> 提升当前稿 -> 重审 -> 重建 state proposal”语义。
 
-多章 Session 不得在运行阶段写 canonical state/timeline。`projection.py` 维护 session-local snapshot 和逐章 checkpoint；每次 State Proposal 生成后必须先由 `artifact_store.py` 冻结 lineage，再推进 projection。`session accept` 必须调用 `lifecycle.commit_creation_session()`，由 `transactions.py` 将全部章节与 canonical memory 作为一个 transaction 提交。新增代码不得恢复逐章 `accept_chapter()` 的 Session 循环。
+多章 Session 不得在运行阶段写 canonical state/timeline。`projection.py` 维护 session-local snapshot 和逐章 checkpoint；每次 State Proposal 生成后必须先由 `artifact_store.py` 冻结 snapshot 与完整 lineage，再推进 projection。`session accept` 必须调用 `lifecycle.commit_creation_session()`，由 `transactions.py` 将全部章节与 canonical memory 作为一个 transaction 提交，并令所有 Acceptance Commit 使用 journal 的同一 `transaction_id`。新增代码不得恢复逐章 `accept_chapter()` 的 Session 循环。
 
 已认可章节局部修改必须走 `revision_workflow.py`，不能重新引入 Creation Session `segment_range`。Revision Agent 输出 `SegmentPatch`，不得输出整章并自行决定修改范围；`markdown_blocks.py` 的 deterministic applier 是范围授权事实源。当前 guard 只允许修订最新 accepted chapter，避免遗漏后续章节 rebase。接受必须复用 `transactions.py`，并让 candidate、Audit、State Proposal、Chapter Memory、Acceptance Commit 指向同一 SHA-256。
 

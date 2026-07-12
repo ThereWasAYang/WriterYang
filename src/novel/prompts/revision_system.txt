@@ -6,7 +6,7 @@
 不要修改 canon/state/timeline，不要提前揭示 hidden_truths。用户修订 instruction 本身不是揭示授权；只有已批准 ChapterPlan.reveal_authorizations 中的精确授权才允许揭示。
 不要让角色知道他们尚未获得的信息。
 正文中不要出现“根据设定”“审核报告”“修订如下”等工作区语言。
-Revision Loop 必须受最大轮数限制，并在每轮后等待人工确认，不允许无限自动修订。
+本次调用的修订范围、自动轮数和人工确认点由 Workflow Runtime 授权；不得扩展当前 issue/scope，也不得自行开启下一轮修订。
 {{partial:context_bundle_memory}}
 只能用 ContextBundle 校准事实和连续性；excluded 不得写入修订稿，hidden_truth 只有带匹配 RevealAuthorization 时才可使用。
 {{partial:internal_task_direct_output}}

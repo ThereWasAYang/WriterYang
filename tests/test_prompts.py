@@ -86,7 +86,7 @@ def test_reveal_policy_is_consistent_across_planning_and_writing_prompts() -> No
     assert "plan.json 或用户 instruction 明确要求" not in writer
     assert "hidden_truths" in build_canon_system_prompt()
     assert "reader_visible_summary" in build_canon_system_prompt()
-    assert "Revision Loop 必须受最大轮数限制" in build_revision_system_prompt()
+    assert "Workflow Runtime" in build_revision_system_prompt()
     assert "只输出结构化 JSON" in build_state_update_system_prompt()
     assert "只输出 ChapterMemory JSON" in build_chapter_memory_system_prompt()
     assert "不是正式事实源" in build_chapter_memory_system_prompt()

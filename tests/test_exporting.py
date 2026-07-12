@@ -16,6 +16,7 @@ from novel.core.contracts import (
     AuditBinding,
     ChapterLifecycle,
     StateProposalBinding,
+    TaskId,
 )
 from novel.core.schemas import ExportManifest
 from novel.core.timeutil import utc_now
@@ -316,12 +317,15 @@ def _write_polished(root: Path, chapter_number: int, title: str, status: str, bo
         kind=ArtifactKind.PLAN,
         content=b"{}\n",
         suffix=".json",
+        producer_task_id=TaskId.PLAN,
     )
     candidate = store.create(
         chapter_number=chapter_number,
         kind=ArtifactKind.CANDIDATE,
         content=markdown.encode("utf-8"),
         suffix=".md",
+        producer_task_id=TaskId.POLISH,
+        inputs=[plan],
     )
     audit_content = json.dumps(
         {
@@ -341,22 +345,29 @@ def _write_polished(root: Path, chapter_number: int, title: str, status: str, bo
         kind=ArtifactKind.AUDIT,
         content=audit_content,
         suffix=".json",
+        producer_task_id=TaskId.AUDIT,
+        inputs=[candidate, plan],
     )
     proposal = store.create(
         chapter_number=chapter_number,
         kind=ArtifactKind.STATE_PROPOSAL,
         content=b"{}\n",
         suffix=".json",
+        producer_task_id=TaskId.STATE_UPDATE,
+        inputs=[candidate, audit],
     )
     memory = store.create(
         chapter_number=chapter_number,
         kind=ArtifactKind.CHAPTER_MEMORY,
         content=b"{}\n",
         suffix=".json",
+        producer_task_id=TaskId.CHAPTER_MEMORY,
+        inputs=[candidate, audit, proposal],
     )
     snapshot_hash = "0" * 64
     acceptance = AcceptanceCommit(
         commit_id=f"accept_{uuid.uuid4().hex}",
+        transaction_id=f"tx_{uuid.uuid4().hex}",
         session_id="session_20260523_000000_000001",
         chapter_number=chapter_number,
         candidate=candidate,
@@ -376,6 +387,8 @@ def _write_polished(root: Path, chapter_number: int, title: str, status: str, bo
         kind=ArtifactKind.ACCEPTANCE,
         content=acceptance_bytes,
         suffix=".json",
+        authority="deterministic",
+        inputs=[candidate, audit, proposal, memory],
     )
     context_hash = combined_sha256(snapshot_hash, snapshot_hash, candidate.sha256)
     write_lifecycle(
@@ -398,6 +411,7 @@ def _write_polished(root: Path, chapter_number: int, title: str, status: str, bo
                 base_timeline_sha256=snapshot_hash,
             ),
             active_acceptance=acceptance_ref,
+            lineages=[store.load_lineage(ref) for ref in (plan, candidate, audit, proposal, memory, acceptance_ref)],
             updated_at=utc_now(),
         ),
     )

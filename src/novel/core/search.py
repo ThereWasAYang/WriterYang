@@ -1442,7 +1442,7 @@ def _approved_plan_documents(root: Path) -> list[SearchDocument]:
             session = load_json_model(path, CreationSession)
         except Exception:
             continue
-        if session.outline_status != "approved" or session.status == "archived":
+        if session.phase.value in {"drafting_outline", "awaiting_outline_approval", "archived", "cancelled"}:
             continue
         for chapter_number in session.chapter_range:
             current = active_by_chapter.get(chapter_number)

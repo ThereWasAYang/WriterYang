@@ -87,7 +87,7 @@ def test_web_ui_can_load_workspace_and_trigger_mock_workflow(tmp_path: Path) -> 
             page.fill("#instruction", "写第1章，突出雨夜旧车站")
             page.click("#sessionStart")
             page.wait_for_function(
-                "() => document.querySelector('#sessionPanel')?.textContent?.includes('outline_proposed')"
+                "() => document.querySelector('#sessionPanel')?.textContent?.includes('awaiting_outline_approval')"
             )
             page.wait_for_function(
                 "() => document.querySelector('#outlinePreview')?.textContent?.includes('旧车站')"
@@ -143,12 +143,12 @@ def test_web_ui_restores_generated_session_without_local_storage(tmp_path: Path)
             page.select_option("#provider", "mock")
             page.fill("#instruction", "写第1章，突出雨夜旧车站")
             page.click("#sessionStart")
-            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('outline_proposed')")
+            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('awaiting_outline_approval')")
             session_id = page.locator("#sessionId").input_value()
             page.click("#sessionApprove")
-            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('outline: approved')")
+            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('ready_to_run')")
             page.click("#sessionRun")
-            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('needs_user_review')")
+            page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('awaiting_content_review')")
             page.wait_for_function("() => document.querySelector('#chapterProseViewer')?.textContent?.includes('真正沉默')")
             page.close()
 

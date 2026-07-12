@@ -495,7 +495,7 @@ def test_creation_session_uses_search_context_by_default(tmp_path: Path) -> None
     approve_outline(SessionActionOptions(root=root, session_id=started.session.session_id))
     result = run_session(SessionRunOptions(root=root, session_id=started.session.session_id, provider_name="mock"))
 
-    assert result.session.content_status == "needs_user_review"
+    assert result.session.phase.value == "awaiting_content_review"
     reports = list((root / "memory" / "chapters" / "001").glob("context_report*.json"))
     assert reports
 

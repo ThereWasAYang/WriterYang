@@ -48,8 +48,63 @@
       "title": "BudgetUsage",
       "type": "object"
     },
+    "ChapterNodeState": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "plan": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "write": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "polish": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "audit": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "state_update": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "chapter_memory": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        }
+      },
+      "required": [
+        "chapter_number"
+      ],
+      "title": "ChapterNodeState",
+      "type": "object"
+    },
+    "ChapterNodeStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "completed",
+        "failed",
+        "stale"
+      ],
+      "title": "ChapterNodeStatus",
+      "type": "string"
+    },
     "RevisionRouteDecision": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "schema_version": {
           "default": 3,
@@ -60,7 +115,8 @@
           "enum": [
             "plot_replan",
             "writer_rewrite",
-            "revision_patch"
+            "revision_patch",
+            "manual_review"
           ],
           "title": "Route",
           "type": "string"
@@ -132,7 +188,7 @@
       "type": "object"
     },
     "RevisionRouteRecord": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "created_at": {
           "format": "date-time",
@@ -159,6 +215,26 @@
       ],
       "title": "RevisionRouteRecord",
       "type": "object"
+    },
+    "SessionPhase": {
+      "enum": [
+        "drafting_outline",
+        "awaiting_outline_approval",
+        "ready_to_run",
+        "running",
+        "awaiting_content_review",
+        "revising",
+        "ready_to_commit",
+        "committing",
+        "committed",
+        "archived",
+        "failed_recoverable",
+        "failed_terminal",
+        "cancelled",
+        "recovering"
+      ],
+      "title": "SessionPhase",
+      "type": "string"
     },
     "WorkflowBudget": {
       "additionalProperties": false,
@@ -225,7 +301,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,
@@ -251,42 +327,15 @@
       "title": "User Intent",
       "type": "string"
     },
-    "status": {
-      "enum": [
-        "drafting_intent",
-        "outline_proposed",
-        "outline_approved",
-        "generating",
-        "needs_revision",
-        "needs_user_review",
-        "accepted",
-        "archived"
-      ],
-      "title": "Status",
-      "type": "string"
+    "phase": {
+      "$ref": "#/$defs/SessionPhase"
     },
-    "outline_status": {
-      "default": "draft",
-      "enum": [
-        "draft",
-        "proposed",
-        "approved"
-      ],
-      "title": "Outline Status",
-      "type": "string"
-    },
-    "content_status": {
-      "default": "not_started",
-      "enum": [
-        "not_started",
-        "generating",
-        "needs_revision",
-        "needs_user_review",
-        "accepted",
-        "archived"
-      ],
-      "title": "Content Status",
-      "type": "string"
+    "chapter_runs": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ChapterNodeState"
+      },
+      "title": "Chapter Runs",
+      "type": "object"
     },
     "approved_outline_path": {
       "anyOf": [
@@ -377,13 +426,56 @@
     },
     "budget_usage": {
       "$ref": "#/$defs/BudgetUsage"
+    },
+    "last_completed_node": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Completed Node"
+    },
+    "failure_node": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Node"
+    },
+    "failure_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Message"
+    },
+    "resume_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Resume Count",
+      "type": "integer"
     }
   },
   "required": [
     "session_id",
     "chapter_range",
     "user_intent",
-    "status",
+    "phase",
+    "chapter_runs",
     "created_at",
     "updated_at"
   ],

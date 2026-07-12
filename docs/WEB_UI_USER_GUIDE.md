@@ -110,14 +110,14 @@ Web UI 的 Provider 下拉框有两个常用选项：
 | 创作输入 | 顶部固定横栏，设置章节号、聊天 / 指令、Provider、搜索上下文。 | “聊天 / 指令”适合输入长段本次创作意图、大纲修改意见、写作要求、Audit 纠正意见或设定变更说明；真实创作默认选 `config`，`mock` 只用于测试。 |
 | 使用搜索上下文 | 让各 Agent 加入可解释检索上下文。 | 默认使用结构化实体扩展 + 关键词/FTS，不调用 embedding API。 |
 | 使用 embedding 语义检索 | 在搜索上下文中加入向量召回。 | 需要先配置真实 embedding API；启用后如向量缺失或过期，工具会自动刷新并调用外部 embedding API。 |
-| 危险 / 调试选项 | 显示 force 和底层单章命令。 | 普通创作不要频繁使用；高级用户排查问题时可运行“生成计划 / 写章节 / 润色 / 审核”，下方“调试产物预览”会显示对应的 `plan.json`、`draft.md`、`polished.md` 或 `audit.json`。 |
+| 高级选项 | 显示 force、检索和润色策略。 | 普通创作不要频繁使用；Plot、Writer、Polish、Audit 和 State Update 是 Session 内部 Task，Web UI 不提供绕过工作流的单步写入口。 |
 | 项目准备 | 生成灵感、Canon 建议和应用 Canon proposal。 | 先生成灵感，再 Canon 建议；生成或应用后，“Canon proposal 预览”会在本页显示 proposal JSON。 |
 | Session 主流程 | 大纲协商、正文生成、审核修订、认可归档。 | 推荐顺序是“创建大纲 -> 修改大纲 -> 批准大纲 -> 开始写作 -> 按 Audit 修订内容 -> 认可本次创作 -> 归档”。浏览器会按项目记住最近 Session；重新打开项目或进入工作台时，如果 Session ID 为空，会自动恢复最近一次 Session。 |
 | Accepted 章节局部修订 | 对已认可的最新章节选择 Markdown block 并安全替换。 | 先设置章节号并“加载当前章节 blocks”，填写起止 block 和顶部“聊天 / 指令”，依次点击“创建修订范围 -> 生成并审核 -> 认可局部修订”。认可前旧 accepted 正文不变。 |
 | Rewrite Event ID | 自动打回记录编号。 | 在“自动打回重写记录”里点“选择该打回记录”自动填入。 |
 | 纠正 Audit 理解并重新审核 | 与 Audit Agent 复审。 | 当你认为审核误判时，在“聊天 / 指令”说明原因后点击。 |
 | 根据新审核重新打回 / 撤回本次打回 | 控制自动打回后的修订流程。 | 复审后可重新打回；如果打回不合理，可恢复被打回原文快照。 |
-| Session 面板 / 大纲预览 / 自动打回重写记录 / 被打回原文 | 展示 Session 状态、大纲 Markdown、打回证据和原文快照。 | 创建或修改大纲后会预览 `outline_proposal.md`；批准后会切换为 `approved_outline.md`。遇到 `needs_revision` 时先看这些区域，不要重复创建新 Session 覆盖产物。 |
+| Session 面板 / 大纲预览 / 自动打回重写记录 / 被打回原文 | 展示 Session phase、逐章 node 状态、大纲 Markdown、打回证据和原文快照。 | 创建或修改大纲后会预览 `outline_proposal.md`；批准后会切换为 `approved_outline.md`。phase 为 `awaiting_content_review` 且 Audit 需要修订时，先看这些区域，不要重复创建新 Session 覆盖产物。 |
 | 当前任务进度 / 取消当前 Session 任务 | 显示长任务阶段、章节、轮次、已用时和最近事件。 | 只有 Session 写作运行中才显示取消按钮；取消会在当前章节或修复轮结束后生效，不会立刻中断当前 LLM 请求。 |
 | 最近操作 | 记录最近完成或失败的按钮操作。 | 用来回看顶部消息一闪而过时的结果。 |
 | 章节对照 | 同时显示 `plan.json`、`draft.md`、`polished.md`、`audit.json`。 | 点“加载对照”；多章 Session 会出现章节选择器，可在不同章节之间切换。开始写作或内容修订后会自动切到这里并加载当前章节。 |
@@ -247,7 +247,7 @@ Session 是推荐工作流。
 
 开始写作、按用户意见修订内容、按 Audit 修订内容或重新打回后，页面会自动切到“章节对照”，并加载 `plan.json`、`draft.md`、`polished.md` 和 `audit.json`。如果本次 Session 覆盖多章，例如 `1-2`，章节对照顶部的选择器会列出这些章节；切换章节后会重新读取对应章节的四栏内容。
 
-如果你发现本次 Session 方向不对，可以点击“取消当前 Session 任务”。取消不是强制杀掉模型请求；它会写入取消请求，等当前章节或自动修复轮结束后的安全边界再停止。已经写完的章节产物不会被强行删除，Session 会保持可重新运行或修订的状态。
+如果你发现本次 Session 方向不对，可以点击“取消当前 Session 任务”。取消不是强制杀掉模型请求；它会写入取消请求，等当前章节或自动修复轮结束后的安全边界再停止。已经写完的章节产物不会被强行删除，但 Session 会进入终态 `cancelled`，不能直接恢复运行；需要保留产物供检查，并按新意图创建新的 Session。
 
 ## 查看审核结果
 
@@ -266,7 +266,7 @@ issue 等级：
 - `high`：严重连续性或设定问题，必须修。
 - `critical`：导致章节无法继续使用的重大问题，必须修。
 
-如果停在 `needs_revision`：
+如果 Session phase 为 `awaiting_content_review`，且 Audit 状态为 `needs_revision`：
 
 1. 优先查看 Audit 摘要里的 description 和 suggested_fix。
 2. 查看“自动打回重写记录”。这里会显示系统第几轮把正文打回、原因是什么、采取了“修正文”还是“重写大纲”，并可点击“查看被打回原文”。

@@ -317,8 +317,6 @@ def _memory_change_stage(value: object) -> MemoryChangeStage:
 
 
 def _vector_context_mode(data: dict[str, object]) -> VectorContextMode:
-    if bool(data.get("use_vector_context")):
-        return "on"
     value = _optional_string(data.get("vector_context"))
     if value in {"auto", "on", "off"}:
         return cast(VectorContextMode, value)

@@ -77,4 +77,8 @@ class ChapterLifecycle(SchemaV3Model):
     active_audit: AuditBinding | None = None
     active_state_proposal: StateProposalBinding | None = None
     active_acceptance: ArtifactRef | None = None
+    lineages: list[ArtifactLineage] = Field(default_factory=list)
     updated_at: datetime
+
+    def lineage_for(self, ref: ArtifactRef) -> ArtifactLineage | None:
+        return next((item for item in self.lineages if item.output == ref), None)

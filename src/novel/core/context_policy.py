@@ -8,6 +8,8 @@ from novel.core.schemas import (
     ContextVisibility,
     RevealAuthorization,
 )
+from novel.core.contracts import TaskId
+from novel.core.task_registry import task_definition
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,7 @@ def search_metadata_allowed(
     session_id: str | None,
 ) -> tuple[bool, str]:
     policy = context_policy(task)
+    definition = task_definition(TaskId(task))
     authority = str(metadata.get("authority") or "history")
     lifecycle = str(metadata.get("lifecycle_status") or "stale")
     visibility = str(metadata.get("visibility") or "author_only")
@@ -119,6 +122,8 @@ def search_metadata_allowed(
         return False, f"authority {authority} belongs to a different workflow"
     if authority not in policy.allowed_authorities:
         return False, f"authority {authority} is not allowed by {policy.policy_id}"
+    if authority not in definition.readable_authorities:
+        return False, f"authority {authority} is not authorized by Task Registry for {task}"
     if lifecycle not in policy.allowed_lifecycle_statuses:
         return False, f"lifecycle {lifecycle} is not allowed by {policy.policy_id}"
     if visibility not in policy.allowed_visibilities:

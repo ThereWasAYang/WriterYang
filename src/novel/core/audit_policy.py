@@ -23,6 +23,12 @@ _EXECUTABLE_SOURCE_LAYERS = {"plan", "draft", "polished", "style"}
 
 
 def classify_audit_issue(issue: AuditIssue) -> AuditIssueClassification:
+    if issue.category in {"clarity_risk", "craft_suggestion", "informational"}:
+        return AuditIssueClassification(
+            issue.id,
+            AuditRepairEligibility.ADVISORY,
+            f"{issue.category} is author-facing and cannot enter automatic repair",
+        )
     if issue.severity == "low":
         return AuditIssueClassification(
             issue.id,

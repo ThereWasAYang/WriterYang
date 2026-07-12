@@ -1,7 +1,7 @@
 {
   "$defs": {
     "RevisionRecord": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "minLength": 1,
@@ -98,7 +98,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

@@ -467,12 +467,13 @@ def build_audit_user_prompt(
         f"用户额外审核要求：{instruction or '无'}\n\n"
         "请输出严格 JSON，符合 AuditReport schema，至少包含：\n"
         "chapter_number, audited_file, overall_status, summary, issues, passed_checks, created_at, need_context。\n"
-        "issues 每项必须包含 id, severity, type, description, evidence, suggested_fix, source_layer, "
+        "issues 每项必须包含 id, severity, type, category, description, evidence, suggested_fix, source_layer, "
         "blocking_reason, evidence_strength, is_hard_blocker, confidence。\n\n"
         "字段约束：\n"
         "- issue.id 必须使用小写字母、数字和下划线，例如 audit_001_001，不要使用连字符。\n"
         "- issue.evidence 必须是数组，每项包含 source 和 quote；不要把 evidence 写成字符串。\n"
         "- severity 只能是 low, medium, high, critical。\n"
+        "- category 只能是 consistency_violation/plan_deviation/clarity_risk/craft_suggestion/informational。\n"
         "- source_layer 只能是 plan/draft/polished/state/timeline/canon/style/unknown。\n"
         "- evidence_strength 只能是 weak/medium/strong；只有引用明确来源和具体 quote 时才可写 strong。\n"
         "- is_hard_blocker 只有在问题会阻止当前 candidate 安全进入后续流程时才为 true，并填写 blocking_reason。\n"
@@ -481,8 +482,8 @@ def build_audit_user_prompt(
         "Severity policy：\n"
         "- critical：会导致章节无法继续使用的问题，例如重大设定矛盾、主角死亡但后文当作未死亡、章节编号错乱。\n"
         "- high：明显影响连续性的问题，例如物品位置错误、角色知道了不该知道的信息、提前揭示重大隐藏真相。\n"
-        "- medium：影响阅读或逻辑但可轻微修改的问题，例如动机解释不足、场景转场不清楚。\n"
-        "- low：轻微风格或表述问题，例如语气略偏、局部重复。\n\n"
+        "- medium：有明确证据的 consistency_violation 或 plan_deviation，且可通过有限修改修复。\n"
+        "- low：clarity_risk、craft_suggestion、informational 或其他主观问题，例如动机解释不足、转场偏含蓄、语气略偏、局部重复。\n\n"
         "Status policy：存在 critical 时 overall_status 必须是 blocked；"
         "存在 medium/high 且无 critical 时必须是 needs_revision；"
         "只有 low issues 时 overall_status 应为 passed，交给用户决定是否修复；"
@@ -933,6 +934,7 @@ def _issue(
         id=issue_id,
         severity=severity,
         type=issue_type,
+        category="consistency_violation",
         description=description,
         evidence=[AuditEvidence(source=source, quote=quote)],
         suggested_fix=suggested_fix,

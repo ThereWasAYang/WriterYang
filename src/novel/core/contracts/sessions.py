@@ -41,11 +41,24 @@ class ChapterNodeState(SchemaV3Model):
     state_update: ChapterNodeStatus = ChapterNodeStatus.PENDING
     chapter_memory: ChapterNodeStatus = ChapterNodeStatus.PENDING
 
+    def completed(self) -> bool:
+        return all(
+            value is ChapterNodeStatus.COMPLETED
+            for value in (
+                self.plan,
+                self.write,
+                self.polish,
+                self.audit,
+                self.state_update,
+                self.chapter_memory,
+            )
+        )
+
 
 ALLOWED_SESSION_TRANSITIONS: dict[SessionPhase, frozenset[SessionPhase]] = {
     SessionPhase.DRAFTING_OUTLINE: frozenset({SessionPhase.AWAITING_OUTLINE_APPROVAL, SessionPhase.FAILED_RECOVERABLE}),
     SessionPhase.AWAITING_OUTLINE_APPROVAL: frozenset({SessionPhase.DRAFTING_OUTLINE, SessionPhase.READY_TO_RUN, SessionPhase.CANCELLED}),
-    SessionPhase.READY_TO_RUN: frozenset({SessionPhase.RUNNING, SessionPhase.CANCELLED}),
+    SessionPhase.READY_TO_RUN: frozenset({SessionPhase.DRAFTING_OUTLINE, SessionPhase.RUNNING, SessionPhase.CANCELLED}),
     SessionPhase.RUNNING: frozenset({SessionPhase.AWAITING_CONTENT_REVIEW, SessionPhase.FAILED_RECOVERABLE, SessionPhase.CANCELLED}),
     SessionPhase.AWAITING_CONTENT_REVIEW: frozenset({SessionPhase.REVISING, SessionPhase.READY_TO_COMMIT, SessionPhase.CANCELLED}),
     SessionPhase.REVISING: frozenset({SessionPhase.AWAITING_CONTENT_REVIEW, SessionPhase.FAILED_RECOVERABLE, SessionPhase.CANCELLED}),

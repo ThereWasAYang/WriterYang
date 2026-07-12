@@ -1,7 +1,7 @@
 {
   "$defs": {
     "AuditEvidence": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "source": {
           "title": "Source",
@@ -20,7 +20,7 @@
       "type": "object"
     },
     "SessionAuditRevision": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "instruction": {
           "minLength": 1,
@@ -53,7 +53,7 @@
       "type": "object"
     },
     "SessionRewriteEvent": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "schema_version": {
           "default": 3,
@@ -215,7 +215,7 @@
       "type": "object"
     },
     "SessionRewriteIssue": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "id": {
           "pattern": "^[a-z0-9_]+$",
@@ -260,6 +260,102 @@
           ],
           "default": null,
           "title": "Suggested Fix"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "enum": [
+                "consistency_violation",
+                "plan_deviation",
+                "clarity_risk",
+                "craft_suggestion",
+                "informational"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "source_layer": {
+          "anyOf": [
+            {
+              "enum": [
+                "plan",
+                "draft",
+                "polished",
+                "state",
+                "timeline",
+                "canon",
+                "style",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Layer"
+        },
+        "blocking_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocking Reason"
+        },
+        "evidence_strength": {
+          "anyOf": [
+            {
+              "enum": [
+                "weak",
+                "medium",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Strength"
+        },
+        "is_hard_blocker": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Hard Blocker"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
         }
       },
       "required": [
@@ -272,7 +368,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

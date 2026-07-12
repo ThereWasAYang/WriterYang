@@ -97,4 +97,4 @@ def test_readme_prefers_current_canon_show_command() -> None:
     docs = readme + "\n" + command_docs
 
     assert "novel canon show --path" in docs
-    assert "兼容别名" in docs
+    assert "不保留历史命令别名" in docs

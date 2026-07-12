@@ -14,7 +14,7 @@ from novel.core.artifact_store import ArtifactStore
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.context_policy import render_untrusted_workspace_data
-from novel.core.contracts import ArtifactKind
+from novel.core.contracts import ArtifactKind, TaskId
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import (
     atomic_write_model_json,
@@ -156,6 +156,7 @@ def revise_chapter(
         kind=ArtifactKind.CANDIDATE,
         content=revised_markdown.encode("utf-8"),
         suffix=".md",
+        producer_task_id=TaskId.REVISION,
     )
     output_path = root / output_ref.path
 

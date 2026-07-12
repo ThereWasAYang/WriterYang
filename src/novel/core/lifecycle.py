@@ -16,7 +16,14 @@ from novel.core.chapter_memory import (
     ChapterMemoryDocument,
     build_deterministic_chapter_memory,
 )
-from novel.core.contracts import AcceptanceCommit, ArtifactKind
+from novel.core.contracts import (
+    AcceptanceCommit,
+    ArtifactKind,
+    ChapterNodeStatus,
+    SessionPhase,
+    TaskId,
+    validate_session_transition,
+)
 from novel.core.io import load_json_model, load_yaml_model
 from novel.core.polishing import read_markdown_with_front_matter
 from novel.core.projection import load_projection, projection_paths, verify_canonical_base
@@ -36,6 +43,7 @@ from novel.core.transactions import (
     commit_transaction,
     prepare_transaction,
     recover_incomplete_transactions,
+    new_transaction_id,
 )
 
 
@@ -98,6 +106,7 @@ def commit_creation_session(
         FileMutation(root / "memory" / "state" / "current_state.json", state_path.read_bytes()),
         FileMutation(root / "memory" / "state" / "timeline.json", timeline_path.read_bytes()),
     ]
+    transaction_id = new_transaction_id()
 
     for chapter_number in session.chapter_range:
         require_fresh_chapter(root, chapter_number)
@@ -157,10 +166,13 @@ def commit_creation_session(
             kind=ArtifactKind.CHAPTER_MEMORY,
             content=memory_bytes,
             suffix=".json",
+            producer_task_id=TaskId.CHAPTER_MEMORY,
+            inputs=[lifecycle.active_candidate, lifecycle.active_audit.audit, binding.proposal],
         )
         acceptance = AcceptanceCommit(
             commit_id=f"accept_{uuid.uuid4().hex}",
             session_id=session.session_id,
+            transaction_id=transaction_id,
             chapter_number=chapter_number,
             candidate=lifecycle.active_candidate,
             audit=lifecycle.active_audit.audit,
@@ -179,9 +191,17 @@ def commit_creation_session(
             kind=ArtifactKind.ACCEPTANCE,
             content=acceptance_bytes,
             suffix=".json",
+            authority="deterministic",
+            inputs=[lifecycle.active_candidate, lifecycle.active_audit.audit, binding.proposal, memory_ref],
+            policy_version="transaction-acceptance-v3",
         )
+        new_lineages = [store.load_lineage(memory_ref), store.load_lineage(acceptance_ref)]
         updated_lifecycle = lifecycle.model_copy(
-            update={"active_acceptance": acceptance_ref, "updated_at": utc_now()}
+            update={
+                "active_acceptance": acceptance_ref,
+                "lineages": [*lifecycle.lineages, *new_lineages],
+                "updated_at": utc_now(),
+            }
         )
         chapter_dir = root / "memory" / "chapters" / f"{chapter_number:03d}"
         metadata = ChapterMetadata(
@@ -205,9 +225,22 @@ def commit_creation_session(
             ]
         )
 
-    updated_session = session.model_copy(
-        update={"status": "accepted", "content_status": "accepted", "updated_at": utc_now()}
+    validate_session_transition(session.phase, SessionPhase.COMMITTED)
+    session_payload = session.model_dump(mode="python")
+    session_payload.update(
+        {
+            "phase": SessionPhase.COMMITTED,
+            "chapter_runs": {
+                chapter_number: run.model_copy(update={"chapter_memory": ChapterNodeStatus.COMPLETED})
+                for chapter_number, run in session.chapter_runs.items()
+            },
+            "last_completed_node": "acceptance",
+            "failure_node": None,
+            "failure_message": None,
+            "updated_at": utc_now(),
+        }
     )
+    updated_session = CreationSession.model_validate(session_payload)
     mutations.append(
         FileMutation(session_path, (updated_session.model_dump_json(indent=2) + "\n").encode("utf-8"))
     )
@@ -215,6 +248,7 @@ def commit_creation_session(
         root,
         purpose=f"accept creation session {session.session_id}",
         mutations=mutations,
+        transaction_id=transaction_id,
     )
     commit_transaction(root, journal_path)
     return updated_session

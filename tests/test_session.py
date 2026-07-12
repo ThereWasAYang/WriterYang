@@ -23,6 +23,7 @@ from novel.core.session import (
     SessionActionOptions,
     SessionInstructionOptions,
     SessionRewriteControlOptions,
+    SessionResult,
     SessionRunOptions,
     SessionStartOptions,
     _has_hard_issues,
@@ -48,8 +49,7 @@ def test_session_start_creates_single_chapter_outline(tmp_path: Path) -> None:
     assert stderr == ""
     assert "outline proposal generated" in stdout
     session = _latest_session(root)
-    assert session.status == "outline_proposed"
-    assert session.outline_status == "proposed"
+    assert session.phase.value == "awaiting_outline_approval"
     assert session.chapter_range == [1]
     session_dir = root / "memory" / "sessions" / session.session_id
     assert (session_dir / "outline_proposal.json").is_file()
@@ -154,8 +154,7 @@ def test_session_approve_outline_rolls_back_multi_chapter_plan_write_failure(
     assert not (session_dir / "approved_outline.json").exists()
     assert not (session_dir / "approved_outline.md").exists()
     stored = load_json_model(session_dir / "session.json", CreationSession)
-    assert stored.status == "outline_proposed"
-    assert stored.outline_status == "proposed"
+    assert stored.phase.value == "awaiting_outline_approval"
 
 
 def test_session_approve_outline_force_rolls_back_overwritten_plan_and_cleans_backups(
@@ -199,8 +198,7 @@ def test_session_approve_outline_force_rolls_back_overwritten_plan_and_cleans_ba
     assert not list(chapter_dir.glob("plan.json.bak_*"))
     assert not list(chapter_dir.glob("plan.md.bak_*"))
     stored = load_json_model(session_dir / "session.json", CreationSession)
-    assert stored.status == "outline_proposed"
-    assert stored.outline_status == "proposed"
+    assert stored.phase.value == "awaiting_outline_approval"
 
 
 def test_session_approve_outline_rolls_back_if_session_status_write_fails(
@@ -241,8 +239,7 @@ def test_session_approve_outline_rolls_back_if_session_status_write_fails(
     assert not (session_dir / "approved_outline.json").exists()
     assert not (session_dir / "approved_outline.md").exists()
     stored = load_json_model(session_dir / "session.json", CreationSession)
-    assert stored.status == "outline_proposed"
-    assert stored.outline_status == "proposed"
+    assert stored.phase.value == "awaiting_outline_approval"
 
 
 def test_session_auto_repair_treats_medium_issues_as_blocking() -> None:
@@ -294,7 +291,7 @@ def test_session_full_mock_flow_accepts_and_archives(tmp_path: Path) -> None:
     assert archive_code == 0
     assert archive_stderr == ""
     archived = load_json_model(root / "memory" / "sessions" / session.session_id / "session.json", CreationSession)
-    assert archived.status == "archived"
+    assert archived.phase.value == "archived"
     manifest = load_json_model(
         root / "memory" / "archive" / session.session_id / "manifest.json", CreationArchiveManifest
     )
@@ -376,7 +373,7 @@ def test_multi_chapter_acceptance_rolls_back_every_chapter_on_late_failure(
         assert not (chapter_dir / "accepted.md").exists()
         assert not (chapter_dir / "acceptance.json").exists()
     stored = load_json_model(root / "memory" / "sessions" / session.session_id / "session.json", CreationSession)
-    assert stored.status == "needs_user_review"
+    assert stored.phase.value == "ready_to_commit"
 
 
 def test_session_accept_rejects_working_content_changed_after_review(tmp_path: Path) -> None:
@@ -413,7 +410,7 @@ def test_find_latest_active_session_prefers_generated_content_over_newer_outline
 
     assert preferred is not None
     assert preferred.session.session_id == generated_session.session_id
-    assert preferred.session.content_status == "needs_user_review"
+    assert preferred.session.phase.value == "awaiting_content_review"
     assert latest is not None
     assert latest.session.session_id == outline_session.session_id
 
@@ -453,8 +450,7 @@ def test_session_run_writes_progress_and_honors_cancel_at_boundary(tmp_path: Pat
     )
 
     progress = load_session_progress(root, session.session_id)
-    assert result.session.status == "needs_revision"
-    assert result.session.content_status == "needs_revision"
+    assert result.session.phase.value == "cancelled"
     assert result.session.final_output_paths == []
     assert progress.status == "cancelled"
     assert progress.cancel_requested_at is not None
@@ -535,7 +531,7 @@ def test_session_auto_repair_promotes_revision_before_reaudit(tmp_path: Path, mo
         SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock", max_auto_revision_rounds=1)
     )
 
-    assert result.session.status == "needs_user_review"
+    assert result.session.phase.value == "awaiting_content_review"
     assert "修订后正文" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
     assert "status: polished\n" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
     assert "/candidates/candidate_art_" in result.session.revision_history[-1]
@@ -610,7 +606,7 @@ def test_session_auto_replan_records_rewrite_event(tmp_path: Path, monkeypatch) 
         SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock", max_auto_revision_rounds=1)
     )
 
-    assert result.session.status == "needs_user_review"
+    assert result.session.phase.value == "awaiting_content_review"
     events = load_rewrite_events(root, session.session_id)
     assert len(events) == 1
     assert events[0].action == "plot_replan"
@@ -676,7 +672,7 @@ def test_session_unresolved_auto_repair_marks_rewrite_event_unresolved(tmp_path:
         SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock", max_auto_revision_rounds=1)
     )
 
-    assert result.session.status == "needs_revision"
+    assert result.session.phase.value == "awaiting_content_review"
     events = load_rewrite_events(root, session.session_id)
     assert len(events) == 1
     assert events[0].status == "unresolved"
@@ -721,8 +717,7 @@ def test_session_stops_as_needs_revision_after_unresolved_audit(tmp_path: Path, 
         SessionRunOptions(root=root, session_id=session.session_id, provider_name="mock", max_auto_revision_rounds=0)
     )
 
-    assert result.session.status == "needs_revision"
-    assert result.session.content_status == "needs_revision"
+    assert result.session.phase.value == "awaiting_content_review"
 
 
 def test_session_revise_content_can_use_low_audit_issues_when_user_chooses(tmp_path: Path) -> None:
@@ -755,8 +750,7 @@ def test_session_revise_content_can_use_low_audit_issues_when_user_chooses(tmp_p
     assert "Content revised, audited, and ready for user review" in stdout
     assert (root / "memory" / "chapters" / "001" / "revision_log.json").is_file()
     revised = _latest_session(root)
-    assert revised.status == "needs_user_review"
-    assert revised.content_status == "needs_user_review"
+    assert revised.phase.value == "awaiting_content_review"
     assert revised.final_output_paths[-1].endswith("polished.md")
     assert "/candidates/candidate_art_" in revised.revision_history[-1]
     assert (root / "memory" / "chapters" / "001" / "polished.md").is_file()
@@ -807,8 +801,7 @@ def test_session_revise_content_keeps_needs_revision_when_reaudit_blocks(tmp_pat
         )
     )
 
-    assert result.session.status == "needs_revision"
-    assert result.session.content_status == "needs_revision"
+    assert result.session.phase.value == "awaiting_content_review"
     assert result.session.final_output_paths[-1].endswith("polished.md")
     assert "/candidates/candidate_art_" in result.session.revision_history[-1]
 
@@ -873,10 +866,54 @@ def test_session_revise_content_routes_writer_rewrite(tmp_path: Path, monkeypatc
         )
     )
 
-    assert result.session.status == "needs_user_review"
+    assert result.session.phase.value == "awaiting_content_review"
     assert "加强压迫感" in seen["instruction"]
     assert result.session.revision_route_history[-1].decision.route == "writer_rewrite"
     assert result.session.final_output_paths[-1].endswith("polished.md")
+
+
+def test_revision_failure_persists_recoverable_node_and_resumes(tmp_path: Path, monkeypatch) -> None:
+    root = _workspace_ready(tmp_path)
+    _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
+    session = _latest_session(root)
+    _run_cli(["session", "approve-outline", session.session_id, "--path", str(root)])
+    _run_cli(["session", "run", session.session_id, "--path", str(root), "--provider", "mock"])
+
+    def fail_after_revision_started(options: SessionInstructionOptions) -> SessionResult:
+        current = session_module.load_session(options.root, options.session_id)
+        current = session_module._transition_session(current, session_module.SessionPhase.REVISING)
+        session_module._write_session(options.root, current)
+        raise RuntimeError("injected revision failure")
+
+    monkeypatch.setattr(session_module, "_revise_content_impl", fail_after_revision_started)
+    options = SessionInstructionOptions(
+        root=root,
+        session_id=session.session_id,
+        instruction="收紧第一段。",
+        provider_name="mock",
+    )
+    with pytest.raises(RuntimeError, match="injected revision failure"):
+        session_module.revise_content(options)
+
+    failed = session_module.load_session(root, session.session_id)
+    assert failed.phase.value == "failed_recoverable"
+    assert failed.failure_node == "revision.content"
+
+    def resume_revision(options: SessionInstructionOptions) -> SessionResult:
+        current = session_module.load_session(options.root, options.session_id)
+        assert current.phase.value == "failed_recoverable"
+        current = session_module._transition_session(current, session_module.SessionPhase.REVISING)
+        current = session_module._transition_session(current, session_module.SessionPhase.AWAITING_CONTENT_REVIEW)
+        session_module._write_session(options.root, current)
+        return SessionResult(
+            session=current,
+            session_path=root / "memory" / "sessions" / current.session_id / "session.json",
+            message="resumed",
+        )
+
+    monkeypatch.setattr(session_module, "_revise_content_impl", resume_revision)
+    resumed = session_module.revise_content(options)
+    assert resumed.session.phase.value == "awaiting_content_review"
 
 
 def test_session_revise_content_routes_plot_replan(tmp_path: Path, monkeypatch) -> None:
@@ -937,7 +974,7 @@ def test_session_revise_content_routes_plot_replan(tmp_path: Path, monkeypatch) 
         )
     )
 
-    assert result.session.status == "needs_user_review"
+    assert result.session.phase.value == "awaiting_content_review"
     assert result.session.revision_route_history[-1].decision.route == "plot_replan"
     assert "重写大纲后的正文" in (chapter_dir / "polished.md").read_text(encoding="utf-8")
 
@@ -946,6 +983,17 @@ def test_session_undo_rewrite_restores_snapshot_and_reaudits(tmp_path: Path, mon
     root = _workspace_ready(tmp_path)
     _run_cli(["session", "start", "写第1章", "--path", str(root), "--chapters", "1", "--provider", "mock"])
     session = _latest_session(root)
+    approved_outline = root / "memory" / "sessions" / session.session_id / "approved_outline.md"
+    approved_outline.write_text("# 已批准大纲\n", encoding="utf-8")
+    session = session_module._validated_session_copy(
+        session,
+        phase="awaiting_content_review",
+        approved_outline_path=approved_outline.relative_to(root).as_posix(),
+    )
+    atomic_write_model_json(
+        root / "memory" / "sessions" / session.session_id / "session.json",
+        session,
+    )
     chapter_dir = root / "memory" / "chapters" / "001"
     chapter_dir.mkdir(parents=True, exist_ok=True)
     (chapter_dir / "polished.md").write_text(
@@ -1017,7 +1065,7 @@ def test_session_undo_rewrite_restores_snapshot_and_reaudits(tmp_path: Path, mon
     events = load_rewrite_events(root, session.session_id)
     assert events[0].undo_status == "restored"
     assert events[0].status == "completed"
-    assert result.session.status == "needs_user_review"
+    assert result.session.phase.value == "awaiting_content_review"
 
 
 def test_archived_session_is_immutable(tmp_path: Path) -> None:

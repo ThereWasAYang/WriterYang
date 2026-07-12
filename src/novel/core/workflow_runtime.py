@@ -52,6 +52,8 @@ WORKFLOW_DEFINITIONS: dict[str, WorkflowDefinition] = {
                 ("writer", TaskId.WRITE),
                 ("polish", TaskId.POLISH),
                 ("audit", TaskId.AUDIT),
+                ("route", TaskId.INTENT_ROUTER),
+                ("revision", TaskId.REVISION),
                 ("state_update", TaskId.STATE_UPDATE),
                 ("chapter_memory", TaskId.CHAPTER_MEMORY),
                 ("acceptance", None),
@@ -82,8 +84,10 @@ class WorkflowRuntime:
     request_id: str
     parent_request_id: str | None = None
     session_id: str | None = None
+    workflow_type: str | None = None
     parent_stack: list[str] = field(default_factory=list)
     last_completed_node_id: str | None = None
+    registered_artifacts: dict[str, list[ArtifactRef]] = field(default_factory=dict)
 
     @property
     def run_dir(self) -> Path:
@@ -108,6 +112,7 @@ class WorkflowRuntime:
         input_paths: list[str] | None = None,
         output_details: Callable[[T], tuple[list[ArtifactRef], list[str]]] | None = None,
     ) -> T:
+        self._validate_node_definition(task_id)
         before = _budget_usage()
         node = WorkflowNodeRun(
             node_id=f"node_{uuid.uuid4().hex}",
@@ -139,6 +144,7 @@ class WorkflowRuntime:
         try:
             value = function()
             artifacts, paths = output_details(value) if output_details else ([], [])
+            artifacts = _unique_artifacts([*self.registered_artifacts.pop(node.node_id, []), *artifacts])
             after = _budget_usage()
             completed = node.model_copy(
                 update={
@@ -175,6 +181,23 @@ class WorkflowRuntime:
         if session_id not in self.run.session_ids:
             self.run = self.run.model_copy(update={"session_ids": [*self.run.session_ids, session_id]})
             self._write_run("running")
+
+    def register_artifact(self, ref: ArtifactRef) -> None:
+        node_id = self.parent_stack[-1] if self.parent_stack else self.last_completed_node_id
+        if node_id is None:
+            return
+        refs = self.registered_artifacts.setdefault(node_id, [])
+        if ref not in refs:
+            refs.append(ref)
+
+    def _validate_node_definition(self, task_id: TaskId | None) -> None:
+        if self.workflow_type is None or task_id is None:
+            return
+        definition = WORKFLOW_DEFINITIONS[self.workflow_type]
+        if task_id not in {node.task_id for node in definition.nodes}:
+            raise RuntimeError(
+                f"task {task_id.value} is not authorized in workflow {self.workflow_type}"
+            )
 
     def record_decision(
         self,
@@ -243,6 +266,7 @@ def workflow_runtime_scope(
     request_id: str,
     parent_request_id: str | None = None,
     session_id: str | None = None,
+    workflow_type: str | None = None,
 ) -> Iterator[WorkflowRuntime]:
     run_path = root / "runs" / workflow_run_id / "run.json"
     now = utc_now()
@@ -286,6 +310,7 @@ def workflow_runtime_scope(
         request_id,
         effective_parent_request_id,
         session_id,
+        workflow_type,
     )
     token: Token[WorkflowRuntime | None] = _ACTIVE_RUNTIME.set(runtime)
     try:
@@ -333,6 +358,12 @@ def bind_active_session_id(session_id: str) -> None:
         runtime.bind_session_id(session_id)
 
 
+def register_runtime_artifact(ref: ArtifactRef) -> None:
+    runtime = active_workflow_runtime()
+    if runtime is not None:
+        runtime.register_artifact(ref)
+
+
 def record_workflow_decision(
     *,
     name: str,
@@ -368,3 +399,10 @@ def _provider_retry_count(node_type: str, before: BudgetUsage, after: BudgetUsag
     if node_type != "model":
         return 0
     return max(0, after.provider_attempts - before.provider_attempts - 1)
+
+
+def _unique_artifacts(refs: list[ArtifactRef]) -> list[ArtifactRef]:
+    unique: dict[str, ArtifactRef] = {}
+    for ref in refs:
+        unique[ref.artifact_id] = ref
+    return list(unique.values())

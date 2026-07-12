@@ -2,6 +2,11 @@
 
 ## 0.1.1 - 未发布
 
+- 完成 Agent 系统最终审计遗留项闭环：Creation Session 删除 `status/outline_status/content_status`，真实执行统一使用 `SessionPhase + ChapterNodeState`，支持失败节点持久化和定向恢复。
+- Revision route 在解析和执行两层强制 `chapter_numbers` scope；非只读 Ask 增加 confidence gate，模型路由失败不再用关键词选择写 executor。
+- Artifact Store 强制 Task 写权限与显式 deterministic/user authority；Context Policy 强制 Task 读 authority；Workflow Runtime 拒绝 workflow definition 外 Task。
+- Artifact lineage 扩展为包含 state/timeline snapshot、Plan、Candidate、Audit、State Proposal、Chapter Memory 和 Acceptance 的完整 DAG；Acceptance 与 Export 绑定 transaction journal ID。
+- Audit issue 使用固定 category，Prompt 与自动修复 policy 统一；删除 Web 语义检索旧布尔兼容输入和 completion 中残留的 migrate 命令。
 - 以破坏性 schema v3 重建 Agent workflow 基础：Strict Contracts、Task Registry、immutable Artifact lineage、Creation Session state/timeline projection、transaction journal、全 Session 原子 acceptance 和 artifact-aware production export。
 - 公开 CLI/Web/Ask 领域 workflow 统一进入 Typed Command Bus；Ask 改为 proposal-first，Creation/Revision 使用 workflow-wide budget 并跨 human gate 续写同一 trace。
 - Typed Command Bus 覆盖全部公开写入口，包括 Inspiration、Canon、Chapter Memory、Index、Style Guide、编辑器 immutable candidate、Agent/Embedding 配置、项目/Web 端口与 JSON Schema 导出；Web adapter 不再重复加锁或直接调用 mutation service。

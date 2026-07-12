@@ -596,15 +596,18 @@ def _normalize_canon_item(collection_name: str, item: dict[str, object]) -> None
     if collection_name == "world_rules":
         item.setdefault("visibility", "reader_visible")
         _copy_first_present(item, "description", ("summary", "content", "rule", "notes"))
+        _drop_keys(item, ("summary", "content", "rule", "notes"))
     if collection_name == "hidden_truths":
         _copy_first_present(item, "title", ("name", "summary", "label"))
         _copy_first_present(item, "description", ("content", "summary", "truth", "private_author_notes", "notes"))
+        _drop_keys(item, ("name", "summary", "label", "content", "truth", "private_author_notes", "notes"))
         item.setdefault("visibility", "hidden")
         item.setdefault("importance", "medium")
         _normalize_planned_chapter_object(item, "planned_reveal")
     if collection_name == "foreshadowing_threads":
         item.setdefault("type", "clue")
         _copy_first_present(item, "title", ("name", "summary", "description"))
+        _drop_keys(item, ("name", "summary"))
         item["introduced_in_chapter"] = _coerce_positive_chapter(item.get("introduced_in_chapter")) or 1
         item.setdefault("status", "active")
         item.setdefault("importance", "medium")
@@ -618,19 +621,24 @@ def _normalize_visibility_objects(value: object, *, default_visibility: str) -> 
         if not isinstance(entry, dict):
             continue
         _copy_first_present(entry, "description", ("summary", "content", "property", "name", "notes"))
+        _drop_keys(entry, ("summary", "content", "property", "name", "notes"))
         entry.setdefault("visibility", default_visibility)
         if not entry.get("id") and "id" in entry:
             entry["id"] = f"rule_{index}"
 
 
 def _copy_first_present(item: dict[str, object], target: str, aliases: tuple[str, ...]) -> None:
-    if item.get(target):
-        return
-    for alias in aliases:
-        value = item.get(alias)
-        if isinstance(value, str) and value.strip():
-            item[target] = value
-            return
+    if not item.get(target):
+        for alias in aliases:
+            value = item.get(alias)
+            if isinstance(value, str) and value.strip():
+                item[target] = value
+                break
+
+
+def _drop_keys(item: dict[str, object], keys: tuple[str, ...]) -> None:
+    for key in keys:
+        item.pop(key, None)
 
 
 def _normalize_list_field(value: object) -> list[object]:

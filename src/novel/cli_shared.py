@@ -501,7 +501,7 @@ def _prompt_yes_no(label: str, *, default: bool) -> bool:
 
 def completion_script(shell: str) -> str:
     commands = (
-        "init validate migrate schema index search ask memory-repair setting-change chapter-memory session revision-session "
+        "init validate schema index search ask memory-repair setting-change chapter-memory session revision-session "
         "status usage show inspire canon export preview web doctor completion"
     )
     common_options = "--help --json --quiet --project --path"

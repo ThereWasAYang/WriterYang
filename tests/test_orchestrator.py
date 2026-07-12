@@ -5,12 +5,17 @@ from io import StringIO
 import json
 from pathlib import Path
 
+import pytest
+
 from novel.cli import main
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.contracts import default_workflow_budget
 from novel.core.orchestrator import (
+    OrchestratorError,
     decide_ask_intent,
     parse_ask_intent_decision,
     parse_revision_route_decision,
+    propose_ask_command,
     route_audit_repair,
     route_revision_request,
 )
@@ -100,6 +105,32 @@ def test_ask_zero_model_budget_returns_clarification_without_writing(tmp_path: P
     assert not (root / "memory" / "chapters" / "001" / "plan.json").exists()
 
 
+def test_low_confidence_mutation_intent_can_only_request_clarification(tmp_path: Path) -> None:
+    root = _workspace_ready(tmp_path)
+    provider = MockProvider(
+        fake_response=json.dumps(
+            {
+                "task": "session_start",
+                "reason": "请求可能是在讨论，也可能是在要求开始创作。",
+                "chapter_range": [1],
+                "confidence": 0.4,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    result = propose_ask_command(
+        root,
+        "也许可以开始写第一章",
+        provider_name="mock",
+        budget=default_workflow_budget(),
+        intent_provider=provider,
+    )
+
+    assert result.proposal.command is None
+    assert "低于执行阈值" in str(result.proposal.clarification_question)
+
+
 def test_ask_proposal_writes_structured_workflow_trace_not_legacy_flat_log(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
@@ -187,8 +218,8 @@ def test_revision_route_fallback_avoids_free_revision(tmp_path: Path) -> None:
         chapter_numbers=[1],
     )
 
-    assert decision.route == "writer_rewrite"
-    assert "fallback" in decision.reason
+    assert decision.route == "manual_review"
+    assert "keyword heuristics are not authorized" in decision.reason
 
 
 def test_ask_intent_decision_handles_noisy_session_request(tmp_path: Path) -> None:
@@ -279,6 +310,39 @@ def test_intent_router_default_reasons_use_task_name() -> None:
 
     assert ask_decision.reason == "intent router ask intent decision"
     assert revision_decision.reason == "intent router route decision"
+
+
+def test_revision_route_rejects_chapters_outside_authorized_scope() -> None:
+    with pytest.raises(OrchestratorError, match="escaped authorized chapters"):
+        parse_revision_route_decision(
+            json.dumps(
+                {
+                    "route": "revision_patch",
+                    "chapter_numbers": [2],
+                    "instruction_for_revision": "修改第二章。",
+                    "risk_level": "low",
+                }
+            ),
+            fallback_instruction="只允许第一章。",
+            chapter_numbers=[1],
+        )
+
+
+def test_revision_route_rejects_unknown_control_fields() -> None:
+    with pytest.raises(OrchestratorError, match="invalid RevisionRouteDecision"):
+        parse_revision_route_decision(
+            json.dumps(
+                {
+                    "route": "revision_patch",
+                    "chapter_numbers": [1],
+                    "instruction_for_revision": "修改第一章。",
+                    "risk_level": "low",
+                    "bypass_review": True,
+                }
+            ),
+            fallback_instruction="修改第一章。",
+            chapter_numbers=[1],
+        )
 
 
 def test_ask_intent_downgrades_apply_without_explicit_repair_id(tmp_path: Path) -> None:

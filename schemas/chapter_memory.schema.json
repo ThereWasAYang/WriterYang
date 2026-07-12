@@ -1,7 +1,7 @@
 {
   "$defs": {
     "ChapterMemoryItem": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "summary": {
           "minLength": 1,
@@ -60,7 +60,7 @@
       "type": "object"
     },
     "ChapterMemorySource": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "polished_path": {
           "minLength": 1,
@@ -131,7 +131,7 @@
       "type": "object"
     },
     "ChapterMemorySourceRef": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "path": {
           "minLength": 1,
@@ -176,7 +176,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "schema_version": {
       "default": 3,

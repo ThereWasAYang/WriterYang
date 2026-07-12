@@ -77,6 +77,8 @@ novel export markdown --path ./qingdeng-inn --force
 
 当前工作区 schema 为 v3。旧 schema 项目会被直接拒绝，不提供 migrate 命令。正式导出只读取带有效 `acceptance.json` 和 artifact lineage 的 `accepted.md`；未接受内容不能进入正式导出。
 
+Creation Session 使用单一 `phase + chapter_runs` 状态机。每个 Plan、Candidate、Audit、State Proposal、Chapter Memory 和 Acceptance 都带 immutable hash 与 lineage sidecar；Task Registry 在运行时强制 Agent 的读写 authority，多章 Acceptance 通过同一个 transaction journal 原子提交。
+
 已认可章节的局部修订使用独立 `revision-session`：先用 `blocks` 查看稳定 Markdown block，再 `start` 冻结范围、`run` 生成并审核 structured patch、`accept` 事务性提交。Creation Session 不再提供 `--segments` 入口。
 
 尚未认可的 working candidate 只能通过 `preview package` 输出到 `exports/previews/`。Preview 明确标记为非正式内容，不会创建或更新 Production Export manifest。

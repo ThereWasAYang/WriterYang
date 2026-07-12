@@ -173,9 +173,7 @@ def _cmd_session(args: argparse.Namespace) -> int:
         {
             "command": f"session {args.session_command}",
             "session_id": session.session_id,
-            "status": session.status,
-            "outline_status": session.outline_status,
-            "content_status": session.content_status,
+            "phase": session.phase.value,
             "chapter_range": session.chapter_range,
             "approved_outline_path": session.approved_outline_path,
             "final_output_paths": session.final_output_paths,
@@ -188,7 +186,7 @@ def _cmd_session(args: argparse.Namespace) -> int:
     lines = [
         f"Session: {session.session_id}",
         str(payload.get("message") or ""),
-        f"Status: {session.status}",
+        f"Phase: {session.phase.value}",
         f"Session file: {payload['session_path']}",
         *_session_revision_route_lines(session),
         *_session_rewrite_lines(root, session),

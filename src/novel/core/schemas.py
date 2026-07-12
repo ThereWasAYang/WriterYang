@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from novel.core.agent_defaults import PROFILE_NAMES, TASK_ONLY_CONFIG_FIELDS, TASK_TO_PROFILE
 from novel.core.contracts.artifacts import ArtifactRef
 from novel.core.contracts.common import CURRENT_SCHEMA_VERSION, ensure_schema_version
+from novel.core.contracts.sessions import ChapterNodeState, SessionPhase
 from novel.core.contracts.tracing import BudgetUsage, WorkflowBudget
 
 
@@ -70,21 +71,7 @@ ManagementEventType = Literal[
     "memory_repair_failed",
     "provider_output_truncated",
 ]
-CreationSessionStatus = Literal[
-    "drafting_intent",
-    "outline_proposed",
-    "outline_approved",
-    "generating",
-    "needs_revision",
-    "needs_user_review",
-    "accepted",
-    "archived",
-]
-CreationOutlineStatus = Literal["draft", "proposed", "approved"]
-CreationContentStatus = Literal[
-    "not_started", "generating", "needs_revision", "needs_user_review", "accepted", "archived"
-]
-RevisionRoute = Literal["plot_replan", "writer_rewrite", "revision_patch"]
+RevisionRoute = Literal["plot_replan", "writer_rewrite", "revision_patch", "manual_review"]
 RevisionRouteRiskLevel = Literal["low", "medium", "high"]
 AskIntentTask = Literal[
     "session_start", "memory_repair_suggest", "memory_repair_apply", "export", "status", "show", "unknown"
@@ -92,7 +79,14 @@ AskIntentTask = Literal[
 DecisionSource = Literal["model", "fallback", "mock", "deterministic"]
 AuditIssueSourceLayer = Literal["plan", "draft", "polished", "state", "timeline", "canon", "style", "unknown"]
 AuditEvidenceStrength = Literal["weak", "medium", "strong"]
-AuditRepairRoute = Literal["plot_replan", "writer_rewrite", "revision_rewrite", "manual_review"]
+AuditIssueCategory = Literal[
+    "consistency_violation",
+    "plan_deviation",
+    "clarity_risk",
+    "craft_suggestion",
+    "informational",
+]
+AuditRepairRoute = Literal["plot_replan", "revision_rewrite", "manual_review"]
 VectorContextMode = Literal["auto", "on", "off"]
 PolishMode = Literal["single_pass", "auto", "review_gate"]
 ContextRequestKind = Literal["chapter_prose", "entity", "query"]
@@ -102,7 +96,9 @@ ChapterMemoryVisibility = Literal["reader_visible", "author_only", "hidden_truth
 
 
 class FlexibleModel(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    """Strict persisted/domain model base for the schema-v3-only workspace."""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class SchemaVersionedModel(FlexibleModel):
@@ -776,9 +772,8 @@ class CreationSession(SchemaVersionedModel):
     session_id: str = Field(min_length=1, pattern=r"^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
     chapter_range: list[int] = Field(min_length=1)
     user_intent: str = Field(min_length=1)
-    status: CreationSessionStatus
-    outline_status: CreationOutlineStatus = "draft"
-    content_status: CreationContentStatus = "not_started"
+    phase: SessionPhase
+    chapter_runs: dict[int, ChapterNodeState]
     approved_outline_path: str | None = None
     final_output_paths: list[str] = Field(default_factory=list)
     audit_history: list[str] = Field(default_factory=list)
@@ -791,23 +786,31 @@ class CreationSession(SchemaVersionedModel):
     workflow_run_id: str | None = Field(default=None, pattern=r"^run_[0-9a-f]{32}$")
     workflow_budget: WorkflowBudget | None = None
     budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)
+    last_completed_node: str | None = None
+    failure_node: str | None = None
+    failure_message: str | None = None
+    resume_count: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def validate_scope_and_status(self) -> CreationSession:
         if sorted(set(self.chapter_range)) != self.chapter_range:
             raise ValueError("chapter_range 必须升序排列且去重")
-        if self.status in {
-            "outline_approved",
-            "generating",
-            "needs_revision",
-            "needs_user_review",
-            "accepted",
-            "archived",
-        }:
-            if self.outline_status != "approved":
-                raise ValueError("approved 及之后状态的 session 必须满足 outline_status=approved")
-        if self.status == "archived" and self.content_status != "archived":
-            raise ValueError("archived session 必须满足 content_status=archived")
+        if set(self.chapter_runs) != set(self.chapter_range):
+            raise ValueError("chapter_runs 必须与 chapter_range 完全一致")
+        for chapter_number, run in self.chapter_runs.items():
+            if run.chapter_number != chapter_number:
+                raise ValueError("chapter_runs key 必须与 ChapterNodeState.chapter_number 一致")
+        if self.phase in {
+            SessionPhase.READY_TO_RUN,
+            SessionPhase.RUNNING,
+            SessionPhase.AWAITING_CONTENT_REVIEW,
+            SessionPhase.REVISING,
+            SessionPhase.READY_TO_COMMIT,
+            SessionPhase.COMMITTING,
+            SessionPhase.COMMITTED,
+            SessionPhase.ARCHIVED,
+        } and not self.approved_outline_path:
+            raise ValueError("outline approval 之后的 session 必须包含 approved_outline_path")
         return self
 
 
@@ -895,6 +898,7 @@ class ExportSourceChapter(FlexibleModel):
     accepted: bool
     sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     acceptance_commit_id: str = Field(min_length=1)
+    transaction_id: str = Field(pattern=r"^tx_[0-9a-f]{32}$")
     candidate_artifact_id: str = Field(min_length=1)
     audit_artifact_id: str = Field(min_length=1)
     state_proposal_artifact_id: str = Field(min_length=1)
@@ -1090,10 +1094,25 @@ class AuditEvidence(FlexibleModel):
     quote: str
 
 
+def _infer_audit_issue_category(issue: dict[str, Any]) -> AuditIssueCategory:
+    issue_type = str(issue.get("type") or "").lower()
+    source_layer = str(issue.get("source_layer") or "").lower()
+    if issue_type == "informational":
+        return "informational"
+    if source_layer == "plan" or "plan" in issue_type or "plot_logic" in issue_type:
+        return "plan_deviation"
+    if source_layer == "style" or any(token in issue_type for token in ("style", "voice", "craft")):
+        return "craft_suggestion"
+    if any(token in issue_type for token in ("clarity", "motivation", "transition")):
+        return "clarity_risk"
+    return "consistency_violation"
+
+
 class AuditIssue(FlexibleModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     severity: Importance
     type: str = Field(min_length=1)
+    category: AuditIssueCategory
     description: str = Field(min_length=1)
     evidence: list[AuditEvidence] = Field(default_factory=list)
     suggested_fix: str | None = None
@@ -1102,6 +1121,15 @@ class AuditIssue(FlexibleModel):
     evidence_strength: AuditEvidenceStrength | None = None
     is_hard_blocker: bool | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_category(cls, value: object) -> object:
+        if not isinstance(value, dict) or value.get("category"):
+            return value
+        issue = dict(value)
+        issue["category"] = _infer_audit_issue_category(issue)
+        return issue
 
 
 class AuditReport(SchemaVersionedModel):
@@ -1114,6 +1142,26 @@ class AuditReport(SchemaVersionedModel):
     passed_checks: list[str] = Field(default_factory=list)
     need_context: list[ContextRequest] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_issue_categories(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        issues = normalized.get("issues")
+        if not isinstance(issues, list):
+            return normalized
+        normalized_issues: list[object] = []
+        for item in issues:
+            if not isinstance(item, dict) or item.get("category"):
+                normalized_issues.append(item)
+                continue
+            issue = dict(item)
+            issue["category"] = _infer_audit_issue_category(issue)
+            normalized_issues.append(issue)
+        normalized["issues"] = normalized_issues
+        return normalized
+
     @model_validator(mode="after")
     def passed_reports_have_no_blocking_severity_issues(self) -> AuditReport:
         if self.overall_status == "passed":
@@ -1121,7 +1169,7 @@ class AuditReport(SchemaVersionedModel):
             if severe:
                 raise ValueError("passed audit report 不能包含 medium、high 或 critical issue：" + ", ".join(severe))
         for issue in self.issues:
-            if issue.type != "informational" and not issue.suggested_fix:
+            if issue.category != "informational" and not issue.suggested_fix:
                 raise ValueError(f"audit issue {issue.id} 必须包含 suggested_fix")
         return self
 
@@ -1133,6 +1181,12 @@ class SessionRewriteIssue(FlexibleModel):
     description: str = Field(min_length=1)
     evidence: list[AuditEvidence] = Field(default_factory=list)
     suggested_fix: str | None = None
+    category: AuditIssueCategory | None = None
+    source_layer: AuditIssueSourceLayer | None = None
+    blocking_reason: str | None = None
+    evidence_strength: AuditEvidenceStrength | None = None
+    is_hard_blocker: bool | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
 
 
 class SessionAuditRevision(FlexibleModel):

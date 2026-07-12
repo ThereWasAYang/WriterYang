@@ -1548,6 +1548,18 @@ memory/chapters/{NNN}/plan.md
 
 字段级结构请查看生成的 `schemas/creation_session.schema.json` 和 `schemas/creation_outline.schema.json`。
 
+`CreationSession` 的生命周期字段只有：
+
+- `phase`：唯一 Session phase；
+- `chapter_runs`：以章节号为 key 的 node 状态；
+- `last_completed_node`：最近完成 checkpoint；
+- `failure_node` / `failure_message`：可恢复失败定位；
+- `resume_count`：恢复次数。
+
+不存在 `status`、`outline_status` 或 `content_status`。`ready_to_run` 及之后 phase 必须有 `approved_outline_path`，`chapter_runs` 的 key 必须与 `chapter_range` 完全一致。
+
+每个 immutable artifact 旁边都有 `<artifact path>.lineage.json`。`ArtifactLineage` 保存 output、inputs、`task_id`、`workflow_run_id`、`prompt_hash` 与 `policy_version`；`ChapterLifecycle.lineages` 汇总 active DAG。`AcceptanceCommit.transaction_id` 必须指向同一提交的 `transactions/{transaction_id}/journal.json`，Export source chapter 继续携带该 ID。
+
 ### 25.1 Revision Session 持久化产物
 
 Accepted 章节的局部修订使用独立 workflow，不复用 Creation Session：

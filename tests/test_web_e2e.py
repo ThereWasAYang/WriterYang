@@ -12,7 +12,6 @@ from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_j
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_server import _handler_class
 
-
 pytestmark = pytest.mark.web_e2e
 
 
@@ -150,6 +149,8 @@ def test_web_ui_restores_generated_session_without_local_storage(tmp_path: Path)
             page.click("#sessionRun")
             page.wait_for_function("() => document.querySelector('#sessionPanel')?.textContent?.includes('awaiting_content_review')")
             page.wait_for_function("() => document.querySelector('#chapterProseViewer')?.textContent?.includes('真正沉默')")
+            assert page.locator("#sessionAccept").is_enabled()
+            assert page.locator("#sessionReviseInstruction").is_enabled()
             page.close()
 
             restored_context = browser.new_context()
@@ -177,7 +178,37 @@ def test_web_ui_restores_generated_session_without_local_storage(tmp_path: Path)
         server.server_close()
 
 
-def test_workbench_instruction_bar_stays_visible_while_scrolling(tmp_path: Path) -> None:
+def test_web_ui_has_no_page_level_horizontal_overflow_on_narrow_viewport(tmp_path: Path) -> None:
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    root = _workspace_ready_for_generation(tmp_path)
+    try:
+        port = _free_port()
+    except PermissionError:
+        pytest.skip("local port binding is not permitted in this sandbox")
+    server = ThreadingHTTPServer(("127.0.0.1", port), _handler_class())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page.goto(f"http://127.0.0.1:{port}/")
+            page.fill("#projectPath", str(root))
+            page.click("#openProject")
+            page.click("button[data-page='workbenchPage']")
+            page.wait_for_function("() => document.querySelector('#compareGrid') !== null")
+            assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
+            browser.close()
+    except Exception as exc:
+        if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
+            pytest.skip("Playwright browser binaries are not installed")
+        raise
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_workbench_instruction_bar_scrolls_away_without_covering_targets(tmp_path: Path) -> None:
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     try:
         port = _free_port()
@@ -205,11 +236,11 @@ def test_workbench_instruction_bar_stays_visible_while_scrolling(tmp_path: Path)
             assert page.locator("#instruction").evaluate("node => node.clientHeight") >= 200
 
             page.eval_on_selector("#sessionWorkflowPanel", "node => node.scrollIntoView({block: 'start'})")
-            _wait_for_instruction_and_target_visible(page, "#sessionWorkflowPanel")
+            _wait_for_static_command_bar_and_target_visible(page, "#sessionWorkflowPanel")
 
             page.click("#settingChangeDetails > summary")
             page.eval_on_selector("#settingChangeDetails", "node => node.scrollIntoView({block: 'center'})")
-            _wait_for_instruction_and_target_visible(page, "#settingChangeDetails")
+            _wait_for_static_command_bar_and_target_visible(page, "#settingChangeDetails")
             browser.close()
     except Exception as exc:
         if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
@@ -242,14 +273,14 @@ def test_workbench_session_status_scrolls_with_content(tmp_path: Path) -> None:
             page.eval_on_selector("#rejectedTextViewer", "node => node.scrollIntoView({block: 'center'})")
             page.wait_for_function(
                 """() => {
-                    const commandBar = document.querySelector("#workbenchCommandBar")?.getBoundingClientRect();
+                    const header = document.querySelector(".app-header")?.getBoundingClientRect();
                     const statusNode = document.querySelector(".workbench-session-status");
                     const status = statusNode?.getBoundingClientRect();
                     const rejectedText = document.querySelector("#rejectedTextViewer")?.getBoundingClientRect();
-                    if (!commandBar || !statusNode || !status || !rejectedText) return false;
+                    if (!header || !statusNode || !status || !rejectedText) return false;
                     const statusPosition = window.getComputedStyle(statusNode).position;
-                    const rejectedTextVisible = rejectedText.top < window.innerHeight && rejectedText.bottom > commandBar.bottom + 8;
-                    const statusScrolledWithPage = status.top < commandBar.bottom;
+                    const rejectedTextVisible = rejectedText.top < window.innerHeight && rejectedText.bottom > header.bottom + 8;
+                    const statusScrolledWithPage = status.top < header.bottom;
                     const statusAboveTarget = status.bottom < rejectedText.top;
                     return statusPosition === "static" && rejectedTextVisible && statusScrolledWithPage && statusAboveTarget;
                 }"""
@@ -358,16 +389,18 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _wait_for_instruction_and_target_visible(page, target_selector: str) -> None:
+def _wait_for_static_command_bar_and_target_visible(page, target_selector: str) -> None:
     page.wait_for_function(
         """(selector) => {
+            const header = document.querySelector(".app-header")?.getBoundingClientRect();
+            const barNode = document.querySelector("#workbenchCommandBar");
             const bar = document.querySelector("#workbenchCommandBar")?.getBoundingClientRect();
-            const input = document.querySelector("#instruction")?.getBoundingClientRect();
             const target = document.querySelector(selector)?.getBoundingClientRect();
-            if (!bar || !input || !target) return false;
-            const inputVisible = input.top >= 0 && input.bottom <= window.innerHeight && input.height >= 200;
-            const targetVisible = target.top < window.innerHeight && target.bottom > bar.bottom + 8;
-            return inputVisible && targetVisible;
+            if (!header || !barNode || !bar || !target) return false;
+            const barIsStatic = window.getComputedStyle(barNode).position === "static";
+            const barDoesNotOverlapTarget = bar.bottom <= target.top;
+            const targetVisible = target.top < window.innerHeight && target.bottom > header.bottom + 8;
+            return barIsStatic && barDoesNotOverlapTarget && targetVisible;
         }""",
         arg=target_selector,
     )

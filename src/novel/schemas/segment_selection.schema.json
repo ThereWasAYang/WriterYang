@@ -1,0 +1,125 @@
+{
+  "$defs": {
+    "ArtifactKind": {
+      "enum": [
+        "plan",
+        "candidate",
+        "audit",
+        "state_proposal",
+        "chapter_memory",
+        "acceptance",
+        "segment_patch",
+        "state",
+        "timeline"
+      ],
+      "title": "ArtifactKind",
+      "type": "string"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "artifact_id": {
+          "pattern": "^art_[0-9a-f]{32}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "path",
+        "sha256",
+        "created_at"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "selection_id": {
+      "pattern": "^selection_[0-9a-f]{32}$",
+      "title": "Selection Id",
+      "type": "string"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "source_candidate": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "start_block": {
+      "minimum": 1,
+      "title": "Start Block",
+      "type": "integer"
+    },
+    "end_block": {
+      "minimum": 1,
+      "title": "End Block",
+      "type": "integer"
+    },
+    "selected_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Selected Sha256",
+      "type": "string"
+    },
+    "prefix_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Prefix Sha256",
+      "type": "string"
+    },
+    "suffix_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Suffix Sha256",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "selection_id",
+    "chapter_number",
+    "source_candidate",
+    "start_block",
+    "end_block",
+    "selected_sha256",
+    "prefix_sha256",
+    "suffix_sha256",
+    "created_at"
+  ],
+  "title": "SegmentSelection",
+  "type": "object"
+}

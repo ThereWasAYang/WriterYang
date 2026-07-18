@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,7 @@ class UsageBucket:
         }
 
     @classmethod
-    def from_dict(cls, data: object) -> "UsageBucket":
+    def from_dict(cls, data: object) -> UsageBucket:
         if not isinstance(data, dict):
             return cls()
         return cls(
@@ -97,7 +97,7 @@ class UsageSummary:
         return data
 
     @classmethod
-    def from_dict(cls, data: object, *, log_path: Path) -> "UsageSummary | None":
+    def from_dict(cls, data: object, *, log_path: Path) -> UsageSummary | None:
         if not isinstance(data, dict):
             return None
         summary = cls(

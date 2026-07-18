@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import inspect
+import json
 from argparse import Namespace
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import json
 from pathlib import Path
 
 import pytest
@@ -18,14 +19,15 @@ from novel.core.command_bus import (
     dispatch_command,
     new_command_envelope,
 )
+from novel.core.command_registry import COMMAND_SPECS
 from novel.core.contracts import (
     ProductionExportCommand,
     SessionCommand,
     SessionStartCommand,
     Surface,
 )
-from novel.core.workspace import InitOptions, init_workspace
 from novel.core.session import SessionStartOptions, start_session
+from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import handle_api_request
 from novel.web_api.common import _dispatch_web_query_command
 from novel.web_api.router import _post_routes
@@ -93,6 +95,32 @@ def test_every_public_command_type_has_exactly_one_handler() -> None:
         "setup.web_launcher",
     }
     assert set(COMMAND_HANDLERS) == command_types
+    assert set(COMMAND_SPECS) == command_types
+    assert COMMAND_SPECS["project.status"].access == "read"
+    assert COMMAND_SPECS["session.cancel"].access == "unlocked_write"
+    assert COMMAND_SPECS["session.accept"].confirmation_required is True
+    assert COMMAND_SPECS["session.run"].lock_required is True
+
+
+def test_dispatcher_does_not_embed_or_import_domain_handlers() -> None:
+    import novel.core.command_bus as command_bus
+
+    source = inspect.getsource(command_bus)
+    assert "\n@_handler(" not in source
+    assert "from novel.core.canon import" not in source
+    assert "from novel.core.search import" not in source
+    assert "from novel.core.exporting import" not in source
+    assert "from novel.core.memory_repair import" not in source
+    assert "register_builtin_handlers()" in source
+
+    handler_root = Path(command_bus.__file__).with_name("command_handlers")
+    assert {path.name for path in handler_root.glob("*.py")} >= {
+        "project.py",
+        "generation.py",
+        "session.py",
+        "publishing.py",
+        "errors.py",
+    }
 
 
 def test_confirmation_required_command_is_rejected_before_handler(tmp_path: Path) -> None:

@@ -3,61 +3,58 @@ from __future__ import annotations
 from novel.core.context_policy import render_untrusted_workspace_data
 
 from .deps import (
-    json,
-    Path,
-    ValidationError,
-    AgentInvocationContext,
-    AgentOutputContract,
-    AgentOutputContractError,
-    generate_with_output_guard,
-    log_app_warning,
-    load_json,
-    JsonExtractionError,
-    extract_json_object,
-    mock_memory_change_batch_plan,
-    mock_memory_change_clarification_decision,
-    mock_memory_repair_decision,
-    _escape_pointer,
-    _unescape_pointer,
-    load_prompt_template,
-    prompt_template_version,
-    ProviderOverrides,
-    create_agent_provider,
-    default_agent_config_path,
-    ModelProvider,
-    ModelRequest,
     ALLOWED_MEMORY_FILES,
     COLLECTION_FIELD_HINTS,
     COLLECTION_PATH_FILES,
     COLLECTION_SCHEMA_HINTS,
     FILE_COLLECTION_KEYS,
     POINTER_PATH_FILES,
+    REPAIR_ERROR_LIMIT,
+    REPAIR_INVALID_OUTPUT_LIMIT,
     SETTING_CHANGE_MAPPING_RULES,
     STATE_COLLECTION_KEYS,
+    AgentInvocationContext,
+    AgentOutputContract,
+    AgentOutputContractError,
+    JsonExtractionError,
+    JsonRepairExhaustedError,
     MemoryChangeBatchPlan,
     MemoryChangeClarificationDecision,
     MemoryChangeConversationTurn,
     MemoryChangeKind,
     MemoryChangeStage,
     MemoryRepairDecision,
-    REPAIR_ERROR_LIMIT,
-    REPAIR_INVALID_OUTPUT_LIMIT,
-    JsonRepairExhaustedError,
+    ModelProvider,
+    ModelRequest,
+    Path,
+    ProviderOverrides,
+    ValidationError,
+    _escape_pointer,
+    _unescape_pointer,
+    create_agent_provider,
+    default_agent_config_path,
+    extract_json_object,
     generate_json_with_repair,
+    generate_with_output_guard,
+    json,
+    load_json,
+    load_prompt_template,
+    log_app_warning,
+    mock_memory_change_batch_plan,
+    mock_memory_change_clarification_decision,
+    mock_memory_repair_decision,
+    prompt_template_version,
 )
-
+from .impact import (
+    _fallback_clarification_decision,
+    _normalize_string_list,
+    _validate_memory_change_batch_plan,
+)
 from .models import (
     MemoryRepairError,
 )
-
 from .validation import (
     _format_preflight_errors,
-)
-
-from .impact import (
-    _validate_memory_change_batch_plan,
-    _fallback_clarification_decision,
-    _normalize_string_list,
 )
 
 
@@ -481,9 +478,8 @@ def _normalize_memory_repair_operation(raw_operation: dict[str, object]) -> dict
     if not isinstance(path, str) or not path.startswith("/"):
         return operation
     inferred_file = _infer_file_from_pointer_path(path)
-    if not isinstance(operation.get("file"), str) or not operation.get("file"):
-        if inferred_file:
-            operation["file"] = inferred_file
+    if (not isinstance(operation.get("file"), str) or not operation.get("file")) and inferred_file:
+        operation["file"] = inferred_file
     if op == "add":
         normalized_path = _normalize_add_collection_path(path)
         can_default_reason = normalized_path != path or _is_append_collection_path(normalized_path)

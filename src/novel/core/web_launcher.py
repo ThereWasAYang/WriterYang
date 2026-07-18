@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import shlex
 import socket
 import sys
-from typing import Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from novel.core.io import atomic_write_model_json, atomic_write_text, load_json_model
 from novel.core.timeutil import utc_now_iso
-
+from novel.core.web_security import require_loopback_host, url_host
 
 WEB_LAUNCHER_FILENAME = "WriterYang_WebUI.command"
 WEB_LAUNCHER_CONFIG_FILENAME = "WriterYang_WebUI.config.json"
@@ -37,6 +37,11 @@ class WebLauncherConfig(BaseModel):
     port: int = Field(default=8765, ge=1, le=65535)
     updated_at: str | None = None
 
+    @field_validator("host")
+    @classmethod
+    def loopback_only(cls, value: str) -> str:
+        return require_loopback_host(value)
+
 
 @dataclass(frozen=True)
 class WebLauncherPortResult:
@@ -47,7 +52,7 @@ class WebLauncherPortResult:
 
     @property
     def url(self) -> str:
-        return f"http://{self.host}:{self.selected_port}"
+        return f"http://{url_host(self.host)}:{self.selected_port}"
 
 
 def launcher_config_path_from_env(*, default_root: Path | None = None) -> Path:
@@ -105,11 +110,15 @@ def save_web_launcher_port_config(
         port=requested_port,
         updated_at=utc_now_iso(),
     )
-    if not _is_current_endpoint(config.host, config.port, current_host=current_host, current_port=current_port):
-        if not is_port_available(config.host, config.port):
-            raise PortUnavailableError(
-                f"端口 {config.port} 已被占用，未保存启动器端口配置。请选择其他可用端口。"
-            )
+    if not _is_current_endpoint(
+        config.host,
+        config.port,
+        current_host=current_host,
+        current_port=current_port,
+    ) and not is_port_available(config.host, config.port):
+        raise PortUnavailableError(
+            f"端口 {config.port} 已被占用，未保存启动器端口配置。请选择其他可用端口。"
+        )
     written = write_web_launcher_config(config_path, config)
     return WebLauncherPortResult(
         config_path=written,

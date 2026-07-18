@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 from novel.core.artifact_store import (
     ArtifactStore,
@@ -41,9 +41,9 @@ from novel.core.timeutil import utc_now
 from novel.core.transactions import (
     FileMutation,
     commit_transaction,
+    new_transaction_id,
     prepare_transaction,
     recover_incomplete_transactions,
-    new_transaction_id,
 )
 
 

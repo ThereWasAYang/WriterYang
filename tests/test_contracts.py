@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from novel.core.contracts import CommandProposal, DecisionRisk, SessionStartCommand, WorkflowBudget
 from novel.core.context_policy import CONTEXT_POLICIES
+from novel.core.contracts import CommandProposal, DecisionRisk, SessionStartCommand, TaskId, WorkflowBudget
 from novel.core.schemas import ProjectConfig
 from novel.core.task_registry import (
     TASK_REGISTRY,
@@ -14,7 +14,6 @@ from novel.core.task_registry import (
     render_profile_registry_markdown,
     render_task_registry_markdown,
 )
-from novel.core.contracts import TaskId
 
 
 def test_control_contracts_forbid_unknown_fields() -> None:

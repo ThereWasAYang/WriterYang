@@ -1,0 +1,138 @@
+{
+  "$defs": {
+    "TransactionEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "target_path": {
+          "minLength": 1,
+          "title": "Target Path",
+          "type": "string"
+        },
+        "staged_path": {
+          "minLength": 1,
+          "title": "Staged Path",
+          "type": "string"
+        },
+        "backup_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backup Path"
+        },
+        "existed": {
+          "title": "Existed",
+          "type": "boolean"
+        },
+        "before_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before Sha256"
+        },
+        "after_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "After Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_path",
+        "staged_path",
+        "existed",
+        "after_sha256"
+      ],
+      "title": "TransactionEntry",
+      "type": "object"
+    },
+    "TransactionStatus": {
+      "enum": [
+        "prepared",
+        "applying",
+        "committed",
+        "rolling_back",
+        "rolled_back"
+      ],
+      "title": "TransactionStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "transaction_id": {
+      "pattern": "^tx_[0-9a-f]{32}$",
+      "title": "Transaction Id",
+      "type": "string"
+    },
+    "purpose": {
+      "minLength": 1,
+      "title": "Purpose",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/TransactionStatus"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/TransactionEntry"
+      },
+      "minItems": 1,
+      "title": "Entries",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    }
+  },
+  "required": [
+    "transaction_id",
+    "purpose",
+    "status",
+    "entries",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "TransactionJournal",
+  "type": "object"
+}

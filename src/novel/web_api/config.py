@@ -1,17 +1,5 @@
 from __future__ import annotations
 
-from .deps import (
-    Path,
-    cast,
-    DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
-    DEFAULT_AGENT_MAX_TOKENS,
-    DEFAULT_AGENT_TIMEOUT_SECONDS,
-    TASK_ONLY_CONFIG_FIELDS,
-    web_launcher,
-    AgentConfig,
-    provider_parameter_capabilities,
-    default_style_guide_markdown,
-)
 from novel.core.contracts import (
     AgentConfigUpdateCommand,
     ChapterCandidateSaveCommand,
@@ -27,21 +15,33 @@ from novel.core.contracts import (
 from .common import (
     STYLE_GUIDE_RELATIVE_PATH,
     WebAPIError,
-    _sanitize_config,
-    _require_workspace,
-    _root_from_body,
-    _init_project_root_from_body,
     _chapter_number,
-    _optional_string,
-    _optional_int,
-    _optional_float,
-    _provider_name,
-    _truthy,
-    _required_string,
     _configured_web_port,
     _current_web_endpoint,
-    _split_csv,
     _dispatch_web_command,
+    _init_project_root_from_body,
+    _optional_float,
+    _optional_int,
+    _optional_string,
+    _provider_name,
+    _require_workspace,
+    _required_string,
+    _root_from_body,
+    _sanitize_config,
+    _split_csv,
+    _truthy,
+)
+from .deps import (
+    DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
+    DEFAULT_AGENT_MAX_TOKENS,
+    DEFAULT_AGENT_TIMEOUT_SECONDS,
+    TASK_ONLY_CONFIG_FIELDS,
+    AgentConfig,
+    Path,
+    cast,
+    default_style_guide_markdown,
+    provider_parameter_capabilities,
+    web_launcher,
 )
 
 

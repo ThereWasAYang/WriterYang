@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
 import hashlib
-from io import StringIO
 import json
 import os
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 
-from tests.internal_task_cli import run_test_cli
 from novel.core import chapter_memory as chapter_memory_module
 from novel.core import state_update as state_update_module
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, default_mock_audit_report_json
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.chapter_memory import (
     accepted_chapter_numbers as _accepted_chapter_numbers,
+)
+from novel.core.chapter_memory import (
     default_mock_chapter_memory_json,
     load_chapter_memories,
     load_chapter_memory_context,
@@ -21,11 +22,13 @@ from novel.core.chapter_memory import (
     render_chapter_memory_prompt_text,
     validate_chapter_memory,
 )
-from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
-from novel.core.contracts import AcceptanceCommit, CURRENT_SCHEMA_VERSION
+from novel.core.contracts import CURRENT_SCHEMA_VERSION, AcceptanceCommit
+from novel.core.drafting import ChapterDraftingOptions, default_mock_draft_payload_json, write_chapter_draft
+from novel.core.io import atomic_write_model_json, atomic_write_yaml, load_json_model, load_yaml, load_yaml_model
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
-from novel.core.polishing import ChapterPolishingOptions, polish_chapter
+from novel.core.polishing import ChapterPolishingOptions, default_mock_polished_payload_json, polish_chapter
 from novel.core.providers import MockProvider
+from novel.core.schemas import ChapterMemory, ChapterMemoryItem, ChapterPlan, ProjectConfig
 from novel.core.search import rebuild_search_index, retrieve_context_bundle, search_project
 from novel.core.session import (
     SessionActionOptions,
@@ -36,10 +39,9 @@ from novel.core.session import (
     run_session,
     start_session,
 )
-from novel.core.schemas import ChapterMemory, ChapterMemoryItem, ChapterPlan, ProjectConfig
 from novel.core.state_update import AcceptChapterOptions, accept_chapter
-from novel.core.io import atomic_write_model_json, atomic_write_yaml, load_json_model, load_yaml, load_yaml_model
 from novel.core.workspace import InitOptions, init_workspace
+from tests.internal_task_cli import run_test_cli
 
 
 def test_accept_chapter_creates_chapter_memory(tmp_path: Path) -> None:
@@ -98,7 +100,7 @@ def test_chapter_memory_provider_failure_uses_deterministic_fallback(tmp_path: P
     memory = result.chapter_memory_result.memory
     assert memory.generation_status == "deterministic_fallback"
     assert "SECRET_PLAN_SUMMARY_DO_NOT_LEAK" not in memory.reader_visible_summary
-    assert "雨声更深" in memory.reader_visible_summary
+    assert "雨水敲在旧车站" in memory.reader_visible_summary
     assert all(item.visibility == "author_only" for item in memory.plot_beats)
     assert any("provider unavailable" in warning for warning in memory.warnings)
     assert any("deterministic fallback" in warning for warning in memory.warnings)
@@ -394,11 +396,11 @@ def _workspace_with_audit(tmp_path: Path) -> Path:
     )
     write_chapter_draft(
         ChapterDraftingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="雨落在旧车站。林澈听见广播，拾起半张车票。"),
+        MockProvider(fake_response=default_mock_draft_payload_json()),
     )
     polish_chapter(
         ChapterPolishingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="雨声更深，旧车站像在夜里醒来。林澈收起车票。"),
+        MockProvider(fake_response=default_mock_polished_payload_json()),
     )
     audit_chapter(
         ChapterAuditOptions(root=root, chapter_number=1),

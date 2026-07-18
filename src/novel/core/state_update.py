@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
 import shutil
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import yaml
@@ -23,6 +23,7 @@ from novel.core.chapter_memory import (
 )
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.context_policy import render_untrusted_workspace_data
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.io import (
     atomic_write_model_json,
     atomic_write_text,
@@ -33,12 +34,10 @@ from novel.core.io import (
 )
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
-from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template, prompt_template_version
-from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditReport,
     ChapterMetadata,
@@ -55,6 +54,7 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.state_change_values import compare_state_change_old_value
 from novel.core.structured_generation import (
     REPAIR_ERROR_LIMIT,
@@ -754,7 +754,7 @@ def apply_state_changes_to_state(
             raise StateUpdateError(f"state change {change.id} references missing entity: {change.entity_id}")
         _apply_model_field(target, change.field, change.new_value, change.id)
         if hasattr(target, "last_updated_chapter"):
-            setattr(target, "last_updated_chapter", change.chapter)
+            target.last_updated_chapter = change.chapter
 
     validated = EntityState.model_validate(updated.model_dump(mode="json", warnings=False))
     max_changed_chapter = max((change.chapter for change in changes), default=0)
@@ -1168,11 +1168,10 @@ def default_mock_revision_state_update_proposal_json(root: Path, chapter_number:
 
 def _ensure_audit_allows_progress(audit: AuditReport, *, allow_issues: bool) -> None:
     severe = [issue for issue in audit.issues if issue.severity in {"medium", "high", "critical"}]
-    if audit.overall_status == "blocked" or severe:
-        if not allow_issues:
-            raise StateUpdateError(
-                "audit has unresolved medium, high, or critical issues; pass the explicit allow flag to continue"
-            )
+    if (audit.overall_status == "blocked" or severe) and not allow_issues:
+        raise StateUpdateError(
+            "audit has unresolved medium, high, or critical issues; pass the explicit allow flag to continue"
+        )
 
 
 def _validate_state_change_field(

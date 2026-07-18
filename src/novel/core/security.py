@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-
 
 RAW_SECRET_PATTERNS = (
     re.compile(r"\bsk-proj-[A-Za-z0-9_\-]{12,}\b"),
@@ -110,8 +109,7 @@ def _iter_scan_files(root: Path, *, tracked_only: bool) -> list[Path]:
                 cwd=root,
                 check=True,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
         except Exception:
             return _walk_files(root)
@@ -138,9 +136,7 @@ def _should_scan_path(rel_path: Path) -> bool:
         return False
     if rel_path.name.startswith(".") and rel_path.name not in {".env.example", ".gitignore"}:
         return False
-    if rel_path.suffix.lower() in IGNORED_TRACKED_SUFFIXES:
-        return False
-    return True
+    return rel_path.suffix.lower() not in IGNORED_TRACKED_SUFFIXES
 
 
 def _scan_file(root: Path, path: Path) -> tuple[SecurityFinding, ...]:

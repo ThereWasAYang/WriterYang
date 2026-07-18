@@ -1,30 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 import yaml
 
-from novel.core.agent_output import (
-    AgentInvocationContext,
-    AgentOutputContract,
-    generate_with_output_guard,
-)
+from novel.core.agent_output import AgentInvocationContext
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.context_policy import render_untrusted_workspace_data
+from novel.core.contracts.prose import ProseArtifactKind
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.management import record_management_event
+from novel.core.prompts import load_prompt_template, prompt_template_version
+from novel.core.prose_generation import generate_prose_artifact, mock_prose_artifact_json
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest, ProviderOutputTruncatedError
-from novel.core.prompts import load_prompt_template, prompt_template_version
-from novel.core.search import retrieve_context_bundle, write_context_report
-from novel.core.style_guide import DEFAULT_STYLE_GUIDANCE
-from novel.core.timeutil import utc_now_iso
-from novel.core.world_state import resolve_world_state_paths
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -32,7 +26,10 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
-
+from novel.core.search import retrieve_context_bundle, write_context_report
+from novel.core.style_guide import DEFAULT_STYLE_GUIDANCE
+from novel.core.timeutil import utc_now_iso
+from novel.core.world_state import resolve_world_state_paths
 
 EditMode = Literal["light", "normal", "deep"]
 
@@ -144,8 +141,7 @@ def polish_chapter(
         context=format_canon_summary(canon),
     )
     try:
-        body = _clean_polished_body(
-            generate_with_output_guard(
+        payload = generate_prose_artifact(
                 provider,
                 model_request,
                 root=root,
@@ -155,13 +151,14 @@ def polish_chapter(
                     task="polish_chapter",
                     chapter_number=options.chapter_number,
                 ),
-                contract=AgentOutputContract(
-                    output_kind="markdown",
-                    target_name="polished chapter Markdown body",
-                ),
+                artifact_kind=ProseArtifactKind.POLISHED_CHAPTER,
+                chapter_number=options.chapter_number,
+                required_source_refs=(f"memory/chapters/{options.chapter_number:03d}/draft.md",),
                 stream=True,
-            )
         )
+        body = payload.body_markdown
+        warnings.extend(payload.warnings)
+        warnings.extend(f"Agent assumption: {item}" for item in payload.assumptions)
     except ProviderOutputTruncatedError as exc:
         record_management_event(
             root,
@@ -199,6 +196,7 @@ def load_polishing_provider(
     root: Path,
     provider_name: str,
     *,
+    chapter_number: int = 1,
     agent_config_path: Path | None = None,
     model_name: str | None = None,
 ) -> ModelProvider:
@@ -206,7 +204,7 @@ def load_polishing_provider(
         agent_config_path or default_agent_config_path(root),
         "polish",
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
-        mock_response=default_mock_polished_body(),
+        mock_response=default_mock_polished_payload_json(chapter_number),
     )
 
 
@@ -274,8 +272,10 @@ def build_polish_user_prompt(
         f"尽量保持长度：{'是' if keep_length else '否'}\n"
         f"用户额外润色要求：{instruction or '无'}\n"
         f"临时文风要求：{style_note or '无'}\n\n"
-        "请只输出润色后的正文 Markdown，不要包含 YAML front matter，"
-        "不要包含 provider 原始响应、调试信息、JSON、分析说明、大纲或包装语。\n\n"
+        "请只输出 ProseArtifactPayload JSON。artifact_kind 必须是 polished_chapter，"
+        f"chapter_number 必须是 {plan.chapter_number}，source_artifact_refs 必须包含 "
+        f"memory/chapters/{plan.chapter_number:03d}/draft.md。body_markdown 只放润色正文，"
+        "不要包含 YAML front matter、provider 原始响应、调试信息、分析说明、大纲或包装语。\n\n"
         f"{render_untrusted_workspace_data('search_context', search_context)}\n"
         f"{render_untrusted_workspace_data('approved_chapter_plan', plan.model_dump_json(indent=2))}\n"
         f"{render_untrusted_workspace_data('draft_metadata', json.dumps(draft.metadata, ensure_ascii=False, indent=2, default=str))}\n"
@@ -332,6 +332,16 @@ def default_mock_polished_body() -> str:
         "纸面上的日期被水泡得模糊，只剩几个让他无法移开视线的数字。\n\n"
         "广播戛然而止，车站安静得近乎失真。林澈把车票夹进笔记本，抬头望向空荡站台。"
         "他第一次清楚地意识到：这地方从来没有真正沉默。"
+    )
+
+
+def default_mock_polished_payload_json(chapter_number: int = 1) -> str:
+    return mock_prose_artifact_json(
+        artifact_kind=ProseArtifactKind.POLISHED_CHAPTER,
+        chapter_number=chapter_number,
+        body_markdown=default_mock_polished_body(),
+        source_artifact_refs=(f"memory/chapters/{chapter_number:03d}/draft.md",),
+        change_summary="在不改变剧情事实的前提下完成语言润色。",
     )
 
 

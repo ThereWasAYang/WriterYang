@@ -1,34 +1,34 @@
 from __future__ import annotations
 
+import json
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import json
 from pathlib import Path
 
 import yaml
 
-from tests.internal_task_cli import run_test_cli
+from novel.core import state_update as state_update_module
 from novel.core.auditing import ChapterAuditOptions, audit_chapter, default_mock_audit_report_json
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.drafting import ChapterDraftingOptions, default_mock_draft_payload_json, write_chapter_draft
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
-from novel.core.polishing import ChapterPolishingOptions, polish_chapter
+from novel.core.polishing import ChapterPolishingOptions, default_mock_polished_payload_json, polish_chapter
 from novel.core.providers import MockProvider
 from novel.core.schemas import ChapterMetadata, EntityState, StateUpdateApplyLog, StateUpdateProposal, TimelineFile
-from novel.core import state_update as state_update_module
-from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.state_update import (
     AcceptChapterOptions,
     StateUpdateApplyOptions,
     StateUpdateProposeOptions,
     accept_chapter,
-    default_mock_state_update_proposal_json,
     apply_state_update,
+    default_mock_state_update_proposal_json,
     parse_state_update_proposal,
     propose_state_update,
     validate_state_update_proposal,
 )
 from novel.core.workspace import InitOptions, init_workspace
+from tests.internal_task_cli import run_test_cli
 
 
 def test_mock_provider_can_generate_state_update_proposal(tmp_path: Path) -> None:
@@ -702,11 +702,11 @@ def _workspace_with_audit(tmp_path: Path) -> Path:
     )
     write_chapter_draft(
         ChapterDraftingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="雨落在旧车站。林澈听见广播，拾起半张车票。"),
+        MockProvider(fake_response=default_mock_draft_payload_json()),
     )
     polish_chapter(
         ChapterPolishingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="雨声更深，旧车站像在夜里醒来。林澈收起车票。"),
+        MockProvider(fake_response=default_mock_polished_payload_json()),
     )
     audit_chapter(
         ChapterAuditOptions(root=root, chapter_number=1),

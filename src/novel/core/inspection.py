@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from novel.core.io import load_json, load_json_model, load_yaml_model
 from novel.core.canon import format_canon_summary, load_canon_files
+from novel.core.io import load_json, load_json_model, load_yaml_model
 from novel.core.schemas import (
     ChapterMetadata,
     CharactersFile,

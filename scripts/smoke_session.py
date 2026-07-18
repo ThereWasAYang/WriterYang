@@ -4,16 +4,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Sequence
-
-from novel.core.timeutil import utc_now_iso
+from collections.abc import Sequence
+from pathlib import Path
 
 import yaml
+
+from novel.core.timeutil import utc_now_iso
 
 
 def main(argv: Sequence[str] | None = None) -> int:

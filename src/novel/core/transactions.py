@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import shutil
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
-from typing import Callable
-import uuid
 
 from novel.core.artifact_store import resolve_project_path, sha256_bytes, sha256_file
 from novel.core.contracts import TransactionEntry, TransactionJournal, TransactionStatus

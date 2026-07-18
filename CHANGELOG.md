@@ -2,6 +2,10 @@
 
 ## 0.1.1 - 未发布
 
+- 全面评审闭环：Writer/Polish/Revision/Inspiration 改用 strict structured prose contract 与确定性 Markdown renderer；本地 Web 强制 loopback、统一 typed command/OpenAPI 与稳定错误 envelope；Provider 改为有界真实 SSE 流并支持取消、`Retry-After` 和首 token/字节观测。
+- Search 运行时统一 SQLite FTS/向量候选并按 source manifest 增量更新；EventWriter 增加并发安全追加、rotation/retention 和 health；加入 10/100/500 章性能基准、coverage、dependency audit、constraints、Dependabot、固定 SHA Actions 与 macOS smoke。
+- Command Bus 拆为纯 dispatcher/policy、分域 command handlers 和 workflow-state service；CLI parser 按五个命令域注册；Session progress 独立持久化。Web 工作台按 `next_allowed_commands` 渐进显示动作，修复 sticky 遮挡、窄屏横向溢出和 busy 结束回滚按钮状态的问题。
+- 发布中文产品、架构、工作流、配置、部署和安全文档，历史评审移入 `docs/history/`；项目所有者明确接受可信本地 `.env` 明文 API Key 风险，其余位置仍禁止保存或泄漏密钥。
 - 闭环 Agent 重构复审遗留项：Audit 强绑定正文 SHA-256，多章修订按 projection 交错推进，Revision Session 支持放弃并恢复，Ask 确认直接派发已展示 proposal，事务终态清理正文副本，并固定 immutable lineage 与确定性 ChapterMemory 语义。该 Audit 合同变更具有数据破坏性：本变更前创建的 workspace 中，缺少 `audited_sha256` 的旧 `audit.json` 不再被接受；请对相关章节发起 revision 或 Creation Session revise，使正文重新审核并生成现行格式 Audit。
 - 完成 Agent 系统最终审计遗留项闭环：Creation Session 删除 `status/outline_status/content_status`，真实执行统一使用 `SessionPhase + ChapterNodeState`，支持失败节点持久化和定向恢复。
 - Revision route 在解析和执行两层强制 `chapter_numbers` scope；非只读 Ask 增加 confidence gate，模型路由失败不再用关键词选择写 executor。

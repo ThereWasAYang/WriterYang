@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
 import json
 import sqlite3
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from novel.cli import main
@@ -15,12 +15,13 @@ from novel.core.planning import (
     plan_chapter,
 )
 from novel.core.providers import MockProvider
+from novel.core.schemas import ContextBundle
 from novel.core.search import (
     rebuild_search_index,
     refresh_search_index,
+    resolve_vector_context_mode,
     retrieve_context,
     retrieve_context_bundle,
-    resolve_vector_context_mode,
     search_index_status,
     search_project,
     write_context_report,
@@ -34,7 +35,6 @@ from novel.core.session import (
     run_session,
     start_session,
 )
-from novel.core.schemas import ContextBundle
 from novel.core.workspace import InitOptions, init_workspace
 
 
@@ -102,6 +102,27 @@ def test_index_refresh_updates_only_changed_documents(tmp_path: Path) -> None:
     assert result.deleted_count == 0
     assert search_index_status(root).fts_status == "indexed"
     assert search_project(root, "蓝色伞柄", limit=5)
+
+
+def test_incremental_refresh_preserves_unchanged_fts_rows(tmp_path: Path) -> None:
+    root = _workspace_ready_for_search(tmp_path)
+    rebuild_search_index(root)
+    sqlite_path = root / "memory" / "search_index.sqlite"
+    with sqlite3.connect(sqlite_path) as conn:
+        before = {str(row[0]): int(row[1]) for row in conn.execute("SELECT id, rowid FROM documents_fts")}
+
+    characters_path = root / "memory" / "canon" / "characters.json"
+    characters = json.loads(characters_path.read_text(encoding="utf-8"))
+    characters["characters"][0]["reader_visible_summary"] += " 增量刷新标记。"
+    characters_path.write_text(json.dumps(characters, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    result = refresh_search_index(root)
+
+    with sqlite3.connect(sqlite_path) as conn:
+        after = {str(row[0]): int(row[1]) for row in conn.execute("SELECT id, rowid FROM documents_fts")}
+    unchanged_ids = set(before) & set(after) - {"char_lin_che"}
+    assert result.refreshed_count < result.document_count
+    assert unchanged_ids
+    assert all(before[document_id] == after[document_id] for document_id in unchanged_ids)
 
 
 def test_index_refresh_counts_deleted_documents(tmp_path: Path) -> None:

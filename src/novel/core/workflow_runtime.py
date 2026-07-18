@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-import hashlib
-import json
+from datetime import datetime
 from pathlib import Path
 from typing import TypeVar
-import uuid
 
 from novel.core.budget import active_budget_tracker
 from novel.core.contracts import (
@@ -23,8 +24,8 @@ from novel.core.contracts import (
     WorkflowRun,
 )
 from novel.core.io import atomic_write_model_json, load_json_model
+from novel.core.retention import prune_workflow_runs
 from novel.core.timeutil import utc_now
-
 
 T = TypeVar("T")
 
@@ -146,6 +147,7 @@ class WorkflowRuntime:
             artifacts, paths = output_details(value) if output_details else ([], [])
             artifacts = _unique_artifacts([*self.registered_artifacts.pop(node.node_id, []), *artifacts])
             after = _budget_usage()
+            ended_at = utc_now()
             completed = node.model_copy(
                 update={
                     "output_artifacts": artifacts,
@@ -153,7 +155,8 @@ class WorkflowRuntime:
                     "retry_count": _provider_retry_count(node_type, before, after),
                     "budget_after": after,
                     "status": "completed",
-                    "ended_at": utc_now(),
+                    "ended_at": ended_at,
+                    "duration_ms": _elapsed_ms(node.started_at, ended_at),
                 }
             )
             self._write_node(completed)
@@ -161,12 +164,16 @@ class WorkflowRuntime:
             return value
         except Exception as exc:
             after = _budget_usage()
+            ended_at = utc_now()
             failed = node.model_copy(
                 update={
                     "retry_count": _provider_retry_count(node_type, before, after),
                     "budget_after": after,
                     "status": "failed",
-                    "ended_at": utc_now(),
+                    "ended_at": ended_at,
+                    "duration_ms": _elapsed_ms(node.started_at, ended_at),
+                    "error_code": _error_code(exc),
+                    "retryable": _is_retryable_error(exc),
                     "error": str(exc),
                 }
             )
@@ -268,8 +275,10 @@ def workflow_runtime_scope(
     session_id: str | None = None,
     workflow_type: str | None = None,
 ) -> Iterator[WorkflowRuntime]:
+    prune_workflow_runs(root)
     run_path = root / "runs" / workflow_run_id / "run.json"
     now = utc_now()
+    effective_parent_request_id: str | None
     if run_path.exists():
         existing = load_json_model(run_path, WorkflowRun)
         effective_parent_request_id = parent_request_id or existing.root_request_id
@@ -393,6 +402,36 @@ def _budget_usage() -> BudgetUsage:
 
 def _hash_text(value: str | None) -> str | None:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else None
+
+
+def _elapsed_ms(started: datetime, ended: datetime) -> int:
+    delta = ended - started
+    return max(0, int(delta.total_seconds() * 1000))
+
+
+def _error_code(exc: Exception) -> str:
+    explicit = getattr(exc, "code", None)
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    name = exc.__class__.__name__
+    chars: list[str] = []
+    for index, char in enumerate(name):
+        if char.isupper() and index:
+            chars.append("_")
+        chars.append(char.lower())
+    return "".join(chars).removesuffix("_error") or "operation_failed"
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    explicit = getattr(exc, "retryable", None)
+    if isinstance(explicit, bool):
+        return explicit
+    return exc.__class__.__name__ in {
+        "ProviderNetworkError",
+        "ProviderRateLimitError",
+        "ProviderTimeoutError",
+        "ProjectLockError",
+    }
 
 
 def _provider_retry_count(node_type: str, before: BudgetUsage, after: BudgetUsage) -> int:

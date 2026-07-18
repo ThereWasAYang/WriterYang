@@ -3,14 +3,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from novel.core.search import search_index_status
+from novel.cli_shared import (
+    _dispatch_cli_command,
+    _failure,
+    _success,
+)
 from novel.core.command_bus import DomainError
 from novel.core.contracts import IndexUpdateCommand, SearchCommand
-from novel.cli_shared import (
-    _success,
-    _failure,
-    _dispatch_cli_command,
-)
+from novel.core.search import search_index_status
+
 
 def _cmd_index(args: argparse.Namespace) -> int:
     if args.index_command in {"rebuild", "refresh"}:

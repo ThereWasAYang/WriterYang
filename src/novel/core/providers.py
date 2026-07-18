@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass, field, replace
 import json
 import os
-from pathlib import Path
-import socket
+import random
 import time
-from typing import Callable, Iterable, Mapping
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
 from urllib import error, request
 
-from novel.core.budget import consume_model_call, consume_provider_attempt, consume_response_tokens
-from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.agent_defaults import (
     PROFILE_INHERITED_PATCH_FIELDS,
     PROFILE_NAMES,
@@ -20,6 +18,8 @@ from novel.core.agent_defaults import (
     config_patch_fields,
     task_business_defaults,
 )
+from novel.core.budget import consume_model_call, consume_provider_attempt, consume_response_tokens
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import append_jsonl, atomic_write_json
 from novel.core.json_schema import (
     model_output_schema_payload,
@@ -32,12 +32,12 @@ from novel.core.model_io import (
     model_io_retention_policy_from_env,
     prune_model_io_dir,
 )
-from novel.core.task_registry import prompt_registry_entry, task_definition_for_agent
-from novel.core.workflow_runtime import active_trace_metadata, active_workflow_runtime
 from novel.core.schemas import AgentConfig, AgentConfigPatch
 from novel.core.security import redact_secret_text
+from novel.core.task_registry import prompt_registry_entry, task_definition_for_agent
 from novel.core.timeutil import new_request_id, utc_now_iso
 from novel.core.usage import refresh_provider_usage_summary_for_log
+from novel.core.workflow_runtime import active_trace_metadata, active_workflow_runtime
 
 
 @dataclass(frozen=True)
@@ -104,6 +104,10 @@ class ProviderResponseError(ProviderError):
     """Raised when a provider returns invalid or unsupported response data."""
 
 
+class ProviderResponseTooLargeError(ProviderResponseError):
+    """Raised when a provider response exceeds the configured byte limit."""
+
+
 class ProviderContextLimitError(ProviderError):
     """Raised before a request when the assembled prompt exceeds the configured context window."""
 
@@ -124,6 +128,8 @@ class ProviderCallLog:
     attempt_count: int
     duration_ms: int
     stream: bool
+    response_bytes: int | None = None
+    first_token_ms: int | None = None
     agent_name: str | None = None
     json_schema_name: str | None = None
     finish_reason: str | None = None
@@ -400,7 +406,7 @@ class LoggingModelProvider(ModelProvider):
             payload = _redact_data(self.provider.debug_payload(model_request, stream=stream), secret_values)
         except Exception as exc:
             payload = {"debug_payload_error": _redact_text(str(exc), secret_values)}
-        log = {
+        log: dict[str, object] = {
             "schema_version": "1.0",
             "request_id": request_id,
             "agent_name": self.agent_name,
@@ -578,6 +584,7 @@ class OpenAICompatibleProvider(ModelProvider):
     timeout_seconds: float = 60.0
     max_retries: int = 0
     retry_backoff_seconds: float = 0.25
+    max_response_bytes: int = 16 * 1024 * 1024
     log_path: Path | None = None
 
     def with_log_path(self, log_path: Path) -> OpenAICompatibleProvider:
@@ -595,6 +602,7 @@ class OpenAICompatibleProvider(ModelProvider):
             timeout_seconds=self.timeout_seconds,
             max_retries=self.max_retries,
             retry_backoff_seconds=self.retry_backoff_seconds,
+            max_response_bytes=self.max_response_bytes,
             log_path=log_path,
         )
 
@@ -645,9 +653,9 @@ class OpenAICompatibleProvider(ModelProvider):
         return self._request_stream_response(payload, model_request)
 
     def stream(self, model_request: ModelRequest) -> Iterable[str]:
-        response = self.stream_response(model_request)
-        if response.content:
-            yield response.content
+        payload = self._payload(model_request, stream=True)
+        state = _OpenAIStreamState()
+        yield from self._stream_chunks(payload, model_request, state)
 
     def debug_payload(self, model_request: ModelRequest, *, stream: bool) -> object | None:
         return self._payload(model_request, stream=stream, validate_context=False)
@@ -746,8 +754,135 @@ class OpenAICompatibleProvider(ModelProvider):
         payload: Mapping[str, object],
         model_request: ModelRequest,
     ) -> ModelResponse:
-        response_body = self._send_with_retry(payload, model_request, stream=True)
-        return _model_response_from_openai_sse(response_body)
+        state = _OpenAIStreamState()
+        for _chunk in self._stream_chunks(payload, model_request, state):
+            pass
+        return state.model_response()
+
+    def _stream_chunks(
+        self,
+        payload: Mapping[str, object],
+        model_request: ModelRequest,
+        state: _OpenAIStreamState,
+    ) -> Iterable[str]:
+        endpoint = f"{self.base_url}/chat/completions"
+        request_id = model_request.request_id or new_request_id("provider")
+        started = time.monotonic()
+        started_at = utc_now_iso()
+        body = json.dumps(payload).encode("utf-8")
+        attempts = self.max_retries + 1
+        for attempt in range(1, attempts + 1):
+            if attempt > 1:
+                consume_provider_attempt()
+            http_request = request.Request(
+                endpoint,
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                    "X-WriterYang-Request-Id": request_id,
+                },
+                method="POST",
+            )
+            try:
+                response = request.urlopen(http_request, timeout=self.timeout_seconds)
+            except error.HTTPError as exc:
+                provider_error: ProviderError = _http_error_from_status(self.api_provider, exc.code)
+                if not _is_retryable_http_status(exc.code) or attempt == attempts:
+                    self._log_failure(
+                        request_id, endpoint, started_at, started, attempt, True, model_request, provider_error, exc.code
+                    )
+                    raise provider_error from None
+                time.sleep(_retry_delay(self.retry_backoff_seconds, attempt, dict(exc.headers.items())))
+                continue
+            except TimeoutError:
+                provider_error = ProviderTimeoutError(f"{self.api_provider} provider request timed out")
+                if attempt == attempts:
+                    self._log_failure(
+                        request_id, endpoint, started_at, started, attempt, True, model_request, provider_error
+                    )
+                    raise provider_error from None
+                time.sleep(_retry_delay(self.retry_backoff_seconds, attempt))
+                continue
+            except error.URLError:
+                provider_error = ProviderNetworkError(f"{self.api_provider} provider network request failed")
+                if attempt == attempts:
+                    self._log_failure(
+                        request_id, endpoint, started_at, started, attempt, True, model_request, provider_error
+                    )
+                    raise provider_error from None
+                time.sleep(_retry_delay(self.retry_backoff_seconds, attempt))
+                continue
+
+            try:
+                with response:
+                    for raw, event_bytes in _iter_openai_sse_events(
+                        response,
+                        max_bytes=self.max_response_bytes,
+                    ):
+                        state.response_bytes += event_bytes
+                        if raw is None:
+                            continue
+                        chunk = state.consume(raw, started=started)
+                        if chunk:
+                            yield chunk
+            except GeneratorExit:
+                self._write_call_log(
+                    ProviderCallLog(
+                        request_id=request_id,
+                        agent_name=model_request.agent_name,
+                        provider=self.api_provider,
+                        model=self.model,
+                        endpoint=_safe_endpoint(endpoint),
+                        started_at=started_at,
+                        ended_at=utc_now_iso(),
+                        status="cancelled",
+                        attempt_count=attempt,
+                        duration_ms=_duration_ms(started),
+                        stream=True,
+                        response_bytes=state.response_bytes,
+                        first_token_ms=state.first_token_ms,
+                        json_schema_name=model_request.json_schema_name,
+                    )
+                )
+                raise
+            except ProviderError as exc:
+                self._log_failure(
+                    request_id, endpoint, started_at, started, attempt, True, model_request, exc
+                )
+                raise
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                provider_error = ProviderResponseError("provider returned invalid UTF-8 or SSE JSON")
+                self._log_failure(
+                    request_id, endpoint, started_at, started, attempt, True, model_request, provider_error
+                )
+                raise provider_error from exc
+
+            result = state.model_response()
+            self._write_call_log(
+                ProviderCallLog(
+                    request_id=request_id,
+                    agent_name=model_request.agent_name,
+                    provider=self.api_provider,
+                    model=self.model,
+                    endpoint=_safe_endpoint(endpoint),
+                    started_at=started_at,
+                    ended_at=utc_now_iso(),
+                    status="success",
+                    attempt_count=attempt,
+                    duration_ms=_duration_ms(started),
+                    stream=True,
+                    response_bytes=state.response_bytes,
+                    first_token_ms=state.first_token_ms,
+                    json_schema_name=model_request.json_schema_name,
+                    finish_reason=result.finish_reason,
+                    prompt_tokens=result.token_usage.prompt_tokens if result.token_usage else None,
+                    completion_tokens=result.token_usage.completion_tokens if result.token_usage else None,
+                    total_tokens=result.token_usage.total_tokens if result.token_usage else None,
+                    model_io_path=f"runs/model_io/{request_id}.json",
+                )
+            )
+            return
 
     def _send_with_retry(
         self,
@@ -764,6 +899,7 @@ class OpenAICompatibleProvider(ModelProvider):
         attempts = self.max_retries + 1
         last_error: ProviderError | None = None
         for attempt in range(1, attempts + 1):
+            retry_headers: Mapping[str, str] | None = None
             if attempt > 1:
                 consume_provider_attempt()
             try:
@@ -778,7 +914,8 @@ class OpenAICompatibleProvider(ModelProvider):
                     method="POST",
                 )
                 with request.urlopen(http_request, timeout=self.timeout_seconds) as response:
-                    response_body = str(response.read().decode("utf-8"))
+                    response_bytes = _read_bounded_response(response, max_bytes=self.max_response_bytes)
+                    response_body = response_bytes.decode("utf-8")
                 usage, finish_reason = _response_metadata_from_body(response_body, stream=stream)
                 self._write_call_log(
                     ProviderCallLog(
@@ -793,6 +930,7 @@ class OpenAICompatibleProvider(ModelProvider):
                         attempt_count=attempt,
                         duration_ms=_duration_ms(started),
                         stream=stream,
+                        response_bytes=len(response_bytes),
                         json_schema_name=model_request.json_schema_name,
                         finish_reason=finish_reason,
                         prompt_tokens=usage.prompt_tokens if usage else None,
@@ -804,12 +942,13 @@ class OpenAICompatibleProvider(ModelProvider):
                 return response_body
             except error.HTTPError as exc:
                 last_error = _http_error_from_status(self.api_provider, exc.code)
+                retry_headers = dict(exc.headers.items())
                 if not _is_retryable_http_status(exc.code) or attempt == attempts:
                     self._log_failure(
                         request_id, endpoint, started_at, started, attempt, stream, model_request, last_error, exc.code
                     )
                     raise last_error from None
-            except socket.timeout:
+            except TimeoutError:
                 last_error = ProviderTimeoutError(f"{self.api_provider} provider request timed out")
                 if attempt == attempts:
                     self._log_failure(
@@ -823,6 +962,17 @@ class OpenAICompatibleProvider(ModelProvider):
                         request_id, endpoint, started_at, started, attempt, stream, model_request, last_error
                     )
                     raise last_error from None
+            except UnicodeDecodeError as exc:
+                last_error = ProviderResponseError("provider returned invalid UTF-8")
+                self._log_failure(
+                    request_id, endpoint, started_at, started, attempt, stream, model_request, last_error
+                )
+                raise last_error from exc
+            except ProviderError as exc:
+                self._log_failure(
+                    request_id, endpoint, started_at, started, attempt, stream, model_request, exc
+                )
+                raise
             except Exception as exc:
                 last_error = ProviderError(f"{self.api_provider} provider request failed: {exc.__class__.__name__}")
                 if attempt == attempts:
@@ -830,7 +980,7 @@ class OpenAICompatibleProvider(ModelProvider):
                         request_id, endpoint, started_at, started, attempt, stream, model_request, last_error
                     )
                     raise last_error from None
-            time.sleep(self.retry_backoff_seconds * attempt)
+            time.sleep(_retry_delay(self.retry_backoff_seconds, attempt, retry_headers))
         assert last_error is not None
         raise last_error
 
@@ -1236,6 +1386,162 @@ def _ensure_json_mode_messages(
         "Use double-quoted JSON keys and values where JSON requires strings." + skeleton_text
     )
     return updated
+
+
+@dataclass
+class _OpenAIStreamState:
+    content_chunks: list[str] = field(default_factory=list)
+    reasoning_chunks: list[str] = field(default_factory=list)
+    stream_chunks: int = 0
+    finish_chunk: dict[str, object] | None = None
+    usage_chunk: dict[str, object] | None = None
+    token_usage: TokenUsage | None = None
+    finish_reason: str | None = None
+    response_bytes: int = 0
+    first_token_ms: int | None = None
+
+    def consume(self, raw: Mapping[str, object], *, started: float) -> str | None:
+        self.stream_chunks += 1
+        usage = raw.get("usage")
+        if isinstance(usage, Mapping):
+            self.token_usage = _token_usage_from_raw(usage)
+            self.usage_chunk = dict(raw)
+        content, reasoning = _stream_content_from_raw(raw)
+        if content:
+            self.content_chunks.append(content)
+            if self.first_token_ms is None:
+                self.first_token_ms = _duration_ms(started)
+        if reasoning:
+            self.reasoning_chunks.append(reasoning)
+        finish_reason = _finish_reason_from_raw(raw)
+        if finish_reason:
+            self.finish_reason = finish_reason
+            self.finish_chunk = dict(raw)
+        return content
+
+    def model_response(self) -> ModelResponse:
+        return ModelResponse(
+            content="".join(self.content_chunks),
+            raw_response={
+                "stream_chunks": self.stream_chunks,
+                "finish_chunk": self.finish_chunk,
+                "usage_chunk": self.usage_chunk,
+            },
+            token_usage=self.token_usage,
+            reasoning_content="".join(self.reasoning_chunks) or None,
+            finish_reason=self.finish_reason,
+        )
+
+
+def _read_bounded_response(response: object, *, max_bytes: int) -> bytes:
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
+    read = getattr(response, "read", None)
+    if not callable(read):
+        raise ProviderResponseError("provider response does not support reading")
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        try:
+            chunk = read(min(64 * 1024, max_bytes - total + 1))
+            one_shot = False
+        except TypeError:
+            chunk = read()
+            one_shot = True
+        if not chunk:
+            break
+        if not isinstance(chunk, bytes):
+            raise ProviderResponseError("provider response body must be bytes")
+        total += len(chunk)
+        if total > max_bytes:
+            raise ProviderResponseTooLargeError(
+                f"provider response exceeds configured limit of {max_bytes} bytes"
+            )
+        chunks.append(chunk)
+        if one_shot:
+            break
+    return b"".join(chunks)
+
+
+def _iter_response_lines(response: object, *, max_bytes: int) -> Iterable[bytes]:
+    readline = getattr(response, "readline", None)
+    if not callable(readline):
+        yield from _read_bounded_response(response, max_bytes=max_bytes).splitlines(keepends=True)
+        return
+    total = 0
+    while True:
+        try:
+            line = readline(64 * 1024 + 1)
+        except TypeError:
+            line = readline()
+        if not line:
+            return
+        if not isinstance(line, bytes):
+            raise ProviderResponseError("provider SSE response lines must be bytes")
+        total += len(line)
+        if total > max_bytes:
+            raise ProviderResponseTooLargeError(
+                f"provider response exceeds configured limit of {max_bytes} bytes"
+            )
+        yield line
+
+
+def _iter_openai_sse_events(
+    response: object,
+    *,
+    max_bytes: int,
+) -> Iterable[tuple[Mapping[str, object] | None, int]]:
+    data_lines: list[str] = []
+    event_bytes = 0
+
+    def finish_event() -> tuple[Mapping[str, object] | None, int] | None:
+        nonlocal data_lines, event_bytes
+        if not data_lines:
+            event_bytes = 0
+            return None
+        data = "\n".join(data_lines).strip()
+        size = event_bytes
+        data_lines = []
+        event_bytes = 0
+        if data == "[DONE]":
+            return None, size
+        raw = json.loads(data)
+        if not isinstance(raw, Mapping):
+            raise ProviderResponseError("provider SSE data must contain a JSON object")
+        return raw, size
+
+    for raw_line in _iter_response_lines(response, max_bytes=max_bytes):
+        event_bytes += len(raw_line)
+        line = raw_line.decode("utf-8").rstrip("\r\n")
+        if not line:
+            event = finish_event()
+            if event is not None:
+                yield event
+                if event[0] is None:
+                    return
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip(" "))
+    event = finish_event()
+    if event is not None:
+        yield event
+
+
+def _retry_delay(
+    base_seconds: float,
+    attempt: int,
+    headers: Mapping[str, str] | None = None,
+) -> float:
+    if headers is not None:
+        retry_after = headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(60.0, max(0.0, float(retry_after)))
+            except ValueError:
+                pass
+    exponential = max(0.0, base_seconds) * (2 ** max(0, attempt - 1))
+    jitter = random.uniform(0.0, min(1.0, exponential * 0.25)) if exponential else 0.0
+    return exponential + jitter
 
 
 def _stream_content_from_line(line: str) -> str | None:

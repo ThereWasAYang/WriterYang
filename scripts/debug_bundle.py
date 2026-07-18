@@ -4,15 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 from novel.core.timeutil import utc_now_iso, utc_timestamp
-
 
 IMPORTANT_PATTERNS = (
     "project.yaml",

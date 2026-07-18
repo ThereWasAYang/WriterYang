@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from novel.core.agent_output import AgentInvocationContext, AgentOutputContract
 from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.io import load_yaml_model
 from novel.core.json_extract import extract_json_object
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.schemas import GeneratedStyleGuide, ProjectConfig
 from novel.core.structured_generation import generate_json_with_repair
-from novel.core.io import load_yaml_model
-
 
 DEFAULT_STYLE_GUIDANCE = "# 文风设置\n\n## 整体风格\n\n保持清晰、克制、连贯，避免过度解释。\n"
 STYLE_GUIDE_SCHEMA_NAME = "GeneratedStyleGuide"

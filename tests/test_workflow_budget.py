@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import json
 from pathlib import Path
 
 import pytest
@@ -13,8 +13,8 @@ from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_j
 from novel.core.command_bus import DomainError, dispatch_command, new_command_envelope
 from novel.core.contracts import (
     BudgetUsage,
-    SessionStartCommand,
     SessionCommand,
+    SessionStartCommand,
     Surface,
     WorkflowBudget,
     WorkflowNodeRun,

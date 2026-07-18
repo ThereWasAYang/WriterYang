@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-from pathlib import Path
 import shutil
 import tempfile
+from pathlib import Path
 from typing import TypeVar
 
 import yaml
 from pydantic import BaseModel
 
+from novel.core.event_writer import EventWriter
 from novel.core.timeutil import utc_timestamp
-
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -68,15 +69,11 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
         _fsync_directory(path.parent)
     except Exception as exc:
         if fd >= 0:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
         if temp_name:
-            try:
+            with contextlib.suppress(OSError):
                 Path(temp_name).unlink(missing_ok=True)
-            except OSError:
-                pass
         raise AtomicWriteError(f"atomic write failed for {path}: {exc}") from exc
 
 
@@ -93,9 +90,7 @@ def atomic_write_yaml(path: Path, data: object) -> None:
 
 
 def append_jsonl(path: Path, data: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
+    EventWriter(path).append(data)
 
 
 def backup_file(path: Path, *, reason: str | None = None) -> Path:

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import json
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import json
 from pathlib import Path
 
+import pytest
+
 from novel.cli import main
-from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core import session as session_module
+from novel.core import transactions as transaction_module
 from novel.core.artifact_store import load_lifecycle, sha256_file
+from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.io import atomic_write_model_json, load_json_model
+from novel.core.projection import load_projection
 from novel.core.schemas import (
     AuditReport,
     CreationArchiveManifest,
@@ -22,20 +27,16 @@ from novel.core.session import (
     CreationSessionError,
     SessionActionOptions,
     SessionInstructionOptions,
-    SessionRewriteControlOptions,
     SessionResult,
+    SessionRewriteControlOptions,
     SessionRunOptions,
     SessionStartOptions,
     _has_hard_issues,
-    load_session_progress,
     load_rewrite_events,
+    load_session_progress,
     request_session_cancel,
 )
-from novel.core import session as session_module
-from novel.core import transactions as transaction_module
-from novel.core.projection import load_projection
 from novel.core.workspace import InitOptions, init_workspace
-import pytest
 
 
 def test_session_start_creates_single_chapter_outline(tmp_path: Path) -> None:

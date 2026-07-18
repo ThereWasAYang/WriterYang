@@ -1,0 +1,274 @@
+{
+  "$defs": {
+    "AuditEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "quote": {
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "quote"
+      ],
+      "title": "AuditEvidence",
+      "type": "object"
+    },
+    "AuditIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "consistency_violation",
+            "plan_deviation",
+            "clarity_risk",
+            "craft_suggestion",
+            "informational"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/AuditEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "suggested_fix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Fix"
+        },
+        "source_layer": {
+          "anyOf": [
+            {
+              "enum": [
+                "plan",
+                "draft",
+                "polished",
+                "state",
+                "timeline",
+                "canon",
+                "style",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Layer"
+        },
+        "blocking_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocking Reason"
+        },
+        "evidence_strength": {
+          "anyOf": [
+            {
+              "enum": [
+                "weak",
+                "medium",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Strength"
+        },
+        "is_hard_blocker": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Hard Blocker"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        }
+      },
+      "required": [
+        "id",
+        "severity",
+        "type",
+        "category",
+        "description"
+      ],
+      "title": "AuditIssue",
+      "type": "object"
+    },
+    "ContextRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "chapter_prose",
+            "entity",
+            "query"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "ref",
+        "reason"
+      ],
+      "title": "ContextRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "audited_file": {
+      "minLength": 1,
+      "title": "Audited File",
+      "type": "string"
+    },
+    "audited_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Audited Sha256",
+      "type": "string"
+    },
+    "overall_status": {
+      "enum": [
+        "passed",
+        "needs_revision",
+        "blocked"
+      ],
+      "title": "Overall Status",
+      "type": "string"
+    },
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "issues": {
+      "items": {
+        "$ref": "#/$defs/AuditIssue"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "passed_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Passed Checks",
+      "type": "array"
+    },
+    "need_context": {
+      "items": {
+        "$ref": "#/$defs/ContextRequest"
+      },
+      "title": "Need Context",
+      "type": "array"
+    }
+  },
+  "required": [
+    "chapter_number",
+    "audited_file",
+    "audited_sha256",
+    "overall_status",
+    "summary",
+    "issues",
+    "created_at"
+  ],
+  "title": "AuditReport",
+  "type": "object"
+}

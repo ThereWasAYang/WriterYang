@@ -1,72 +1,66 @@
 from __future__ import annotations
 
+from .apply import (
+    _drop_unsafe_remove_operations,
+    _sanitize_repair_decision,
+    render_memory_repair_markdown,
+)
 from .deps import (
-    Path,
-    log_app_warning,
-    atomic_write_json,
-    atomic_write_model_json,
-    atomic_write_text,
-    load_json_model,
-    record_management_event,
-    ModelProvider,
     MemoryChangeClarificationSession,
     MemoryChangeConversationTurn,
     MemoryChangeKind,
     MemoryChangeStage,
     MemoryRepairDecision,
     MemoryRepairProposal,
+    ModelProvider,
+    Path,
+    atomic_write_json,
+    atomic_write_model_json,
+    atomic_write_text,
+    load_json_model,
+    log_app_warning,
+    record_management_event,
     utc_now,
     validate_project,
 )
-
+from .generation import (
+    _repair_memory_repair_decision_target_schema,
+    generate_memory_change_batch_plan,
+    generate_memory_change_clarification_decision,
+    generate_memory_repair_decision,
+)
+from .impact import (
+    _analyze_memory_change_impact,
+    _batch_memory_repair_request,
+    _combined_setting_change_request,
+    _dedupe_domains,
+    _domains_from_files,
+    _memory_change_followups,
+    _merge_batched_memory_repair_decisions,
+    _new_clarification_session,
+    _no_op_setting_change_proposal,
+    _proposal_notes,
+    _target_files_for_batch,
+    _write_clarification_session,
+)
 from .models import (
     MemoryRepairError,
     MemoryRepairSuggestResult,
     SettingChangeSuggestionResult,
     _PreparedMemoryRepairDecision,
 )
-
-from .validation import (
-    _format_preflight_errors,
-    _repair_dir,
-    _clarification_path,
-    _new_repair_id,
-)
-
 from .preflight import (
-    _preview_operations,
-    _preflight_memory_repair_operations,
-    _restore_regressed_existing_add_operations,
-    _normalize_setting_change_gender_operations,
     _auto_repair_setting_change_semantics,
+    _normalize_setting_change_gender_operations,
+    _preflight_memory_repair_operations,
+    _preview_operations,
+    _restore_regressed_existing_add_operations,
 )
-
-from .impact import (
-    _target_files_for_batch,
-    _batch_memory_repair_request,
-    _merge_batched_memory_repair_decisions,
-    _new_clarification_session,
-    _write_clarification_session,
-    _no_op_setting_change_proposal,
-    _combined_setting_change_request,
-    _dedupe_domains,
-    _domains_from_files,
-    _analyze_memory_change_impact,
-    _memory_change_followups,
-    _proposal_notes,
-)
-
-from .generation import (
-    generate_memory_change_clarification_decision,
-    generate_memory_change_batch_plan,
-    generate_memory_repair_decision,
-    _repair_memory_repair_decision_target_schema,
-)
-
-from .apply import (
-    render_memory_repair_markdown,
-    _sanitize_repair_decision,
-    _drop_unsafe_remove_operations,
+from .validation import (
+    _clarification_path,
+    _format_preflight_errors,
+    _new_repair_id,
+    _repair_dir,
 )
 
 

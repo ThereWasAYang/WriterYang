@@ -1,0 +1,95 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "id": {
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Id",
+      "type": "string"
+    },
+    "source_type": {
+      "minLength": 1,
+      "title": "Source Type",
+      "type": "string"
+    },
+    "source_summary": {
+      "minLength": 1,
+      "title": "Source Summary",
+      "type": "string"
+    },
+    "themes": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Themes",
+      "type": "array"
+    },
+    "weak_outline": {
+      "minLength": 1,
+      "title": "Weak Outline",
+      "type": "string"
+    },
+    "mood": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Mood",
+      "type": "array"
+    },
+    "constraints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "potential_characters": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Potential Characters",
+      "type": "array"
+    },
+    "potential_locations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Potential Locations",
+      "type": "array"
+    },
+    "potential_conflicts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Potential Conflicts",
+      "type": "array"
+    },
+    "created_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Created At"
+    }
+  },
+  "required": [
+    "id",
+    "source_type",
+    "source_summary",
+    "themes",
+    "weak_outline"
+  ],
+  "title": "InspirationBrief",
+  "type": "object"
+}

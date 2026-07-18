@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from .deps import (
-    parse_chapter_selector,
-)
 from novel.core.contracts import (
     ChapterMemoryGenerateCommand,
     ChapterMemoryRebuildCommand,
@@ -12,10 +9,13 @@ from novel.core.contracts import (
 from .common import (
     WebAPIError,
     _chapter_number,
-    _optional_string,
-    _optional_int,
-    _truthy,
     _dispatch_web_command,
+    _optional_int,
+    _optional_string,
+    _truthy,
+)
+from .deps import (
+    parse_chapter_selector,
 )
 
 

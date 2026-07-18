@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from novel.core.io import load_json_model, load_yaml_model
-from novel.core.schemas import Character, ProjectConfig, StateUpdateProposal, TimelineEvent
-from novel.core.validation import validate_canon, validate_project
-from novel.core.workspace import InitOptions, init_workspace
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.io import load_json_model, load_yaml_model
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
 from novel.core.providers import MockProvider
+from novel.core.schemas import Character, ProjectConfig, StateUpdateProposal, TimelineEvent
 from novel.core.session import (
     SessionActionOptions,
     SessionRunOptions,
@@ -19,6 +17,8 @@ from novel.core.session import (
     run_session,
     start_session,
 )
+from novel.core.validation import validate_canon, validate_project
+from novel.core.workspace import InitOptions, init_workspace
 
 
 def test_load_json_and_yaml_models(tmp_path: Path) -> None:

@@ -6,39 +6,40 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from novel.core.inspection import (
-    ProjectStatus,
-    format_status,
+import novel.core.web_launcher as web_launcher
+from novel.cli_shared import (
+    _dispatch_cli_command,
+    _failure,
+    _format_usage_summary,
+    _print_json,
+    _quiet,
+    _resolve_web_port,
+    _run_init_setup_guide,
+    _should_run_init_guide,
+    _status_payload,
+    _success,
+    _wants_json,
+    completion_script,
+    format_doctor_result,
+    run_doctor,
 )
 from novel.core.command_bus import DomainError
 from novel.core.contracts import (
     ProjectInitCommand,
-    SchemaExportCommand,
     ProjectShowCommand,
     ProjectStatusCommand,
     ProjectValidateCommand,
+    SchemaExportCommand,
+)
+from novel.core.inspection import (
+    ProjectStatus,
+    format_status,
 )
 from novel.core.setup_guide import (
     SetupGuideError,
 )
 from novel.core.usage import UsageError, summarize_provider_usage
-import novel.core.web_launcher as web_launcher
-from novel.cli_shared import (
-    _wants_json,
-    _quiet,
-    _success,
-    _failure,
-    _print_json,
-    _status_payload,
-    _format_usage_summary,
-    _resolve_web_port,
-    _should_run_init_guide,
-    _run_init_setup_guide,
-    completion_script,
-    run_doctor,
-    format_doctor_result,
-    _dispatch_cli_command,
-)
+
 
 def _cmd_init(args: argparse.Namespace) -> int:
     try:

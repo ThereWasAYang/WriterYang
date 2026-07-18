@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-from .deps import (
-    Path,
-    CanonAppliedProposalRecord,
-    load_canon_applied_proposals,
-)
 from novel.core.contracts import (
     CanonApplyCommand,
     CanonSuggestCommand,
@@ -16,21 +11,27 @@ from novel.core.contracts import (
 
 from .common import (
     WebAPIError,
-    _require_workspace,
-    _root_from_query,
-    _root_from_body,
-    _optional_string,
-    _string_list,
-    _memory_change_stage,
-    _vector_context_mode,
-    _polish_mode,
-    _optional_int,
     _default_canon_proposal_path,
     _dispatch_web_command,
+    _memory_change_stage,
+    _optional_int,
+    _optional_string,
+    _polish_mode,
     _relative,
+    _require_workspace,
+    _root_from_body,
+    _root_from_query,
+    _string_list,
+    _vector_context_mode,
 )
-
+from .deps import (
+    CanonAppliedProposalRecord,
+    Path,
+    load_canon_applied_proposals,
+)
 from .inspection import _management_event_summary
+
+
 def _inspire(data: dict[str, object]) -> dict[str, object]:
     source_text = _optional_string(data.get("text")) or _optional_string(data.get("instruction"))
     if not source_text:

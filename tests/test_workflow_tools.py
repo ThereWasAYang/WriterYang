@@ -3,14 +3,13 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import yaml
 
 from novel.core.workspace import InitOptions, init_workspace
-
 
 SCRIPTS = (
     "scripts/install_writeryang.py",
@@ -71,6 +70,8 @@ def test_check_local_dry_run_lists_quality_gate() -> None:
     assert {"pytest", "ruff", "mypy", "secret-scan"} <= names
     assert checks["mypy"]["blocking"] is True
     assert checks["mypy"]["command"][-2:] == ["src", "scripts"]
+    assert "--cov=novel" in checks["pytest"]["command"]
+    assert "dependency-audit" in names
     assert "build" not in names
 
 

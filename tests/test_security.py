@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import socket
+import subprocess
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from novel.core.io import atomic_write_text, backup_file
 from novel.core import locking as locking_module
-from novel.core.locking import ProjectLock, ProjectLockError, read_project_lock
 from novel.core import security as security_module
+from novel.core.io import atomic_write_text, backup_file
+from novel.core.locking import ProjectLock, ProjectLockError, read_project_lock
 from novel.core.security import redact_secret_text, scan_security, validate_env_example, validate_secret_config_file
 from novel.core.workspace import InitOptions, init_workspace
 
@@ -119,9 +119,8 @@ def test_project_lock_blocks_second_writer(tmp_path: Path) -> None:
         assert info.process_start_time
         assert info.workflow_run_id == "run_" + "1" * 32
         assert info.command_id == "cmd_" + "2" * 32
-        with pytest.raises(ProjectLockError) as exc_info:
-            with ProjectLock(root, task="second"):
-                pass
+        with pytest.raises(ProjectLockError) as exc_info, ProjectLock(root, task="second"):
+            pass
 
     assert "project is locked" in str(exc_info.value)
     assert not (root / ".writeryang.lock").exists()
@@ -149,7 +148,7 @@ def test_project_lock_does_not_reclaim_from_created_at_age_alone(tmp_path: Path)
     root = tmp_path / "project"
     init_workspace(InitOptions(title="进程身份锁测试", root=root))
     lock_path = root / ".writeryang.lock"
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     lock_path.write_text(
         json.dumps(
             {
@@ -158,7 +157,7 @@ def test_project_lock_does_not_reclaim_from_created_at_age_alone(tmp_path: Path)
                 "host": socket.gethostname(),
                 "process_start_time": locking_module._process_start_time(os.getpid()),
                 "task": "live",
-                "created_at": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat().replace("+00:00", "Z"),
+                "created_at": (datetime.now(UTC) - timedelta(days=2)).isoformat().replace("+00:00", "Z"),
                 "heartbeat_at": now,
             }
         ),
@@ -178,7 +177,7 @@ def test_project_lock_clears_stale_lock(tmp_path: Path) -> None:
             {
                 "pid": 99999999,
                 "task": "dead",
-                "created_at": (datetime.now(timezone.utc) - timedelta(days=2))
+                "created_at": (datetime.now(UTC) - timedelta(days=2))
                 .isoformat()
                 .replace("+00:00", "Z"),
             }

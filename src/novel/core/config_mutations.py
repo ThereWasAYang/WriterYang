@@ -15,7 +15,6 @@ from novel.core.providers import ProviderError, ProviderFactory, resolve_json_re
 from novel.core.schemas import AgentConfig, AgentsConfig
 from novel.core.security import validate_secret_config_file
 
-
 EDITABLE_PROFILE_NAMES = frozenset(PROFILE_NAMES)
 EDITABLE_TASK_NAMES = frozenset(TASK_TO_PROFILE)
 

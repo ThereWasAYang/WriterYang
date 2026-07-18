@@ -1,0 +1,174 @@
+{
+  "$defs": {
+    "ExportRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "pattern": "^export_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "markdown",
+            "docx",
+            "html",
+            "txt"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "source_chapters": {
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Source Chapters",
+          "type": "array"
+        },
+        "source_chapter_details": {
+          "items": {
+            "$ref": "#/$defs/ExportSourceChapter"
+          },
+          "title": "Source Chapter Details",
+          "type": "array"
+        },
+        "output_path": {
+          "minLength": 1,
+          "title": "Output Path",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source_chapters",
+        "output_path",
+        "created_at"
+      ],
+      "title": "ExportRecord",
+      "type": "object"
+    },
+    "ExportSourceChapter": {
+      "additionalProperties": false,
+      "properties": {
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "accepted": {
+          "title": "Accepted",
+          "type": "boolean"
+        },
+        "sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "acceptance_commit_id": {
+          "minLength": 1,
+          "title": "Acceptance Commit Id",
+          "type": "string"
+        },
+        "transaction_id": {
+          "pattern": "^tx_[0-9a-f]{32}$",
+          "title": "Transaction Id",
+          "type": "string"
+        },
+        "candidate_artifact_id": {
+          "minLength": 1,
+          "title": "Candidate Artifact Id",
+          "type": "string"
+        },
+        "audit_artifact_id": {
+          "minLength": 1,
+          "title": "Audit Artifact Id",
+          "type": "string"
+        },
+        "state_proposal_artifact_id": {
+          "minLength": 1,
+          "title": "State Proposal Artifact Id",
+          "type": "string"
+        },
+        "post_state_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Post State Sha256",
+          "type": "string"
+        },
+        "post_timeline_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Post Timeline Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chapter_number",
+        "title",
+        "path",
+        "accepted",
+        "sha256",
+        "acceptance_commit_id",
+        "transaction_id",
+        "candidate_artifact_id",
+        "audit_artifact_id",
+        "state_proposal_artifact_id",
+        "post_state_sha256",
+        "post_timeline_sha256"
+      ],
+      "title": "ExportSourceChapter",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "exports": {
+      "items": {
+        "$ref": "#/$defs/ExportRecord"
+      },
+      "title": "Exports",
+      "type": "array"
+    }
+  },
+  "title": "ExportManifest",
+  "type": "object"
+}

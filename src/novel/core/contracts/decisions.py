@@ -4,8 +4,8 @@ from enum import StrEnum
 
 from pydantic import Field, model_validator
 
-from novel.core.contracts.common import SchemaV3Model
 from novel.core.contracts.commands import PublicCommand
+from novel.core.contracts.common import SchemaV3Model
 from novel.core.contracts.tracing import WorkflowBudget
 
 

@@ -1,49 +1,48 @@
 from __future__ import annotations
 
+from .common import (
+    EDITABLE_PROFILE_NAMES,
+    EDITABLE_TASK_NAMES,
+    _agent_config_warnings,
+    _is_safe_tree_path,
+    _locate_quote,
+    _relative,
+    _require_workspace,
+    _safe_config_file,
+    _safe_error,
+    _safe_json,
+    _safe_workspace_file,
+    _sanitize_config,
+)
+from .config import _parameter_capabilities_payload, _profile_config_payload, _profile_parameter_capabilities_payload
 from .deps import (
-    difflib,
-    json,
-    Path,
-    cast,
-    yaml,
     TASK_TO_PROFILE,
-    profile_for_task,
-    localize_audit_issue_for_author,
-    chapter_memory_freshness_warnings,
-    load_project_env,
-    load_json,
-    load_json_model,
-    load_yaml,
-    load_management_events,
-    resolve_agent_config_source,
-    resolve_profile_config_source,
-    EmbeddingError,
-    resolve_embedding_parameters,
     AgentsConfig,
     AuditReport,
     ChapterMemory,
     ChapterPlan,
+    EmbeddingError,
     EmbeddingsConfig,
+    Path,
     ProviderFactory,
+    cast,
+    chapter_memory_freshness_warnings,
+    difflib,
+    json,
+    load_json,
+    load_json_model,
+    load_management_events,
+    load_project_env,
+    load_yaml,
+    localize_audit_issue_for_author,
+    profile_for_task,
+    resolve_agent_config_source,
+    resolve_embedding_parameters,
+    resolve_profile_config_source,
     summarize_provider_usage,
+    yaml,
 )
 
-from .common import (
-    EDITABLE_PROFILE_NAMES,
-    EDITABLE_TASK_NAMES,
-    _safe_config_file,
-    _agent_config_warnings,
-    _safe_json,
-    _sanitize_config,
-    _safe_workspace_file,
-    _locate_quote,
-    _is_safe_tree_path,
-    _require_workspace,
-    _relative,
-    _safe_error,
-)
-
-from .config import _parameter_capabilities_payload, _profile_config_payload, _profile_parameter_capabilities_payload
 
 def _management_events(root: Path, limit: int = 20) -> dict[str, object]:
     _require_workspace(root)
@@ -645,8 +644,10 @@ def _state_timeline_visual_summary(state: object, timeline: object, canon: dict[
             if not isinstance(event, dict):
                 continue
             event_id = str(event.get("id") or "")
-            narrative = event.get("narrative_position") if isinstance(event.get("narrative_position"), dict) else {}
-            story = event.get("story_position") if isinstance(event.get("story_position"), dict) else {}
+            narrative_value = event.get("narrative_position")
+            narrative: dict[str, object] = narrative_value if isinstance(narrative_value, dict) else {}
+            story_value = event.get("story_position")
+            story: dict[str, object] = story_value if isinstance(story_value, dict) else {}
             chapter = narrative.get("chapter")
             chapter_label = f"第 {chapter} 章" if chapter else "背景（未揭示）"
             chapter_group = str(chapter) if chapter else "background"

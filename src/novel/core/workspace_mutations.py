@@ -16,7 +16,6 @@ from novel.core.io import (
 from novel.core.schemas import RevisionLog, RevisionRecord
 from novel.core.timeutil import new_request_id, utc_now
 
-
 STYLE_GUIDE_RELATIVE_PATH = "memory/style_guide.md"
 
 

@@ -227,7 +227,7 @@ runs/agent_output_violations/{request_id}.json
 - 改动是否改变 workspace 文件格式？如果是，需要 schema/migration/JSON Schema。
 - 改动是否改变 Agent 输出？如果是，需要 prompt/parser/output guard/tests。
 - 改动是否写文件？如果是，需要 atomic write、默认不覆盖、force/overwrite、备份、项目锁。
-- 改动是否涉及 API Key？如果是，需要 security test，确保只保存 env name。
+- 改动是否涉及 API Key？如果是，需要 security test，确保明文只可能进入受控 `.env`/备份，且响应、日志、配置、Git 和导出均不泄漏。
 - 改动是否影响 CLI/Web 共用逻辑？如果是，必须放 core service，CLI/Web 只做薄包装。
 - 改动是否影响 accepted/archive 内容？如果是，不能原地修改归档内容。
 

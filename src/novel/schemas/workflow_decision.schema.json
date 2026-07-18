@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "Surface": {
+      "enum": [
+        "cli",
+        "web",
+        "ask",
+        "internal"
+      ],
+      "title": "Surface",
+      "type": "string"
+    },
+    "TaskId": {
+      "enum": [
+        "inspiration",
+        "style_guide",
+        "canon",
+        "plan",
+        "write",
+        "polish",
+        "revision",
+        "audit",
+        "state_update",
+        "chapter_memory",
+        "intent_router",
+        "memory_repair"
+      ],
+      "title": "TaskId",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "decision_id": {
+      "pattern": "^decision_[0-9a-f]{32}$",
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "workflow_run_id": {
+      "pattern": "^run_[0-9a-f]{32}$",
+      "title": "Workflow Run Id",
+      "type": "string"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TaskId"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "surface": {
+      "$ref": "#/$defs/Surface"
+    },
+    "request_id": {
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "parent_request_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Request Id"
+    },
+    "parent_node_id": {
+      "anyOf": [
+        {
+          "pattern": "^node_[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Node Id"
+    },
+    "session_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "payload_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Payload Sha256",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision_id",
+    "workflow_run_id",
+    "name",
+    "surface",
+    "request_id",
+    "payload",
+    "payload_sha256",
+    "created_at"
+  ],
+  "title": "WorkflowDecision",
+  "type": "object"
+}

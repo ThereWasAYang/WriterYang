@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Mapping
-from typing import Iterable, Sequence
+from typing import Protocol
 
-from pydantic import ValidationError
 import yaml
+from pydantic import ValidationError
 
 from novel.core.agent_defaults import PROFILE_NAMES, TASK_TO_PROFILE
 from novel.core.artifact_store import sha256_file
 from novel.core.chapter_memory import validate_chapter_memory
 from novel.core.consistency import ConsistencyResult, check_canon_consistency, check_project_consistency
+from novel.core.contracts import CURRENT_SCHEMA_VERSION, AcceptanceCommit
 from novel.core.env import load_project_env
 from novel.core.io import load_json_model, load_yaml_model
-from novel.core.contracts import AcceptanceCommit, CURRENT_SCHEMA_VERSION
 from novel.core.schemas import (
     AgentConfig,
     AgentConfigPatch,
@@ -27,20 +27,20 @@ from novel.core.schemas import (
     CreationArchiveManifest,
     CreationOutline,
     CreationSession,
-    SessionRewriteEvents,
     EmbeddingsConfig,
     EntityState,
+    ExportManifest,
     ForeshadowingFile,
     HiddenTruthsFile,
     InspirationBrief,
     ItemsFile,
     LocationsFile,
-    MemoryRepairApplyLog,
     MemoryChangeClarificationSession,
+    MemoryRepairApplyLog,
     MemoryRepairProposal,
     ProjectConfig,
-    ExportManifest,
     RevisionLog,
+    SessionRewriteEvents,
     StateUpdateApplyLog,
     StateUpdateProposal,
     TimelineFile,
@@ -1028,5 +1028,9 @@ def _state_change_id_exists(root: Path, change_id: str) -> bool:
     return False
 
 
-def _ids(items: Iterable[object]) -> set[str]:
-    return {getattr(item, "id") for item in items}
+class _HasId(Protocol):
+    id: str
+
+
+def _ids(items: Iterable[_HasId]) -> set[str]:
+    return {item.id for item in items}

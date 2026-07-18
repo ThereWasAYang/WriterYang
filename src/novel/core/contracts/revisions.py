@@ -127,9 +127,8 @@ class RevisionSession(SchemaV3Model):
             RevisionSessionPhase.COMMITTING,
             RevisionSessionPhase.COMMITTED,
             RevisionSessionPhase.ARCHIVED,
-        }:
-            if not self.patch or not self.candidate or not self.audit or not self.state_proposal:
-                raise ValueError("reviewable revision session requires patch, candidate, audit and state proposal")
+        } and (not self.patch or not self.candidate or not self.audit or not self.state_proposal):
+            raise ValueError("reviewable revision session requires patch, candidate, audit and state proposal")
         if self.candidate and self.audit and self.audit.candidate != self.candidate:
             raise ValueError("revision audit must bind the revision candidate")
         if self.candidate and self.state_proposal and self.state_proposal.candidate != self.candidate:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import groupby
-from typing import Iterable
 
 from novel.core.plan_refs import (
     KEY_TIMELINE_EVENT_ROLES,

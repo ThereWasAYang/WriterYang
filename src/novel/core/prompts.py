@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from functools import lru_cache
-from importlib.resources import files
 import re
-
+from functools import cache
+from importlib.resources import files
 
 PROMPT_VERSION = "2026-07-11"
 
@@ -30,7 +29,7 @@ PROMPT_VERSIONS: dict[str, str] = {
 _PARTIAL_PATTERN = re.compile(r"\{\{partial:([a-z0-9_]+)\}\}")
 
 
-@lru_cache(maxsize=None)
+@cache
 def load_prompt_template(name: str) -> str:
     if not name.endswith(".txt"):
         name = f"{name}.txt"

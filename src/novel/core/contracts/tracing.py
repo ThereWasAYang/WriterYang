@@ -71,6 +71,9 @@ class WorkflowNodeRun(SchemaV3Model):
     status: Literal["running", "completed", "failed", "cancelled"]
     started_at: datetime
     ended_at: datetime | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+    error_code: str | None = None
+    retryable: bool | None = None
     error: str | None = None
     recovery_command: str | None = None
 

@@ -6,18 +6,20 @@ from pathlib import Path
 
 import yaml
 
-from tests.internal_task_cli import run_test_cli
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
+from novel.core.contracts.prose import ProseArtifactKind
 from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
 from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
 from novel.core.polishing import ChapterPolishingOptions, PolishingError, polish_chapter
+from novel.core.prose_generation import mock_prose_artifact_json
 from novel.core.providers import MockProvider
 from novel.core.workspace import InitOptions, init_workspace
+from tests.internal_task_cli import run_test_cli
 
 
 def test_mock_provider_can_generate_polished_body(tmp_path: Path) -> None:
     root = _workspace_with_draft(tmp_path)
-    provider = MockProvider(fake_response="雨声更深，旧车站像在夜里醒来。")
+    provider = MockProvider(fake_response=_polish_payload("雨声更深，旧车站像在夜里醒来。"))
 
     result = polish_chapter(
         ChapterPolishingOptions(
@@ -36,7 +38,7 @@ def test_mock_provider_can_generate_polished_body(tmp_path: Path) -> None:
     assert "临时文风要求：更克制" in provider.requests[0].user_prompt
     assert "尽量保持长度：是" in provider.requests[0].user_prompt
     assert "编辑模式：deep" in provider.requests[0].user_prompt
-    assert "不要输出解释、分析、修改说明、JSON 或大纲" in provider.requests[0].system_prompt
+    assert "ProseArtifactPayload schema" in provider.requests[0].system_prompt
 
 
 def test_truncated_polish_output_fails_without_writing_polished_and_records_event(tmp_path: Path) -> None:
@@ -164,7 +166,7 @@ def test_polish_chapter_modes_and_flags_cli(tmp_path: Path) -> None:
 
 def test_polish_chapter_search_context_protects_hidden_truth(tmp_path: Path) -> None:
     root = _workspace_with_draft(tmp_path)
-    provider = MockProvider(fake_response="雨声更深，林澈仍只看见旧车站的空站台。")
+    provider = MockProvider(fake_response=_polish_payload("雨声更深，林澈仍只看见旧车站的空站台。"))
 
     result = polish_chapter(
         ChapterPolishingOptions(root=root, chapter_number=1, use_search_context=True),
@@ -238,7 +240,7 @@ def test_polish_chapter_missing_style_guide_warns_and_uses_default(tmp_path: Pat
 def test_polish_chapter_missing_style_guide_injects_chinese_fallback(tmp_path: Path) -> None:
     root = _workspace_with_draft(tmp_path)
     (root / "memory" / "style_guide.md").unlink()
-    provider = MockProvider(fake_response="雨声更深，旧车站像在夜里醒来。")
+    provider = MockProvider(fake_response=_polish_payload("雨声更深，旧车站像在夜里醒来。"))
 
     result = polish_chapter(ChapterPolishingOptions(root=root, chapter_number=1), provider)
 
@@ -266,9 +268,29 @@ def _workspace_with_draft(tmp_path: Path) -> Path:
     )
     write_chapter_draft(
         ChapterDraftingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="雨落在旧车站。林澈听见广播，拾起半张车票。"),
+        MockProvider(fake_response=_draft_payload("雨落在旧车站。林澈听见广播，拾起半张车票。")),
     )
     return root
+
+
+def _polish_payload(body: str) -> str:
+    return mock_prose_artifact_json(
+        artifact_kind=ProseArtifactKind.POLISHED_CHAPTER,
+        chapter_number=1,
+        body_markdown=body,
+        source_artifact_refs=("memory/chapters/001/draft.md",),
+        change_summary="测试润色章节。",
+    )
+
+
+def _draft_payload(body: str) -> str:
+    return mock_prose_artifact_json(
+        artifact_kind=ProseArtifactKind.CHAPTER_DRAFT,
+        chapter_number=1,
+        body_markdown=body,
+        source_artifact_refs=("memory/chapters/001/plan.json",),
+        change_summary="测试生成章节初稿。",
+    )
 
 
 def _read_front_matter(path: Path) -> tuple[dict[str, object], str]:

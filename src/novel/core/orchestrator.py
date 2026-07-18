@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
 import uuid
+from dataclasses import dataclass
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -15,6 +15,7 @@ from novel.core.agent_output import (
 )
 from novel.core.audit_policy import auto_fixable_issues, manual_review_blockers
 from novel.core.budget import WorkflowBudgetExceeded, workflow_budget_scope
+from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.contracts import (
     BudgetUsage,
     CommandProposal,
@@ -30,7 +31,6 @@ from novel.core.contracts import (
     WorkflowBudget,
     WorkflowRun,
 )
-from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_model_json, load_json_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.prompts import load_prompt_template, prompt_template_version

@@ -8,7 +8,6 @@ from typing import TypeVar
 from novel.core.agent_output import AgentInvocationContext, AgentOutputContract, generate_with_output_guard
 from novel.core.providers import ModelProvider, ModelRequest
 
-
 T = TypeVar("T")
 REPAIR_INVALID_OUTPUT_LIMIT = 12000
 REPAIR_ERROR_LIMIT = 4000
@@ -34,6 +33,7 @@ def generate_json_with_repair(
     contract: AgentOutputContract,
     parse: Callable[[str], T],
     repair_prompt: Callable[[str, str], str],
+    stream: bool = False,
 ) -> T:
     content = generate_with_output_guard(
         provider,
@@ -41,6 +41,7 @@ def generate_json_with_repair(
         root=root,
         invocation=invocation,
         contract=contract,
+        stream=stream,
     )
     try:
         return parse(content)
@@ -58,6 +59,7 @@ def generate_json_with_repair(
             root=root,
             invocation=repair_invocation,
             contract=contract,
+            stream=stream,
         )
         try:
             return parse(repair_content)

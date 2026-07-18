@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
+from dataclasses import dataclass
 
 from novel.core.contracts import ArtifactKind, ProfileId, TaskId
 from novel.core.prompts import PROMPT_VERSIONS, load_prompt_template

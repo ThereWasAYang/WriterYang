@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from novel.cli_shared import _failure, _success, _vector_context_mode_from_args
 from novel.core.command_bus import (
     DomainError,
@@ -12,7 +14,6 @@ from novel.core.command_bus import (
 )
 from novel.core.contracts import DecisionRisk, Surface, WorkflowBudget
 from novel.core.orchestrator import OrchestratorError, load_ask_command_proposal, propose_ask_command
-from pydantic import ValidationError
 
 
 def _cmd_ask(args: argparse.Namespace) -> int:
@@ -74,10 +75,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
                 "budget_usage": budget_usage.model_dump(mode="json"),
             }
         command = proposal.command
-        should_execute = (
-            command is not None and not args.dry_run and (bool(args.confirm) or proposal.risk is DecisionRisk.LOW)
-        )
-        if should_execute:
+        if command is not None and not args.dry_run and (bool(args.confirm) or proposal.risk is DecisionRisk.LOW):
             result = dispatch_command(
                 new_command_envelope(
                     surface=Surface.ASK,

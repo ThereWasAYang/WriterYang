@@ -4,7 +4,6 @@ import re
 
 from novel.core.schemas import AuditIssue, AuditReport, SessionRewriteIssue
 
-
 CANON_REFERENCE_SUGGESTED_FIX = "检查该 canon 关联关系，必要时补齐缺失 ID，或移除已经失效的引用。"
 
 _SUMMARY_FIXES = {

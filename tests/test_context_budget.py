@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import get_args
 
-from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text, select_state_view, select_timeline_view
+from novel.core.context_budget import (
+    render_state_prompt_text,
+    render_timeline_prompt_text,
+    select_state_view,
+    select_timeline_view,
+)
 from novel.core.plan_refs import KEY_TIMELINE_EVENT_ROLES
 from novel.core.schemas import (
     CharacterState,
@@ -14,8 +19,8 @@ from novel.core.schemas import (
     ProjectConfig,
     StoryPosition,
     TimelineEvent,
-    TimelineFile,
     TimelineEventRole,
+    TimelineFile,
 )
 
 
@@ -154,11 +159,11 @@ def test_timeline_budget_digests_unrevealed_background_events() -> None:
 
 
 def test_key_timeline_event_roles_are_schema_roles() -> None:
-    assert KEY_TIMELINE_EVENT_ROLES <= set(get_args(TimelineEventRole))
+    assert set(get_args(TimelineEventRole)) >= KEY_TIMELINE_EVENT_ROLES
 
 
 def _project_config() -> ProjectConfig:
-    now = datetime(2026, 6, 5, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 5, tzinfo=UTC)
     return ProjectConfig(
         project_id="test_project",
         title="测试项目",

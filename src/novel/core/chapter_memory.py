@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
 import yaml
+from pydantic import ValidationError
 
 from novel.core.agent_output import (
     AgentInvocationContext,
@@ -16,16 +16,16 @@ from novel.core.agent_output import (
 )
 from novel.core.context_budget import project_context_budget
 from novel.core.context_policy import render_untrusted_workspace_data
+from novel.core.contracts import CURRENT_SCHEMA_VERSION, AcceptanceCommit, ArtifactKind
 from novel.core.io import atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
-from novel.core.contracts import AcceptanceCommit, ArtifactKind, CURRENT_SCHEMA_VERSION
 from novel.core.plan_refs import (
     plan_focus_entity_ids,
     plan_timeline_event_ids,
 )
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.schemas import (
     AuditReport,
     ChapterMemory,
@@ -544,10 +544,7 @@ def _memory_matches(memory: ChapterMemory, *, focus_ids: set[str], event_ids: se
         return True
     if not focus_ids:
         return False
-    for item in memory.all_items():
-        if focus_ids.intersection(item.related_entity_ids):
-            return True
-    return False
+    return any(focus_ids.intersection(item.related_entity_ids) for item in memory.all_items())
 
 
 def _render_writer_memory(memory: ChapterMemory) -> str:

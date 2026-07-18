@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -14,13 +14,12 @@ from novel.core.canon import CanonFiles, format_canon_summary, load_canon_files
 from novel.core.chapter_memory import render_chapter_memory_prompt_text
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.context_policy import render_untrusted_workspace_data
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
-from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template, prompt_template_version
-from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     ChapterPlan,
     EntityState,
@@ -28,6 +27,7 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.structured_generation import (
     REPAIR_ERROR_LIMIT,
     REPAIR_INVALID_OUTPUT_LIMIT,

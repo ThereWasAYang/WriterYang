@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "CreationOutlineChapter": {
+      "additionalProperties": false,
+      "properties": {
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "plan_path": {
+          "description": "outline_proposal 中指向 session 内草稿 plan；approved_outline 中指向正式章节 plan。",
+          "minLength": 1,
+          "title": "Plan Path",
+          "type": "string"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "reveal_authorizations": {
+          "items": {
+            "$ref": "#/$defs/RevealAuthorization"
+          },
+          "title": "Reveal Authorizations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "chapter_number",
+        "title",
+        "plan_path",
+        "summary"
+      ],
+      "title": "CreationOutlineChapter",
+      "type": "object"
+    },
+    "RevealAuthorization": {
+      "additionalProperties": false,
+      "properties": {
+        "hidden_truth_id": {
+          "minLength": 1,
+          "title": "Hidden Truth Id",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "method": {
+          "minLength": 1,
+          "title": "Method",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hidden_truth_id",
+        "chapter_number",
+        "method",
+        "reason"
+      ],
+      "title": "RevealAuthorization",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "session_id": {
+      "minLength": 1,
+      "title": "Session Id",
+      "type": "string"
+    },
+    "user_intent": {
+      "minLength": 1,
+      "title": "User Intent",
+      "type": "string"
+    },
+    "chapters": {
+      "items": {
+        "$ref": "#/$defs/CreationOutlineChapter"
+      },
+      "minItems": 1,
+      "title": "Chapters",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "user_intent",
+    "chapters",
+    "created_at"
+  ],
+  "title": "CreationOutline",
+  "type": "object"
+}

@@ -1,12 +1,6 @@
 from __future__ import annotations
 
 from .deps import (
-    json,
-    Path,
-    re,
-    atomic_write_model_json,
-    load_json,
-    _unescape_pointer,
     ALLOWED_MEMORY_FILES,
     DOMAIN_FILES,
     FILE_COLLECTION_KEYS,
@@ -15,33 +9,36 @@ from .deps import (
     STATE_COLLECTION_KEYS,
     MemoryChangeBatch,
     MemoryChangeBatchPlan,
-    MemoryChangeDomain,
     MemoryChangeClarificationDecision,
     MemoryChangeClarificationSession,
     MemoryChangeConversationTurn,
+    MemoryChangeDomain,
     MemoryChangeFollowupAction,
     MemoryChangeImpact,
     MemoryChangeKind,
     MemoryChangeStage,
     MemoryRepairDecision,
-    MemoryRepairRiskLevel,
     MemoryRepairOperation,
+    MemoryRepairRiskLevel,
+    Path,
+    _unescape_pointer,
+    atomic_write_model_json,
+    json,
+    load_json,
+    re,
     utc_now,
 )
-
 from .models import (
     MemoryRepairError,
     MemoryRepairSuggestResult,
     _PreparedMemoryRepairDecision,
 )
-
+from .preflight import (
+    _dedupe_preserve_order,
+)
 from .validation import (
     _clarification_path,
     _new_clarification_id,
-)
-
-from .preflight import (
-    _dedupe_preserve_order,
 )
 
 
@@ -98,7 +95,7 @@ def _merge_batched_memory_repair_decisions(
     confidences = [plan.confidence]
     notes.extend(plan.notes)
     notes.append(f"已按 {len(plan.batches)} 个批次生成设定变更建议，并合并为单个 proposal。")
-    for batch, prepared in zip(plan.batches, prepared_batches):
+    for batch, prepared in zip(plan.batches, prepared_batches, strict=False):
         decision = prepared.decision
         batch_prefix = f"批次 {batch.batch_id}"
         operations.extend(prepared.operations)
@@ -283,9 +280,9 @@ def _analyze_memory_change_impact(
                 continue
             reference_count += 1
             affected_files.add(rel_path)
-            chapter = _chapter_number_from_path(path)
-            if chapter:
-                affected_chapters.add(chapter)
+            referenced_chapter = _chapter_number_from_path(path)
+            if referenced_chapter:
+                affected_chapters.add(referenced_chapter)
             session = _session_id_from_path(path)
             if session:
                 affected_sessions.add(session)

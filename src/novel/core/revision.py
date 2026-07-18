@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from novel.core.agent_output import (
-    AgentInvocationContext,
-    AgentOutputContract,
-    generate_with_output_guard,
-)
+from novel.core.agent_output import AgentInvocationContext
 from novel.core.artifact_store import ArtifactStore
 from novel.core.canon import format_canon_summary, load_canon_files
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.contracts import ArtifactKind, TaskId
+from novel.core.contracts.prose import ProseArtifactKind
 from novel.core.drafting import _chapter_number_text
 from novel.core.io import (
     atomic_write_model_json,
@@ -23,10 +20,10 @@ from novel.core.io import (
     load_yaml_model,
 )
 from novel.core.polishing import DraftDocument, read_markdown_with_front_matter
+from novel.core.prompts import load_prompt_template, prompt_template_version
+from novel.core.prose_generation import generate_prose_artifact, mock_prose_artifact_json
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template, prompt_template_version
-from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditReport,
     ChapterPlan,
@@ -38,10 +35,10 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.style_guide import DEFAULT_STYLE_GUIDANCE
 from novel.core.timeutil import new_request_id, utc_now, utc_now_iso
 from novel.core.world_state import resolve_world_state_paths
-
 
 RevisionTarget = Literal["draft", "polished"]
 
@@ -115,7 +112,7 @@ def revise_chapter(
             f"chapter {options.chapter_number}"
         )
 
-    content = generate_with_output_guard(
+    payload = generate_prose_artifact(
         provider,
         ModelRequest(
             system_prompt=build_revision_system_prompt(),
@@ -130,12 +127,15 @@ def revise_chapter(
             task="revise_chapter",
             chapter_number=options.chapter_number,
         ),
-        contract=AgentOutputContract(
-            output_kind="markdown",
-            target_name="revised chapter Markdown body",
+        artifact_kind=ProseArtifactKind.CHAPTER_REVISION,
+        chapter_number=options.chapter_number,
+        required_source_refs=(
+            f"memory/chapters/{options.chapter_number:03d}/{context.source_file}",
         ),
     )
-    body = _clean_revised_body(content)
+    body = payload.body_markdown
+    warnings.extend(payload.warnings)
+    warnings.extend(f"Agent assumption: {item}" for item in payload.assumptions)
     if not body:
         raise RevisionError("revision provider returned empty content")
 
@@ -245,6 +245,7 @@ def load_revision_provider(
     provider_name: str,
     *,
     target: RevisionTarget = "polished",
+    chapter_number: int = 1,
     agent_config_path: Path | None = None,
     model_name: str | None = None,
 ) -> ModelProvider:
@@ -252,7 +253,7 @@ def load_revision_provider(
         agent_config_path or default_agent_config_path(root),
         "revision",
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
-        mock_response=default_mock_revised_body(target),
+        mock_response=default_mock_revised_payload_json(target, chapter_number),
     )
 
 
@@ -300,7 +301,10 @@ def build_revision_user_prompt(context: RevisionContext, options: ChapterRevisio
         f"目标文件类型：{options.target}\n"
         f"源文件：{context.source_file}\n"
         f"用户修订要求：{options.instruction or '无'}\n\n"
-        "请只输出修订后的正文 Markdown，不要包含 YAML front matter。"
+        "请只输出 ProseArtifactPayload JSON。artifact_kind 必须是 chapter_revision，"
+        f"chapter_number 必须是 {context.plan.chapter_number}，source_artifact_refs 必须包含 "
+        f"memory/chapters/{context.plan.chapter_number:03d}/{context.source_file}。"
+        "body_markdown 只放修订正文，不要包含 YAML front matter。"
         "保留章节核心剧情与结尾钩子，除非用户明确要求改变。\n\n"
         f"{render_untrusted_workspace_data('search_context', context.search_context)}\n"
         f"{render_untrusted_workspace_data('blocking_audit_issues', blocking_issue_text)}\n"
@@ -363,6 +367,19 @@ def default_mock_revised_body(target: RevisionTarget = "polished") -> str:
         "他重新望向站台尽头，广播里的杂音已经消失，只剩檐下不断坠落的水珠。那张湿透的破损车票仍在"
         "笔记本里发凉，像一个尚未被说出口的问题。\n\n"
         "林澈没有得到答案。他只是意识到，自己已经无法把这座车站当成一处废墟。"
+    )
+
+
+def default_mock_revised_payload_json(
+    target: RevisionTarget = "polished",
+    chapter_number: int = 1,
+) -> str:
+    return mock_prose_artifact_json(
+        artifact_kind=ProseArtifactKind.CHAPTER_REVISION,
+        chapter_number=chapter_number,
+        body_markdown=default_mock_revised_body(target),
+        source_artifact_refs=(f"memory/chapters/{chapter_number:03d}/{target}.md",),
+        change_summary="按当前修订范围生成不可变候选稿。",
     )
 
 

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import yaml
 
-from novel.core.provider_config import resolve_agent_config
 from novel.core.env import load_project_env, read_project_env_file
 from novel.core.io import load_yaml
+from novel.core.provider_config import resolve_agent_config
 from novel.core.setup_guide import (
     DEFAULT_API_KEY_ENV,
     DEFAULT_BASE_URL_ENV,

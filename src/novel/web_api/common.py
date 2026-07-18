@@ -1,33 +1,36 @@
 from __future__ import annotations
 
 from typing import Literal
+
+from pydantic import ConfigDict
+
 from novel.core.command_bus import command_result_payload, dispatch_command, new_command_envelope
 from novel.core.contracts import PublicCommand, Surface
 
 from .deps import (
-    Callable,
-    json,
-    os,
-    Path,
-    re,
-    sys,
-    Mapping,
-    cast,
-    BaseModel,
-    Field,
-    __version__,
     PROFILE_NAMES,
     TASK_TO_PROFILE,
-    load_project_env,
-    load_json,
-    load_yaml,
-    utc_timestamp,
-    web_launcher,
     AgentsConfig,
+    BaseModel,
+    Callable,
+    Field,
+    Mapping,
+    MemoryChangeStage,
+    Path,
     PolishMode,
     VectorContextMode,
-    MemoryChangeStage,
+    __version__,
+    cast,
+    json,
+    load_json,
+    load_project_env,
+    load_yaml,
+    os,
+    re,
     redact_secret_text,
+    sys,
+    utc_timestamp,
+    web_launcher,
 )
 
 ProviderName = str
@@ -54,12 +57,22 @@ class WebErrorPayload(BaseModel):
     message: str
     details: dict[str, object] = Field(default_factory=dict)
     request_id: str
+    http_status: int = Field(ge=400, le=599)
+    retryable: bool = False
 
 
 class WebResponsePayload(BaseModel):
     ok: bool
     data: dict[str, object] | None = None
     error: WebErrorPayload | None = None
+
+
+class WebCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1)
+    command: PublicCommand
+    confirmed: bool = False
 
 
 class WebAPIError(RuntimeError):
@@ -70,11 +83,26 @@ class WebAPIError(RuntimeError):
         *,
         status: int = 400,
         details: dict[str, object] | None = None,
+        retryable: bool = False,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.status = status
         self.details = details or {}
+        self.retryable = retryable
+
+
+def dispatch_web_command_request(data: dict[str, object]) -> dict[str, object]:
+    request = WebCommandRequest.model_validate(data)
+    result = dispatch_command(
+        new_command_envelope(
+            surface=Surface.WEB,
+            project_root=Path(request.path),
+            command=request.command,
+            confirmed=request.confirmed,
+        )
+    )
+    return command_result_payload(result)
 
 
 def _dispatch_web_command(
@@ -232,9 +260,7 @@ def _is_safe_tree_path(rel_path: str, path: Path) -> bool:
         return False
     if path.name.startswith(".") and path.is_file():
         return False
-    if path.is_file() and not _is_safe_file_rel_path(rel_path, path):
-        return False
-    return True
+    return not (path.is_file() and not _is_safe_file_rel_path(rel_path, path))
 
 
 def _is_safe_file_rel_path(rel_path: str, path: Path) -> bool:

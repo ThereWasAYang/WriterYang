@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 import uuid
+from dataclasses import dataclass
 
 from novel.core.artifact_store import sha256_bytes
 from novel.core.contracts import (
@@ -222,9 +222,7 @@ def _starts_new_block(current: MarkdownBlockKind, incoming: MarkdownBlockKind) -
         return True
     if current in {MarkdownBlockKind.HEADING, MarkdownBlockKind.THEMATIC_BREAK}:
         return True
-    if incoming != current and incoming in {MarkdownBlockKind.QUOTE, MarkdownBlockKind.LIST}:
-        return True
-    return False
+    return bool(incoming != current and incoming in {MarkdownBlockKind.QUOTE, MarkdownBlockKind.LIST})
 
 
 def _is_fence(line: str) -> bool:

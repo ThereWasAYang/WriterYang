@@ -1,0 +1,797 @@
+{
+  "$defs": {
+    "Ability": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "limitations": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limitations"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "title": "Ability",
+      "type": "object"
+    },
+    "Character": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        },
+        "gender": {
+          "anyOf": [
+            {
+              "enum": [
+                "男",
+                "女",
+                "未知"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gender"
+        },
+        "reader_visible_summary": {
+          "minLength": 1,
+          "title": "Reader Visible Summary",
+          "type": "string"
+        },
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "private_author_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Author Notes"
+        },
+        "appearance": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Appearance"
+        },
+        "personality": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Personality"
+        },
+        "relationships": {
+          "items": {
+            "$ref": "#/$defs/Relationship"
+          },
+          "title": "Relationships",
+          "type": "array"
+        },
+        "abilities": {
+          "items": {
+            "$ref": "#/$defs/Ability"
+          },
+          "title": "Abilities",
+          "type": "array"
+        },
+        "secrets": {
+          "items": {
+            "$ref": "#/$defs/Secret"
+          },
+          "title": "Secrets",
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "reader_visible_summary"
+      ],
+      "title": "Character",
+      "type": "object"
+    },
+    "ForeshadowingThread": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "introduced_in_chapter": {
+          "minimum": 1,
+          "title": "Introduced In Chapter",
+          "type": "integer"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "inactive",
+            "resolved",
+            "unresolved",
+            "deprecated"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "importance": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Importance",
+          "type": "string"
+        },
+        "reader_visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reader Visible"
+        },
+        "hidden_truth": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hidden Truth"
+        },
+        "hidden_truth_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hidden Truth Id"
+        },
+        "planned_payoff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlannedPayoff"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "related_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Entity Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "title",
+        "introduced_in_chapter",
+        "description",
+        "status",
+        "importance"
+      ],
+      "title": "ForeshadowingThread",
+      "type": "object"
+    },
+    "HiddenTruth": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "hidden",
+            "partially_revealed"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "importance": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Importance",
+          "type": "string"
+        },
+        "related_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Entity Ids",
+          "type": "array"
+        },
+        "planned_reveal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlannedReveal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "foreshadowing_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Foreshadowing Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "visibility",
+        "importance"
+      ],
+      "title": "HiddenTruth",
+      "type": "object"
+    },
+    "Item": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "reader_visible_summary": {
+          "minLength": 1,
+          "title": "Reader Visible Summary",
+          "type": "string"
+        },
+        "private_author_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Author Notes"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "special_properties": {
+          "items": {
+            "$ref": "#/$defs/SpecialProperty"
+          },
+          "title": "Special Properties",
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "reader_visible_summary"
+      ],
+      "title": "Item",
+      "type": "object"
+    },
+    "Location": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "reader_visible_summary": {
+          "minLength": 1,
+          "title": "Reader Visible Summary",
+          "type": "string"
+        },
+        "private_author_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Private Author Notes"
+        },
+        "parent_location_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Location Id"
+        },
+        "connected_location_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Connected Location Ids",
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/LocationRule"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "reader_visible_summary"
+      ],
+      "title": "Location",
+      "type": "object"
+    },
+    "LocationRule": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "hidden",
+            "partially_revealed"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "visibility"
+      ],
+      "title": "LocationRule",
+      "type": "object"
+    },
+    "PlannedPayoff": {
+      "additionalProperties": false,
+      "properties": {
+        "chapter": {
+          "minimum": 1,
+          "title": "Chapter",
+          "type": "integer"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chapter",
+        "description"
+      ],
+      "title": "PlannedPayoff",
+      "type": "object"
+    },
+    "PlannedReveal": {
+      "additionalProperties": false,
+      "properties": {
+        "chapter": {
+          "minimum": 1,
+          "title": "Chapter",
+          "type": "integer"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        }
+      },
+      "required": [
+        "chapter"
+      ],
+      "title": "PlannedReveal",
+      "type": "object"
+    },
+    "Relationship": {
+      "additionalProperties": false,
+      "properties": {
+        "target_id": {
+          "title": "Target Id",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "reader_visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reader Visible"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "required": [
+        "target_id",
+        "type"
+      ],
+      "title": "Relationship",
+      "type": "object"
+    },
+    "Secret": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "hidden",
+            "partially_revealed"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "planned_reveal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Planned Reveal"
+        }
+      },
+      "required": [
+        "id",
+        "visibility",
+        "description"
+      ],
+      "title": "Secret",
+      "type": "object"
+    },
+    "SpecialProperty": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "hidden",
+            "partially_revealed"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "visibility"
+      ],
+      "title": "SpecialProperty",
+      "type": "object"
+    },
+    "WorldRule": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "hidden",
+            "partially_revealed"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "known_by_character_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Known By Character Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "visibility"
+      ],
+      "title": "WorldRule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "characters": {
+      "items": {
+        "$ref": "#/$defs/Character"
+      },
+      "title": "Characters",
+      "type": "array"
+    },
+    "locations": {
+      "items": {
+        "$ref": "#/$defs/Location"
+      },
+      "title": "Locations",
+      "type": "array"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/Item"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "world_rules": {
+      "items": {
+        "$ref": "#/$defs/WorldRule"
+      },
+      "title": "World Rules",
+      "type": "array"
+    },
+    "hidden_truths": {
+      "items": {
+        "$ref": "#/$defs/HiddenTruth"
+      },
+      "title": "Hidden Truths",
+      "type": "array"
+    },
+    "foreshadowing_threads": {
+      "items": {
+        "$ref": "#/$defs/ForeshadowingThread"
+      },
+      "title": "Foreshadowing Threads",
+      "type": "array"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    }
+  },
+  "title": "CanonProposal",
+  "type": "object"
+}

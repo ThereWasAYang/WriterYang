@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import Literal
 
 from novel.core.artifact_store import load_lifecycle, sha256_bytes, sha256_file

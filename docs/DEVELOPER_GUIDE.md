@@ -18,7 +18,8 @@ WriterYang 是一个本地优先、文件驱动的 AI 辅助中文长篇小说�
 
 ```text
 src/novel/
-  cli.py                # CLI parser wiring、dispatch map、兼容 re-export
+  cli.py                # CLI 顶层装配与 dispatch map
+  cli_parsers/          # 按 project/search/memory/session/generation 注册参数
   cli_shared.py         # CLI JSON/quiet 输出、错误包装、路径和通用 helper
   cli_commands/         # 按领域拆分的 CLI handler
   web_api/              # 本地 Web API 包，包装 core service
@@ -27,7 +28,7 @@ src/novel/
     index.html          # 页面结构
     app.css             # 页面样式
     app_*.js            # 按功能拆分的 API 调用和交互逻辑
-  core/                 # 可复用业务逻辑，CLI/Web 共用
+  core/                 # 可复用业务逻辑、CommandSpec/dispatcher/领域 handlers
   prompts/              # Agent system prompt 模板
 schemas/                # 由 Pydantic 导出的 JSON Schema
 tests/                  # 单元、集成、Web、真实 API 标记测试
@@ -38,13 +39,13 @@ scripts/                # 本地质量门禁、smoke、排障、provider ping �
 核心原则：
 
 - CLI 只负责参数解析、输出格式、调用 core。
-- Web API 只负责 HTTP 请求/响应、脱敏、项目锁、调用 core。
+- Web API 只负责 HTTP 请求/响应和脱敏；锁、确认与预算由 Command Bus 统一执行。
 - 业务规则放在 core service。
 - schema 写在 `core/schemas.py`。
 - prompt 纯文本模板放在 `src/novel/prompts/`，组装逻辑放在对应 core service。
 - 所有写文件操作必须走 `core/io.py` 的 atomic write 和必要备份。
 - 修改项目的 CLI/Web 入口必须使用 `ProjectLock`，避免并发写同一 workspace。
-- API Key 只能放环境变量，项目文件只保存环境变量名。
+- API Key 只允许来自进程环境变量或项目根目录 `.env`；YAML/JSON/Markdown 只保存环境变量名。`.env` 明文是项目所有者接受的本地风险，必须继续排除于 Git、Web 文件树、导出和日志。
 
 ## 3. Workspace 文件结构
 
@@ -225,12 +226,12 @@ novel export markdown --path <project>
 推荐流程：
 
 1. 在 `core/contracts/commands.py` 定义 strict typed command，并加入 `PublicCommand` discriminator union。
-2. 在 `core/command_bus.py` 注册唯一 handler；handler 调用领域 service，返回统一 `CommandResult`、changed paths/artifacts 和 next commands。
-3. 在 `core/` 新增或扩展 service；Provider adapter、Agent logic、文件 mutation 继续分层。
-4. 在 `cli.py::build_parser()` 增加子命令和参数。
-5. 在对应 `cli_commands/` 模块新增薄 `_cmd_<name>()`：只读取参数、构造 command、调用 `_dispatch_cli_command()` 并格式化结果。
-6. 在 `cli.py::_COMMAND_HANDLERS` 登记 handler，不要把新分支直接塞回 `main()`。
-7. 写锁由 Command Bus 统一持有，不在 CLI adapter 再用 `_command_lock()`；只读 command 加入 `READ_ONLY_COMMANDS`，确有并发语义要求的受限写入才加入 `UNLOCKED_WRITE_COMMANDS`。
+2. 将模型加入 `PUBLIC_COMMAND_MODELS`；`core/command_registry.py` 会生成唯一 `CommandSpec`，不得另建散落 policy set。
+3. 在 `core/command_handlers/` 对应领域模块注册唯一 handler；handler 调用领域 service，返回统一 `CommandResult`、changed paths/artifacts 和 next commands。
+4. 在 `core/` 新增或扩展 service；Provider adapter、Agent logic、文件 mutation 继续分层。
+5. 在 `cli_parsers/` 对应领域注册子命令和参数。
+6. 在对应 `cli_commands/` 模块新增薄 `_cmd_<name>()`，并在 `cli.py::_COMMAND_HANDLERS` 登记顶层分发。
+7. 写锁、确认和 unlocked-write 语义全部声明在 `CommandSpec`，adapter 不再维护平行集合。
 8. 支持已有集成参数：`--path` / `--project`、`--json`、`--quiet`，并写 core/CLI/Web contract 测试。
 
 CLI 输出约定：
@@ -400,7 +401,7 @@ python scripts/check_local.py
 
 禁止事项：
 
-- 不要在项目文件中写真实 API Key。
+- 除受控的项目根 `.env`/本地备份外，不要在任何项目文件中写真实 API Key。
 - 不要绕过 `core/io.py` 直接写重要文件。
 - 不要让前端保存逻辑绕过 core service。
 - 不要让内部 Agent 输出问题落盘成正式 artifact。
@@ -413,4 +414,6 @@ python scripts/check_local.py
 - 新模块或新函数：更新 `docs/CODEBASE_REFERENCE.md`。
 - 新 Agent 或 prompt：更新 `docs/AGENT_PROMPT_ASSEMBLY.md`。
 - 新 CLI/Web API：更新 `README.md`、`docs/INTEGRATION.md` 和相关测试。
+- 新公开 command：登记唯一 `CommandSpec`，同步 OpenAPI/command catalog contract snapshot。
+- 新可观测事件：复用 `EventWriter`，声明轮转/留存和稳定 `error_code`。
 - 新 schema：运行 `novel schema export --output schemas`，并更新数据文档。

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import json
 from pathlib import Path
 
 import pytest
@@ -11,8 +11,8 @@ from novel.cli import main
 from novel.core import transactions as transaction_module
 from novel.core.artifact_store import ArtifactStore, load_lifecycle
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.lifecycle import accepted_chapter_commit
 from novel.core.contracts import RevisionSessionPhase, ensure_revision_phase_transition
+from novel.core.lifecycle import accepted_chapter_commit
 from novel.core.revision_workflow import (
     RevisionActionOptions,
     RevisionRunOptions,

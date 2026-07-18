@@ -12,8 +12,8 @@ from novel.core.contracts import (
     SessionStartCommand,
     Surface,
     TaskId,
-    WorkflowNodeRun,
     WorkflowDecision,
+    WorkflowNodeRun,
     WorkflowRun,
     default_workflow_budget,
 )
@@ -58,14 +58,13 @@ def test_runtime_rejects_task_not_declared_by_workflow(tmp_path: Path) -> None:
         budget=default_workflow_budget(),
         request_id="req_00000000000000000000000000000001",
         workflow_type="revision_session",
-    ) as runtime:
-        with pytest.raises(RuntimeError, match="not authorized"):
-            runtime.execute_node(
-                name="model:canon",
-                node_type="model",
-                task_id=TaskId.CANON,
-                function=lambda: None,
-            )
+    ) as runtime, pytest.raises(RuntimeError, match="not authorized"):
+        runtime.execute_node(
+            name="model:canon",
+            node_type="model",
+            task_id=TaskId.CANON,
+            function=lambda: None,
+        )
 
 
 def test_command_and_model_nodes_share_trace_and_parentage(tmp_path: Path) -> None:

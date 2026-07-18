@@ -6,7 +6,6 @@ from pathlib import Path
 
 import yaml
 
-from tests.internal_task_cli import run_test_cli
 from novel.core.agent_defaults import (
     PROFILE_NAMES,
     TASK_TO_PROFILE,
@@ -22,6 +21,7 @@ from novel.core.provider_config import (
 from novel.core.providers import LoggingModelProvider, MissingProviderEnvError, MockProvider, ProviderFactory
 from novel.core.revision import load_revision_provider
 from novel.core.workspace import InitOptions, init_workspace
+from tests.internal_task_cli import run_test_cli
 
 
 def test_each_task_reads_its_profile_config(tmp_path: Path) -> None:

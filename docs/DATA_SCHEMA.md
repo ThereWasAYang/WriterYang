@@ -16,7 +16,9 @@
 
 字段级真相以 `src/novel/core/schemas.py` 中的 Pydantic model 为准；`schemas/*.schema.json` 由这些 model 导出。本文侧重说明设计意图、人类可编辑约定和重要持久化路径，避免手写字段清单与生成 schema 漂移。
 
-控制面与 inter-agent 契约以 `src/novel/core/contracts/` 为准；`artifact_ref`、`chapter_lifecycle`、`session_projection`、`acceptance_commit`、`transaction_journal`、`command_envelope`、`command_result`、`command_proposal`、`workflow_budget`、`workflow_run`、`workflow_node_run` 和 `workflow_decision` 也会导出到 `schemas/`。`CommandEnvelope` 携带 request/parent request、budget 与初始 usage，`CommandResult` 返回 `command_type`、request、changed paths/artifacts 和累计 `budget_usage`；Creation/Revision Session 持久化 `workflow_run_id`、budget 与累计 usage，以支持跨 human gate 续跑。全部公开写入口，包括内容生成、Canon/Memory、索引、编辑器 candidate、配置、端口和 schema 导出，均使用 `PublicCommand` 的 strict discriminator union；Setup command 的 `api_key` 字段禁止 repr，持久化明文仅允许进入项目 `.env`。
+控制面与 inter-agent 契约以 `src/novel/core/contracts/` 为准；`artifact_ref`、`chapter_lifecycle`、`session_projection`、`acceptance_commit`、`transaction_journal`、`command_envelope`、`command_result`、`command_proposal`、`workflow_budget`、`workflow_run`、`workflow_node_run`、`workflow_decision` 和 `prose_artifact_payload` 也会导出到 `schemas/`。`CommandEnvelope` 携带 request/parent request、budget 与初始 usage，`CommandResult` 返回 `command_type`、request、changed paths/artifacts 和累计 `budget_usage`；Creation/Revision Session 持久化 `workflow_run_id`、budget 与累计 usage，以支持跨 human gate 续跑。全部公开写入口，包括内容生成、Canon/Memory、索引、编辑器 candidate、配置、端口和 schema 导出，均使用 `PublicCommand` 的 strict discriminator union；Setup command 的 `api_key` 字段禁止 repr，持久化明文仅允许进入项目 `.env`。
+
+Writer、Polish、Revision 和 Inspiration 的 prose 输出必须先校验 `ProseArtifactPayload`：`artifact_kind`、`chapter_number`、`body_markdown`、`source_artifact_refs`、`assumptions`、`warnings`、`change_summary`。`body_markdown` 才由确定性 renderer 写入章节 Markdown；正文包含“大纲”“我不能”等自然语言不会被 keyword blacklist 当成结构错误。安装包通过 `importlib.resources` 从 `novel/schemas/` 读取 schema，仓库根 `schemas/` 是外部集成快照。
 
 ---
 

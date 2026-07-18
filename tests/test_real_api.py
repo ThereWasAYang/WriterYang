@@ -23,7 +23,6 @@ from novel.core.providers import ModelRequest, ProviderFactory
 from novel.core.schemas import AgentConfig, AuditIssue, AuditReport, CharactersFile, LocationsFile
 from novel.core.workspace import InitOptions, init_workspace
 
-
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_REAL_ENV = (
     "WRITERYANG_REAL_BASE_URL",

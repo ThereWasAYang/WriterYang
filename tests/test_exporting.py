@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
 import hashlib
-from io import StringIO
 import json
-from pathlib import Path
 import uuid
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+from pathlib import Path
 
 from docx import Document
+
 from novel.cli import main
 from novel.core.artifact_store import ArtifactStore, combined_sha256, write_lifecycle
 from novel.core.contracts import (

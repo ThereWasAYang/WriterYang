@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import json
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import json
 from pathlib import Path
 
-from tests.internal_task_cli import run_test_cli
 from novel.cli_shared import _audit_issue_lines
 from novel.core.auditing import (
     ChapterAuditOptions,
@@ -15,13 +14,14 @@ from novel.core.auditing import (
 )
 from novel.core.budget import workflow_budget_scope
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.drafting import ChapterDraftingOptions, write_chapter_draft
-from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
-from novel.core.polishing import ChapterPolishingOptions, polish_chapter
 from novel.core.contracts import WorkflowBudget
+from novel.core.drafting import ChapterDraftingOptions, default_mock_draft_payload_json, write_chapter_draft
+from novel.core.planning import ChapterPlanningOptions, default_mock_chapter_plan_json, plan_chapter
+from novel.core.polishing import ChapterPolishingOptions, default_mock_polished_payload_json, polish_chapter
 from novel.core.providers import LoggingModelProvider, MockProvider
 from novel.core.schemas import AuditReport
 from novel.core.workspace import InitOptions, init_workspace
+from tests.internal_task_cli import run_test_cli
 
 
 def test_mock_provider_can_generate_audit_report(tmp_path: Path) -> None:
@@ -807,11 +807,11 @@ def _workspace_with_polished(tmp_path: Path) -> Path:
     )
     write_chapter_draft(
         ChapterDraftingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="雨落在旧车站。林澈听见广播，拾起半张车票。"),
+        MockProvider(fake_response=default_mock_draft_payload_json()),
     )
     polish_chapter(
         ChapterPolishingOptions(root=root, chapter_number=1),
-        MockProvider(fake_response="雨声更深，旧车站像在夜里醒来。林澈收起车票。"),
+        MockProvider(fake_response=default_mock_polished_payload_json()),
     )
     return root
 

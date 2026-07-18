@@ -26,7 +26,7 @@ def test_prompt_versions_cover_non_partial_templates() -> None:
     }
 
     assert set(PROMPT_VERSIONS) == template_names
-    assert PROMPT_VERSION == max(PROMPT_VERSIONS.values())
+    assert max(PROMPT_VERSIONS.values()) == PROMPT_VERSION
     assert PROMPT_VERSIONS["writer_system"] == "2026-07-11"
     assert PROMPT_VERSIONS["style_guide_system"] == "2026-06-19"
     assert PROMPT_VERSIONS["audit_repair_route_system"] == "2026-06-20"
@@ -66,9 +66,9 @@ def test_prompt_partials_render_and_raw_prompts_do_not_duplicate_shared_context_
 def test_agent_system_prompts_keep_core_constraints() -> None:
     assert "不要写正文" in build_planning_system_prompt()
     assert "不要修改 canon" in build_planning_system_prompt()
-    assert "不要输出大纲、解释、分析或 JSON" in build_writer_system_prompt()
+    assert "ProseArtifactPayload schema" in build_writer_system_prompt()
     assert "不要提前揭示 hidden_truths" in build_writer_system_prompt()
-    assert "不要输出解释、分析、修改说明、JSON 或大纲" in build_polish_system_prompt()
+    assert "ProseArtifactPayload schema" in build_polish_system_prompt()
     assert "只输出 AuditReport JSON" in build_audit_system_prompt()
     assert "不要更新 canon/state/timeline" in build_audit_system_prompt()
 

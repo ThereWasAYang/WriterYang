@@ -6,16 +6,17 @@ from io import StringIO
 from pathlib import Path
 
 from novel.cli import main
+from novel.core.contracts.prose import ProseArtifactKind
 from novel.core.inspiration import (
     InspirationError,
     InspirationOptions,
     read_inspiration_input,
     run_inspiration_agent,
 )
+from novel.core.prose_generation import mock_prose_artifact_json
 from novel.core.providers import MockProvider
 from novel.core.validation import validate_project
 from novel.core.workspace import InitOptions, init_workspace
-
 
 FAKE_MARKDOWN = """# Inspiration
 
@@ -61,7 +62,7 @@ FAKE_MARKDOWN = """# Inspiration
 def test_inspiration_agent_writes_markdown_and_json_with_mock_provider(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    provider = MockProvider(fake_response=FAKE_MARKDOWN)
+    provider = MockProvider(fake_response=_inspiration_payload(FAKE_MARKDOWN))
 
     result = run_inspiration_agent(
         InspirationOptions(
@@ -81,14 +82,14 @@ def test_inspiration_agent_writes_markdown_and_json_with_mock_provider(tmp_path:
     assert data["themes"] == ["记忆", "失踪"]
     assert data["mood"] == ["潮湿", "孤独"]
     assert "旧物修复师" in data["weak_outline"]
-    assert provider.requests[0].json_schema_name is None
+    assert provider.requests[0].json_schema_name == "ProseArtifactPayload"
     assert "弱总纲" in provider.requests[0].system_prompt
 
 
 def test_inspiration_agent_accepts_json_wrapper_from_provider(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
-    wrapped = json.dumps({"outline": FAKE_MARKDOWN}, ensure_ascii=False)
+    wrapped = _inspiration_payload(FAKE_MARKDOWN)
     provider = MockProvider(fake_response=wrapped)
 
     result = run_inspiration_agent(
@@ -111,7 +112,7 @@ def test_inspiration_agent_can_receive_search_context(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     init_workspace(InitOptions(title="雨夜旧车站", root=root))
     (root / "memory" / "style_guide.md").write_text("保持悬疑。", encoding="utf-8")
-    provider = MockProvider(fake_response=FAKE_MARKDOWN)
+    provider = MockProvider(fake_response=_inspiration_payload(FAKE_MARKDOWN))
 
     result = run_inspiration_agent(
         InspirationOptions(
@@ -140,7 +141,7 @@ def test_inspiration_agent_refuses_to_overwrite_existing_markdown(tmp_path: Path
                 source_text="一个雨夜旧车站的故事",
                 overwrite=False,
             ),
-            MockProvider(fake_response=FAKE_MARKDOWN),
+            MockProvider(fake_response=_inspiration_payload(FAKE_MARKDOWN)),
         )
     except InspirationError as exc:
         assert "already exists" in str(exc)
@@ -268,3 +269,13 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     with redirect_stdout(stdout), redirect_stderr(stderr):
         code = main(args)
     return code, stdout.getvalue(), stderr.getvalue()
+
+
+def _inspiration_payload(body: str) -> str:
+    return mock_prose_artifact_json(
+        artifact_kind=ProseArtifactKind.INSPIRATION,
+        chapter_number=None,
+        body_markdown=body,
+        source_artifact_refs=("project.yaml",),
+        change_summary="测试生成弱总纲。",
+    )

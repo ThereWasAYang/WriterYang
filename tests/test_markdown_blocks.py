@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -12,7 +12,6 @@ from novel.core.markdown_blocks import (
     create_segment_selection,
     parse_markdown_blocks,
 )
-
 
 MARKDOWN = """---
 chapter_number: 1
@@ -38,7 +37,7 @@ def _candidate(markdown: str = MARKDOWN) -> ArtifactRef:
         kind=ArtifactKind.CANDIDATE,
         path="memory/chapters/001/candidates/candidate.md",
         sha256=sha256_bytes(markdown.encode("utf-8")),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -70,7 +69,7 @@ def test_segment_patch_preserves_every_byte_outside_selection() -> None:
         start_block=2,
         end_block=3,
         replacement_markdown="修订后的第一段。\n\n> 修订后的引用。\n",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
     applied = apply_segment_patch(MARKDOWN, selection, patch)
@@ -97,7 +96,7 @@ def test_segment_patch_rejects_stale_source() -> None:
         start_block=2,
         end_block=2,
         replacement_markdown="新段落。\n",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
     with pytest.raises(MarkdownBlockError, match="source hash is stale"):
@@ -119,7 +118,7 @@ def test_segment_patch_rejects_range_expansion() -> None:
         start_block=2,
         end_block=3,
         replacement_markdown="越界修改。\n",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
     with pytest.raises(MarkdownBlockError, match="exceeds authorized"):

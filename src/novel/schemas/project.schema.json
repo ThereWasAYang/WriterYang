@@ -1,0 +1,333 @@
+{
+  "$defs": {
+    "AuditRecallConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_recall_rounds": {
+          "default": 1,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Max Recall Rounds",
+          "type": "integer"
+        },
+        "max_requests_per_round": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Max Requests Per Round",
+          "type": "integer"
+        }
+      },
+      "title": "AuditRecallConfig",
+      "type": "object"
+    },
+    "CanonDriftConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "CanonDriftConfig",
+      "type": "object"
+    },
+    "ChapterMemoryConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "generate_on_accept": {
+          "default": true,
+          "title": "Generate On Accept",
+          "type": "boolean"
+        },
+        "strict_accept": {
+          "default": false,
+          "title": "Strict Accept",
+          "type": "boolean"
+        },
+        "inject_into_tasks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inject Into Tasks",
+          "type": "array"
+        }
+      },
+      "title": "ChapterMemoryConfig",
+      "type": "object"
+    },
+    "ContextBudgetConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "recent_window_chapters": {
+          "default": 3,
+          "minimum": 0,
+          "title": "Recent Window Chapters",
+          "type": "integer"
+        },
+        "max_full_timeline_events": {
+          "default": 40,
+          "minimum": 1,
+          "title": "Max Full Timeline Events",
+          "type": "integer"
+        },
+        "max_full_state_entities": {
+          "default": 60,
+          "minimum": 1,
+          "title": "Max Full State Entities",
+          "type": "integer"
+        },
+        "digest_dropped": {
+          "default": true,
+          "title": "Digest Dropped",
+          "type": "boolean"
+        }
+      },
+      "title": "ContextBudgetConfig",
+      "type": "object"
+    },
+    "Narration": {
+      "additionalProperties": false,
+      "properties": {
+        "pov": {
+          "title": "Pov",
+          "type": "string"
+        },
+        "tense": {
+          "title": "Tense",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pov",
+        "tense"
+      ],
+      "title": "Narration",
+      "type": "object"
+    },
+    "PolishConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "default": "single_pass",
+          "enum": [
+            "single_pass",
+            "auto",
+            "review_gate"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "title": "PolishConfig",
+      "type": "object"
+    },
+    "TargetLength": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        },
+        "planned_chapters": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Planned Chapters"
+        }
+      },
+      "title": "TargetLength",
+      "type": "object"
+    },
+    "WebConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "default_port": {
+          "default": 8765,
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Default Port",
+          "type": "integer"
+        }
+      },
+      "title": "WebConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "project_id": {
+      "minLength": 1,
+      "pattern": "^[a-z0-9_]+$",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "language": {
+      "minLength": 1,
+      "title": "Language",
+      "type": "string"
+    },
+    "genre": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Genre",
+      "type": "array"
+    },
+    "narration": {
+      "$ref": "#/$defs/Narration"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "target_length": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TargetLength"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "default_style_profile_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Default Style Profile Id"
+    },
+    "web": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WebConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "context_budget": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ContextBudgetConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "chapter_memory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ChapterMemoryConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "polish": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PolishConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "audit_recall": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuditRecallConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "canon_drift": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CanonDriftConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "project_id",
+    "title",
+    "language",
+    "genre",
+    "narration",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "ProjectConfig",
+  "type": "object"
+}

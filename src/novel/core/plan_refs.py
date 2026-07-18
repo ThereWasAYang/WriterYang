@@ -5,7 +5,6 @@ from typing import Any
 
 from novel.core.schemas import ChapterPlan, TimelineEvent
 
-
 KEY_TIMELINE_EVENT_ROLES = frozenset({"backstory", "flashback", "memory", "revelation", "summary"})
 
 

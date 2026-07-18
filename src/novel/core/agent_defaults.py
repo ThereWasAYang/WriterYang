@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
-from typing import Mapping
-
 
 PROFILE_NAMES = ("scribe", "architect", "loremaster", "clerk")
 

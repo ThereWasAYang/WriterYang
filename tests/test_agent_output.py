@@ -75,6 +75,22 @@ def test_internal_json_rejects_natural_language_question() -> None:
     assert "non_json_output" in exc.value.reason_codes
 
 
+def test_internal_json_defers_string_field_semantics_to_typed_schema() -> None:
+    validate_agent_output(
+        '{"body_markdown":"角色说：我不能把 Canon 当答案，可以吗？"}',
+        invocation=AgentInvocationContext(
+            agent_name="writer",
+            interaction_mode="internal_task",
+            task="write_chapter",
+        ),
+        contract=AgentOutputContract(
+            output_kind="json",
+            target_name="ProseArtifactPayload",
+            json_schema_name="ProseArtifactPayload",
+        ),
+    )
+
+
 def test_violation_log_redacts_secret_like_values(tmp_path) -> None:
     error = AgentOutputContractError("bad output", reason_codes=("clarification_request",))
 

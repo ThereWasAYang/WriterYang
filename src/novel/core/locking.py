@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
 import threading
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from novel.core.io import append_jsonl
 from novel.core.timeutil import utc_now, utc_now_iso, utc_now_precise
-
 
 LOCK_FILE_NAME = ".writeryang.lock"
 DEFAULT_STALE_AFTER = timedelta(hours=12)
@@ -68,7 +67,7 @@ class ProjectLock:
         self.acquire()
         return self
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         self.release()
 
     def acquire(self) -> None:
@@ -99,7 +98,7 @@ class ProjectLock:
                     f"(pid={info.pid or 'unknown'}, task={info.task or 'unknown'}, "
                     f"host={info.host or 'unknown'}, heartbeat_at={info.heartbeat_at or 'unknown'}, "
                     f"workflow_run_id={info.workflow_run_id or 'unknown'}, lock={self.path})"
-                )
+                ) from None
             with os.fdopen(fd, "w", encoding="utf-8") as file:
                 json.dump(payload, file, ensure_ascii=False, indent=2)
                 file.write("\n")
@@ -228,7 +227,7 @@ def _parse_timestamp(value: object) -> datetime | None:
     try:
         normalized = value.replace("Z", "+00:00")
         parsed = datetime.fromisoformat(normalized)
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -266,7 +265,7 @@ def _process_start_time(pid: int) -> str | None:
     if not raw:
         return _PROCESS_STARTED_AT if pid == os.getpid() else None
     try:
-        parsed = datetime.strptime(raw, "%a %b %d %H:%M:%S %Y").replace(tzinfo=timezone.utc)
+        parsed = datetime.strptime(raw, "%a %b %d %H:%M:%S %Y").replace(tzinfo=UTC)
     except ValueError:
         return raw
     return parsed.isoformat().replace("+00:00", "Z")

@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "ChapterScene": {
+      "additionalProperties": false,
+      "properties": {
+        "scene_number": {
+          "minimum": 1,
+          "title": "Scene Number",
+          "type": "integer"
+        },
+        "location_id": {
+          "title": "Location Id",
+          "type": "string"
+        },
+        "participant_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Participant Ids",
+          "type": "array"
+        },
+        "purpose": {
+          "minLength": 1,
+          "title": "Purpose",
+          "type": "string"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "emotional_beat": {
+          "minLength": 1,
+          "title": "Emotional Beat",
+          "type": "string"
+        },
+        "plot_points": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Plot Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scene_number",
+        "location_id",
+        "purpose",
+        "summary",
+        "emotional_beat"
+      ],
+      "title": "ChapterScene",
+      "type": "object"
+    },
+    "RequiredContext": {
+      "additionalProperties": false,
+      "properties": {
+        "canon_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Canon Entity Ids",
+          "type": "array"
+        },
+        "state_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "State Entity Ids",
+          "type": "array"
+        },
+        "timeline_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Timeline Event Ids",
+          "type": "array"
+        }
+      },
+      "title": "RequiredContext",
+      "type": "object"
+    },
+    "RevealAuthorization": {
+      "additionalProperties": false,
+      "properties": {
+        "hidden_truth_id": {
+          "minLength": 1,
+          "title": "Hidden Truth Id",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "method": {
+          "minLength": 1,
+          "title": "Method",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hidden_truth_id",
+        "chapter_number",
+        "method",
+        "reason"
+      ],
+      "title": "RevealAuthorization",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "goal": {
+      "minLength": 1,
+      "title": "Goal",
+      "type": "string"
+    },
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "required_context": {
+      "$ref": "#/$defs/RequiredContext"
+    },
+    "scenes": {
+      "items": {
+        "$ref": "#/$defs/ChapterScene"
+      },
+      "minItems": 1,
+      "title": "Scenes",
+      "type": "array"
+    },
+    "must_include": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Must Include",
+      "type": "array"
+    },
+    "must_avoid": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Must Avoid",
+      "type": "array"
+    },
+    "ending_hook": {
+      "minLength": 1,
+      "title": "Ending Hook",
+      "type": "string"
+    },
+    "expected_state_changes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Expected State Changes",
+      "type": "array"
+    },
+    "reveal_authorizations": {
+      "items": {
+        "$ref": "#/$defs/RevealAuthorization"
+      },
+      "title": "Reveal Authorizations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "chapter_number",
+    "title",
+    "goal",
+    "summary",
+    "required_context",
+    "scenes",
+    "must_include",
+    "must_avoid",
+    "ending_hook",
+    "expected_state_changes"
+  ],
+  "title": "ChapterPlan",
+  "type": "object"
+}

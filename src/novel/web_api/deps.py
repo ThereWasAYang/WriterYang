@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import asdict
 import difflib
 import json
 import os
-from pathlib import Path
 import re
 import sys
 import traceback
-from typing import Literal, Mapping, cast
+from collections.abc import Callable, Mapping
+from dataclasses import asdict
+from pathlib import Path
+from typing import Literal, cast
 from urllib.parse import parse_qs
 
-from pydantic import BaseModel, Field
 import yaml
+from pydantic import BaseModel, Field
 
+import novel.core.web_launcher as web_launcher
 from novel import __version__
 from novel.core.agent_defaults import (
     DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
@@ -42,6 +43,7 @@ from novel.core.chapter_memory import (
     chapter_memory_freshness_warnings,
     chapter_memory_path,
 )
+from novel.core.embeddings import EmbeddingError, resolve_embedding_parameters
 from novel.core.env import load_project_env
 from novel.core.exporting import parse_chapter_selector
 from novel.core.inspection import format_canon, get_project_status
@@ -53,11 +55,13 @@ from novel.core.memory_repair import (
     SettingChangeSuggestionResult,
 )
 from novel.core.provider_config import resolve_agent_config_source, resolve_profile_config_source
-from novel.core.search import SearchError, search_index_status, search_project
-from novel.core.embeddings import EmbeddingError, resolve_embedding_parameters
-from novel.core.setup_guide import SetupGuideError
-from novel.core.timeutil import new_request_id, utc_now, utc_timestamp
-import novel.core.web_launcher as web_launcher
+from novel.core.providers import (
+    ProviderContextLimitError,
+    ProviderError,
+    ProviderFactory,
+    provider_parameter_capabilities,
+    resolve_json_response_format,
+)
 from novel.core.schemas import (
     AgentConfig,
     AgentsConfig,
@@ -66,29 +70,25 @@ from novel.core.schemas import (
     ChapterPlan,
     CreationSession,
     EmbeddingsConfig,
+    MemoryChangeStage,
     PolishMode,
     RevisionLog,
     RevisionRecord,
     SessionProgress,
     VectorContextMode,
-    MemoryChangeStage,
 )
+from novel.core.search import SearchError, search_index_status, search_project
 from novel.core.security import redact_secret_text, validate_secret_config_file
 from novel.core.session import (
     CreationSessionError,
     find_latest_active_session,
-    load_session_progress,
-    load_session,
     load_rewrite_events,
+    load_session,
+    load_session_progress,
     parse_range,
 )
-from novel.core.providers import (
-    ProviderContextLimitError,
-    ProviderError,
-    ProviderFactory,
-    provider_parameter_capabilities,
-    resolve_json_response_format,
-)
+from novel.core.setup_guide import SetupGuideError
+from novel.core.timeutil import new_request_id, utc_now, utc_timestamp
 from novel.core.usage import summarize_provider_usage
 from novel.core.validation import ValidationMessage, validate_project
 from novel.core.workspace import (
@@ -97,7 +97,6 @@ from novel.core.workspace import (
     default_style_guide_markdown,
     is_default_inspiration_placeholder,
 )
-
 
 __all__ = [
     "Callable",

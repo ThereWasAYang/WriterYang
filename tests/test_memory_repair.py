@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import json
 from pathlib import Path
 
 import pytest
@@ -24,7 +24,14 @@ from novel.core.memory_repair import (
 from novel.core.memory_repair.preflight import _coerce_int
 from novel.core.prompts import load_prompt_template
 from novel.core.providers import MockProvider
-from novel.core.schemas import CharactersFile, MemoryChangeClarificationSession, MemoryRepairDecision, MemoryRepairProposal, TimelineFile, WorldFile
+from novel.core.schemas import (
+    CharactersFile,
+    MemoryChangeClarificationSession,
+    MemoryRepairDecision,
+    MemoryRepairProposal,
+    TimelineFile,
+    WorldFile,
+)
 from novel.core.workspace import InitOptions, init_workspace
 
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import json
-from pathlib import Path
 import re
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Literal
 
 from pydantic import ValidationError
@@ -25,15 +25,14 @@ from novel.core.context_policy import render_untrusted_workspace_data
 from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.polishing import DraftDocument, PolishingError, read_markdown_with_front_matter
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template, prompt_template_version
-from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     AuditEvidence,
     AuditIssue,
-    AuditReport,
     AuditRecallConfig,
+    AuditReport,
     ChapterPlan,
     ContextBundle,
     EntityState,
@@ -41,17 +40,17 @@ from novel.core.schemas import (
     TimelineFile,
     VectorContextMode,
 )
-from novel.core.style_guide import DEFAULT_STYLE_GUIDANCE
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.structured_generation import (
     REPAIR_ERROR_LIMIT,
     REPAIR_INVALID_OUTPUT_LIMIT,
     JsonRepairExhaustedError,
     generate_json_with_repair,
 )
+from novel.core.style_guide import DEFAULT_STYLE_GUIDANCE
 from novel.core.timeutil import utc_now, utc_now_iso
 from novel.core.validation import validate_canon
 from novel.core.world_state import resolve_world_state_paths
-
 
 AuditedFile = Literal["draft.md", "polished.md"]
 FocusArea = Literal[
@@ -764,9 +763,12 @@ def _normalize_provider_issue_severities(report_data: dict[str, object]) -> None
     if not isinstance(issues, list):
         return
     for issue in issues:
-        if isinstance(issue, dict) and issue.get("severity") == "medium":
-            if _is_subjective_nonblocking_issue(issue):
-                issue["severity"] = "low"
+        if (
+            isinstance(issue, dict)
+            and issue.get("severity") == "medium"
+            and _is_subjective_nonblocking_issue(issue)
+        ):
+            issue["severity"] = "low"
     severities = [issue.get("severity") for issue in issues if isinstance(issue, dict)]
     if "critical" in severities:
         report_data["overall_status"] = "blocked"

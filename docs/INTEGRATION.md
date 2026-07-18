@@ -92,6 +92,20 @@ Web API 也提供同等修复入口：`POST /api/chapter-memory/generate` 生成
 
 ## 稳定 Web API 契约
 
+业务 mutation 的 canonical typed 入口是 `POST /api/command`：
+
+```json
+{
+  "path": "/absolute/path/to/project",
+  "command": {"type": "project.status"},
+  "confirmed": false
+}
+```
+
+`command` 必须匹配 `PublicCommand` discriminator union，未知字段会被拒绝。每个 command 的输入 schema、读写/锁/确认策略和错误目录由 `core/command_registry.py` 的 `CommandSpec` 唯一登记。`GET /api/openapi.json` 返回 OpenAPI 3.1，`GET /api/commands` 返回逐 command schema/policy catalog。
+
+页面专用读取/projection endpoint 可以继续服务本地 UI，但不得实现业务状态转换；所有 mutation 最终进入同一 Command Bus。Web 失败 envelope 包含稳定 `code`、安全 `message`、`details`、`request_id`、`http_status` 和 `retryable`。未知异常使用 HTTP 500 `internal_error`，stack 只写本地日志。
+
 以下 Web API 可供本地自动化和外部 Agent 使用：
 
 - `GET /api/projects?root=<dir>`：列出 `root` 自身或其一级子目录中的 WriterYang 项目。

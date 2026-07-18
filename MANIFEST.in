@@ -2,6 +2,7 @@ include README.md
 include CHANGELOG.md
 include CONTRIBUTING.md
 include pyproject.toml
+include requirements/constraints.txt
 include install.sh
 include install.ps1
 include install.bat
@@ -17,15 +18,20 @@ include docs/DEVELOPER_GUIDE.md
 include docs/CODEBASE_REFERENCE.md
 include docs/AGENT_PROMPT_ASSEMBLY.md
 include docs/DEBUGGING_AND_REFACTORING.md
+include docs/DATA_SCHEMA.md
+include docs/PRODUCT_SPEC.md
+include docs/ARCHITECTURE.md
+include docs/WORKFLOW.md
+include docs/ROADMAP.md
+include docs/CONFIGURATION.md
+include docs/DEPLOYMENT.md
+include docs/SECURITY.md
+include docs/PERFORMANCE.md
+include docs/index.md
 include docs/openclaw_tool_manifest.json
 recursive-include docs/assets/web-ui-guide *.png
+recursive-include docs/history *.md
 recursive-include schemas *.json
-exclude AGENTS.md
-exclude docs/PRODUCT_SPEC.md
-exclude docs/ARCHITECTURE.md
-exclude docs/DATA_SCHEMA.md
-exclude docs/WORKFLOW.md
-exclude docs/ROADMAP.md
-recursive-include examples *.yaml *.json *.md .gitkeep
 recursive-include src/novel/web_static *.html *.css *.js
 recursive-include src/novel/prompts *.txt
+recursive-include src/novel/schemas *.json

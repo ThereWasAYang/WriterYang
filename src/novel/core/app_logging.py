@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
 import logging
+import sys
 from pathlib import Path
 
+from novel.core.io import append_jsonl
 from novel.core.security import redact_secret_text
 from novel.core.timeutil import utc_now_iso
 
@@ -15,7 +16,6 @@ def log_app_warning(root: Path, event: str, **fields: object) -> None:
 def _write_app_log(root: Path, level: str, event: str, fields: dict[str, object]) -> None:
     try:
         resolved = root.expanduser().resolve()
-        logger = _logger_for_root(resolved)
         payload: dict[str, object] = {
             "created_at": utc_now_iso(),
             "level": level,
@@ -28,24 +28,11 @@ def _write_app_log(root: Path, level: str, event: str, fields: dict[str, object]
                 if value is not None
             }
         )
-        logger.warning(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-    except Exception:
-        return
-
-
-def _logger_for_root(root: Path) -> logging.Logger:
-    logger = logging.getLogger(f"novel.app.{hash(root)}")
-    logger.setLevel(logging.WARNING)
-    logger.propagate = False
-    if logger.handlers:
-        return logger
-    log_path = root / "runs" / "app.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    handler.setLevel(logging.WARNING)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(handler)
-    return logger
+        append_jsonl(resolved / "runs" / "app.log", payload)
+    except Exception as exc:
+        logging.getLogger(__name__).debug("app log write failed", exc_info=exc)
+        if sys.stderr.isatty():
+            print("WriterYang 警告：本地诊断日志写入失败。", file=sys.stderr)
 
 
 def _sanitize(value: object, *, limit: int = 1000) -> object:

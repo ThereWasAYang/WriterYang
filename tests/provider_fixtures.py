@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Mapping
+from collections.abc import Mapping
 
 from novel.core.providers import MockProvider, ModelResponse, TokenUsage
 

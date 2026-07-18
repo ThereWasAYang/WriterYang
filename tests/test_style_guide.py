@@ -6,13 +6,13 @@ from pathlib import Path
 import pytest
 
 from novel.core.providers import MockProvider
+from novel.core.schemas import GeneratedStyleGuide
 from novel.core.style_guide import (
     StyleGuideGenerationError,
     StyleGuideGenerationOptions,
     generate_style_guide,
     render_generated_style_guide_markdown,
 )
-from novel.core.schemas import GeneratedStyleGuide
 from novel.core.workspace import InitOptions, init_workspace
 
 

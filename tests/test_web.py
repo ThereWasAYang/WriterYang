@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-from contextlib import redirect_stderr
 import errno
-from io import StringIO
 import json
-from datetime import datetime, timezone
-from pathlib import Path
 import uuid
+from contextlib import redirect_stderr
+from datetime import UTC, datetime
+from io import StringIO
+from pathlib import Path
 
+import pytest
 import yaml
 
+import novel.web_server as web_server
 from novel.cli_shared import _resolve_web_port
-from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.artifact_store import ArtifactStore, combined_sha256, write_lifecycle
+from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.contracts import (
     AcceptanceCommit,
     ArtifactKind,
@@ -39,9 +41,7 @@ from novel.core.session import SessionResult
 from novel.core.timeutil import utc_now
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import _locked_write, handle_api_request
-import novel.web_server as web_server
 from novel.web_server import WebServerError, index_html, run_web_server, static_asset_bytes
-
 
 FRONTEND_SCRIPT_PATHS = (
     "app_state.js",
@@ -1648,7 +1648,7 @@ def test_api_session_progress_idle_and_cancel_requested(tmp_path: Path, monkeypa
 
     secret = "sk-test-progress-secret"
     monkeypatch.setenv("WRITERYANG_TEST_API_KEY", secret)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     atomic_write_model_json(
         root / "memory" / "sessions" / session_id / "progress.json",
         SessionProgress(
@@ -2631,7 +2631,7 @@ def test_api_setting_change_syncs_content_review_with_revise_content(tmp_path: P
     session_id = "session_20260529_010101_000004"
     session_dir = root / "memory" / "sessions" / session_id
     session_dir.mkdir(parents=True)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
         chapter_range=[1],
@@ -2722,6 +2722,7 @@ def test_frontend_basic_render() -> None:
     assert "max-height: 38px" in app_css
     assert "overflow: hidden" in app_css
     assert "min-width: 0" in app_css
+    assert ".four > * { min-width: 0; }" in app_css
     assert "latestHeaderMessageDetails" in app_js
     assert "summarizedMessage(text)" in app_js
     assert "openLatestMessageDetails" in app_js
@@ -2736,6 +2737,8 @@ def test_frontend_basic_render() -> None:
     assert "throw apiFailureError(data.error" in app_js
     assert 'setMessage(error.message, true, error.detailText || "")' in app_js
     assert 'if (button.id !== "messageDetails") button.disabled = disabled;' in app_js
+    assert "applyAllowedSessionCommands(latestAllowedSessionCommands);" in app_js
+    assert "applyAllowedRevisionCommands(latestAllowedRevisionCommands);" in app_js
     assert "syncMessageDetailsButton();" in app_js
     assert 'messageRow.classList.toggle("hidden", !display.text && !hasDetails);' in app_js
     assert 'showMainPage("logsPage")' in app_js
@@ -3129,7 +3132,9 @@ def test_workbench_prioritizes_session_flow_layout() -> None:
     assert 'id="workbenchSessionStatusPanel" class="panel"' in html
     assert 'class="workbench-session-status"' in html
     assert ".workbench-command-bar {" in app_css
-    assert "position: sticky; top: var(--app-header-sticky-offset, 76px); z-index: 7;" in app_css
+    command_bar_css = app_css.split(".workbench-command-bar {", 1)[1].split("}", 1)[0]
+    assert "position: static;" in command_bar_css
+    assert "position: sticky" not in command_bar_css
     assert ".workbench-instruction { min-height: 220px; line-height: 1.55; }" in app_css
     assert ".workbench-session-status {" in app_css
     session_status_css = app_css.split(".workbench-session-status {", 1)[1].split("}", 1)[0]
@@ -3201,7 +3206,7 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
             }
         ),
     )
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
         chapter_range=[1],
@@ -3224,7 +3229,7 @@ def test_api_session_revise_content_passes_from_audit_and_returns_audit_summary(
             message="fake revised",
         )
 
-    monkeypatch.setattr("novel.core.command_bus.revise_content", fake_revise_content)
+    monkeypatch.setattr("novel.core.command_handlers.session.revise_content", fake_revise_content)
 
     status, payload = handle_api_request(
         "POST",
@@ -3285,7 +3290,7 @@ def test_api_session_audit_summary_does_not_translate_old_english_audit_descript
             }
         ),
     )
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
         chapter_range=[1],
@@ -3313,7 +3318,7 @@ def test_api_session_rewrite_events_returns_summary_and_snapshot_path(tmp_path: 
     session_id = "session_20260529_010101_000002"
     session_dir = root / "memory" / "sessions" / session_id
     session_dir.mkdir(parents=True)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
         chapter_range=[1],
@@ -3392,7 +3397,7 @@ def test_api_session_rewrite_control_endpoints_pass_event_id(tmp_path: Path, mon
     event_id = "rewrite_ch001_round1_revision_rewrite_20260529_010101_000003"
     session_dir = root / "memory" / "sessions" / session_id
     session_dir.mkdir(parents=True)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
     session = CreationSession(
         session_id=session_id,
         chapter_range=[1],
@@ -3412,7 +3417,7 @@ def test_api_session_rewrite_control_endpoints_pass_event_id(tmp_path: Path, mon
         captured["instruction"] = options.instruction
         return SessionResult(session=session, session_path=session_dir / "session.json", message="controlled")
 
-    monkeypatch.setattr("novel.core.command_bus.revise_audit", fake_control)
+    monkeypatch.setattr("novel.core.command_handlers.session.revise_audit", fake_control)
     status, payload = handle_api_request(
         "POST",
         "/api/session/revise-audit",
@@ -3462,6 +3467,12 @@ def test_web_server_reports_port_conflict(monkeypatch) -> None:
 
     assert "端口 9012 已被占用" in message
     assert "novel web --port" in message
+
+
+def test_web_server_rejects_non_loopback_host() -> None:
+    for host in ("0.0.0.0", "192.168.1.10", "example.com"):
+        with pytest.raises(WebServerError, match="仅支持可信本机访问"):
+            run_web_server(host=host, port=9012)
 
 
 def test_web_server_access_log_is_env_controlled(monkeypatch) -> None:
@@ -3527,6 +3538,48 @@ def test_web_server_post_source_validation() -> None:
     )
     assert web_server.is_allowed_post_source(host_header="evil.example", origin_header=None) is False
     assert web_server.is_allowed_post_source(host_header="127.0.0.1:bad", origin_header=None) is False
+    assert web_server.is_allowed_api_source(host_header=None, origin_header=None) is False
+    assert web_server.is_allowed_api_source(host_header="[::1]:8765", origin_header=None) is True
+
+
+def test_openapi_and_typed_command_endpoint_share_command_contracts(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    openapi_status, openapi_payload = handle_api_request("GET", "/api/openapi.json")
+    command_status, command_payload = handle_api_request(
+        "POST",
+        "/api/command",
+        body=json.dumps({"path": str(root), "command": {"type": "project.status"}}),
+    )
+
+    assert openapi_status == 200
+    document = openapi_payload["data"]
+    assert document["openapi"] == "3.1.0"  # type: ignore[index]
+    assert "/api/command" in document["paths"]  # type: ignore[index]
+    assert "session.start" in document["x-writeryang-command-catalog"]  # type: ignore[index]
+    assert command_status == 200
+    assert command_payload["data"]["command_type"] == "project.status"  # type: ignore[index]
+
+
+def test_typed_command_endpoint_rejects_unknown_fields(tmp_path: Path) -> None:
+    root = _workspace_ready_for_generation(tmp_path)
+
+    status, payload = handle_api_request(
+        "POST",
+        "/api/command",
+        body=json.dumps(
+            {
+                "path": str(root),
+                "command": {"type": "project.status"},
+                "unexpected": True,
+            }
+        ),
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "invalid_request"  # type: ignore[index]
+    assert payload["error"]["http_status"] == 400  # type: ignore[index]
+    assert payload["error"]["retryable"] is False  # type: ignore[index]
 
 
 def test_web_server_get_api_rejects_non_local_source() -> None:

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 from novel.core.contracts import (
-    ArtifactLineage,
     ArtifactKind,
+    ArtifactLineage,
     ArtifactRef,
     AuditBinding,
     ChapterLifecycle,
@@ -15,8 +15,8 @@ from novel.core.contracts import (
 )
 from novel.core.io import atomic_write_bytes, atomic_write_model_json, load_json_model
 from novel.core.schemas import AuditReport
-from novel.core.timeutil import utc_now
 from novel.core.task_registry import prompt_registry_entry, require_task_write_permission
+from novel.core.timeutil import utc_now
 from novel.core.workflow_runtime import active_trace_metadata, register_runtime_artifact
 
 

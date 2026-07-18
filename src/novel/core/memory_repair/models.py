@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Literal
 
 from .deps import (
-    dataclass,
-    Path,
     MemoryChangeClarificationSession,
     MemoryChangeKind,
-    MemoryRepairDecision,
     MemoryRepairApplyLog,
+    MemoryRepairDecision,
     MemoryRepairOperation,
     MemoryRepairProposal,
+    Path,
+    dataclass,
 )
 
 

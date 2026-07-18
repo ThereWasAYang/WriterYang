@@ -1,22 +1,23 @@
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
-from importlib import metadata
-from io import StringIO
 import json
 import re
 import subprocess
 import sys
 import tomllib
+from contextlib import redirect_stderr, redirect_stdout
+from importlib import metadata
+from io import StringIO
 from pathlib import Path
 
 import novel
-from novel.core.io import load_yaml
 from novel.cli import build_parser
-from tests.internal_task_cli import run_test_cli
+from novel.core.io import load_yaml
 from novel.core.validation import validate_project
 from novel.core.workspace import InitOptions, init_workspace
+from novel.schemas import schema_payload
+from tests.internal_task_cli import run_test_cli
 
 
 def test_novel_version_command_runs() -> None:
@@ -207,6 +208,14 @@ def test_manifest_includes_user_and_developer_docs() -> None:
         "include docs/CODEBASE_REFERENCE.md",
         "include docs/AGENT_PROMPT_ASSEMBLY.md",
         "include docs/DEBUGGING_AND_REFACTORING.md",
+        "include docs/PRODUCT_SPEC.md",
+        "include docs/ARCHITECTURE.md",
+        "include docs/CONFIGURATION.md",
+        "include docs/DEPLOYMENT.md",
+        "include docs/SECURITY.md",
+        "include docs/index.md",
+        "include requirements/constraints.txt",
+        "recursive-include docs/history *.md",
         "recursive-include docs/assets/web-ui-guide *.png",
     ):
         assert expected in manifest
@@ -283,7 +292,7 @@ def test_user_docs_document_prelaunch_platform_and_runtime_limits() -> None:
     assert "默认保留最近 500 份" in changelog
 
 
-def test_tracked_markdown_docs_do_not_reference_local_only_internal_docs() -> None:
+def test_canonical_docs_are_published_and_only_agent_memory_stays_local() -> None:
     completed = subprocess.run(
         ["git", "ls-files", "*.md"],
         text=True,
@@ -291,19 +300,37 @@ def test_tracked_markdown_docs_do_not_reference_local_only_internal_docs() -> No
         check=False,
     )
     assert completed.returncode == 0
-    local_only_paths = (
-        "AGENTS" + ".md",
-        "docs/" + "PRODUCT_SPEC" + ".md",
-        "docs/" + "ARCHITECTURE" + ".md",
-        "docs/" + "DATA_SCHEMA" + ".md",
-        "docs/" + "WORKFLOW" + ".md",
-        "docs/" + "ROADMAP" + ".md",
+    local_only_path = "AGENTS" + ".md"
+    canonical_paths = (
+        "docs/PRODUCT_SPEC.md",
+        "docs/ARCHITECTURE.md",
+        "docs/DATA_SCHEMA.md",
+        "docs/WORKFLOW.md",
+        "docs/ROADMAP.md",
+        "docs/CONFIGURATION.md",
+        "docs/DEPLOYMENT.md",
+        "docs/SECURITY.md",
+        "docs/PERFORMANCE.md",
     )
 
     for rel_path in completed.stdout.splitlines():
-        text = Path(rel_path).read_text(encoding="utf-8")
-        for local_only_path in local_only_paths:
-            assert local_only_path not in text, f"{rel_path} references local-only internal docs"
+        if rel_path.startswith("docs/history/"):
+            continue
+        path = Path(rel_path)
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert local_only_path not in text, f"{rel_path} references local-only Agent memory"
+    for canonical_path in canonical_paths:
+        assert Path(canonical_path).is_file()
+        assert canonical_path in Path("MANIFEST.in").read_text(encoding="utf-8")
+
+
+def test_schema_is_available_as_package_resource() -> None:
+    payload = schema_payload("prose_artifact_payload")
+
+    assert payload["title"] == "ProseArtifactPayload"
+    assert payload["properties"]["body_markdown"]["minLength"] == 1
 
 
 def test_readme_mentions_workflow_scripts() -> None:
@@ -324,6 +351,10 @@ def test_github_workflows_cover_quality_build_and_release() -> None:
 
     for phrase in ("pytest", "python -m build", "twine check", "ruff check", "mypy src scripts", "scan_security"):
         assert phrase in tests_workflow
+    for phrase in ("--cov=novel", "pip_audit", "macos-latest", "requirements/constraints.txt"):
+        assert phrase in tests_workflow
+    assert "actions/checkout@v" not in tests_workflow
+    assert "actions/setup-python@v" not in tests_workflow
     for phrase in ("tags:", "v*", "softprops/action-gh-release", "dist/*", "scan_security"):
         assert phrase in release_workflow
 

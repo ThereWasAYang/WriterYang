@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from novel.core.contracts.artifacts import ArtifactRef
 from novel.core.contracts.common import SchemaV3Model, Surface
 from novel.core.contracts.tracing import BudgetUsage, WorkflowBudget, default_workflow_budget
-
+from novel.core.web_security import require_loopback_host
 
 VectorContextMode = Literal["auto", "on", "off"]
 PolishMode = Literal["single_pass", "auto", "review_gate"]
@@ -300,6 +300,11 @@ class ProjectWebPortSetupCommand(SchemaV3Model):
     requested_port: int = Field(ge=1, le=65535)
     host: str = Field(default="127.0.0.1", min_length=1)
 
+    @field_validator("host")
+    @classmethod
+    def loopback_only(cls, value: str) -> str:
+        return require_loopback_host(value)
+
 
 class WebLauncherConfigCommand(SchemaV3Model):
     type: Literal["setup.web_launcher"] = "setup.web_launcher"
@@ -308,47 +313,55 @@ class WebLauncherConfigCommand(SchemaV3Model):
     current_host: str | None = None
     current_port: int | None = Field(default=None, ge=1, le=65535)
 
+    @field_validator("host")
+    @classmethod
+    def loopback_only(cls, value: str) -> str:
+        return require_loopback_host(value)
+
 
 class SchemaExportCommand(SchemaV3Model):
     type: Literal["schema.export"] = "schema.export"
     output_path: str = Field(min_length=1)
 
 
+PUBLIC_COMMAND_MODELS = (
+    SessionStartCommand,
+    SessionCommand,
+    RevisionBlocksCommand,
+    RevisionStartCommand,
+    RevisionCommand,
+    ProductionExportCommand,
+    PreviewPackageCommand,
+    MemoryRepairSuggestCommand,
+    MemoryRepairApplyCommand,
+    SettingChangeSuggestCommand,
+    SettingChangeAnswerCommand,
+    SettingChangeApplyCommand,
+    ProjectStatusCommand,
+    ProjectInitCommand,
+    ProjectValidateCommand,
+    ProjectShowCommand,
+    SearchCommand,
+    InspirationGenerateCommand,
+    CanonSuggestCommand,
+    CanonApplyCommand,
+    ChapterMemoryGenerateCommand,
+    ChapterMemoryRebuildCommand,
+    IndexUpdateCommand,
+    StyleGuideSaveCommand,
+    StyleGuideGenerateCommand,
+    ChapterCandidateSaveCommand,
+    AgentConfigUpdateCommand,
+    DefaultProviderSetupCommand,
+    EmbeddingProviderSetupCommand,
+    ProjectWebPortSetupCommand,
+    WebLauncherConfigCommand,
+    SchemaExportCommand,
+)
+
+
 PublicCommand = Annotated[
-    Union[
-        SessionStartCommand,
-        SessionCommand,
-        RevisionBlocksCommand,
-        RevisionStartCommand,
-        RevisionCommand,
-        ProductionExportCommand,
-        PreviewPackageCommand,
-        MemoryRepairSuggestCommand,
-        MemoryRepairApplyCommand,
-        SettingChangeSuggestCommand,
-        SettingChangeAnswerCommand,
-        SettingChangeApplyCommand,
-        ProjectStatusCommand,
-        ProjectInitCommand,
-        ProjectValidateCommand,
-        ProjectShowCommand,
-        SearchCommand,
-        InspirationGenerateCommand,
-        CanonSuggestCommand,
-        CanonApplyCommand,
-        ChapterMemoryGenerateCommand,
-        ChapterMemoryRebuildCommand,
-        IndexUpdateCommand,
-        StyleGuideSaveCommand,
-        StyleGuideGenerateCommand,
-        ChapterCandidateSaveCommand,
-        AgentConfigUpdateCommand,
-        DefaultProviderSetupCommand,
-        EmbeddingProviderSetupCommand,
-        ProjectWebPortSetupCommand,
-        WebLauncherConfigCommand,
-        SchemaExportCommand,
-    ],
+    SessionStartCommand | SessionCommand | RevisionBlocksCommand | RevisionStartCommand | RevisionCommand | ProductionExportCommand | PreviewPackageCommand | MemoryRepairSuggestCommand | MemoryRepairApplyCommand | SettingChangeSuggestCommand | SettingChangeAnswerCommand | SettingChangeApplyCommand | ProjectStatusCommand | ProjectInitCommand | ProjectValidateCommand | ProjectShowCommand | SearchCommand | InspirationGenerateCommand | CanonSuggestCommand | CanonApplyCommand | ChapterMemoryGenerateCommand | ChapterMemoryRebuildCommand | IndexUpdateCommand | StyleGuideSaveCommand | StyleGuideGenerateCommand | ChapterCandidateSaveCommand | AgentConfigUpdateCommand | DefaultProviderSetupCommand | EmbeddingProviderSetupCommand | ProjectWebPortSetupCommand | WebLauncherConfigCommand | SchemaExportCommand,
     Field(discriminator="type"),
 ]
 

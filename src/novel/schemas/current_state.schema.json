@@ -1,0 +1,272 @@
+{
+  "$defs": {
+    "CharacterState": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "location_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Id"
+        },
+        "health": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Health"
+        },
+        "mental_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mental State"
+        },
+        "knowledge": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Knowledge",
+          "type": "array"
+        },
+        "goals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Goals",
+          "type": "array"
+        },
+        "possessions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Possessions",
+          "type": "array"
+        },
+        "last_updated_chapter": {
+          "minimum": 0,
+          "title": "Last Updated Chapter",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entity_id",
+        "last_updated_chapter"
+      ],
+      "title": "CharacterState",
+      "type": "object"
+    },
+    "ItemState": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "holder_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Holder Id"
+        },
+        "location_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Id"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Condition"
+        },
+        "known_properties": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Known Properties",
+          "type": "array"
+        },
+        "last_updated_chapter": {
+          "minimum": 0,
+          "title": "Last Updated Chapter",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entity_id",
+        "last_updated_chapter"
+      ],
+      "title": "ItemState",
+      "type": "object"
+    },
+    "LocationState": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "accessibility": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accessibility"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Condition"
+        },
+        "active_events": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Active Events",
+          "type": "array"
+        },
+        "last_updated_chapter": {
+          "minimum": 0,
+          "title": "Last Updated Chapter",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entity_id",
+        "last_updated_chapter"
+      ],
+      "title": "LocationState",
+      "type": "object"
+    },
+    "StoryPosition": {
+      "additionalProperties": false,
+      "properties": {
+        "latest_chapter": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Latest Chapter",
+          "type": "integer"
+        },
+        "in_story_time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In Story Time"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        }
+      },
+      "title": "StoryPosition",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "story_position": {
+      "$ref": "#/$defs/StoryPosition"
+    },
+    "character_states": {
+      "items": {
+        "$ref": "#/$defs/CharacterState"
+      },
+      "title": "Character States",
+      "type": "array"
+    },
+    "item_states": {
+      "items": {
+        "$ref": "#/$defs/ItemState"
+      },
+      "title": "Item States",
+      "type": "array"
+    },
+    "location_states": {
+      "items": {
+        "$ref": "#/$defs/LocationState"
+      },
+      "title": "Location States",
+      "type": "array"
+    }
+  },
+  "required": [
+    "story_position",
+    "character_states",
+    "item_states",
+    "location_states"
+  ],
+  "title": "EntityState",
+  "type": "object"
+}

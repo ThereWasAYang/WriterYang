@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return datetime.now(UTC).replace(microsecond=0)
 
 
 def utc_now_precise() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def utc_now_iso() -> str:
@@ -16,8 +16,8 @@ def utc_now_iso() -> str:
 
 
 def new_request_id(prefix: str) -> str:
-    return f"{prefix}_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    return f"{prefix}_" + datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
 
 
 def utc_timestamp(format_string: str = "%Y%m%d_%H%M%S_%f") -> str:
-    return datetime.now(timezone.utc).strftime(format_string)
+    return datetime.now(UTC).strftime(format_string)

@@ -14,9 +14,11 @@ from novel.core.providers import (
     OpenAICompatibleProvider,
     ProviderContextLimitError,
     ProviderError,
-    ProviderRateLimitError,
     ProviderFactory,
     ProviderHTTPError,
+    ProviderRateLimitError,
+    ProviderResponseError,
+    ProviderResponseTooLargeError,
     TokenUsage,
     provider_parameter_capabilities,
 )
@@ -469,6 +471,98 @@ def test_provider_classifies_non_retryable_http_error(monkeypatch: pytest.Monkey
     assert "HTTP 400" in str(exc_info.value)
 
 
+def test_provider_obeys_retry_after_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    calls = 0
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        max_retries=1,
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(*args: object, **kwargs: object) -> FakeResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise error.HTTPError(
+                "https://example.test",
+                429,
+                "rate limited",
+                {"Retry-After": "1.75"},
+                None,
+            )
+        return FakeResponse()
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("novel.core.providers.time.sleep", sleeps.append)
+
+    assert provider.generate(ModelRequest(system_prompt="s", user_prompt="u")).content == "ok"
+    assert sleeps == [1.75]
+
+
+def test_provider_rejects_oversized_non_stream_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        max_response_bytes=32,
+    )
+
+    class FakeResponse:
+        offset = 0
+        body = b"x" * 33
+
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            chunk = self.body[self.offset : self.offset + size]
+            self.offset += len(chunk)
+            return chunk
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: FakeResponse())
+
+    with pytest.raises(ProviderResponseTooLargeError):
+        provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+
+def test_provider_rejects_invalid_utf8_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"\xff\xfe"
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: FakeResponse())
+
+    with pytest.raises(ProviderResponseError, match="invalid UTF-8"):
+        provider.generate(ModelRequest(system_prompt="s", user_prompt="u"))
+
+
 def test_provider_classifies_rate_limit_after_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OpenAICompatibleProvider(
         model="test-model",
@@ -782,6 +876,76 @@ def test_provider_stream_parses_sse_chunks(monkeypatch: pytest.MonkeyPatch) -> N
     assert "".join(chunks) == "hello world"
     assert captured["body"]["stream"] is True  # type: ignore[index]
     assert captured["body"]["stream_options"] == {"include_usage": True}  # type: ignore[index]
+
+
+def test_provider_stream_parses_multiline_sse_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+    )
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return (
+                b'data: {"choices":\n'
+                b'data: [{"delta":{"content":"hello"}}]}\n\n'
+                b"data: [DONE]\n\n"
+            )
+
+    monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: FakeResponse())
+
+    assert "".join(provider.stream(ModelRequest(system_prompt="s", user_prompt="u"))) == "hello"
+
+
+def test_provider_stream_cancellation_closes_response_and_logs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    provider = OpenAICompatibleProvider(
+        model="test-model",
+        api_key="secret-test-key",
+        base_url="https://example.test/v1",
+        log_path=tmp_path / "provider_calls.jsonl",
+    )
+
+    class FakeResponse:
+        lines = iter(
+            (
+                b'data: {"choices":[{"delta":{"content":"first"}}]}\n',
+                b"\n",
+                b'data: {"choices":[{"delta":{"content":"second"}}]}\n',
+                b"\n",
+            )
+        )
+        closed = False
+
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.closed = True
+
+        def readline(self, size: int = -1) -> bytes:
+            return next(self.lines, b"")
+
+    response = FakeResponse()
+    monkeypatch.setattr("novel.core.providers.request.urlopen", lambda *args, **kwargs: response)
+    stream = iter(provider.stream(ModelRequest(system_prompt="s", user_prompt="u")))
+
+    assert next(stream) == "first"
+    stream.close()  # type: ignore[attr-defined]
+
+    assert response.closed is True
+    log = json.loads((tmp_path / "provider_calls.jsonl").read_text(encoding="utf-8"))
+    assert log["status"] == "cancelled"
+    assert log["response_bytes"] > 0
 
 
 def test_logging_provider_records_stream_usage_finish_reason_and_agent(

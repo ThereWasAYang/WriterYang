@@ -1,47 +1,43 @@
 from __future__ import annotations
 
 from .deps import (
+    ALLOWED_MEMORY_FILES,
+    MemoryRepairApplyLog,
+    MemoryRepairDecision,
+    MemoryRepairOperation,
+    MemoryRepairProposal,
     Path,
-    log_app_warning,
+    _apply_operations_to_data,
+    _restore_backups,
     atomic_write_json,
     atomic_write_model_json,
     backup_file,
     load_json,
     load_json_model,
+    log_app_warning,
     record_management_event,
-    _apply_operations_to_data,
-    _restore_backups,
-    ALLOWED_MEMORY_FILES,
-    MemoryRepairDecision,
-    MemoryRepairApplyLog,
-    MemoryRepairOperation,
-    MemoryRepairProposal,
     utc_now,
     validate_project,
 )
-
-from .models import (
-    MemoryRepairError,
-    MemoryRepairApplyResult,
-)
-
-from .validation import (
-    _format_preflight_errors,
-    _group_operations,
-    _ensure_allowed_file,
-    _validate_file_model,
-    _resolve_proposal_path,
-    _repair_dir,
-)
-
-from .preflight import (
-    _preflight_memory_repair_operations,
-    _normalize_setting_change_gender_operations,
-)
-
 from .impact import (
     _entity_id_has_references,
     _entity_ids_from_operation_path,
+)
+from .models import (
+    MemoryRepairApplyResult,
+    MemoryRepairError,
+)
+from .preflight import (
+    _normalize_setting_change_gender_operations,
+    _preflight_memory_repair_operations,
+)
+from .validation import (
+    _ensure_allowed_file,
+    _format_preflight_errors,
+    _group_operations,
+    _repair_dir,
+    _resolve_proposal_path,
+    _validate_file_model,
 )
 
 

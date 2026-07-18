@@ -2,20 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from .deps import (
-    Path,
-    localize_audit_issue_for_author,
-    localize_session_rewrite_issue_for_author,
-    load_json_model,
-    AuditReport,
-    CreationSession,
-    SessionProgress,
-    find_latest_active_session,
-    load_session_progress,
-    load_session,
-    load_rewrite_events,
-    parse_range,
-)
+from novel.core.command_bus import allowed_session_commands
 from novel.core.contracts import (
     ProjectStatusCommand,
     ProjectValidateCommand,
@@ -25,27 +12,38 @@ from novel.core.contracts import (
     SessionStartCommand,
 )
 from novel.core.contracts.commands import SessionCommandType
-from novel.core.command_bus import allowed_session_commands
 from novel.core.session import SessionResult
 
 from .common import (
     WebAPIError,
-    _root_from_query,
-    _root_from_body,
-    _optional_string,
-    _vector_context_mode,
-    _polish_mode,
-    _optional_int,
-    _truthy,
-    _required_string,
-    _relative,
-    _safe_error,
     _dispatch_web_command,
     _dispatch_web_query_command,
+    _optional_int,
+    _optional_string,
+    _polish_mode,
+    _relative,
+    _required_string,
+    _root_from_body,
+    _root_from_query,
+    _safe_error,
+    _truthy,
+    _vector_context_mode,
 )
-
+from .deps import (
+    AuditReport,
+    CreationSession,
+    Path,
+    SessionProgress,
+    find_latest_active_session,
+    load_json_model,
+    load_rewrite_events,
+    load_session,
+    load_session_progress,
+    localize_audit_issue_for_author,
+    localize_session_rewrite_issue_for_author,
+    parse_range,
+)
 from .inspection import _management_event_summary
-
 
 
 def _session_start(data: dict[str, object]) -> dict[str, object]:

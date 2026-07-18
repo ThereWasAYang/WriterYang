@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import contextlib
 import hashlib
 import json
-from pathlib import Path
 import shutil
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
 import yaml
 
-from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.artifact_store import (
     AuditCandidateMismatchError,
     capture_working_chapter,
     require_working_audit_matches_candidate,
 )
+from novel.core.auditing import ChapterAuditOptions, audit_chapter, load_audit_provider
 from novel.core.budget import consume_auto_revision_round
 from novel.core.contracts import (
     ChapterNodeState,
@@ -28,12 +30,15 @@ from novel.core.lifecycle import LifecycleError, commit_creation_session
 from novel.core.management import record_management_event
 from novel.core.orchestrator import route_audit_repair, route_revision_request
 from novel.core.planning import ChapterPlanningOptions, load_planning_provider, plan_chapter
-from novel.core.polishing import ChapterPolishingOptions, load_polishing_provider, polish_chapter
-from novel.core.polishing import read_markdown_with_front_matter
+from novel.core.polishing import (
+    ChapterPolishingOptions,
+    load_polishing_provider,
+    polish_chapter,
+    read_markdown_with_front_matter,
+)
 from novel.core.projection import advance_projection, initialize_projection, projection_dir, projection_paths
 from novel.core.revision import ChapterRevisionOptions, load_revision_provider, revise_chapter
 from novel.core.runtime_config import normalize_polish_mode, project_polish_mode
-from novel.core.security import redact_secret_text
 from novel.core.schemas import (
     AuditReport,
     ChapterPlan,
@@ -42,21 +47,29 @@ from novel.core.schemas import (
     CreationOutline,
     CreationOutlineChapter,
     CreationSession,
-    SessionRewriteAction,
-    SessionAuditRevision,
+    PolishMode,
+    ProjectConfig,
     RevisionRouteDecision,
     RevisionRouteRecord,
+    SessionAuditRevision,
+    SessionProgress,
+    SessionRewriteAction,
     SessionRewriteEvent,
     SessionRewriteEvents,
     SessionRewriteIssue,
     SessionRewriteStatus,
-    SessionProgress,
-    SessionProgressEvent,
-    SessionProgressStatus,
-    PolishMode,
-    ProjectConfig,
     StateUpdateProposal,
     VectorContextMode,
+)
+from novel.core.security import redact_secret_text
+from novel.core.session_progress import (
+    load_session_progress,
+)
+from novel.core.session_progress import (
+    record_session_progress as _record_session_progress,
+)
+from novel.core.session_progress import (
+    start_session_progress as _start_session_progress,
 )
 from novel.core.state_update import (
     StateUpdateProposeOptions,
@@ -67,9 +80,7 @@ from novel.core.timeutil import new_request_id, utc_now, utc_timestamp
 from novel.core.transactions import TransactionError
 from novel.core.workflow_runtime import bind_active_session_id
 
-
 ProviderName = str
-_SESSION_PROGRESS_EVENT_LIMIT = 50
 
 
 class CreationSessionError(RuntimeError):
@@ -846,7 +857,12 @@ def _revise_content_impl(options: SessionInstructionOptions) -> SessionResult:
                 world_state_dir=world_state_dir,
             )
         else:
-            provider = load_revision_provider(root, options.provider_name, target="polished")
+            provider = load_revision_provider(
+                root,
+                options.provider_name,
+                target="polished",
+                chapter_number=chapter_number,
+            )
             result = revise_chapter(
                 ChapterRevisionOptions(
                     root=root,
@@ -1092,7 +1108,7 @@ def _rewrite_chapter_with_writer(
     use_vector_context: bool | VectorContextMode,
     world_state_dir: Path,
 ) -> Path:
-    draft_provider = load_drafting_provider(root, provider_name)
+    draft_provider = load_drafting_provider(root, provider_name, chapter_number=chapter_number)
     write_chapter_draft(
         ChapterDraftingOptions(
             root=root,
@@ -1105,7 +1121,7 @@ def _rewrite_chapter_with_writer(
         ),
         draft_provider,
     )
-    polish_provider = load_polishing_provider(root, provider_name)
+    polish_provider = load_polishing_provider(root, provider_name, chapter_number=chapter_number)
     polish_chapter(
         ChapterPolishingOptions(
             root=root,
@@ -1782,10 +1798,8 @@ def _rollback_text_transaction(attempts: list[_TransactionAttempt]) -> list[str]
 
 def _remove_empty_parent_dirs(directories: tuple[Path, ...]) -> None:
     for directory in directories:
-        try:
+        with contextlib.suppress(OSError):
             directory.rmdir()
-        except OSError:
-            pass
 
 
 def _cleanup_transaction_backups(attempts: list[_TransactionAttempt]) -> list[str]:
@@ -1874,7 +1888,7 @@ def _generate_chapter_content(
     notify = node_callback or (lambda _node, _status: None)
     if run.write is not ChapterNodeStatus.COMPLETED:
         notify("write", ChapterNodeStatus.RUNNING)
-        draft_provider = load_drafting_provider(root, provider_name)
+        draft_provider = load_drafting_provider(root, provider_name, chapter_number=chapter_number)
         _record_session_progress(
             root,
             session.session_id,
@@ -1909,7 +1923,7 @@ def _generate_chapter_content(
         return False
     if run.polish is not ChapterNodeStatus.COMPLETED and mode == "auto":
         notify("polish", ChapterNodeStatus.RUNNING)
-        polish_provider = load_polishing_provider(root, provider_name)
+        polish_provider = load_polishing_provider(root, provider_name, chapter_number=chapter_number)
         _record_session_progress(
             root,
             session.session_id,
@@ -2073,7 +2087,12 @@ def _auto_repair_chapter(
         for issue in audit_report.issues
         if issue.severity in {"medium", "high", "critical"}
     )
-    provider = load_revision_provider(root, provider_name, target="polished")
+    provider = load_revision_provider(
+        root,
+        provider_name,
+        target="polished",
+        chapter_number=chapter_number,
+    )
     result = revise_chapter(
         ChapterRevisionOptions(
             root=root,
@@ -2113,7 +2132,12 @@ def _auto_repair_chapter_with_instruction(
         if issue.severity in {"medium", "high", "critical"}
     )
     extra = f"\n用户补充提示：{instruction.strip()}" if instruction and instruction.strip() else ""
-    provider = load_revision_provider(root, provider_name, target="polished")
+    provider = load_revision_provider(
+        root,
+        provider_name,
+        target="polished",
+        chapter_number=chapter_number,
+    )
     result = revise_chapter(
         ChapterRevisionOptions(
             root=root,
@@ -2318,13 +2342,6 @@ def _write_session(root: Path, session: CreationSession) -> None:
     atomic_write_model_json(_session_path(root, session.session_id), session)
 
 
-def load_session_progress(root: Path, session_id: str) -> SessionProgress:
-    path = _session_progress_path(root.resolve(), session_id)
-    if not path.exists():
-        return SessionProgress(session_id=session_id, status="idle")
-    return load_json_model(path, SessionProgress)
-
-
 def request_session_cancel(root: Path, session_id: str) -> SessionProgress:
     root = root.resolve()
     load_session(root, session_id)
@@ -2340,70 +2357,6 @@ def request_session_cancel(root: Path, session_id: str) -> SessionProgress:
         chapter_number=progress.current_chapter,
         round_number=progress.current_round,
     )
-
-
-def _start_session_progress(root: Path, session_id: str, *, message: str) -> SessionProgress:
-    now = utc_now()
-    event = SessionProgressEvent(stage="session_start", message=message, created_at=now)
-    progress = SessionProgress(
-        session_id=session_id,
-        status="running",
-        current_stage="session_start",
-        current_message=message,
-        events=[event],
-        started_at=now,
-        updated_at=now,
-    )
-    _write_session_progress(root, progress)
-    return progress
-
-
-def _record_session_progress(
-    root: Path,
-    session_id: str,
-    *,
-    status: SessionProgressStatus,
-    stage: str,
-    message: str,
-    chapter_number: int | None = None,
-    round_number: int | None = None,
-    error: str | None = None,
-) -> SessionProgress:
-    now = utc_now()
-    existing = load_session_progress(root, session_id)
-    next_status = status
-    if existing.status == "cancel_requested" and status == "running":
-        next_status = "cancel_requested"
-    event = SessionProgressEvent(
-        stage=stage,
-        message=message,
-        chapter_number=chapter_number,
-        round_number=round_number,
-        created_at=now,
-    )
-    events = [*existing.events, event][-_SESSION_PROGRESS_EVENT_LIMIT:]
-    progress = SessionProgress(
-        session_id=session_id,
-        status=next_status,
-        current_stage=stage,
-        current_message=message,
-        current_chapter=chapter_number,
-        current_round=round_number,
-        events=events,
-        started_at=existing.started_at or now,
-        updated_at=now,
-        completed_at=now if next_status in {"cancelled", "completed", "failed"} else existing.completed_at,
-        cancel_requested_at=now
-        if next_status == "cancel_requested" and not existing.cancel_requested_at
-        else existing.cancel_requested_at,
-        error=_safe_progress_error(error) if error else None,
-    )
-    _write_session_progress(root, progress)
-    return progress
-
-
-def _write_session_progress(root: Path, progress: SessionProgress) -> None:
-    atomic_write_model_json(_session_progress_path(root, progress.session_id), progress)
 
 
 def _raise_if_session_cancel_requested(
@@ -2473,11 +2426,6 @@ def _merge_relative_paths(existing: list[str], incoming: list[str]) -> list[str]
             merged.append(path)
             seen.add(path)
     return merged
-
-
-def _safe_progress_error(value: str) -> str:
-    text = redact_secret_text(value)
-    return text if len(text) <= 500 else text[:497] + "..."
 
 
 def _start_rewrite_event(
@@ -2670,10 +2618,6 @@ def _session_plan_dir(root: Path, session_id: str, chapter_number: int) -> Path:
 
 def _rewrite_events_path(root: Path, session_id: str) -> Path:
     return _session_dir(root, session_id) / "rewrite_events.json"
-
-
-def _session_progress_path(root: Path, session_id: str) -> Path:
-    return _session_dir(root, session_id) / "progress.json"
 
 
 def _chapter_dir(root: Path, chapter_number: int) -> Path:

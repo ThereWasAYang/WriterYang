@@ -1,8 +1,10 @@
 # Agent 系统优化方案与编码规划
 
+> 历史材料：仅用于追溯 2026-07-11 的重构过程，不代表当前待办或架构。现行设计以 `docs/ARCHITECTURE.md` 为准。
+
 > 制定日期：2026-07-11
 >
-> 依据：`docs/AGENT_SYSTEM_DESIGN_REVIEW_2026-07-11.md`
+> 依据：`docs/history/AGENT_SYSTEM_DESIGN_REVIEW_2026-07-11.md`
 >
 > 文档性质：目标架构、破坏性重构策略、编码任务、测试矩阵、验收标准与实施审计记录。
 

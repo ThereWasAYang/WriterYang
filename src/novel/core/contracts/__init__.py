@@ -7,35 +7,35 @@ from novel.core.contracts.artifacts import (
 )
 from novel.core.contracts.commands import (
     AgentConfigUpdateCommand,
-    CommandEnvelope,
-    CommandResult,
     CanonApplyCommand,
     CanonSuggestCommand,
     ChapterCandidateSaveCommand,
     ChapterMemoryGenerateCommand,
     ChapterMemoryRebuildCommand,
+    CommandEnvelope,
+    CommandResult,
     DefaultProviderSetupCommand,
     EmbeddingProviderSetupCommand,
     IndexUpdateCommand,
     InspirationGenerateCommand,
     MemoryRepairApplyCommand,
     MemoryRepairSuggestCommand,
-    ProjectShowCommand,
+    PreviewPackageCommand,
+    ProductionExportCommand,
     ProjectInitCommand,
+    ProjectShowCommand,
     ProjectStatusCommand,
     ProjectValidateCommand,
-    PreviewPackageCommand,
     ProjectWebPortSetupCommand,
-    ProductionExportCommand,
     PublicCommand,
     RevisionBlocksCommand,
     RevisionCommand,
     RevisionStartCommand,
+    SchemaExportCommand,
+    SearchCommand,
     SessionCommand,
     SessionCommandType,
     SessionStartCommand,
-    SearchCommand,
-    SchemaExportCommand,
     SettingChangeAnswerCommand,
     SettingChangeApplyCommand,
     SettingChangeSuggestCommand,
@@ -52,13 +52,8 @@ from novel.core.contracts.common import (
     TaskId,
 )
 from novel.core.contracts.decisions import CommandProposal, DecisionRisk
-from novel.core.contracts.sessions import (
-    ALLOWED_SESSION_TRANSITIONS,
-    ChapterNodeState,
-    ChapterNodeStatus,
-    SessionPhase,
-    validate_session_transition,
-)
+from novel.core.contracts.previews import PreviewManifest, PreviewSourceChapter
+from novel.core.contracts.prose import ProseArtifactKind, ProseArtifactPayload
 from novel.core.contracts.revisions import (
     REVISION_PHASE_TRANSITIONS,
     MarkdownBlockKind,
@@ -68,7 +63,13 @@ from novel.core.contracts.revisions import (
     SegmentSelection,
     ensure_revision_phase_transition,
 )
-from novel.core.contracts.previews import PreviewManifest, PreviewSourceChapter
+from novel.core.contracts.sessions import (
+    ALLOWED_SESSION_TRANSITIONS,
+    ChapterNodeState,
+    ChapterNodeStatus,
+    SessionPhase,
+    validate_session_transition,
+)
 from novel.core.contracts.state import (
     AcceptanceCommit,
     ProjectionCheckpoint,
@@ -116,6 +117,8 @@ __all__ = [
     "PublicCommand",
     "PreviewManifest",
     "PreviewSourceChapter",
+    "ProseArtifactKind",
+    "ProseArtifactPayload",
     "MarkdownBlockKind",
     "ProjectionCheckpoint",
     "SessionPhase",

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
-from typing import Iterable, Literal, TypeVar
+from typing import Literal, TypeVar
 
-from pydantic import BaseModel
 import yaml
+from pydantic import BaseModel
 
-from novel.core.gender import CharacterGenderValue, infer_character_gender
 from novel.core.artifact_store import sha256_file
 from novel.core.contracts import AcceptanceCommit
+from novel.core.gender import CharacterGenderValue, infer_character_gender
 from novel.core.io import load_json, load_json_model
 from novel.core.schemas import (
     AuditEvidence,
@@ -31,7 +32,6 @@ from novel.core.schemas import (
     WorldFile,
 )
 from novel.core.state_change_values import compare_state_change_old_value
-
 
 Severity = Literal["low", "medium", "high", "critical"]
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -451,9 +451,11 @@ def _check_timeline_order(snapshot: ConsistencySnapshot) -> list[ConsistencyFind
     events = snapshot.timeline.events
     event_by_id = {event.id: event for event in events}
     previous_key: tuple[int, int, int] | None = None
-    for event in (item for item in events if item.narrative_position is not None):
-        key = _event_narrative_key(event)
+    for event in events:
         narrative = event.narrative_position
+        if narrative is None:
+            continue
+        key = _event_narrative_key(event)
         if previous_key and key < previous_key:
             severity: Severity = (
                 "medium"

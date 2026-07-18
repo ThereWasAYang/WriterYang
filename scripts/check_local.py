@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import shlex
 import subprocess
 import sys
-from typing import Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--only",
         action="append",
-        choices=("pytest", "ruff", "mypy", "secret-scan", "build", "twine"),
+        choices=("pytest", "ruff", "mypy", "secret-scan", "dependency-audit", "build", "twine"),
         help="Run only the selected check. Can be repeated.",
     )
     parser.add_argument("--skip-build", action="store_true", help="Skip build and twine checks.")
@@ -63,10 +63,23 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _selected_checks(args: argparse.Namespace) -> list[Check]:
     checks = [
-        Check("pytest", [sys.executable, "-m", "pytest", "-m", "not real_api and not web_e2e", "-q"]),
+        Check(
+            "pytest",
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-m",
+                "not real_api and not web_e2e",
+                "--cov=novel",
+                "--cov-report=term-missing",
+                "-q",
+            ],
+        ),
         Check("ruff", [sys.executable, "-m", "ruff", "check", "."]),
         Check("mypy", [sys.executable, "-m", "mypy", "src", "scripts"]),
         Check("secret-scan", _secret_scan_command()),
+        Check("dependency-audit", [sys.executable, "-m", "pip_audit", "."]),
         Check("build", [sys.executable, "-m", "build"]),
         Check("twine", _twine_check_command()),
     ]

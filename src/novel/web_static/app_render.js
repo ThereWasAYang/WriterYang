@@ -181,6 +181,8 @@
         previousStates.forEach(([button, disabled]) => {
           if (button.id !== "messageDetails") button.disabled = disabled;
         });
+        applyAllowedSessionCommands(latestAllowedSessionCommands);
+        applyAllowedRevisionCommands(latestAllowedRevisionCommands);
         syncMessageDetailsButton();
       }
     }
@@ -232,16 +234,18 @@
         $("sessionPanel").textContent = "未加载 Session";
         syncCompareChapterSelect({});
         renderRewriteEvents([]);
+        applyAllowedSessionCommands(["session.start"]);
         return;
       }
       rememberSessionId(session.session_id);
       syncCompareChapterSelect(session);
       $("sessionPanel").innerHTML = `
-        <span>Session</span>
-        <b>${escapeHtml(session.session_id)}</b>
-        <div>phase: ${escapeHtml(session.phase || "")}</div>
-        <div>chapters: ${escapeHtml((session.chapter_range || []).join(", "))}</div>
+        <b>当前创作：第 ${escapeHtml((session.chapter_range || []).join("、"))} 章</b>
         <div>${escapeHtml(data.message || "")}</div>
+        <details style="margin-top: 8px;"><summary>技术详情</summary>
+          <div>Session ID：${escapeHtml(session.session_id)}</div>
+          <div>Phase：${escapeHtml(session.phase || "")}</div>
+        </details>
         ${renderRevisionRouteSummary(data.revision_route || (session.revision_route_history || []).slice(-1)[0])}
         ${renderSessionAuditSummary(data.audit_summary || [])}
       `;
@@ -253,8 +257,10 @@
 
     function applyAllowedSessionCommands(commands) {
       if (!Array.isArray(commands)) return;
+      latestAllowedSessionCommands = [...commands];
       const allowed = new Set(commands);
       const buttonCommands = {
+        sessionStart: ["session.start"],
         sessionReviseOutline: ["session.revise_outline"],
         sessionApprove: ["session.approve_outline"],
         sessionRun: ["session.run"],
@@ -268,8 +274,22 @@
       };
       Object.entries(buttonCommands).forEach(([id, commandTypes]) => {
         const button = $(id);
-        if (button) button.disabled = !commandTypes.some((command) => allowed.has(command));
+        if (!button) return;
+        const available = commandTypes.some((command) => allowed.has(command));
+        button.disabled = !available;
+        button.classList.toggle("workflow-action-hidden", !available);
+        button.title = available ? "" : "当前创作阶段不可执行此操作";
       });
+      const primaryOrder = [
+        "sessionStart", "sessionReviseOutline", "sessionApprove", "sessionRun",
+        "sessionReviseAuditContent", "sessionReviseInstruction", "sessionAccept", "sessionArchive",
+      ];
+      primaryOrder.forEach((id) => $(id)?.classList.remove("primary"));
+      const primary = primaryOrder.find((id) => {
+        const button = $(id);
+        return button && !button.disabled;
+      });
+      if (primary) $(primary).classList.add("primary");
     }
 
     async function loadSessionProgress(options = {}) {
@@ -450,6 +470,8 @@
         }
       }
       syncProjectPrepDetails(data);
+      const exportPanel = $("exportPanel");
+      if (exportPanel) exportPanel.classList.toggle("hidden", !(status.accepted_chapter_count > 0));
       $("nextStepPanel").textContent = text;
       $("workbenchNextStepPanel").textContent = text;
     }

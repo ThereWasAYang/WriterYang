@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import re
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
 from novel.core.io import atomic_write_json
 from novel.core.json_extract import strip_code_fence
@@ -11,7 +12,6 @@ from novel.core.providers import ModelProvider, ModelRequest, ModelResponse, Pro
 from novel.core.security import redact_secret_text
 from novel.core.timeutil import new_request_id, utc_now_iso
 from novel.core.workflow_runtime import active_trace_metadata
-
 
 InteractionMode = Literal["internal_task", "user_facing"]
 OutputKind = Literal["json", "markdown", "conversation"]
@@ -137,11 +137,15 @@ def validate_agent_output(
     if not stripped:
         reasons.append("empty_output")
     user_facing = invocation.interaction_mode == "user_facing" or contract.allow_user_questions
-    if not user_facing and _looks_like_clarification_request(stripped):
+    json_payload = contract.output_kind == "json" and _looks_like_json_payload(stripped)
+    # JSON contracts are validated by their typed parser after this envelope guard.
+    # Scanning serialized string fields here would misclassify legitimate prose or
+    # explanatory fields as an out-of-band model response.
+    if not user_facing and not json_payload and _looks_like_clarification_request(stripped):
         reasons.append("clarification_request")
-    if not user_facing and _looks_like_model_meta_response(stripped):
+    if not user_facing and not json_payload and _looks_like_model_meta_response(stripped):
         reasons.append("model_meta_response")
-    if contract.output_kind == "json" and not _looks_like_json_payload(stripped):
+    if contract.output_kind == "json" and not json_payload:
         reasons.append("non_json_output")
     if contract.output_kind == "markdown":
         if _looks_like_json_payload(stripped) and not contract.allow_json_payload:

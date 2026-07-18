@@ -5,6 +5,19 @@ import sys
 from pathlib import Path
 from typing import Literal
 
+from novel.cli_shared import (
+    _audit_issue_lines,
+    _command_lock,
+    _dispatch_cli_command,
+    _failure,
+    _print_dry_run_provider,
+    _print_json,
+    _quiet,
+    _success,
+    _validation_payload,
+    _vector_context_mode_from_args,
+    _wants_json,
+)
 from novel.core.auditing import (
     AuditError,
     ChapterAuditOptions,
@@ -15,6 +28,13 @@ from novel.core.auditing import (
 from novel.core.canon import (
     format_canon_validation_report,
 )
+from novel.core.command_bus import DomainError
+from novel.core.contracts import (
+    CanonApplyCommand,
+    CanonSuggestCommand,
+    InspirationGenerateCommand,
+    ProductionExportCommand,
+)
 from novel.core.drafting import (
     ChapterDraftingOptions,
     DraftingError,
@@ -22,10 +42,18 @@ from novel.core.drafting import (
     read_drafting_instruction,
     write_chapter_draft,
 )
+from novel.core.exporting import (
+    parse_chapter_selector,
+)
+from novel.core.inspection import (
+    ProjectReadError,
+    format_canon,
+)
 from novel.core.inspiration import (
     InspirationError,
     read_inspiration_input,
 )
+from novel.core.locking import ProjectLockError
 from novel.core.planning import (
     ChapterPlanningOptions,
     PlanningError,
@@ -52,35 +80,7 @@ from novel.core.state_update import (
     propose_state_update,
     read_state_update_instruction,
 )
-from novel.core.exporting import (
-    parse_chapter_selector,
-)
-from novel.core.command_bus import DomainError
-from novel.core.contracts import (
-    CanonApplyCommand,
-    CanonSuggestCommand,
-    InspirationGenerateCommand,
-    ProductionExportCommand,
-)
-from novel.core.inspection import (
-    ProjectReadError,
-    format_canon,
-)
-from novel.core.locking import ProjectLockError
 from novel.core.validation import validate_canon
-from novel.cli_shared import (
-    _vector_context_mode_from_args,
-    _audit_issue_lines,
-    _print_dry_run_provider,
-    _wants_json,
-    _quiet,
-    _success,
-    _failure,
-    _print_json,
-    _command_lock,
-    _dispatch_cli_command,
-    _validation_payload,
-)
 
 
 def _cmd_inspire(args: argparse.Namespace) -> int:
@@ -307,6 +307,7 @@ def _cmd_write_chapter(args: argparse.Namespace) -> int:
         provider = load_drafting_provider(
             root,
             args.provider,
+            chapter_number=args.chapter_number,
             agent_config_path=args.agent_config,
             model_name=args.model,
         )
@@ -363,6 +364,7 @@ def _cmd_polish_chapter(args: argparse.Namespace) -> int:
         provider = load_polishing_provider(
             root,
             args.provider,
+            chapter_number=args.chapter_number,
             agent_config_path=args.agent_config,
             model_name=args.model,
         )

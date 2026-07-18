@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from pathlib import Path
 
 from novel.core.agent_defaults import (
     PROFILE_NAMES,
     default_agent_config,
     inherited_profile_config_patch,
 )
-from novel.core.io import atomic_write_text
 from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.io import atomic_write_text
 from novel.core.style_guide import default_style_guide_markdown
 from novel.core.timeutil import utc_now_iso
-
 
 DEFAULT_WORKSPACE_DIR = "novel-project"
 

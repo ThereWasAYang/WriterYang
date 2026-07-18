@@ -14,7 +14,7 @@
       <div id="currentValidationSummary" class="project-context">项目检查：未运行</div>
     </div>
     <nav class="main-nav" aria-label="主导航">
-      <button class="nav-button active" data-page="homePage">主页</button>
+      <button class="nav-button active" data-page="homePage" aria-current="page">主页</button>
       <button class="nav-button" data-page="workbenchPage">创作工作台</button>
       <button class="nav-button" data-page="stylePage">文风设置</button>
       <button class="nav-button" data-page="memoryPage">小说状态管理</button>
@@ -42,7 +42,10 @@
           <button id="goMemoryPage">查看小说状态</button>
         </div>
       </div>
-      <div id="runtimePanel" class="metric runtime-panel home-runtime-panel status-warn">运行环境：检测中</div>
+      <details class="panel home-runtime-panel">
+        <summary>运行环境与技术详情</summary>
+        <div id="runtimePanel" class="metric runtime-panel status-warn" style="margin-top: 10px;">运行环境：检测中</div>
+      </details>
 
       <div class="dashboard-grid">
         <div class="panel">
@@ -69,7 +72,7 @@
           </div>
         </div>
 
-        <div class="panel">
+        <div id="exportPanel" class="panel hidden">
           <h2 style="margin-top: 0;">下一步</h2>
           <div id="nextStepPanel" class="metric">下一步：打开或初始化一个小说项目。</div>
           <div class="actions">

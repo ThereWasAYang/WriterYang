@@ -1,24 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import ValidationError
 
-from novel.core.agent_output import (
-    AgentInvocationContext,
-    AgentOutputContract,
-    generate_with_output_guard,
-)
+from novel.core.agent_output import AgentInvocationContext
 from novel.core.context_policy import render_untrusted_workspace_data
+from novel.core.contracts.prose import ProseArtifactKind
 from novel.core.io import atomic_write_text, backup_if_exists, load_yaml_model
+from novel.core.prompts import load_prompt_template, prompt_template_version
+from novel.core.prose_generation import generate_prose_artifact, mock_prose_artifact_json
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template, prompt_template_version
+from novel.core.schemas import InspirationBrief, ProjectConfig, VectorContextMode
 from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.timeutil import utc_now
-from novel.core.schemas import InspirationBrief, ProjectConfig, VectorContextMode
 
 
 class InspirationError(RuntimeError):
@@ -80,7 +78,7 @@ def run_inspiration_agent(
         context=_project_context(project),
         prompt_version=prompt_template_version("inspiration_system"),
     )
-    content = generate_with_output_guard(
+    payload = generate_prose_artifact(
         provider,
         model_request,
         root=root,
@@ -89,15 +87,11 @@ def run_inspiration_agent(
             interaction_mode="internal_task",
             task="inspire",
         ),
-        contract=AgentOutputContract(
-            output_kind="markdown",
-            target_name="Inspiration Markdown",
-            allow_json_payload=True,
-            disallow_workspace_language=False,
-            disallow_outline_or_analysis=False,
-        ),
+        artifact_kind=ProseArtifactKind.INSPIRATION,
+        chapter_number=None,
+        required_source_refs=("project.yaml",),
     )
-    markdown = _ensure_markdown(content, source_text)
+    markdown = payload.body_markdown.strip() + "\n"
     brief = _brief_from_response(markdown, source_text, options.source_type)
 
     _write_new_or_overwrite(markdown_path, markdown, options.overwrite)
@@ -131,7 +125,7 @@ def load_inspiration_provider(
         agent_config_path or default_agent_config_path(root),
         "inspiration",
         overrides=ProviderOverrides(provider_name=provider_name, model_name=model_name),
-        mock_response=default_mock_inspiration_markdown(),
+        mock_response=default_mock_inspiration_payload_json(),
     )
 
 
@@ -161,7 +155,8 @@ def build_inspiration_user_prompt(project: ProjectConfig, source_text: str, *, s
         f"{render_untrusted_workspace_data('search_context', search_context)}\n"
         "用户原始灵感：\n"
         f"{source_text}\n\n"
-        "请生成一份 Markdown 弱总纲，必须包含这些小节：\n"
+        "请只输出 ProseArtifactPayload JSON。artifact_kind 必须是 inspiration，chapter_number 必须是 null，"
+        "source_artifact_refs 必须包含 project.yaml；body_markdown 是弱总纲 Markdown，必须包含这些小节：\n"
         "# Inspiration\n"
         "## Source Summary\n"
         "## Themes\n"
@@ -207,6 +202,16 @@ def default_mock_inspiration_markdown() -> str:
         "## Potential Conflicts\n\n"
         "- 主角想查清真相，但线索会动摇其自我认知。\n"
         "- 他人保护秘密的动机可能并非恶意。\n"
+    )
+
+
+def default_mock_inspiration_payload_json() -> str:
+    return mock_prose_artifact_json(
+        artifact_kind=ProseArtifactKind.INSPIRATION,
+        chapter_number=None,
+        body_markdown=default_mock_inspiration_markdown(),
+        source_artifact_refs=("project.yaml",),
+        change_summary="把用户灵感整理为开放的弱总纲。",
     )
 
 

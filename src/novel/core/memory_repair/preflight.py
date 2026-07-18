@@ -1,26 +1,24 @@
 from __future__ import annotations
 
 from .deps import (
-    json,
-    Path,
-    re,
-    Iterable,
-    canonical_gender,
-    infer_gender_from_character_payload,
-    strip_explicit_gender_tags,
-    load_json,
-    _apply_operations_to_data,
-    _pointer_parts,
     ALLOWED_MEMORY_FILES,
     CHARACTER_ROLE_IDENTITY_PATTERNS,
     NARRATIVE_CHARACTER_ROLES,
     UNIQUE_ID_COLLECTIONS,
+    Iterable,
     MemoryChangeKind,
     MemoryRepairOperation,
     MemoryRepairProposal,
+    Path,
+    _apply_operations_to_data,
+    _pointer_parts,
+    canonical_gender,
+    infer_gender_from_character_payload,
+    json,
+    load_json,
+    re,
+    strip_explicit_gender_tags,
 )
-
-
 from .validation import (
     _group_operations,
     _validate_file_model,

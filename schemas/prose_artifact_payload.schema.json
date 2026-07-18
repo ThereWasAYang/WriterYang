@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "ProseArtifactKind": {
+      "enum": [
+        "inspiration",
+        "chapter_draft",
+        "polished_chapter",
+        "chapter_revision"
+      ],
+      "title": "ProseArtifactKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Strict inter-agent envelope for prose that is rendered to editable Markdown.",
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "artifact_kind": {
+      "$ref": "#/$defs/ProseArtifactKind"
+    },
+    "chapter_number": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Chapter Number"
+    },
+    "body_markdown": {
+      "minLength": 1,
+      "title": "Body Markdown",
+      "type": "string"
+    },
+    "source_artifact_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Artifact Refs",
+      "type": "array"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "change_summary": {
+      "minLength": 1,
+      "title": "Change Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_kind",
+    "chapter_number",
+    "body_markdown",
+    "source_artifact_refs",
+    "assumptions",
+    "warnings",
+    "change_summary"
+  ],
+  "title": "ProseArtifactPayload",
+  "type": "object"
+}

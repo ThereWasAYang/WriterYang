@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .mypy_cache/
 .ruff_cache/
 .playwright-cli/
@@ -12,7 +16,8 @@ build/
 *.egg-info/
 WriterYang_WebUI.command
 WriterYang_WebUI.config.json
-myNovel/
+# Optional repository-local workspace root; normal user projects should live outside this repository.
+.writeryang-workspaces/
 .env*
 !.env.example
 .vscode/
@@ -25,10 +30,8 @@ myNovel/
 !**/runs/.gitkeep
 **/.writeryang.lock
 *.bak_*
+**/.*.jsonl.lock
+**/.*.log.lock
 
-# Internal agent/project-planning docs. Keep these local; do not publish.
+# Internal Agent memory. Product and architecture docs under docs/ are published.
 AGENTS.md
-docs/PRODUCT_SPEC.md
-docs/ARCHITECTURE.md
-docs/WORKFLOW.md
-docs/ROADMAP.md

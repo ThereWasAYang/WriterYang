@@ -33,6 +33,13 @@
 
 - `src/novel/cli.py`
 - `src/novel/cli_shared.py`
+- `src/novel/cli_parsers/__init__.py`
+- `src/novel/cli_parsers/common.py`
+- `src/novel/cli_parsers/generation.py`
+- `src/novel/cli_parsers/memory.py`
+- `src/novel/cli_parsers/project.py`
+- `src/novel/cli_parsers/search.py`
+- `src/novel/cli_parsers/session.py`
 - `src/novel/cli_commands/generation.py`
 - `src/novel/cli_commands/memory.py`
 - `src/novel/cli_commands/orchestrator.py`
@@ -65,6 +72,25 @@
 - `src/novel/core/canon.py`
 - `src/novel/core/chapter_memory.py`
 - `src/novel/core/command_bus.py`
+- `src/novel/core/command_registry.py`
+- `src/novel/core/command_workflow_state.py`
+- `src/novel/core/command_handlers/__init__.py`
+- `src/novel/core/command_handlers/errors.py`
+- `src/novel/core/command_handlers/generation.py`
+- `src/novel/core/command_handlers/project.py`
+- `src/novel/core/command_handlers/publishing.py`
+- `src/novel/core/command_handlers/session.py`
+- `src/novel/core/contracts/__init__.py`
+- `src/novel/core/contracts/artifacts.py`
+- `src/novel/core/contracts/commands.py`
+- `src/novel/core/contracts/common.py`
+- `src/novel/core/contracts/decisions.py`
+- `src/novel/core/contracts/previews.py`
+- `src/novel/core/contracts/prose.py`
+- `src/novel/core/contracts/revisions.py`
+- `src/novel/core/contracts/sessions.py`
+- `src/novel/core/contracts/state.py`
+- `src/novel/core/contracts/tracing.py`
 - `src/novel/core/consistency.py`
 - `src/novel/core/context_budget.py`
 - `src/novel/core/context_policy.py`
@@ -111,6 +137,7 @@
 - `src/novel/core/search.py`
 - `src/novel/core/security.py`
 - `src/novel/core/session.py`
+- `src/novel/core/session_progress.py`
 - `src/novel/core/setup_guide.py`
 - `src/novel/core/setting_change_followup.py`
 - `src/novel/core/state_change_values.py`
@@ -133,9 +160,13 @@ CLI 是薄包装：解析参数、处理 `--json/--quiet/--project`、拿项目�
 
 ### `src/novel/cli.py`
 
-- `build_parser()`：定义所有 CLI 命令、子命令和参数。
+- `build_parser()`：只装配 `cli_parsers/` 的五个领域注册器和通用集成参数。
 - `main(argv)`：命令分发入口，只解析参数、应用 `--project` alias，并通过 `_COMMAND_HANDLERS` 调用对应 handler。
 - `_COMMAND_HANDLERS`：顶层命令到 `cli_commands/` handler 的 dispatch map，避免在 `main()` 中复用不同 result 类型。
+
+### `src/novel/cli_parsers/`
+
+`project.py`、`search.py`、`memory.py`、`session.py` 与 `generation.py` 分别拥有对应命令域的 argparse 定义；`common.py` 只定义最小 `ParserCollection` protocol。新增参数不再扩张中央 `build_parser()`。
 
 ### `src/novel/cli_shared.py`
 
@@ -323,7 +354,7 @@ Core 包标记文件。当前不导出业务 API；调用方应从具体 service
 
 辅助：
 
-- `FlexibleModel`：schema v3 持久化与领域模型基类，未知字段默认拒绝。Provider 常见低风险形状差异必须在解析边界显式归一化，不能静默透传。
+- `PersistenceModel`：schema v3 持久化与领域模型基类，未知字段默认拒绝。Provider 常见低风险形状差异必须在解析边界显式归一化，不能静默透传。
 - `SchemaVersionedModel`：统一 `schema_version`。
 - `_require_unique_values()`：Pydantic validator 使用的唯一性检查。
 - `json_dumps_compact()`：紧凑 JSON 序列化。
@@ -987,7 +1018,7 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 
 | 目标 | 优先修改 |
 | --- | --- |
-| 新 CLI 命令 | core service -> `cli.py::build_parser()` -> 新增 `_cmd_*()` handler -> 登记 `_COMMAND_HANDLERS` -> tests |
+| 新 CLI 命令 | command contract/spec -> core service/领域 handler -> `cli_parsers/` -> `cli_commands/` -> `_COMMAND_HANDLERS` -> tests |
 | 新 Web API | core service -> `web_api/router.py::handle_api_request()` -> frontend -> tests |
 | 新 Agent | prompt txt -> core service -> provider config -> schema -> tests |
 | 新 schema 文件 | `schemas.py` -> `json_schema.py` -> `schemas/*.schema.json` -> validation tests |
@@ -1036,7 +1067,15 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 
 ### `src/novel/core/command_bus.py`
 
-注册所有公开 typed command handler，统一 confirmation gate、项目锁、CLI/Web/Ask 结果结构、workflow runtime 与 `DomainError`。覆盖 Session、Revision、Memory/Setting Change、Preview、Production Export、Inspiration、Canon、Chapter Memory、Index、Style Guide、编辑器 candidate、Agent/Embedding 配置、端口和 schema export；adapter 不自行调用 mutation service。
+只负责 dispatcher、confirmation、项目锁、预算、workflow runtime 和统一 `DomainError`；领域实现不再导入此模块。`command_workflow_state.py` 独立负责 Creation/Revision budget 续写。
+
+### `src/novel/core/command_handlers/`
+
+`project.py`、`generation.py`、`session.py`、`publishing.py` 分域拥有公开 command handler；`errors.py` 在 handler/application 边界把领域异常映射为稳定错误。包初始化器只做一次 registry 装配。
+
+### `src/novel/core/command_registry.py`
+
+由 `PUBLIC_COMMAND_MODELS` 构建唯一 `CommandSpec` catalog，集中 request/response model、read/write/unlocked 策略、confirmation、lock 和稳定错误目录。Command Bus、OpenAPI 与 `/api/commands` 共用该 registry，新增公开 command 不得另建散落 policy set。
 
 ### `src/novel/core/workspace_mutations.py` 与 `src/novel/core/config_mutations.py`
 
@@ -1049,6 +1088,26 @@ embedding provider 配置。推荐配置 DashScope text-embedding-v4、Zhipu emb
 ### `src/novel/core/workflow_runtime.py`
 
 持久化 `WorkflowRun` 和 `WorkflowNodeRun`。Creation/Revision Session 保存同一个 `workflow_run_id`，人工审批后的后续 command 会继续向原 trace 追加节点；每个模型节点都继承 command parent，并记录调用前后的全局预算。
+
+### `src/novel/core/prose_generation.py` 与 `src/novel/core/contracts/prose.py`
+
+统一 Writer、Polish、Revision 与 Inspiration 的 `ProseArtifactPayload` 结构化输出边界，校验 artifact 类型、章节号和来源引用；正文通过确定性 renderer 写回可编辑 Markdown。
+
+### `src/novel/core/event_writer.py` 与 `src/novel/core/retention.py`
+
+`EventWriter` 负责进程内/进程间加锁的有界 JSONL 追加、fsync 与轮转；retention service 清理过期 workflow run，并为 CLI doctor 和 Web health 提供成功率、近期失败及磁盘占用汇总。
+
+### `src/novel/core/web_security.py`
+
+集中实现 Web loopback host 校验与 IPv4/IPv6 URL host 格式化。普通本地 Web 服务拒绝任何非 loopback 绑定。
+
+### `src/novel/web_api/openapi.py`
+
+从 `WebCommandRequest`、统一 response envelope 和 CommandSpec catalog 生成 OpenAPI 3.1 文档，服务 `/api/openapi.json`；不手写重复 command schema。
+
+### `scripts/benchmark_search.py`
+
+创建 10/100/500 章临时 workspace，记录初始/单章增量刷新、查询 p50/p95 与 tracemalloc 峰值，作为 Search 容量回归基线。
 
 ### `src/novel/core/setting_change_followup.py`
 

@@ -4,12 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Sequence
+from collections.abc import Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from novel.core.timeutil import new_request_id, utc_now_iso
-
 
 DEFAULT_TASKS = ("intent_router", "inspiration", "canon", "plot", "writer", "polish", "audit", "state_update")
 

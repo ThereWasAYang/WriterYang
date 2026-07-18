@@ -18,25 +18,6 @@ from novel.core.agent_defaults import (
     PROFILE_NAMES,
 )
 from novel.core.audit_localization import localize_audit_issue_for_author
-from novel.core.env import load_project_env
-from novel.core.management import load_management_events
-from novel.core.io import load_yaml, load_yaml_model
-from novel.core.locking import ProjectLock
-from novel.core.provider_config import ProviderOverrides, describe_agent_provider, default_agent_config_path
-from novel.core.security import redact_secret_text, scan_security
-from novel.core.setup_guide import (
-    SetupGuideError,
-    find_available_port,
-    is_port_available,
-)
-from novel.core.schemas import (
-    AgentsConfig,
-    AuditReport,
-    PolishMode,
-    ProjectConfig,
-    VectorContextMode,
-)
-from novel.core.validation import validate_project
 from novel.core.command_bus import DomainError, command_result_payload, dispatch_command, new_command_envelope
 from novel.core.contracts import (
     DefaultProviderSetupCommand,
@@ -45,6 +26,25 @@ from novel.core.contracts import (
     PublicCommand,
     Surface,
 )
+from novel.core.env import load_project_env
+from novel.core.io import load_yaml, load_yaml_model
+from novel.core.locking import ProjectLock
+from novel.core.management import load_management_events
+from novel.core.provider_config import ProviderOverrides, default_agent_config_path, describe_agent_provider
+from novel.core.schemas import (
+    AgentsConfig,
+    AuditReport,
+    PolishMode,
+    ProjectConfig,
+    VectorContextMode,
+)
+from novel.core.security import redact_secret_text, scan_security
+from novel.core.setup_guide import (
+    SetupGuideError,
+    find_available_port,
+    is_port_available,
+)
+from novel.core.validation import validate_project
 
 ERROR_CODES = {
     "audit_error": "Audit generation or validation failed.",
@@ -583,6 +583,15 @@ def run_doctor(root: Path) -> dict[str, object]:
         for config_rel in ("config/agents.yaml", "config/embeddings.yaml"):
             checks.extend(_doctor_env_checks(root / config_rel))
         checks.extend(_doctor_agent_config_checks(root / "config" / "agents.yaml"))
+        from novel.core.retention import observability_health
+
+        health = observability_health(root)
+        _doctor_check(
+            checks,
+            "observability:runs",
+            "ok",
+            f"{health['run_count_sampled']} recent run(s), {health['runs_disk_bytes']} bytes on disk",
+        )
     else:
         _doctor_check(checks, "project", "warning", f"{root} does not look like a novel workspace")
 
@@ -608,6 +617,7 @@ def run_doctor(root: Path) -> dict[str, object]:
         "warning_count": warning_count,
         "checks": checks,
         "error_codes": ERROR_CODES,
+        "observability": observability_health(root) if (root / "project.yaml").exists() else None,
     }
 
 def format_doctor_result(result: dict[str, object]) -> list[str]:

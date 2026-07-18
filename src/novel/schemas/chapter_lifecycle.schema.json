@@ -1,0 +1,298 @@
+{
+  "$defs": {
+    "ArtifactKind": {
+      "enum": [
+        "plan",
+        "candidate",
+        "audit",
+        "state_proposal",
+        "chapter_memory",
+        "acceptance",
+        "segment_patch",
+        "state",
+        "timeline"
+      ],
+      "title": "ArtifactKind",
+      "type": "string"
+    },
+    "ArtifactLineage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "output": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "workflow_run_id": {
+          "minLength": 1,
+          "title": "Workflow Run Id",
+          "type": "string"
+        },
+        "prompt_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Hash"
+        },
+        "policy_version": {
+          "minLength": 1,
+          "title": "Policy Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output",
+        "workflow_run_id",
+        "policy_version"
+      ],
+      "title": "ArtifactLineage",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "artifact_id": {
+          "pattern": "^art_[0-9a-f]{32}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "path",
+        "sha256",
+        "created_at"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "AuditBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "audit": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "candidate": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "context_snapshot_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Context Snapshot Hash",
+          "type": "string"
+        },
+        "policy_version": {
+          "minLength": 1,
+          "title": "Policy Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "audit",
+        "candidate",
+        "context_snapshot_hash",
+        "policy_version"
+      ],
+      "title": "AuditBinding",
+      "type": "object"
+    },
+    "StateProposalBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "proposal": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "candidate": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "audit": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "base_state_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Base State Sha256",
+          "type": "string"
+        },
+        "base_timeline_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Base Timeline Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal",
+        "candidate",
+        "audit",
+        "base_state_sha256",
+        "base_timeline_sha256"
+      ],
+      "title": "StateProposalBinding",
+      "type": "object"
+    },
+    "TaskId": {
+      "enum": [
+        "inspiration",
+        "style_guide",
+        "canon",
+        "plan",
+        "write",
+        "polish",
+        "revision",
+        "audit",
+        "state_update",
+        "chapter_memory",
+        "intent_router",
+        "memory_repair"
+      ],
+      "title": "TaskId",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "active_plan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "active_candidate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "active_audit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuditBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "active_state_proposal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StateProposalBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "active_acceptance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "lineages": {
+      "items": {
+        "$ref": "#/$defs/ArtifactLineage"
+      },
+      "title": "Lineages",
+      "type": "array"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "chapter_number",
+    "updated_at"
+  ],
+  "title": "ChapterLifecycle",
+  "type": "object"
+}

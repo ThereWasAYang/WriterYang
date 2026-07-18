@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import contextlib
 import hashlib
 import json
 import os
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 from novel.core.io import atomic_write_text
-
 
 MODEL_IO_MAX_FILES_ENV = "WRITERYANG_MODEL_IO_MAX_FILES"
 MODEL_IO_MAX_BYTES_ENV = "WRITERYANG_MODEL_IO_MAX_BYTES"
@@ -80,10 +80,8 @@ def prune_model_io_dir(model_io_dir: Path, policy: ModelIORetentionPolicy) -> No
     keep_paths = _select_records_to_keep(existing_records, policy)
     for record in existing_records:
         if record.path not in keep_paths:
-            try:
+            with contextlib.suppress(OSError):
                 record.path.unlink(missing_ok=True)
-            except OSError:
-                pass
     kept_entries = [
         record.entry
         for record in existing_records

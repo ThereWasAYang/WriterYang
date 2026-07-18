@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from novel.core.contracts import TaskId
 from novel.core.schemas import (
     ContextAuthority,
     ContextLifecycleStatus,
@@ -8,7 +10,6 @@ from novel.core.schemas import (
     ContextVisibility,
     RevealAuthorization,
 )
-from novel.core.contracts import TaskId
 from novel.core.task_registry import task_definition
 
 

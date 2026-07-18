@@ -2,19 +2,18 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
-import signal
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
-from typing import Mapping, Optional, Sequence
-
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 SUPPORTED_PYTHON_VERSIONS = ("3.12", "3.11", "3.13")
 MIN_PYTHON_VERSION = (3, 11)
@@ -51,7 +50,7 @@ class InstallPlan:
     activate_shell: ShellLaunch | None = None
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Create a fresh environment and install WriterYang.")
     parser.add_argument("--dev", action="store_true", help='Install development dependencies with ".[dev]".')
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without creating an environment.")
@@ -125,7 +124,7 @@ def build_install_plan(
     dev: bool = False,
     venv_root: Path,
     env: Mapping[str, str],
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
     web_port: int = DEFAULT_WEB_PORT,
     start_web: bool = True,
     check_web_port: bool = True,
@@ -319,7 +318,7 @@ def is_port_available(host: str, port: int) -> bool:
     return True
 
 
-def find_conda(env: Mapping[str, str]) -> Optional[str]:
+def find_conda(env: Mapping[str, str]) -> str | None:
     conda_exe = env.get("CONDA_EXE")
     if conda_exe and Path(conda_exe).exists():
         return conda_exe
@@ -424,7 +423,7 @@ def existing_venv_names(venv_root: Path) -> set[str]:
     return {path.name for path in venv_root.iterdir() if path.is_dir()}
 
 
-def dated_env_base_name(now: Optional[datetime] = None) -> str:
+def dated_env_base_name(now: datetime | None = None) -> str:
     value = now or datetime.now()
     return f"{ENV_PREFIX}_{value:%y%m%d}"
 
@@ -483,7 +482,7 @@ def _write_web_launcher_config(path: Path, *, host: str, port: int) -> None:
     payload = {
         "host": host,
         "port": validate_port(port),
-        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "updated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 

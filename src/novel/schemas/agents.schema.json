@@ -1,0 +1,424 @@
+{
+  "$defs": {
+    "AgentConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "inherit_default": {
+          "default": false,
+          "title": "Inherit Default",
+          "type": "boolean"
+        },
+        "provider": {
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "api_key_env": {
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Api Key Env",
+          "type": "string"
+        },
+        "base_url_env": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url Env"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning"
+        },
+        "thinking": {
+          "$ref": "#/$defs/ThinkingConfig"
+        },
+        "max_context_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Context Tokens"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "max_retries": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Retries"
+        },
+        "json_response_format": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "json_object",
+            "json_schema",
+            "json_schema_strict"
+          ],
+          "title": "Json Response Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "api_key_env"
+      ],
+      "title": "AgentConfig",
+      "type": "object"
+    },
+    "AgentConfigPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "inherit_default": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inherit Default"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "api_key_env": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key Env"
+        },
+        "base_url_env": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url Env"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning"
+        },
+        "thinking": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ThinkingConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_context_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Context Tokens"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "max_retries": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Retries"
+        },
+        "json_response_format": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "json_object",
+                "json_schema",
+                "json_schema_strict"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Json Response Format"
+        }
+      },
+      "title": "AgentConfigPatch",
+      "type": "object"
+    },
+    "ThinkingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "default": "disabled",
+          "enum": [
+            "enabled",
+            "disabled"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "ThinkingConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "default": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "reasoning"
+            ]
+          },
+          {
+            "required": [
+              "temperature"
+            ]
+          },
+          {
+            "required": [
+              "thinking"
+            ]
+          }
+        ],
+        "type": "object"
+      }
+    },
+    "profiles": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AgentConfig"
+          },
+          {
+            "$ref": "#/$defs/AgentConfigPatch"
+          }
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "reasoning"
+              ]
+            },
+            {
+              "required": [
+                "temperature"
+              ]
+            },
+            {
+              "required": [
+                "thinking"
+              ]
+            }
+          ],
+          "type": "object"
+        }
+      },
+      "title": "Profiles",
+      "type": "object"
+    },
+    "tasks": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AgentConfig"
+          },
+          {
+            "$ref": "#/$defs/AgentConfigPatch"
+          }
+        ]
+      },
+      "title": "Tasks",
+      "type": "object"
+    }
+  },
+  "title": "AgentsConfig",
+  "type": "object"
+}

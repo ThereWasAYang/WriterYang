@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "MemoryChangeConversationTurn": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": [
+            "user",
+            "agent"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "content",
+        "created_at"
+      ],
+      "title": "MemoryChangeConversationTurn",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "clarification_id": {
+      "minLength": 1,
+      "pattern": "^clarify_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+      "title": "Clarification Id",
+      "type": "string"
+    },
+    "change_kind": {
+      "const": "setting_change",
+      "default": "setting_change",
+      "title": "Change Kind",
+      "type": "string"
+    },
+    "original_request": {
+      "minLength": 1,
+      "title": "Original Request",
+      "type": "string"
+    },
+    "stage": {
+      "default": "unknown",
+      "enum": [
+        "pre_creation",
+        "outline_discussion",
+        "content_review",
+        "post_chapter",
+        "unknown"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "chapter_number": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Chapter Number"
+    },
+    "audit_issue_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Audit Issue Ids",
+      "type": "array"
+    },
+    "status": {
+      "default": "needs_clarification",
+      "enum": [
+        "needs_clarification",
+        "proposal_ready",
+        "closed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "questions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Questions",
+      "type": "array"
+    },
+    "conversation_turns": {
+      "items": {
+        "$ref": "#/$defs/MemoryChangeConversationTurn"
+      },
+      "title": "Conversation Turns",
+      "type": "array"
+    },
+    "proposal_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proposal Path"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "clarification_id",
+    "original_request",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "MemoryChangeClarificationSession",
+  "type": "object"
+}

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import inspect
+import json
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import json
 from pathlib import Path
 
 from novel.cli import build_parser
-from tests.internal_task_cli import run_test_cli
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
 from novel.core.locking import ProjectLock
 from novel.core.workspace import InitOptions, init_workspace
+from tests.internal_task_cli import run_test_cli
 
 
 def test_status_json_output_is_valid_json(tmp_path: Path) -> None:
@@ -89,6 +90,22 @@ def test_integration_doc_commands_match_cli() -> None:
     assert "completion" in parser.format_help()
 
 
+def test_cli_parser_registration_is_split_by_command_domain() -> None:
+    import novel.cli as cli
+
+    source = inspect.getsource(cli)
+    assert source.count("register_") >= 5
+    assert '.add_parser("session"' not in source
+    parser_root = Path(cli.__file__).with_name("cli_parsers")
+    assert {path.name for path in parser_root.glob("*.py")} >= {
+        "project.py",
+        "search.py",
+        "memory.py",
+        "session.py",
+        "generation.py",
+    }
+
+
 def test_ask_json_dry_run_output(tmp_path: Path) -> None:
     root = _workspace_ready(tmp_path)
 
@@ -139,6 +156,8 @@ def test_doctor_json_reports_project_and_env_without_leaking_values(tmp_path: Pa
     payload = json.loads(stdout)
     assert payload["ok"] is True
     assert payload["command"] == "doctor"
+    assert payload["observability"]["run_count_sampled"] >= 0
+    assert any(check["name"] == "observability:runs" for check in payload["checks"])
     assert payload["root"] == str(root.resolve())
     assert payload["error_count"] == 0
     assert "project_read_error" in payload["error_codes"]

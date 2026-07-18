@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from novel.cli import main
 from novel.cli_commands.generation import (
     _cmd_accept_chapter,
     _cmd_apply_state_update,
@@ -18,8 +19,6 @@ from novel.cli_shared import (
     _add_search_context_args,
     _apply_project_alias,
 )
-from novel.cli import main
-
 
 _INTERNAL_HANDLERS = {
     "plan-chapter": _cmd_plan_chapter,

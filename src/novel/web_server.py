@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import errno
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+from collections.abc import Mapping
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Mapping
 from urllib.parse import urlparse
 
 from novel.core.web_launcher import WEB_HOST_ENV, WEB_PORT_ENV, WEB_URL_ENV
+from novel.core.web_security import is_loopback_host, require_loopback_host, url_host
 from novel.web_api import handle_api_request
 
 
@@ -24,7 +25,6 @@ _STATIC_CONTENT_TYPES = {
 }
 DEFAULT_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024
 MAX_REQUEST_BODY_BYTES_ENV = "WRITERYANG_WEB_MAX_BODY_BYTES"
-LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def index_html() -> str:
@@ -50,6 +50,10 @@ def static_asset_bytes(path: str) -> tuple[bytes, str] | None:
 
 def run_web_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     try:
+        host = require_loopback_host(host)
+    except ValueError as exc:
+        raise WebServerError(str(exc)) from exc
+    try:
         server = ThreadingHTTPServer((host, port), _handler_class())
     except OSError as exc:
         if exc.errno == errno.EADDRINUSE:
@@ -60,10 +64,13 @@ def run_web_server(host: str = "127.0.0.1", port: int = 8765) -> None:
         raise WebServerError(f"无法在 {host}:{port} 启动 Web UI：{exc}") from exc
     os.environ[WEB_HOST_ENV] = host
     os.environ[WEB_PORT_ENV] = str(port)
-    os.environ[WEB_URL_ENV] = f"http://{host}:{port}"
-    print(f"WriterYang Web UI: http://{host}:{port}")
+    display_host = url_host(host)
+    os.environ[WEB_URL_ENV] = f"http://{display_host}:{port}"
+    print(f"WriterYang Web UI: http://{display_host}:{port}")
     try:
         server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nWriterYang Web UI 已停止。")
     finally:
         server.server_close()
 
@@ -199,7 +206,7 @@ def max_request_body_bytes(env: Mapping[str, str] | None = None) -> int:
 
 def is_allowed_api_source(*, host_header: str | None, origin_header: str | None) -> bool:
     host, host_port = _parse_host_port(host_header)
-    if host is not None and not _is_local_host(host):
+    if host is None or not _is_local_host(host):
         return False
     if host_port == -1:
         return False
@@ -208,9 +215,7 @@ def is_allowed_api_source(*, host_header: str | None, origin_header: str | None)
     origin = urlparse(origin_header)
     if origin.scheme not in {"http", "https"} or not origin.hostname or not _is_local_host(origin.hostname):
         return False
-    if host_port is not None and origin.port is not None and origin.port != host_port:
-        return False
-    return True
+    return not (host_port is not None and origin.port is not None and origin.port != host_port)
 
 
 def is_allowed_post_source(*, host_header: str | None, origin_header: str | None) -> bool:
@@ -229,4 +234,4 @@ def _parse_host_port(value: str | None) -> tuple[str | None, int | None]:
 
 
 def _is_local_host(host: str) -> bool:
-    return host.strip("[]").lower() in LOCAL_HOSTS
+    return is_loopback_host(host)

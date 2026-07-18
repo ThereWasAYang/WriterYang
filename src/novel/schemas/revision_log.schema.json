@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "RevisionRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "pattern": "^revision_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "target": {
+          "enum": [
+            "draft",
+            "polished"
+          ],
+          "title": "Target",
+          "type": "string"
+        },
+        "source_file": {
+          "minLength": 1,
+          "title": "Source File",
+          "type": "string"
+        },
+        "output_file": {
+          "minLength": 1,
+          "title": "Output File",
+          "type": "string"
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction"
+        },
+        "from_audit": {
+          "default": false,
+          "title": "From Audit",
+          "type": "boolean"
+        },
+        "audit_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Audit File"
+        },
+        "audit_issue_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Audit Issue Ids",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        }
+      },
+      "required": [
+        "id",
+        "chapter_number",
+        "target",
+        "source_file",
+        "output_file",
+        "created_at"
+      ],
+      "title": "RevisionRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "chapter_number": {
+      "minimum": 1,
+      "title": "Chapter Number",
+      "type": "integer"
+    },
+    "revisions": {
+      "items": {
+        "$ref": "#/$defs/RevisionRecord"
+      },
+      "title": "Revisions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "chapter_number"
+  ],
+  "title": "RevisionLog",
+  "type": "object"
+}

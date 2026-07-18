@@ -6,7 +6,6 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 CURRENT_SCHEMA_VERSION = 3
 
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]

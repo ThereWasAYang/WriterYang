@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77.0.3"]
+requires = ["setuptools>=77.0.3,<82"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,7 +9,7 @@ description = "AI-assisted long-form novel writing workspace and CLI."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 authors = [
   { name = "WriterYang" }
 ]
@@ -25,19 +25,21 @@ classifiers = [
   "Topic :: Text Processing",
 ]
 dependencies = [
-  "pydantic>=2.13",
-  "PyYAML>=6.0",
-  "python-docx>=1.1",
+  "pydantic>=2.13,<3",
+  "PyYAML>=6.0,<7",
+  "python-docx>=1.1,<2",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "build>=1.2",
-  "mypy>=1.10",
-  "playwright>=1.60",
-  "pytest>=9.0",
-  "ruff>=0.8",
-  "twine>=5.0",
+  "build>=1.2,<2",
+  "mypy>=1.10,<3",
+  "pip-audit>=2.10,<3",
+  "playwright>=1.60,<2",
+  "pytest>=9.0,<10",
+  "pytest-cov>=7.1,<8",
+  "ruff>=0.8,<1",
+  "twine>=5.0,<7",
 ]
 
 [project.scripts]
@@ -54,22 +56,28 @@ line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F"]
+select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-check_untyped_defs = false
-warn_unused_ignores = false
-no_implicit_optional = false
-strict_optional = false
+check_untyped_defs = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_optional = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-novel = ["web_static/*.html", "web_static/*.css", "web_static/*.js", "prompts/*.txt", "prompts/partials/*.txt"]
+novel = ["web_static/*.html", "web_static/*.css", "web_static/*.js", "prompts/*.txt", "prompts/partials/*.txt", "schemas/*.json"]
 
-[tool.setuptools.data-files]
-"schemas" = ["schemas/*.json"]
+[tool.coverage.run]
+branch = true
+source = ["novel"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = true

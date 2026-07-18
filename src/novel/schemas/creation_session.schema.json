@@ -1,0 +1,484 @@
+{
+  "$defs": {
+    "BudgetUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "chapters": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Chapters",
+          "type": "integer"
+        },
+        "model_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Model Calls",
+          "type": "integer"
+        },
+        "provider_attempts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Provider Attempts",
+          "type": "integer"
+        },
+        "auto_revision_rounds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Auto Revision Rounds",
+          "type": "integer"
+        },
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "BudgetUsage",
+      "type": "object"
+    },
+    "ChapterNodeState": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "plan": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "write": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "polish": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "audit": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "state_update": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        },
+        "chapter_memory": {
+          "$ref": "#/$defs/ChapterNodeStatus",
+          "default": "pending"
+        }
+      },
+      "required": [
+        "chapter_number"
+      ],
+      "title": "ChapterNodeState",
+      "type": "object"
+    },
+    "ChapterNodeStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "completed",
+        "failed",
+        "stale"
+      ],
+      "title": "ChapterNodeStatus",
+      "type": "string"
+    },
+    "RevisionRouteDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "route": {
+          "enum": [
+            "plot_replan",
+            "writer_rewrite",
+            "revision_patch",
+            "manual_review"
+          ],
+          "title": "Route",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "chapter_numbers": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Chapter Numbers",
+          "type": "array"
+        },
+        "instruction_for_plot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction For Plot"
+        },
+        "instruction_for_writer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction For Writer"
+        },
+        "instruction_for_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction For Revision"
+        },
+        "risk_level": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Risk Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "route",
+        "reason"
+      ],
+      "title": "RevisionRouteDecision",
+      "type": "object"
+    },
+    "RevisionRouteRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "user_instruction": {
+          "title": "User Instruction",
+          "type": "string"
+        },
+        "from_audit": {
+          "default": false,
+          "title": "From Audit",
+          "type": "boolean"
+        },
+        "decision": {
+          "$ref": "#/$defs/RevisionRouteDecision"
+        }
+      },
+      "required": [
+        "created_at",
+        "user_instruction",
+        "decision"
+      ],
+      "title": "RevisionRouteRecord",
+      "type": "object"
+    },
+    "SessionPhase": {
+      "enum": [
+        "drafting_outline",
+        "awaiting_outline_approval",
+        "ready_to_run",
+        "running",
+        "awaiting_content_review",
+        "revising",
+        "ready_to_commit",
+        "committing",
+        "committed",
+        "archived",
+        "failed_recoverable",
+        "failed_terminal",
+        "cancelled",
+        "recovering"
+      ],
+      "title": "SessionPhase",
+      "type": "string"
+    },
+    "WorkflowBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "max_chapters": {
+          "minimum": 1,
+          "title": "Max Chapters",
+          "type": "integer"
+        },
+        "max_model_calls": {
+          "minimum": 0,
+          "title": "Max Model Calls",
+          "type": "integer"
+        },
+        "max_provider_attempts": {
+          "minimum": 0,
+          "title": "Max Provider Attempts",
+          "type": "integer"
+        },
+        "max_auto_revision_rounds": {
+          "minimum": 0,
+          "title": "Max Auto Revision Rounds",
+          "type": "integer"
+        },
+        "max_input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Input Tokens"
+        },
+        "max_output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Output Tokens"
+        }
+      },
+      "required": [
+        "max_chapters",
+        "max_model_calls",
+        "max_provider_attempts",
+        "max_auto_revision_rounds"
+      ],
+      "title": "WorkflowBudget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "session_id": {
+      "minLength": 1,
+      "pattern": "^session_[0-9]{8}_[0-9]{6}_[0-9]{6}$",
+      "title": "Session Id",
+      "type": "string"
+    },
+    "chapter_range": {
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 1,
+      "title": "Chapter Range",
+      "type": "array"
+    },
+    "user_intent": {
+      "minLength": 1,
+      "title": "User Intent",
+      "type": "string"
+    },
+    "phase": {
+      "$ref": "#/$defs/SessionPhase"
+    },
+    "chapter_runs": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ChapterNodeState"
+      },
+      "title": "Chapter Runs",
+      "type": "object"
+    },
+    "approved_outline_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approved Outline Path"
+    },
+    "final_output_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Final Output Paths",
+      "type": "array"
+    },
+    "audit_history": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Audit History",
+      "type": "array"
+    },
+    "revision_history": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Revision History",
+      "type": "array"
+    },
+    "revision_route_history": {
+      "items": {
+        "$ref": "#/$defs/RevisionRouteRecord"
+      },
+      "title": "Revision Route History",
+      "type": "array"
+    },
+    "archive_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Archive Paths",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "max_auto_revision_rounds": {
+      "default": 3,
+      "minimum": 0,
+      "title": "Max Auto Revision Rounds",
+      "type": "integer"
+    },
+    "workflow_run_id": {
+      "anyOf": [
+        {
+          "pattern": "^run_[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workflow Run Id"
+    },
+    "workflow_budget": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkflowBudget"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "budget_usage": {
+      "$ref": "#/$defs/BudgetUsage"
+    },
+    "last_completed_node": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Completed Node"
+    },
+    "failure_node": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Node"
+    },
+    "failure_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Message"
+    },
+    "resume_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Resume Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "session_id",
+    "chapter_range",
+    "user_intent",
+    "phase",
+    "chapter_runs",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "CreationSession",
+  "type": "object"
+}

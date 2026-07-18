@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 import hashlib
 import json
 import os
-from pathlib import Path
-import socket
 import time
-from typing import Mapping
+from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
 from urllib import error, request
 
 from novel.core.env import load_project_env
@@ -192,7 +191,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 last_error = EmbeddingHTTPError(message)
                 if not _is_retryable_http_status(exc.code) or attempt == attempts:
                     raise last_error from None
-            except socket.timeout:
+            except TimeoutError:
                 last_error = EmbeddingTimeoutError(f"{self.provider_name} embedding provider request timed out")
                 if attempt == attempts:
                     raise last_error from None

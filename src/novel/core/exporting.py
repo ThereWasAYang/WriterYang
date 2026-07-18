@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
 import hashlib
 import os
-from pathlib import Path
 import re
 import tempfile
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from docx import Document
@@ -273,10 +273,7 @@ def update_export_manifest(
     title: str,
     chapters: list[ExportedChapter],
 ) -> ExportManifest:
-    if manifest_path.exists():
-        manifest = load_json_model(manifest_path, ExportManifest)
-    else:
-        manifest = ExportManifest()
+    manifest = load_json_model(manifest_path, ExportManifest) if manifest_path.exists() else ExportManifest()
     record = ExportRecord(
         id=_export_id(utc_now_precise()),
         type=export_type,

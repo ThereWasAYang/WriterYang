@@ -2,17 +2,16 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import closing
 import json
-from pathlib import Path
 import socket
 import subprocess
 import sys
 import tempfile
 import time
-from typing import Sequence
+from collections.abc import Sequence
+from contextlib import closing
+from pathlib import Path
 from urllib import request
-
 
 SCREENSHOTS = (
     "overview.png",

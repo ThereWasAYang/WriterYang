@@ -4,13 +4,18 @@ import argparse
 from pathlib import Path
 from typing import cast
 
+from novel.cli_shared import (
+    _dispatch_cli_command,
+    _failure,
+    _management_event_lines,
+    _management_event_payload,
+    _polish_mode_from_arg,
+    _success,
+    _vector_context_mode_from_args,
+)
 from novel.core.audit_localization import (
     localize_audit_issue_for_author,
     localize_session_rewrite_issue_for_author,
-)
-from novel.core.session import (
-    load_rewrite_events,
-    parse_range,
 )
 from novel.core.command_bus import DomainError
 from novel.core.contracts import SessionCommand, SessionStartCommand
@@ -20,15 +25,11 @@ from novel.core.schemas import (
     AuditReport,
     CreationSession,
 )
-from novel.cli_shared import (
-    _vector_context_mode_from_args,
-    _polish_mode_from_arg,
-    _management_event_payload,
-    _management_event_lines,
-    _success,
-    _failure,
-    _dispatch_cli_command,
+from novel.core.session import (
+    load_rewrite_events,
+    parse_range,
 )
+
 
 def _run_session_command(args: argparse.Namespace, root: Path) -> dict[str, object]:
     command = args.session_command

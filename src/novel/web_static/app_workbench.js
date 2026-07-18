@@ -176,6 +176,12 @@
         <div>candidate: ${escapeHtml(session.candidate?.sha256 || "待生成")}</div>
       `;
       const allowed = new Set(Array.isArray(data.next_allowed_commands) ? data.next_allowed_commands : []);
+      applyAllowedRevisionCommands([...allowed]);
+    }
+
+    function applyAllowedRevisionCommands(commands) {
+      latestAllowedRevisionCommands = Array.isArray(commands) ? [...commands] : [];
+      const allowed = new Set(latestAllowedRevisionCommands);
       $("revisionRun").disabled = !allowed.has("revision.run");
       $("revisionAccept").disabled = !allowed.has("revision.accept");
       $("revisionCancel").disabled = !allowed.has("revision.cancel");

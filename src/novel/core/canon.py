@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import contextlib
 import json
-from pathlib import Path
 import shutil
-from typing import Iterable
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -14,14 +15,13 @@ from novel.core.agent_output import (
 )
 from novel.core.context_budget import render_state_prompt_text, render_timeline_prompt_text
 from novel.core.context_policy import render_untrusted_workspace_data
+from novel.core.contracts import CURRENT_SCHEMA_VERSION
 from novel.core.io import atomic_write_model_json, atomic_write_text, backup_file, load_json_model, load_yaml_model
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
-from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.prompts import load_prompt_template, prompt_template_version
 from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
 from novel.core.providers import ModelProvider, ModelRequest
-from novel.core.prompts import load_prompt_template, prompt_template_version
-from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.schemas import (
     CanonApplyLog,
     CanonProposal,
@@ -35,9 +35,10 @@ from novel.core.schemas import (
     LocationsFile,
     ProjectConfig,
     TimelineFile,
-    WorldFile,
     VectorContextMode,
+    WorldFile,
 )
+from novel.core.search import retrieve_context_bundle, write_context_report
 from novel.core.structured_generation import (
     REPAIR_ERROR_LIMIT,
     REPAIR_INVALID_OUTPUT_LIMIT,
@@ -358,10 +359,8 @@ def format_canon_validation_report(report: ValidationReport) -> str:
     lines = []
     for message in report.messages:
         path = message.path
-        try:
+        with contextlib.suppress(ValueError):
             path = path.relative_to(report.root)
-        except ValueError:
-            pass
         lines.append(f"{message.level}: {path}: {message.message}")
     if report.ok:
         lines.append(f"Canon validation passed: {len(report.warnings)} warning(s)")

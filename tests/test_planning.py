@@ -5,10 +5,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from tests.internal_task_cli import run_test_cli
 from novel.core.canon import apply_canon_proposal, default_mock_canon_proposal_json
-from novel.core.io import load_json_model
 from novel.core.contracts import CURRENT_SCHEMA_VERSION
+from novel.core.io import load_json_model
 from novel.core.planning import (
     ChapterPlanningOptions,
     PlanningError,
@@ -19,6 +18,7 @@ from novel.core.planning import (
 from novel.core.providers import MockProvider
 from novel.core.schemas import ChapterPlan
 from novel.core.workspace import InitOptions, init_workspace
+from tests.internal_task_cli import run_test_cli
 
 
 def test_mock_provider_can_generate_chapter_plan(tmp_path: Path) -> None:

@@ -148,17 +148,21 @@ novel usage --path ./qingdeng-inn --json
 - [Agent Prompt 组装说明](docs/AGENT_PROMPT_ASSEMBLY.md)：prompt、context 和 schema 约束。
 - [外部 Agent 集成](docs/INTEGRATION.md)：JSON contract 和 openclaw manifest。
 - [发布流程](docs/RELEASE.md)：发布前检查、构建和 GitHub Release。
+- [性能基线](docs/PERFORMANCE.md)：10/100/500 章 Search 刷新、查询与内存门禁。
 - [更新日志](CHANGELOG.md)：版本变化记录。
+- [完整文档目录](docs/index.md)：产品、配置、架构、API、开发、部署、安全与历史材料入口。
 
 ## 测试和发布检查
 
 常用本地检查：
 
 ```bash
-python -m pytest -m "not real_api and not web_e2e" -q
+python -m pip install -c requirements/constraints.txt -e ".[dev]"
+python -m pytest -m "not real_api and not web_e2e" --cov=novel --cov-report=term-missing -q
 python -m pytest -m web_e2e -q
 ruff check src tests scripts
 mypy src scripts
+python -m pip_audit .
 python -m build
 python -m twine check dist/*
 ```
@@ -180,7 +184,7 @@ python -m twine check dist/*
 
 ### API Key 放在哪里？
 
-放在环境变量或项目 `.env`。不要把真实 API Key 写入项目文件、示例 YAML、README、issue、日志或测试 fixtures。
+可放在进程环境变量或项目根目录 `.env`。本项目为可信单用户本地工具，明确允许 `.env` 明文存储以便维护；它和备份会被 Git、Web 文件树、导出与日志排除，但项目目录/备份的读权限仍由使用者负责。除 `.env` 及其受控备份外，不要把真实 API Key 写入 YAML、JSON、Markdown、README、issue、日志或测试 fixtures。高敏感场景只使用进程环境变量。详见 [安全策略](docs/SECURITY.md)。
 
 ### Windows 现在能推广使用吗？
 

@@ -5,6 +5,18 @@ import json
 from pathlib import Path
 from typing import cast
 
+from novel.cli_shared import (
+    _dispatch_cli_command,
+    _failure,
+    _management_event_lines,
+    _management_event_payload,
+    _print_dry_run_provider,
+    _print_json,
+    _quiet,
+    _resolve_memory_repair_proposal_arg,
+    _success,
+    _wants_json,
+)
 from novel.core.chapter_memory import (
     ChapterMemoryError,
     accepted_chapter_numbers,
@@ -23,18 +35,7 @@ from novel.core.contracts import (
 from novel.core.schemas import (
     MemoryChangeStage,
 )
-from novel.cli_shared import (
-    _management_event_payload,
-    _management_event_lines,
-    _resolve_memory_repair_proposal_arg,
-    _print_dry_run_provider,
-    _wants_json,
-    _quiet,
-    _success,
-    _failure,
-    _print_json,
-    _dispatch_cli_command,
-)
+
 
 def _cmd_memory_repair(args: argparse.Namespace) -> int:
     root = Path(args.path).expanduser().resolve()

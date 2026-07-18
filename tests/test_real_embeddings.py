@@ -10,7 +10,6 @@ from novel.core.schemas import EmbeddingProviderConfig
 from novel.core.workspace import InitOptions, init_workspace
 from novel.web_api import handle_api_request
 
-
 pytestmark = pytest.mark.real_api
 
 

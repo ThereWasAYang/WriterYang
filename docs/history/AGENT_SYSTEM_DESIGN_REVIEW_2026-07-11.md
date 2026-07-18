@@ -1,5 +1,7 @@
 # Agent 系统设计审视报告
 
+> 历史材料：仅描述 2026-07-11 当时的实现与判断，不是现行规范。现行设计以 `docs/ARCHITECTURE.md` 为准。
+
 > 审视日期：2026-07-11
 >
 > 审视范围：Agent/Profile/Task 划分、Orchestrator、Creation Session、章节工作流、提示词、结构化 Schema、Provider、CLI/Web 交互、状态与时间线、检索上下文、审计、导出、可观测性、安全与测试。

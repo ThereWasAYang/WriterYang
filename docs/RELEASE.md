@@ -65,7 +65,7 @@ pytest -m web_e2e -q
 python -c "from pathlib import Path; from novel.core.security import scan_security; r=scan_security(Path('.')); assert r.ok, [(f.code, str(f.path), f.line) for f in r.findings]"
 ```
 
-项目文件可以包含 `OPENAI_API_KEY` 这类环境变量名，但不能包含真实 key 值。`.env.example` 只能包含空值变量名，例如 `OPENAI_API_KEY=`。
+受跟踪的项目文件可以包含 `OPENAI_API_KEY` 这类环境变量名，但不能包含真实 key 值。小说 workspace 的未跟踪 `.env` 允许按本地产品策略保存明文；发布包、Git、日志、Web 文件树和导出中不得出现其内容或备份。`.env.example` 只能包含空值变量名，例如 `OPENAI_API_KEY=`。
 
 ## 5. 初始化模板
 

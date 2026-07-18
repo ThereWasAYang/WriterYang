@@ -68,6 +68,7 @@ def test_schema_payloads_cover_project_json_files() -> None:
         "segment_patch",
         "revision_session",
         "preview_manifest",
+        "prose_artifact_payload",
     }
 
     assert set(payloads) == expected
@@ -121,6 +122,7 @@ def test_model_output_schema_payloads_cover_agent_structured_outputs() -> None:
         "RevisionRouteDecision",
         "AuditRepairRouteDecision",
         "SegmentPatch",
+        "ProseArtifactPayload",
     }
 
     assert set(payloads) == expected
@@ -156,6 +158,9 @@ def test_schema_export_cli(tmp_path: Path) -> None:
     output = tmp_path / "schemas"
 
     code = main(["schema", "export", "--output", str(output), "--quiet"])
+    code_second_run = main(["schema", "export", "--output", str(output), "--quiet"])
 
     assert code == 0
+    assert code_second_run == 0
     assert (output / "audit_report.schema.json").is_file()
+    assert not list(output.glob("*.bak_*"))

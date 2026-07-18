@@ -4,7 +4,6 @@ from pathlib import Path
 
 from novel.cli import build_parser
 
-
 DEVELOPER_DOCS = (
     "docs/DEVELOPER_GUIDE.md",
     "docs/CODEBASE_REFERENCE.md",
@@ -27,6 +26,7 @@ def test_codebase_reference_covers_python_entrypoints_and_core_modules() -> None
         "src/novel/web_server.py",
         "src/novel/web_static/index.html",
         "src/novel/web_static/app.css",
+        *[str(path) for path in sorted(Path("src/novel/cli_parsers").glob("*.py"))],
         *[str(path) for path in sorted(Path("src/novel/web_api").glob("*.py"))],
         *[str(path) for path in sorted(Path("src/novel/web_static").glob("app_*.js"))],
         *[
@@ -34,6 +34,8 @@ def test_codebase_reference_covers_python_entrypoints_and_core_modules() -> None
             for path in sorted(Path("src/novel/core").glob("*.py"))
             if path.name != "__init__.py"
         ],
+        *[str(path) for path in sorted(Path("src/novel/core/command_handlers").glob("*.py"))],
+        *[str(path) for path in sorted(Path("src/novel/core/contracts").glob("*.py"))],
         *[str(path) for path in sorted(Path("src/novel/core/memory_repair").glob("*.py"))],
     ]
 

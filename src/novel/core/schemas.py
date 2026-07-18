@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
 import json
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -11,7 +11,6 @@ from novel.core.contracts.artifacts import ArtifactRef
 from novel.core.contracts.common import CURRENT_SCHEMA_VERSION, ensure_schema_version
 from novel.core.contracts.sessions import ChapterNodeState, SessionPhase
 from novel.core.contracts.tracing import BudgetUsage, WorkflowBudget
-
 
 EntityId = str
 Visibility = Literal["reader_visible", "hidden", "partially_revealed"]
@@ -95,13 +94,13 @@ ChapterMemoryStatus = Literal["accepted"]
 ChapterMemoryVisibility = Literal["reader_visible", "author_only", "hidden_truth", "audit_only"]
 
 
-class FlexibleModel(BaseModel):
+class PersistenceModel(BaseModel):
     """Strict persisted/domain model base for the schema-v3-only workspace."""
 
     model_config = ConfigDict(extra="forbid")
 
 
-class SchemaVersionedModel(FlexibleModel):
+class SchemaVersionedModel(PersistenceModel):
     schema_version: int = Field(default=CURRENT_SCHEMA_VERSION)
 
     @field_validator("schema_version")
@@ -110,21 +109,21 @@ class SchemaVersionedModel(FlexibleModel):
         return ensure_schema_version(value)
 
 
-class TargetLength(FlexibleModel):
+class TargetLength(PersistenceModel):
     type: str | None = None
     planned_chapters: int | None = Field(default=None, ge=1)
 
 
-class Narration(FlexibleModel):
+class Narration(PersistenceModel):
     pov: str
     tense: str
 
 
-class WebConfig(FlexibleModel):
+class WebConfig(PersistenceModel):
     default_port: int = Field(default=8765, ge=1, le=65535)
 
 
-class ContextBudgetConfig(FlexibleModel):
+class ContextBudgetConfig(PersistenceModel):
     enabled: bool = False
     recent_window_chapters: int = Field(default=3, ge=0)
     max_full_timeline_events: int = Field(default=40, ge=1)
@@ -132,24 +131,24 @@ class ContextBudgetConfig(FlexibleModel):
     digest_dropped: bool = True
 
 
-class PolishConfig(FlexibleModel):
+class PolishConfig(PersistenceModel):
     mode: PolishMode = "single_pass"
 
 
-class AuditRecallConfig(FlexibleModel):
+class AuditRecallConfig(PersistenceModel):
     enabled: bool = True
     max_recall_rounds: int = Field(default=1, ge=0, le=2)
     max_requests_per_round: int = Field(default=3, ge=1, le=10)
 
 
-class ChapterMemoryConfig(FlexibleModel):
+class ChapterMemoryConfig(PersistenceModel):
     enabled: bool = True
     generate_on_accept: bool = True
     strict_accept: bool = False
     inject_into_tasks: list[str] = Field(default_factory=lambda: ["plan", "write"])
 
 
-class CanonDriftConfig(FlexibleModel):
+class CanonDriftConfig(PersistenceModel):
     enabled: bool = True
 
 
@@ -171,11 +170,11 @@ class ProjectConfig(SchemaVersionedModel):
     canon_drift: CanonDriftConfig | None = None
 
 
-class ThinkingConfig(FlexibleModel):
+class ThinkingConfig(PersistenceModel):
     type: Literal["enabled", "disabled"] = "disabled"
 
 
-class AgentConfig(FlexibleModel):
+class AgentConfig(PersistenceModel):
     inherit_default: bool = False
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
@@ -198,7 +197,7 @@ class AgentConfig(FlexibleModel):
         return value
 
 
-class AgentConfigPatch(FlexibleModel):
+class AgentConfigPatch(PersistenceModel):
     inherit_default: bool | None = None
     provider: str | None = Field(default=None, min_length=1)
     model: str | None = Field(default=None, min_length=1)
@@ -252,7 +251,7 @@ class AgentsConfig(SchemaVersionedModel):
     tasks: dict[str, AgentConfig | AgentConfigPatch] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def require_default_or_profiles(self) -> "AgentsConfig":
+    def require_default_or_profiles(self) -> AgentsConfig:
         if self.model_extra and "agents" in self.model_extra:
             raise ValueError("agents config 使用了已移除的 agents mapping；请改用 profiles/tasks")
         if self.default is None and not self.profiles:
@@ -284,7 +283,7 @@ class AgentsConfig(SchemaVersionedModel):
         return self
 
 
-class EmbeddingProviderConfig(FlexibleModel):
+class EmbeddingProviderConfig(PersistenceModel):
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
     api_key_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
@@ -361,27 +360,27 @@ class GeneratedStyleGuide(SchemaVersionedModel):
         return str(value).strip() if value is not None else value
 
 
-class Relationship(FlexibleModel):
+class Relationship(PersistenceModel):
     target_id: EntityId
     type: str
     reader_visible: bool | None = None
     description: str | None = None
 
 
-class Ability(FlexibleModel):
+class Ability(PersistenceModel):
     name: str
     description: str
     limitations: str | None = None
 
 
-class Secret(FlexibleModel):
+class Secret(PersistenceModel):
     id: EntityId
     visibility: Visibility
     description: str
     planned_reveal: str | None = None
 
 
-class Character(FlexibleModel):
+class Character(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     name: str = Field(min_length=1)
     role: str = Field(min_length=1)
@@ -413,13 +412,13 @@ class CharactersFile(SchemaVersionedModel):
     characters: list[Character] = Field(default_factory=list)
 
 
-class LocationRule(FlexibleModel):
+class LocationRule(PersistenceModel):
     id: EntityId | None = None
     description: str
     visibility: Visibility
 
 
-class Location(FlexibleModel):
+class Location(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     name: str = Field(min_length=1)
     type: str = Field(min_length=1)
@@ -435,12 +434,12 @@ class LocationsFile(SchemaVersionedModel):
     locations: list[Location] = Field(default_factory=list)
 
 
-class SpecialProperty(FlexibleModel):
+class SpecialProperty(PersistenceModel):
     description: str
     visibility: Visibility
 
 
-class Item(FlexibleModel):
+class Item(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     name: str = Field(min_length=1)
     type: str = Field(min_length=1)
@@ -455,7 +454,7 @@ class ItemsFile(SchemaVersionedModel):
     items: list[Item] = Field(default_factory=list)
 
 
-class WorldRule(FlexibleModel):
+class WorldRule(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     name: str = Field(min_length=1)
     description: str = Field(min_length=1)
@@ -468,12 +467,12 @@ class WorldFile(SchemaVersionedModel):
     world_rules: list[WorldRule] = Field(default_factory=list)
 
 
-class PlannedReveal(FlexibleModel):
+class PlannedReveal(PersistenceModel):
     chapter: int = Field(ge=1)
     method: str | None = None
 
 
-class HiddenTruth(FlexibleModel):
+class HiddenTruth(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
@@ -488,12 +487,12 @@ class HiddenTruthsFile(SchemaVersionedModel):
     hidden_truths: list[HiddenTruth] = Field(default_factory=list)
 
 
-class PlannedPayoff(FlexibleModel):
+class PlannedPayoff(PersistenceModel):
     chapter: int = Field(ge=1)
     description: str
 
 
-class ForeshadowingThread(FlexibleModel):
+class ForeshadowingThread(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     type: str = Field(min_length=1)
     title: str = Field(min_length=1)
@@ -536,13 +535,13 @@ class CanonProposal(SchemaVersionedModel):
     notes: list[str] = Field(default_factory=list)
 
 
-class StoryPosition(FlexibleModel):
+class StoryPosition(PersistenceModel):
     latest_chapter: int = Field(default=0, ge=0)
     in_story_time: str | None = None
     summary: str | None = None
 
 
-class CharacterState(FlexibleModel):
+class CharacterState(PersistenceModel):
     entity_id: EntityId
     location_id: EntityId | None = None
     health: str | None = None
@@ -553,7 +552,7 @@ class CharacterState(FlexibleModel):
     last_updated_chapter: int = Field(ge=0)
 
 
-class ItemState(FlexibleModel):
+class ItemState(PersistenceModel):
     entity_id: EntityId
     holder_id: EntityId | None = None
     location_id: EntityId | None = None
@@ -562,7 +561,7 @@ class ItemState(FlexibleModel):
     last_updated_chapter: int = Field(ge=0)
 
 
-class LocationState(FlexibleModel):
+class LocationState(PersistenceModel):
     entity_id: EntityId
     accessibility: str | None = None
     condition: str | None = None
@@ -577,20 +576,20 @@ class EntityState(SchemaVersionedModel):
     location_states: list[LocationState]
 
 
-class TimelineNarrativePosition(FlexibleModel):
+class TimelineNarrativePosition(PersistenceModel):
     chapter: int = Field(ge=1)
     scene: int | None = Field(default=None, ge=1)
     sequence: int | None = Field(default=None, ge=1)
 
 
-class TimelineStoryPosition(FlexibleModel):
+class TimelineStoryPosition(PersistenceModel):
     time_label: str = Field(min_length=1)
     order: float | None = None
     thread_id: EntityId | None = None
     certainty: TimelineCertainty | None = None
 
 
-class TimelineEvent(FlexibleModel):
+class TimelineEvent(PersistenceModel):
     model_config = ConfigDict(extra="forbid")
 
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
@@ -615,7 +614,7 @@ class TimelineFile(SchemaVersionedModel):
     events: list[TimelineEvent] = Field(default_factory=list)
 
 
-class StateChange(FlexibleModel):
+class StateChange(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     chapter: int = Field(ge=1)
     entity_id: EntityId
@@ -661,7 +660,7 @@ class StateUpdateApplyLog(SchemaVersionedModel):
     errors: list[str] = Field(default_factory=list)
 
 
-class CanonProposalCounts(FlexibleModel):
+class CanonProposalCounts(PersistenceModel):
     characters: int = Field(default=0, ge=0)
     locations: int = Field(default=0, ge=0)
     items: int = Field(default=0, ge=0)
@@ -695,7 +694,7 @@ class ChapterMetadata(SchemaVersionedModel):
     updated_at: datetime
 
 
-class ChapterMemorySource(FlexibleModel):
+class ChapterMemorySource(PersistenceModel):
     polished_path: str = Field(min_length=1)
     polished_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     plan_path: str | None = None
@@ -704,14 +703,14 @@ class ChapterMemorySource(FlexibleModel):
     state_update_apply_log_path: str | None = None
 
 
-class ChapterMemorySourceRef(FlexibleModel):
+class ChapterMemorySourceRef(PersistenceModel):
     path: str = Field(min_length=1)
     kind: str = Field(min_length=1)
     id: str | None = None
     quote: str | None = None
 
 
-class ChapterMemoryItem(FlexibleModel):
+class ChapterMemoryItem(PersistenceModel):
     summary: str = Field(min_length=1)
     description: str | None = None
     visibility: ChapterMemoryVisibility = "author_only"
@@ -739,7 +738,7 @@ class ChapterMemory(SchemaVersionedModel):
     warnings: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def memory_item_timeline_refs_are_listed(self) -> "ChapterMemory":
+    def memory_item_timeline_refs_are_listed(self) -> ChapterMemory:
         timeline_ids = list(self.timeline_event_ids)
         for item in self.all_items():
             for event_id in item.timeline_event_ids:
@@ -761,7 +760,7 @@ class ChapterMemory(SchemaVersionedModel):
         ]
 
 
-class CreationArchiveEntry(FlexibleModel):
+class CreationArchiveEntry(PersistenceModel):
     source_path: str = Field(min_length=1)
     archive_path: str = Field(min_length=1)
     sha256: str = Field(min_length=64, max_length=64)
@@ -778,7 +777,7 @@ class CreationSession(SchemaVersionedModel):
     final_output_paths: list[str] = Field(default_factory=list)
     audit_history: list[str] = Field(default_factory=list)
     revision_history: list[str] = Field(default_factory=list)
-    revision_route_history: list["RevisionRouteRecord"] = Field(default_factory=list)
+    revision_route_history: list[RevisionRouteRecord] = Field(default_factory=list)
     archive_paths: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -814,7 +813,7 @@ class CreationSession(SchemaVersionedModel):
         return self
 
 
-class CreationOutlineChapter(FlexibleModel):
+class CreationOutlineChapter(PersistenceModel):
     chapter_number: int = Field(ge=1)
     title: str = Field(min_length=1)
     plan_path: str = Field(
@@ -868,7 +867,7 @@ class AskIntentDecision(SchemaVersionedModel):
     source: DecisionSource = "model"
 
     @model_validator(mode="after")
-    def validate_apply_has_repair_id(self) -> "AskIntentDecision":
+    def validate_apply_has_repair_id(self) -> AskIntentDecision:
         if self.task == "memory_repair_apply" and not _has_text(self.repair_id):
             raise ValueError("memory_repair_apply 必须包含 repair_id")
         return self
@@ -884,14 +883,14 @@ class AuditRepairRouteDecision(SchemaVersionedModel):
     source: DecisionSource = "model"
 
 
-class RevisionRouteRecord(FlexibleModel):
+class RevisionRouteRecord(PersistenceModel):
     created_at: datetime
     user_instruction: str
     from_audit: bool = False
     decision: RevisionRouteDecision
 
 
-class ExportSourceChapter(FlexibleModel):
+class ExportSourceChapter(PersistenceModel):
     chapter_number: int = Field(ge=1)
     title: str = Field(min_length=1)
     path: str = Field(min_length=1)
@@ -906,7 +905,7 @@ class ExportSourceChapter(FlexibleModel):
     post_timeline_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
-class ExportRecord(FlexibleModel):
+class ExportRecord(PersistenceModel):
     id: str = Field(min_length=1, pattern=r"^export_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
     type: Literal["markdown", "docx", "html", "txt"]
     source_chapters: list[int] = Field(min_length=1)
@@ -920,7 +919,7 @@ class ExportManifest(SchemaVersionedModel):
     exports: list[ExportRecord] = Field(default_factory=list)
 
 
-class RevisionRecord(FlexibleModel):
+class RevisionRecord(PersistenceModel):
     id: str = Field(min_length=1, pattern=r"^revision_[0-9]{8}_[0-9]{6}_[0-9]{6}$")
     chapter_number: int = Field(ge=1)
     target: Literal["draft", "polished"]
@@ -939,20 +938,20 @@ class RevisionLog(SchemaVersionedModel):
     revisions: list[RevisionRecord] = Field(default_factory=list)
 
 
-class RequiredContext(FlexibleModel):
+class RequiredContext(PersistenceModel):
     canon_entity_ids: list[EntityId] = Field(default_factory=list)
     state_entity_ids: list[EntityId] = Field(default_factory=list)
     timeline_event_ids: list[EntityId] = Field(default_factory=list)
 
 
-class RevealAuthorization(FlexibleModel):
+class RevealAuthorization(PersistenceModel):
     hidden_truth_id: EntityId = Field(min_length=1)
     chapter_number: int = Field(ge=1)
     method: str = Field(min_length=1)
     reason: str = Field(min_length=1)
 
 
-class ChapterScene(FlexibleModel):
+class ChapterScene(PersistenceModel):
     scene_number: int = Field(ge=1)
     location_id: EntityId
     participant_ids: list[EntityId] = Field(default_factory=list)
@@ -1008,7 +1007,7 @@ ContextAuthority = Literal[
 ContextLifecycleStatus = Literal["current", "accepted", "fresh", "working", "historical", "stale"]
 
 
-class ContextItem(FlexibleModel):
+class ContextItem(PersistenceModel):
     id: EntityId = Field(min_length=1)
     type: str = Field(min_length=1)
     source: str = Field(min_length=1)
@@ -1024,7 +1023,7 @@ class ContextItem(FlexibleModel):
     content: dict[str, Any] = Field(default_factory=dict)
 
 
-class ContextExclusion(FlexibleModel):
+class ContextExclusion(PersistenceModel):
     id: EntityId = Field(min_length=1)
     type: str = Field(min_length=1)
     source: str = Field(min_length=1)
@@ -1083,13 +1082,13 @@ class ContextBundle(SchemaVersionedModel):
         return "\n".join(lines) + "\n"
 
 
-class ContextRequest(FlexibleModel):
+class ContextRequest(PersistenceModel):
     kind: ContextRequestKind
     ref: str = Field(min_length=1)
     reason: str = Field(min_length=1)
 
 
-class AuditEvidence(FlexibleModel):
+class AuditEvidence(PersistenceModel):
     source: str
     quote: str
 
@@ -1108,7 +1107,7 @@ def _infer_audit_issue_category(issue: dict[str, Any]) -> AuditIssueCategory:
     return "consistency_violation"
 
 
-class AuditIssue(FlexibleModel):
+class AuditIssue(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     severity: Importance
     type: str = Field(min_length=1)
@@ -1175,7 +1174,7 @@ class AuditReport(SchemaVersionedModel):
         return self
 
 
-class SessionRewriteIssue(FlexibleModel):
+class SessionRewriteIssue(PersistenceModel):
     id: EntityId = Field(pattern=r"^[a-z0-9_]+$")
     severity: Importance
     type: str = Field(min_length=1)
@@ -1190,7 +1189,7 @@ class SessionRewriteIssue(FlexibleModel):
     confidence: float | None = Field(default=None, ge=0, le=1)
 
 
-class SessionAuditRevision(FlexibleModel):
+class SessionAuditRevision(PersistenceModel):
     instruction: str = Field(min_length=1)
     previous_audit_path: str = Field(min_length=1)
     new_audit_path: str = Field(min_length=1)
@@ -1221,7 +1220,7 @@ class SessionRewriteEvents(SchemaVersionedModel):
     events: list[SessionRewriteEvent] = Field(default_factory=list)
 
 
-class SessionProgressEvent(FlexibleModel):
+class SessionProgressEvent(PersistenceModel):
     stage: str = Field(min_length=1)
     message: str = Field(min_length=1)
     chapter_number: int | None = Field(default=None, ge=1)
@@ -1244,7 +1243,7 @@ class SessionProgress(SchemaVersionedModel):
     error: str | None = None
 
 
-class MemoryRepairOperation(FlexibleModel):
+class MemoryRepairOperation(PersistenceModel):
     op: MemoryRepairOperationType
     file: str = Field(min_length=1)
     path: str = Field(min_length=1)
@@ -1264,7 +1263,7 @@ class MemoryChangeImpact(SchemaVersionedModel):
     summary: str = Field(default="")
 
 
-class MemoryChangeFollowupAction(FlexibleModel):
+class MemoryChangeFollowupAction(PersistenceModel):
     action: MemoryChangeFollowupActionType
     reason: str = Field(min_length=1)
     chapter_numbers: list[int] = Field(default_factory=list)
@@ -1272,7 +1271,7 @@ class MemoryChangeFollowupAction(FlexibleModel):
     auto: bool = False
 
 
-class MemoryChangeConversationTurn(FlexibleModel):
+class MemoryChangeConversationTurn(PersistenceModel):
     role: MemoryChangeConversationRole
     content: str = Field(min_length=1)
     created_at: datetime
@@ -1287,7 +1286,7 @@ class MemoryChangeClarificationDecision(SchemaVersionedModel):
     source: DecisionSource = "model"
 
     @model_validator(mode="after")
-    def require_questions_when_needed(self) -> "MemoryChangeClarificationDecision":
+    def require_questions_when_needed(self) -> MemoryChangeClarificationDecision:
         if self.status == "needs_clarification" and not any(_has_text(question) for question in self.questions):
             raise ValueError("needs_clarification 必须至少包含一个 question")
         return self
@@ -1309,7 +1308,7 @@ class MemoryChangeClarificationSession(SchemaVersionedModel):
     updated_at: datetime
 
 
-class MemoryChangeBatch(FlexibleModel):
+class MemoryChangeBatch(PersistenceModel):
     batch_id: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     instruction: str = Field(min_length=1)
     target_files: list[str] = Field(default_factory=list)
@@ -1317,7 +1316,7 @@ class MemoryChangeBatch(FlexibleModel):
     reason: str = Field(min_length=1)
 
     @model_validator(mode="after")
-    def require_scope(self) -> "MemoryChangeBatch":
+    def require_scope(self) -> MemoryChangeBatch:
         if not self.target_files and not self.domains:
             raise ValueError("batch 必须包含 target_files 或 domains")
         return self

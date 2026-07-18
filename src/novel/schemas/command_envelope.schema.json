@@ -1,0 +1,2151 @@
+{
+  "$defs": {
+    "AgentConfigUpdateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "agent_config.update",
+          "default": "agent_config.update",
+          "title": "Type",
+          "type": "string"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "profiles": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Profiles",
+          "type": "object"
+        },
+        "tasks": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Tasks",
+          "type": "object"
+        },
+        "clear_profiles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Clear Profiles",
+          "type": "array"
+        },
+        "clear_tasks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Clear Tasks",
+          "type": "array"
+        }
+      },
+      "title": "AgentConfigUpdateCommand",
+      "type": "object"
+    },
+    "BudgetUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "chapters": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Chapters",
+          "type": "integer"
+        },
+        "model_calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Model Calls",
+          "type": "integer"
+        },
+        "provider_attempts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Provider Attempts",
+          "type": "integer"
+        },
+        "auto_revision_rounds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Auto Revision Rounds",
+          "type": "integer"
+        },
+        "input_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "BudgetUsage",
+      "type": "object"
+    },
+    "CanonApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "canon.apply",
+          "default": "canon.apply",
+          "title": "Type",
+          "type": "string"
+        },
+        "proposal_path": {
+          "minLength": 1,
+          "title": "Proposal Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_path"
+      ],
+      "title": "CanonApplyCommand",
+      "type": "object"
+    },
+    "CanonSuggestCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "canon.suggest",
+          "default": "canon.suggest",
+          "title": "Type",
+          "type": "string"
+        },
+        "output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Path"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        },
+        "use_search_context": {
+          "default": false,
+          "title": "Use Search Context",
+          "type": "boolean"
+        },
+        "use_vector_context": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Use Vector Context",
+          "type": "string"
+        }
+      },
+      "title": "CanonSuggestCommand",
+      "type": "object"
+    },
+    "ChapterCandidateSaveCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "chapter_candidate.save",
+          "default": "chapter_candidate.save",
+          "title": "Type",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "target": {
+          "enum": [
+            "draft",
+            "polished"
+          ],
+          "title": "Target",
+          "type": "string"
+        },
+        "source_file": {
+          "minLength": 1,
+          "title": "Source File",
+          "type": "string"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction"
+        }
+      },
+      "required": [
+        "chapter_number",
+        "target",
+        "source_file",
+        "content"
+      ],
+      "title": "ChapterCandidateSaveCommand",
+      "type": "object"
+    },
+    "ChapterMemoryGenerateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "chapter_memory.generate",
+          "default": "chapter_memory.generate",
+          "title": "Type",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        }
+      },
+      "required": [
+        "chapter_number"
+      ],
+      "title": "ChapterMemoryGenerateCommand",
+      "type": "object"
+    },
+    "ChapterMemoryRebuildCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "chapter_memory.rebuild",
+          "default": "chapter_memory.rebuild",
+          "title": "Type",
+          "type": "string"
+        },
+        "mode": {
+          "default": "missing_or_stale",
+          "enum": [
+            "missing",
+            "missing_or_stale",
+            "all"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        }
+      },
+      "title": "ChapterMemoryRebuildCommand",
+      "type": "object"
+    },
+    "DefaultProviderSetupCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setup.default_provider",
+          "default": "setup.default_provider",
+          "title": "Type",
+          "type": "string"
+        },
+        "provider": {
+          "default": "openai_compatible",
+          "title": "Provider",
+          "type": "string"
+        },
+        "base_url": {
+          "minLength": 1,
+          "title": "Base Url",
+          "type": "string"
+        },
+        "api_key": {
+          "minLength": 1,
+          "title": "Api Key",
+          "type": "string"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "max_context_tokens": {
+          "minimum": 1,
+          "title": "Max Context Tokens",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "minimum": 1,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_retries": {
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "ping": {
+          "default": true,
+          "title": "Ping",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "base_url",
+        "api_key",
+        "model",
+        "max_context_tokens",
+        "max_tokens",
+        "timeout_seconds",
+        "max_retries"
+      ],
+      "title": "DefaultProviderSetupCommand",
+      "type": "object"
+    },
+    "EmbeddingProviderSetupCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setup.embedding_provider",
+          "default": "setup.embedding_provider",
+          "title": "Type",
+          "type": "string"
+        },
+        "skip": {
+          "default": false,
+          "title": "Skip",
+          "type": "boolean"
+        },
+        "provider": {
+          "default": "openai_compatible",
+          "title": "Provider",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "configured",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "base_url": {
+          "default": "",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "api_key": {
+          "default": "",
+          "title": "Api Key",
+          "type": "string"
+        },
+        "model": {
+          "default": "",
+          "title": "Model",
+          "type": "string"
+        },
+        "dimensions": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimensions"
+        },
+        "batch_size": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Size"
+        },
+        "timeout_seconds": {
+          "default": 30.0,
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_retries": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "ping": {
+          "default": true,
+          "title": "Ping",
+          "type": "boolean"
+        }
+      },
+      "title": "EmbeddingProviderSetupCommand",
+      "type": "object"
+    },
+    "IndexUpdateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "enum": [
+            "index.rebuild",
+            "index.refresh"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "embedding_provider_name": {
+          "default": "config",
+          "title": "Embedding Provider Name",
+          "type": "string"
+        },
+        "embedding_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Embedding Config Path"
+        },
+        "with_embeddings": {
+          "default": false,
+          "title": "With Embeddings",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "IndexUpdateCommand",
+      "type": "object"
+    },
+    "InspirationGenerateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "inspiration.generate",
+          "default": "inspiration.generate",
+          "title": "Type",
+          "type": "string"
+        },
+        "source_text": {
+          "minLength": 1,
+          "title": "Source Text",
+          "type": "string"
+        },
+        "source_type": {
+          "default": "user_text",
+          "minLength": 1,
+          "title": "Source Type",
+          "type": "string"
+        },
+        "write_json": {
+          "default": false,
+          "title": "Write Json",
+          "type": "boolean"
+        },
+        "overwrite": {
+          "default": false,
+          "title": "Overwrite",
+          "type": "boolean"
+        },
+        "allow_default_placeholder": {
+          "default": false,
+          "title": "Allow Default Placeholder",
+          "type": "boolean"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        },
+        "use_search_context": {
+          "default": false,
+          "title": "Use Search Context",
+          "type": "boolean"
+        },
+        "use_vector_context": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Use Vector Context",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_text"
+      ],
+      "title": "InspirationGenerateCommand",
+      "type": "object"
+    },
+    "MemoryRepairApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "memory_repair.apply",
+          "default": "memory_repair.apply",
+          "title": "Type",
+          "type": "string"
+        },
+        "proposal_path": {
+          "minLength": 1,
+          "title": "Proposal Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_path"
+      ],
+      "title": "MemoryRepairApplyCommand",
+      "type": "object"
+    },
+    "MemoryRepairSuggestCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "memory_repair.suggest",
+          "default": "memory_repair.suggest",
+          "title": "Type",
+          "type": "string"
+        },
+        "request": {
+          "minLength": 1,
+          "title": "Request",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "title": "MemoryRepairSuggestCommand",
+      "type": "object"
+    },
+    "PreviewPackageCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "preview.package",
+          "default": "preview.package",
+          "title": "Type",
+          "type": "string"
+        },
+        "chapters": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Chapters",
+          "type": "array"
+        },
+        "from_chapter": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Chapter"
+        },
+        "to_chapter": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Chapter"
+        },
+        "source_kind": {
+          "default": "polished",
+          "enum": [
+            "draft",
+            "polished"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "title": "PreviewPackageCommand",
+      "type": "object"
+    },
+    "ProductionExportCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "enum": [
+            "export.markdown",
+            "export.docx"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "chapters": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Chapters",
+          "type": "array"
+        },
+        "from_chapter": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Chapter"
+        },
+        "to_chapter": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Chapter"
+        },
+        "output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Path"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "include_toc": {
+          "default": false,
+          "title": "Include Toc",
+          "type": "boolean"
+        },
+        "volume_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Volume Title"
+        },
+        "chapter_number_style": {
+          "default": "chinese",
+          "enum": [
+            "chinese",
+            "arabic",
+            "chapter",
+            "plain"
+          ],
+          "title": "Chapter Number Style",
+          "type": "string"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ProductionExportCommand",
+      "type": "object"
+    },
+    "ProjectInitCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "project.init",
+          "default": "project.init",
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "language": {
+          "default": "zh-CN",
+          "title": "Language",
+          "type": "string"
+        },
+        "genre": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Genre",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "ProjectInitCommand",
+      "type": "object"
+    },
+    "ProjectShowCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "project.show",
+          "default": "project.show",
+          "title": "Type",
+          "type": "string"
+        },
+        "target": {
+          "default": "canon",
+          "enum": [
+            "characters",
+            "timeline",
+            "state",
+            "canon"
+          ],
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "title": "ProjectShowCommand",
+      "type": "object"
+    },
+    "ProjectStatusCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "project.status",
+          "default": "project.status",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "ProjectStatusCommand",
+      "type": "object"
+    },
+    "ProjectValidateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "project.validate",
+          "default": "project.validate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "ProjectValidateCommand",
+      "type": "object"
+    },
+    "ProjectWebPortSetupCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setup.project_web_port",
+          "default": "setup.project_web_port",
+          "title": "Type",
+          "type": "string"
+        },
+        "requested_port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Requested Port",
+          "type": "integer"
+        },
+        "host": {
+          "default": "127.0.0.1",
+          "minLength": 1,
+          "title": "Host",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requested_port"
+      ],
+      "title": "ProjectWebPortSetupCommand",
+      "type": "object"
+    },
+    "RevisionBlocksCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "revision.blocks",
+          "default": "revision.blocks",
+          "title": "Type",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chapter_number"
+      ],
+      "title": "RevisionBlocksCommand",
+      "type": "object"
+    },
+    "RevisionCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "enum": [
+            "revision.show",
+            "revision.run",
+            "revision.accept",
+            "revision.cancel"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "revision_session_id": {
+          "minLength": 1,
+          "title": "Revision Session Id",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "use_search_context": {
+          "default": true,
+          "title": "Use Search Context",
+          "type": "boolean"
+        },
+        "use_vector_context": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Use Vector Context",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "revision_session_id"
+      ],
+      "title": "RevisionCommand",
+      "type": "object"
+    },
+    "RevisionStartCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "revision.start",
+          "default": "revision.start",
+          "title": "Type",
+          "type": "string"
+        },
+        "chapter_number": {
+          "minimum": 1,
+          "title": "Chapter Number",
+          "type": "integer"
+        },
+        "start_block": {
+          "minimum": 1,
+          "title": "Start Block",
+          "type": "integer"
+        },
+        "end_block": {
+          "minimum": 1,
+          "title": "End Block",
+          "type": "integer"
+        },
+        "instruction": {
+          "minLength": 1,
+          "title": "Instruction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chapter_number",
+        "start_block",
+        "end_block",
+        "instruction"
+      ],
+      "title": "RevisionStartCommand",
+      "type": "object"
+    },
+    "SchemaExportCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "schema.export",
+          "default": "schema.export",
+          "title": "Type",
+          "type": "string"
+        },
+        "output_path": {
+          "minLength": 1,
+          "title": "Output Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output_path"
+      ],
+      "title": "SchemaExportCommand",
+      "type": "object"
+    },
+    "SearchCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "search",
+          "default": "search",
+          "title": "Type",
+          "type": "string"
+        },
+        "query": {
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "search_type": {
+          "default": "all",
+          "enum": [
+            "character",
+            "location",
+            "item",
+            "event",
+            "chapter",
+            "chapter_memory",
+            "all"
+          ],
+          "title": "Search Type",
+          "type": "string"
+        },
+        "limit": {
+          "default": 10,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "chapter_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chapter Number"
+        },
+        "highlight": {
+          "default": false,
+          "title": "Highlight",
+          "type": "boolean"
+        },
+        "use_vector": {
+          "default": false,
+          "title": "Use Vector",
+          "type": "boolean"
+        },
+        "embedding_provider_name": {
+          "default": "config",
+          "title": "Embedding Provider Name",
+          "type": "string"
+        },
+        "embedding_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Embedding Config Path"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "title": "SearchCommand",
+      "type": "object"
+    },
+    "SessionCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "enum": [
+            "session.show",
+            "session.revise_outline",
+            "session.approve_outline",
+            "session.run",
+            "session.revise_content",
+            "session.revise_audit",
+            "session.retry_rewrite",
+            "session.undo_rewrite",
+            "session.accept",
+            "session.archive",
+            "session.cancel"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "session_id": {
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction"
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Id"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "from_audit": {
+          "default": false,
+          "title": "From Audit",
+          "type": "boolean"
+        },
+        "max_auto_revision_rounds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Auto Revision Rounds"
+        },
+        "use_search_context": {
+          "default": true,
+          "title": "Use Search Context",
+          "type": "boolean"
+        },
+        "use_vector_context": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Use Vector Context",
+          "type": "string"
+        },
+        "polish_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "single_pass",
+                "auto",
+                "review_gate"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Polish Mode"
+        }
+      },
+      "required": [
+        "type",
+        "session_id"
+      ],
+      "title": "SessionCommand",
+      "type": "object"
+    },
+    "SessionStartCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "session.start",
+          "default": "session.start",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_intent": {
+          "minLength": 1,
+          "title": "User Intent",
+          "type": "string"
+        },
+        "chapter_range": {
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Chapter Range",
+          "type": "array"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "use_search_context": {
+          "default": true,
+          "title": "Use Search Context",
+          "type": "boolean"
+        },
+        "use_vector_context": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Use Vector Context",
+          "type": "string"
+        },
+        "polish_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "single_pass",
+                "auto",
+                "review_gate"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Polish Mode"
+        }
+      },
+      "required": [
+        "user_intent",
+        "chapter_range"
+      ],
+      "title": "SessionStartCommand",
+      "type": "object"
+    },
+    "SettingChangeAnswerCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setting_change.answer",
+          "default": "setting_change.answer",
+          "title": "Type",
+          "type": "string"
+        },
+        "clarification_id": {
+          "minLength": 1,
+          "title": "Clarification Id",
+          "type": "string"
+        },
+        "answer": {
+          "minLength": 1,
+          "title": "Answer",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "clarification_id",
+        "answer"
+      ],
+      "title": "SettingChangeAnswerCommand",
+      "type": "object"
+    },
+    "SettingChangeApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setting_change.apply",
+          "default": "setting_change.apply",
+          "title": "Type",
+          "type": "string"
+        },
+        "proposal_path": {
+          "minLength": 1,
+          "title": "Proposal Path",
+          "type": "string"
+        },
+        "sync_session": {
+          "default": false,
+          "title": "Sync Session",
+          "type": "boolean"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "use_search_context": {
+          "default": true,
+          "title": "Use Search Context",
+          "type": "boolean"
+        },
+        "use_vector_context": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Use Vector Context",
+          "type": "string"
+        },
+        "polish_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "single_pass",
+                "auto",
+                "review_gate"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Polish Mode"
+        }
+      },
+      "required": [
+        "proposal_path"
+      ],
+      "title": "SettingChangeApplyCommand",
+      "type": "object"
+    },
+    "SettingChangeSuggestCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setting_change.suggest",
+          "default": "setting_change.suggest",
+          "title": "Type",
+          "type": "string"
+        },
+        "request": {
+          "minLength": 1,
+          "title": "Request",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "stage": {
+          "default": "pre_creation",
+          "enum": [
+            "pre_creation",
+            "outline_discussion",
+            "content_review",
+            "post_chapter",
+            "unknown"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "chapter_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chapter Number"
+        },
+        "audit_issue_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Audit Issue Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "title": "SettingChangeSuggestCommand",
+      "type": "object"
+    },
+    "StyleGuideGenerateCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "style_guide.generate",
+          "default": "style_guide.generate",
+          "title": "Type",
+          "type": "string"
+        },
+        "instruction": {
+          "minLength": 1,
+          "title": "Instruction",
+          "type": "string"
+        },
+        "provider_name": {
+          "default": "config",
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "agent_config_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Config Path"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        },
+        "include_project_context": {
+          "default": true,
+          "title": "Include Project Context",
+          "type": "boolean"
+        },
+        "include_existing_style": {
+          "default": true,
+          "title": "Include Existing Style",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "instruction"
+      ],
+      "title": "StyleGuideGenerateCommand",
+      "type": "object"
+    },
+    "StyleGuideSaveCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "style_guide.save",
+          "default": "style_guide.save",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "title": "StyleGuideSaveCommand",
+      "type": "object"
+    },
+    "Surface": {
+      "enum": [
+        "cli",
+        "web",
+        "ask",
+        "internal"
+      ],
+      "title": "Surface",
+      "type": "string"
+    },
+    "WebLauncherConfigCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "type": {
+          "const": "setup.web_launcher",
+          "default": "setup.web_launcher",
+          "title": "Type",
+          "type": "string"
+        },
+        "host": {
+          "default": "127.0.0.1",
+          "minLength": 1,
+          "title": "Host",
+          "type": "string"
+        },
+        "requested_port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Requested Port",
+          "type": "integer"
+        },
+        "current_host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Host"
+        },
+        "current_port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Port"
+        }
+      },
+      "required": [
+        "requested_port"
+      ],
+      "title": "WebLauncherConfigCommand",
+      "type": "object"
+    },
+    "WorkflowBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "max_chapters": {
+          "minimum": 1,
+          "title": "Max Chapters",
+          "type": "integer"
+        },
+        "max_model_calls": {
+          "minimum": 0,
+          "title": "Max Model Calls",
+          "type": "integer"
+        },
+        "max_provider_attempts": {
+          "minimum": 0,
+          "title": "Max Provider Attempts",
+          "type": "integer"
+        },
+        "max_auto_revision_rounds": {
+          "minimum": 0,
+          "title": "Max Auto Revision Rounds",
+          "type": "integer"
+        },
+        "max_input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Input Tokens"
+        },
+        "max_output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Output Tokens"
+        }
+      },
+      "required": [
+        "max_chapters",
+        "max_model_calls",
+        "max_provider_attempts",
+        "max_auto_revision_rounds"
+      ],
+      "title": "WorkflowBudget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "command_id": {
+      "pattern": "^cmd_[0-9a-f]{32}$",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "request_id": {
+      "pattern": "^req_[0-9a-f]{32}$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "parent_request_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Request Id"
+    },
+    "workflow_run_id": {
+      "pattern": "^run_[0-9a-f]{32}$",
+      "title": "Workflow Run Id",
+      "type": "string"
+    },
+    "surface": {
+      "$ref": "#/$defs/Surface"
+    },
+    "project_root": {
+      "minLength": 1,
+      "title": "Project Root",
+      "type": "string"
+    },
+    "command": {
+      "discriminator": {
+        "mapping": {
+          "agent_config.update": "#/$defs/AgentConfigUpdateCommand",
+          "canon.apply": "#/$defs/CanonApplyCommand",
+          "canon.suggest": "#/$defs/CanonSuggestCommand",
+          "chapter_candidate.save": "#/$defs/ChapterCandidateSaveCommand",
+          "chapter_memory.generate": "#/$defs/ChapterMemoryGenerateCommand",
+          "chapter_memory.rebuild": "#/$defs/ChapterMemoryRebuildCommand",
+          "export.docx": "#/$defs/ProductionExportCommand",
+          "export.markdown": "#/$defs/ProductionExportCommand",
+          "index.rebuild": "#/$defs/IndexUpdateCommand",
+          "index.refresh": "#/$defs/IndexUpdateCommand",
+          "inspiration.generate": "#/$defs/InspirationGenerateCommand",
+          "memory_repair.apply": "#/$defs/MemoryRepairApplyCommand",
+          "memory_repair.suggest": "#/$defs/MemoryRepairSuggestCommand",
+          "preview.package": "#/$defs/PreviewPackageCommand",
+          "project.init": "#/$defs/ProjectInitCommand",
+          "project.show": "#/$defs/ProjectShowCommand",
+          "project.status": "#/$defs/ProjectStatusCommand",
+          "project.validate": "#/$defs/ProjectValidateCommand",
+          "revision.accept": "#/$defs/RevisionCommand",
+          "revision.blocks": "#/$defs/RevisionBlocksCommand",
+          "revision.cancel": "#/$defs/RevisionCommand",
+          "revision.run": "#/$defs/RevisionCommand",
+          "revision.show": "#/$defs/RevisionCommand",
+          "revision.start": "#/$defs/RevisionStartCommand",
+          "schema.export": "#/$defs/SchemaExportCommand",
+          "search": "#/$defs/SearchCommand",
+          "session.accept": "#/$defs/SessionCommand",
+          "session.approve_outline": "#/$defs/SessionCommand",
+          "session.archive": "#/$defs/SessionCommand",
+          "session.cancel": "#/$defs/SessionCommand",
+          "session.retry_rewrite": "#/$defs/SessionCommand",
+          "session.revise_audit": "#/$defs/SessionCommand",
+          "session.revise_content": "#/$defs/SessionCommand",
+          "session.revise_outline": "#/$defs/SessionCommand",
+          "session.run": "#/$defs/SessionCommand",
+          "session.show": "#/$defs/SessionCommand",
+          "session.start": "#/$defs/SessionStartCommand",
+          "session.undo_rewrite": "#/$defs/SessionCommand",
+          "setting_change.answer": "#/$defs/SettingChangeAnswerCommand",
+          "setting_change.apply": "#/$defs/SettingChangeApplyCommand",
+          "setting_change.suggest": "#/$defs/SettingChangeSuggestCommand",
+          "setup.default_provider": "#/$defs/DefaultProviderSetupCommand",
+          "setup.embedding_provider": "#/$defs/EmbeddingProviderSetupCommand",
+          "setup.project_web_port": "#/$defs/ProjectWebPortSetupCommand",
+          "setup.web_launcher": "#/$defs/WebLauncherConfigCommand",
+          "style_guide.generate": "#/$defs/StyleGuideGenerateCommand",
+          "style_guide.save": "#/$defs/StyleGuideSaveCommand"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SessionStartCommand"
+        },
+        {
+          "$ref": "#/$defs/SessionCommand"
+        },
+        {
+          "$ref": "#/$defs/RevisionBlocksCommand"
+        },
+        {
+          "$ref": "#/$defs/RevisionStartCommand"
+        },
+        {
+          "$ref": "#/$defs/RevisionCommand"
+        },
+        {
+          "$ref": "#/$defs/ProductionExportCommand"
+        },
+        {
+          "$ref": "#/$defs/PreviewPackageCommand"
+        },
+        {
+          "$ref": "#/$defs/MemoryRepairSuggestCommand"
+        },
+        {
+          "$ref": "#/$defs/MemoryRepairApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/SettingChangeSuggestCommand"
+        },
+        {
+          "$ref": "#/$defs/SettingChangeAnswerCommand"
+        },
+        {
+          "$ref": "#/$defs/SettingChangeApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectStatusCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectInitCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectValidateCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectShowCommand"
+        },
+        {
+          "$ref": "#/$defs/SearchCommand"
+        },
+        {
+          "$ref": "#/$defs/InspirationGenerateCommand"
+        },
+        {
+          "$ref": "#/$defs/CanonSuggestCommand"
+        },
+        {
+          "$ref": "#/$defs/CanonApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/ChapterMemoryGenerateCommand"
+        },
+        {
+          "$ref": "#/$defs/ChapterMemoryRebuildCommand"
+        },
+        {
+          "$ref": "#/$defs/IndexUpdateCommand"
+        },
+        {
+          "$ref": "#/$defs/StyleGuideSaveCommand"
+        },
+        {
+          "$ref": "#/$defs/StyleGuideGenerateCommand"
+        },
+        {
+          "$ref": "#/$defs/ChapterCandidateSaveCommand"
+        },
+        {
+          "$ref": "#/$defs/AgentConfigUpdateCommand"
+        },
+        {
+          "$ref": "#/$defs/DefaultProviderSetupCommand"
+        },
+        {
+          "$ref": "#/$defs/EmbeddingProviderSetupCommand"
+        },
+        {
+          "$ref": "#/$defs/ProjectWebPortSetupCommand"
+        },
+        {
+          "$ref": "#/$defs/WebLauncherConfigCommand"
+        },
+        {
+          "$ref": "#/$defs/SchemaExportCommand"
+        }
+      ],
+      "title": "Command"
+    },
+    "confirmed": {
+      "default": false,
+      "title": "Confirmed",
+      "type": "boolean"
+    },
+    "budget": {
+      "$ref": "#/$defs/WorkflowBudget"
+    },
+    "initial_budget_usage": {
+      "$ref": "#/$defs/BudgetUsage"
+    },
+    "issued_at": {
+      "format": "date-time",
+      "title": "Issued At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "request_id",
+    "workflow_run_id",
+    "surface",
+    "project_root",
+    "command",
+    "issued_at"
+  ],
+  "title": "CommandEnvelope",
+  "type": "object"
+}

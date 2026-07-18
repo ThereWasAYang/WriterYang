@@ -1,71 +1,94 @@
 from __future__ import annotations
 
-from .deps import (
-    json,
-    Path,
-    traceback,
-    parse_qs,
-    log_app_warning,
-    CanonError,
-    format_canon,
-    load_json,
-    ProjectLock,
-    ProjectLockError,
-    MemoryRepairError,
-    SearchError,
-    search_index_status,
-    SetupGuideError,
-    new_request_id,
-    web_launcher,
-    CreationSessionError,
-    ProviderContextLimitError,
-    summarize_provider_usage,
-    WorkspaceExistsError,
-)
-from novel.core.revision_workflow import RevisionWorkflowError
-from novel.core.previewing import PreviewError
 from novel.core.command_bus import DomainError
+from novel.core.command_registry import command_catalog
+from novel.core.previewing import PreviewError
+from novel.core.retention import observability_health
+from novel.core.revision_workflow import RevisionWorkflowError
 
 from .common import (
     APIResponse,
-    WebPostHandler,
-    RootResolver,
     PostRoute,
-    WebErrorPayload,
-    WebResponsePayload,
+    RootResolver,
     WebAPIError,
-    _json_body,
-    _root_from_query,
-    _root_from_body,
+    WebErrorPayload,
+    WebPostHandler,
+    WebResponsePayload,
     _init_project_root_from_body,
+    _json_body,
     _optional_int,
+    _root_from_body,
+    _root_from_query,
     _runtime_summary,
     _safe_error,
-)
-
-from .generation import (
-    _chapter_memory_generate, _chapter_memory_rebuild, _export_docx, _export_markdown,
+    dispatch_web_command_request,
 )
 from .config import (
-    _generate_style_guide, _index_refresh, _init_project, _save_chapter_file, _save_provider_config, _save_style_guide,
-    _setup_default_provider, _setup_embedding, _setup_open_web, _setup_recommend_port, _setup_web_port,
+    _generate_style_guide,
+    _index_refresh,
+    _init_project,
+    _save_chapter_file,
+    _save_provider_config,
+    _save_style_guide,
+    _setup_default_provider,
+    _setup_embedding,
+    _setup_open_web,
+    _setup_recommend_port,
+    _setup_web_port,
     _style_guide,
 )
-from .memory import (
-    _canon_apply, _canon_applied_proposals, _canon_suggest, _inspire, _settings_change_answer,
-    _settings_change_apply, _settings_change_suggest,
+from .deps import (
+    CanonError,
+    CreationSessionError,
+    MemoryRepairError,
+    Path,
+    ProjectLock,
+    ProjectLockError,
+    ProviderContextLimitError,
+    SearchError,
+    SetupGuideError,
+    WorkspaceExistsError,
+    format_canon,
+    json,
+    load_json,
+    log_app_warning,
+    new_request_id,
+    parse_qs,
+    search_index_status,
+    summarize_provider_usage,
+    traceback,
+    web_launcher,
 )
-from .session import (
-    _session_accept, _session_api, _session_approve_outline, _session_archive, _session_cancel,
-    _session_latest_api, _session_progress_api, _session_retry_rewrite, _session_revise_audit,
-    _session_revise_content, _session_revise_outline, _session_rewrite_events_api, _session_run,
-    _session_start, _session_undo_rewrite, _project_status_api, _search_api, _validate_project_api,
+from .generation import (
+    _chapter_memory_generate,
+    _chapter_memory_rebuild,
+    _export_docx,
+    _export_markdown,
 )
 from .inspection import (
-    _audit_annotations, _file_tree, _list_chapters, _list_projects, _management_events,
-    _provider_config_summary, _read_chapter_file, _read_workspace_file,
-    _runs_summary, _state_timeline_summary, _workspace_diff,
+    _audit_annotations,
+    _file_tree,
+    _list_chapters,
+    _list_projects,
+    _management_events,
+    _provider_config_summary,
+    _read_chapter_file,
+    _read_workspace_file,
+    _runs_summary,
+    _state_timeline_summary,
+    _workspace_diff,
 )
+from .memory import (
+    _canon_applied_proposals,
+    _canon_apply,
+    _canon_suggest,
+    _inspire,
+    _settings_change_answer,
+    _settings_change_apply,
+    _settings_change_suggest,
+)
+from .openapi import openapi_document
+from .preview import _preview_package
 from .revision_session import (
     _revision_accept,
     _revision_blocks_api,
@@ -74,7 +97,27 @@ from .revision_session import (
     _revision_show_api,
     _revision_start,
 )
-from .preview import _preview_package
+from .session import (
+    _project_status_api,
+    _search_api,
+    _session_accept,
+    _session_api,
+    _session_approve_outline,
+    _session_archive,
+    _session_cancel,
+    _session_latest_api,
+    _session_progress_api,
+    _session_retry_rewrite,
+    _session_revise_audit,
+    _session_revise_content,
+    _session_revise_outline,
+    _session_rewrite_events_api,
+    _session_run,
+    _session_start,
+    _session_undo_rewrite,
+    _validate_project_api,
+)
+
 
 def handle_api_request(
     method: str,
@@ -114,7 +157,14 @@ def handle_api_request(
                 return _success(_locked_write(data, task, handler, root_resolver) if locked else handler(data))
     except WebAPIError as exc:
         log_failure(exc.status, exc.code, exc)
-        return _failure(exc.status, exc.code, str(exc), request_id=request_id, details=exc.details)
+        return _failure(
+            exc.status,
+            exc.code,
+            str(exc),
+            request_id=request_id,
+            details=exc.details,
+            retryable=exc.retryable,
+        )
     except DomainError as exc:
         if exc.code in {
             "archived_content_read_only",
@@ -129,7 +179,14 @@ def handle_api_request(
         else:
             status = 400
         log_failure(status, exc.code, exc)
-        return _failure(status, exc.code, exc.message, request_id=request_id, details=exc.details)
+        return _failure(
+            status,
+            exc.code,
+            exc.message,
+            request_id=request_id,
+            details=exc.details,
+            retryable=exc.recoverable,
+        )
     except ProjectLockError as exc:
         log_failure(409, "project_locked", exc)
         return _failure(409, "project_locked", str(exc), request_id=request_id)
@@ -176,14 +233,22 @@ def handle_api_request(
         log_failure(400, "invalid_request", exc)
         return _failure(400, "invalid_request", str(exc), request_id=request_id)
     except Exception as exc:
-        log_failure(400, "operation_failed", exc)
-        return _failure(400, "operation_failed", str(exc), request_id=request_id)
+        log_failure(500, "internal_error", exc)
+        return _failure(
+            500,
+            "internal_error",
+            "服务处理请求时发生内部错误，请使用 request_id 查看本地诊断日志。",
+            request_id=request_id,
+        )
     return _failure(404, "not_found", "not found", request_id=request_id)
 
 
 def _get_routes():
     return {
         "/api/runtime": lambda query: {"runtime": _runtime_summary()},
+        "/api/openapi.json": lambda query: openapi_document(),
+        "/api/commands": lambda query: {"commands": command_catalog()},
+        "/api/health": lambda query: {"health": observability_health(_root_from_query(query))},
         "/api/projects": lambda query: {"projects": _list_projects(Path(query.get("root", ".")))},
         "/api/project/status": _project_status_api,
         "/api/validate": _validate_project_api,
@@ -238,7 +303,7 @@ def _log_web_api_failure(
         code=code,
         error_type=error.__class__.__name__,
         error=str(error),
-        traceback=traceback.format_exc() if code == "operation_failed" else None,
+        traceback=traceback.format_exc() if code == "internal_error" else None,
     )
 
 
@@ -261,6 +326,7 @@ def _root_for_logging(
 def _post_routes() -> dict[str, PostRoute]:
     return {
         "/api/export/markdown": ("web export markdown", _export_markdown, False),
+        "/api/command": ("web typed command", dispatch_web_command_request, False),
         "/api/export/docx": ("web export docx", _export_docx, False),
         "/api/preview/package": ("web preview package", _preview_package, False),
         "/api/save-chapter-file": ("web save chapter file", _save_chapter_file, False),
@@ -425,6 +491,7 @@ def _failure(
     *,
     request_id: str,
     details: dict[str, object] | None = None,
+    retryable: bool = False,
 ) -> APIResponse:
     payload = WebResponsePayload(
         ok=False,
@@ -433,6 +500,8 @@ def _failure(
             message=_safe_error(message),
             details=details or {},
             request_id=request_id,
+            http_status=status,
+            retryable=retryable,
         ),
     )
     return status, payload.model_dump(mode="json", exclude_none=True)

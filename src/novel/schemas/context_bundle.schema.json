@@ -1,0 +1,304 @@
+{
+  "$defs": {
+    "ArtifactKind": {
+      "enum": [
+        "plan",
+        "candidate",
+        "audit",
+        "state_proposal",
+        "chapter_memory",
+        "acceptance",
+        "segment_patch",
+        "state",
+        "timeline"
+      ],
+      "title": "ArtifactKind",
+      "type": "string"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": 3,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "artifact_id": {
+          "pattern": "^art_[0-9a-f]{32}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "path",
+        "sha256",
+        "created_at"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ContextExclusion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "author_only",
+            "hidden_truth",
+            "audit_only"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source",
+        "visibility",
+        "reason"
+      ],
+      "title": "ContextExclusion",
+      "type": "object"
+    },
+    "ContextItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "visibility": {
+          "enum": [
+            "reader_visible",
+            "author_only",
+            "hidden_truth",
+            "audit_only"
+          ],
+          "title": "Visibility",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "priority": {
+          "title": "Priority",
+          "type": "integer"
+        },
+        "artifact_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "authority": {
+          "default": "canonical",
+          "enum": [
+            "canonical",
+            "approved_plan",
+            "accepted_chapter",
+            "chapter_memory",
+            "workflow",
+            "history"
+          ],
+          "title": "Authority",
+          "type": "string"
+        },
+        "lifecycle_status": {
+          "default": "current",
+          "enum": [
+            "current",
+            "accepted",
+            "fresh",
+            "working",
+            "historical",
+            "stale"
+          ],
+          "title": "Lifecycle Status",
+          "type": "string"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "accepted_commit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted Commit Id"
+        },
+        "source_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Sha256"
+        },
+        "content": {
+          "additionalProperties": true,
+          "title": "Content",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "source",
+        "visibility",
+        "reason",
+        "priority"
+      ],
+      "title": "ContextItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "chapter_number": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Chapter Number"
+    },
+    "task": {
+      "enum": [
+        "inspiration",
+        "canon",
+        "plan",
+        "write",
+        "polish",
+        "audit",
+        "state_update",
+        "revision"
+      ],
+      "title": "Task",
+      "type": "string"
+    },
+    "query": {
+      "title": "Query",
+      "type": "string"
+    },
+    "included": {
+      "items": {
+        "$ref": "#/$defs/ContextItem"
+      },
+      "title": "Included",
+      "type": "array"
+    },
+    "excluded": {
+      "items": {
+        "$ref": "#/$defs/ContextExclusion"
+      },
+      "title": "Excluded",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task",
+    "query",
+    "created_at"
+  ],
+  "title": "ContextBundle",
+  "type": "object"
+}

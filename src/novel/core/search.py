@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
 import json
-from pathlib import Path
 import re
 import sqlite3
+from array import array
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, cast
 
 from novel.core.artifact_store import load_lifecycle, sha256_file
+from novel.core.context_policy import (
+    ContextAuthority,
+    ContextLifecycleStatus,
+    reveal_is_authorized,
+    search_metadata_allowed,
+)
 from novel.core.contracts import ArtifactRef
 from novel.core.embeddings import (
     EmbeddingError,
@@ -18,12 +25,6 @@ from novel.core.embeddings import (
 )
 from novel.core.env import load_project_env
 from novel.core.io import atomic_write_json, atomic_write_model_json, backup_if_exists, load_json, load_json_model
-from novel.core.context_policy import (
-    ContextAuthority,
-    ContextLifecycleStatus,
-    reveal_is_authorized,
-    search_metadata_allowed,
-)
 from novel.core.plan_refs import (
     plan_focus_entity_ids,
     plan_related_timeline_event_ids,
@@ -33,17 +34,16 @@ from novel.core.plan_refs import (
 )
 from novel.core.schemas import (
     ChapterPlan,
-    CreationSession,
     ContextBundle,
     ContextExclusion,
     ContextItem,
     ContextTask,
     ContextVisibility,
+    CreationSession,
     RevealAuthorization,
     VectorContextMode,
 )
 from novel.core.timeutil import utc_now, utc_now_iso, utc_timestamp
-
 
 SearchType = Literal["character", "location", "item", "event", "chapter", "chapter_memory", "all"]
 _AUTO_VECTOR_READY_STATUSES = {"indexed", "missing", "stale"}
@@ -323,25 +323,24 @@ def search_project(
     if limit < 1:
         raise SearchError("--limit must be a positive integer")
     sqlite_path = sqlite_search_index_path(root)
-    status = search_index_status(
+    status = _fast_search_index_status(
         root,
         embedding_provider_name=embedding_provider_name,
         embedding_config_path=embedding_config_path,
     )
     if status.fts_status != "indexed":
         if not rebuild_if_missing:
-            raise SearchError(f"{search_index_path(root)} is missing or stale; run novel index refresh first")
+            raise SearchError(f"{sqlite_path} is missing or invalid; run novel index refresh first")
         refresh_search_index(
             root,
             embedding_provider_name=embedding_provider_name,
             embedding_config_path=embedding_config_path,
         )
-        status = search_index_status(
+        status = _fast_search_index_status(
             root,
             embedding_provider_name=embedding_provider_name,
             embedding_config_path=embedding_config_path,
         )
-    documents = _load_index(search_index_path(root))
     terms = _query_terms(query)
     candidate_ids = _sqlite_candidate_ids(sqlite_path, terms)
     vector_scores: dict[str, float] = {}
@@ -353,12 +352,12 @@ def search_project(
                 embedding_config_path=embedding_config_path,
                 with_embeddings=True,
             )
-            status = search_index_status(
+            status = _fast_search_index_status(
                 root,
                 embedding_provider_name=embedding_provider_name,
                 embedding_config_path=embedding_config_path,
             )
-        if status.embedding_status != "indexed":
+        if status.embedding_status not in {"indexed", "test_only"}:
             raise SearchError(_embedding_unavailable_message(status))
         provider = _load_embedding_provider(
             root,
@@ -366,11 +365,14 @@ def search_project(
             embedding_config_path,
             allow_local_hash=embedding_provider_name == "local_hash",
         )
-        vector_scores = _vector_scores(sqlite_path, query, provider)
+        if not candidate_ids:
+            candidate_ids = _sqlite_fallback_candidate_ids(sqlite_path, limit=max(200, limit * 20))
+        vector_scores = _vector_scores(sqlite_path, query, provider, candidate_ids=candidate_ids)
+    documents = _load_sqlite_documents(sqlite_path, candidate_ids=candidate_ids)
     results = [
         _result_with_vector_score(document, result, vector_scores.get(document.id, 0.0))
         for document in documents
-        if not candidate_ids or document.id in candidate_ids or document.id in vector_scores
+        if document.id in candidate_ids or document.id in vector_scores
         if _type_matches(document.type, search_type)
         if _chapter_matches(document.metadata, chapter_number)
         for result in [_score_document(document, query, terms)]
@@ -581,7 +583,7 @@ def resolve_vector_context_mode(root: Path, value: bool | VectorContextMode) -> 
     if mode == "off":
         return False, []
 
-    status = search_index_status(root)
+    status = _fast_search_index_status(root)
     if status.embedding_provider == "local_hash" or status.embedding_status == "test_only":
         return False, ["auto vector context disabled; local_hash embedding is only for tests"]
     if status.embedding_status in _AUTO_VECTOR_READY_STATUSES:
@@ -706,6 +708,84 @@ def search_index_status(
         embedding_env_missing=env_missing,
         message=message,
     )
+
+
+def _fast_search_index_status(
+    root: Path,
+    *,
+    embedding_provider_name: str = "config",
+    embedding_config_path: Path | None = None,
+) -> SearchIndexStatus:
+    root = root.resolve()
+    index_path = search_index_path(root)
+    sqlite_path = sqlite_search_index_path(root)
+    manifest_path = search_manifest_path(root)
+    document_count = 0
+    fts_status = "missing"
+    if sqlite_path.exists():
+        try:
+            with sqlite3.connect(sqlite_path) as conn:
+                columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(documents)")}
+                if {"document_json", "source_hash"}.issubset(columns):
+                    document_count = int(conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
+                    fts_status = "indexed"
+        except (sqlite3.Error, TypeError, ValueError):
+            fts_status = "missing"
+
+    info = _embedding_config_status(root, embedding_provider_name, embedding_config_path)
+    raw_status = info.get("status", "missing")
+    embedding_status = str(raw_status)
+    provider = str(info.get("provider")) if info.get("provider") else None
+    model = str(info.get("model")) if info.get("model") else None
+    raw_missing = info.get("env_missing", ())
+    env_missing = tuple(str(item) for item in raw_missing) if isinstance(raw_missing, (list, tuple, set)) else ()
+    if embedding_status == "configured":
+        embedding_status = _fast_embedding_vector_status(
+            sqlite_path,
+            document_count=document_count,
+            provider=provider or "",
+            model=model or "",
+        )
+    return SearchIndexStatus(
+        fts_status=fts_status,
+        embedding_status=embedding_status,
+        document_count=document_count,
+        stale_document_count=0,
+        deleted_document_count=0,
+        index_path=index_path,
+        sqlite_path=sqlite_path,
+        manifest_path=manifest_path,
+        embedding_provider=provider,
+        embedding_model=model,
+        embedding_env_missing=env_missing,
+        message=_search_status_message(fts_status, embedding_status, env_missing),
+    )
+
+
+def _fast_embedding_vector_status(
+    path: Path,
+    *,
+    document_count: int,
+    provider: str,
+    model: str,
+) -> str:
+    if not path.exists() or document_count == 0:
+        return "missing"
+    try:
+        with sqlite3.connect(path) as conn:
+            count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM vectors WHERE provider = ? AND model = ?",
+                    (provider, model),
+                ).fetchone()[0]
+            )
+    except (sqlite3.Error, TypeError, ValueError):
+        return "missing"
+    if provider == "local_hash" and count:
+        return "test_only"
+    if count == 0:
+        return "missing"
+    return "indexed" if count == document_count else "stale"
 
 
 def _embedding_config_status(
@@ -1291,17 +1371,18 @@ def sqlite_search_index_path(root: Path) -> Path:
 
 
 def _collect_documents(root: Path) -> list[SearchDocument]:
+    hash_cache: dict[Path, str] = {}
     documents: list[SearchDocument] = []
-    documents.extend(_canon_documents(root))
-    documents.extend(_world_rule_documents(root))
-    documents.extend(_state_documents(root))
-    documents.extend(_timeline_documents(root))
-    documents.extend(_approved_plan_documents(root))
-    documents.extend(_accepted_chapter_documents(root))
+    documents.extend(_canon_documents(root, hash_cache))
+    documents.extend(_world_rule_documents(root, hash_cache))
+    documents.extend(_state_documents(root, hash_cache))
+    documents.extend(_timeline_documents(root, hash_cache))
+    documents.extend(_approved_plan_documents(root, hash_cache))
+    documents.extend(_accepted_chapter_documents(root, hash_cache))
     return documents
 
 
-def _canon_documents(root: Path) -> list[SearchDocument]:
+def _canon_documents(root: Path, hash_cache: dict[Path, str]) -> list[SearchDocument]:
     canon_dir = root / "memory" / "canon"
     documents: list[SearchDocument] = []
     mapping = (
@@ -1329,14 +1410,14 @@ def _canon_documents(root: Path) -> list[SearchDocument]:
                     title=str(value.get(title_key) or entity_id),
                     text=_json_text(value),
                     visibility=_visibility_for_canon(value),
-                    source_sha256=sha256_file(path),
+                    source_sha256=_cached_sha256(path, hash_cache),
                     metadata={"entity_id": entity_id, "entity_type": document_type},
                 )
             )
     return documents
 
 
-def _world_rule_documents(root: Path) -> list[SearchDocument]:
+def _world_rule_documents(root: Path, hash_cache: dict[Path, str]) -> list[SearchDocument]:
     path = root / "memory" / "canon" / "world.json"
     if not path.exists():
         return []
@@ -1357,14 +1438,14 @@ def _world_rule_documents(root: Path) -> list[SearchDocument]:
                 title=str(rule.get("summary") or rule.get("description") or rule_id),
                 text=_json_text(rule),
                 visibility=_visibility_for_canon(rule),
-                source_sha256=sha256_file(path),
+                source_sha256=_cached_sha256(path, hash_cache),
                 metadata={"entity_id": rule_id, "entity_type": "world_rule"},
             )
         )
     return documents
 
 
-def _state_documents(root: Path) -> list[SearchDocument]:
+def _state_documents(root: Path, hash_cache: dict[Path, str]) -> list[SearchDocument]:
     path = root / "memory" / "state" / "current_state.json"
     if not path.exists():
         return []
@@ -1391,14 +1472,14 @@ def _state_documents(root: Path) -> list[SearchDocument]:
                     path=_rel(root, path),
                     title=entity_id,
                     text=_json_text(value),
-                    source_sha256=sha256_file(path),
+                    source_sha256=_cached_sha256(path, hash_cache),
                     metadata={"entity_id": entity_id, "entity_type": document_type},
                 )
             )
     return documents
 
 
-def _timeline_documents(root: Path) -> list[SearchDocument]:
+def _timeline_documents(root: Path, hash_cache: dict[Path, str]) -> list[SearchDocument]:
     path = root / "memory" / "state" / "timeline.json"
     if not path.exists():
         return []
@@ -1411,7 +1492,8 @@ def _timeline_documents(root: Path) -> list[SearchDocument]:
         if not isinstance(event, dict):
             continue
         event_id = str(event.get("id") or f"event_{len(documents) + 1}")
-        narrative = event.get("narrative_position") if isinstance(event.get("narrative_position"), dict) else {}
+        raw_narrative = event.get("narrative_position")
+        narrative = raw_narrative if isinstance(raw_narrative, dict) else {}
         documents.append(
             SearchDocument(
                 id=event_id,
@@ -1420,7 +1502,7 @@ def _timeline_documents(root: Path) -> list[SearchDocument]:
                 title=str(event.get("summary") or event_id),
                 text=_json_text(event),
                 visibility="reader_visible" if event.get("reader_visible") else "author_only",
-                source_sha256=sha256_file(path),
+                source_sha256=_cached_sha256(path, hash_cache),
                 metadata={
                     "event_id": event_id,
                     "chapter": narrative.get("chapter"),
@@ -1432,7 +1514,7 @@ def _timeline_documents(root: Path) -> list[SearchDocument]:
     return documents
 
 
-def _approved_plan_documents(root: Path) -> list[SearchDocument]:
+def _approved_plan_documents(root: Path, hash_cache: dict[Path, str]) -> list[SearchDocument]:
     sessions_dir = root / "memory" / "sessions"
     if not sessions_dir.is_dir():
         return []
@@ -1455,7 +1537,8 @@ def _approved_plan_documents(root: Path) -> list[SearchDocument]:
         lifecycle = load_lifecycle(root, chapter_number)
         if not path.is_file() or lifecycle is None or lifecycle.active_plan is None:
             continue
-        if sha256_file(path) != lifecycle.active_plan.sha256:
+        plan_sha256 = _cached_sha256(path, hash_cache)
+        if plan_sha256 != lifecycle.active_plan.sha256:
             continue
         plan = load_json_model(path, ChapterPlan)
         documents.append(
@@ -1470,14 +1553,14 @@ def _approved_plan_documents(root: Path) -> list[SearchDocument]:
                 lifecycle_status="working",
                 session_id=session.session_id,
                 visibility="author_only",
-                source_sha256=sha256_file(path),
+                source_sha256=plan_sha256,
                 metadata={"chapter_number": chapter_number},
             )
         )
     return documents
 
 
-def _accepted_chapter_documents(root: Path) -> list[SearchDocument]:
+def _accepted_chapter_documents(root: Path, hash_cache: dict[Path, str]) -> list[SearchDocument]:
     from novel.core.lifecycle import LifecycleError, accepted_chapter_commit
 
     chapters_dir = root / "memory" / "chapters"
@@ -1510,11 +1593,11 @@ def _accepted_chapter_documents(root: Path) -> list[SearchDocument]:
                 session_id=commit.session_id,
                 accepted_commit_id=commit.commit_id,
                 visibility="reader_visible",
-                source_sha256=sha256_file(accepted_path),
+                source_sha256=_cached_sha256(accepted_path, hash_cache),
                 metadata={"chapter_number": chapter_number},
             )
         )
-        if not memory_path.is_file() or sha256_file(memory_path) != commit.chapter_memory.sha256:
+        if not memory_path.is_file() or _cached_sha256(memory_path, hash_cache) != commit.chapter_memory.sha256:
             continue
         memory = load_json(memory_path)
         documents.append(
@@ -1530,7 +1613,7 @@ def _accepted_chapter_documents(root: Path) -> list[SearchDocument]:
                 session_id=commit.session_id,
                 accepted_commit_id=commit.commit_id,
                 visibility="author_only",
-                source_sha256=sha256_file(memory_path),
+                source_sha256=_cached_sha256(memory_path, hash_cache),
                 metadata={"chapter_number": chapter_number},
             )
         )
@@ -1854,11 +1937,11 @@ def _load_existing_vectors(path: Path) -> dict[str, VectorRecord]:
         return {}
     records: dict[str, VectorRecord] = {}
     for row in rows:
-        values = dict(zip(columns, row))
+        values = dict(zip(columns, row, strict=False))
         try:
             raw_vector = values.get("vector")
-            vector = json.loads(raw_vector) if isinstance(raw_vector, str) else raw_vector
-        except json.JSONDecodeError:
+            vector = _decode_vector(raw_vector)
+        except (json.JSONDecodeError, ValueError, TypeError):
             continue
         if not isinstance(vector, list):
             continue
@@ -1908,45 +1991,98 @@ def _write_sqlite_index(
         else _reusable_vectors(documents, existing_vectors)
     )
     with sqlite3.connect(path) as conn:
-        conn.execute("DROP TABLE IF EXISTS documents")
-        conn.execute("DROP TABLE IF EXISTS vectors")
-        conn.execute("DROP TABLE IF EXISTS documents_fts")
+        conn.execute("PRAGMA journal_mode=WAL")
+        existing_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(documents)")}
+        if existing_columns and not {"document_json", "source_hash"}.issubset(existing_columns):
+            conn.execute("DROP TABLE IF EXISTS documents")
+            conn.execute("DROP TABLE IF EXISTS vectors")
+            conn.execute("DROP TABLE IF EXISTS documents_fts")
+            conn.execute("DROP TABLE IF EXISTS sources")
         conn.execute(
-            "CREATE TABLE documents (id TEXT PRIMARY KEY, type TEXT, path TEXT, title TEXT, text TEXT, metadata TEXT)"
+            "CREATE TABLE IF NOT EXISTS documents ("
+            "id TEXT PRIMARY KEY, type TEXT NOT NULL, path TEXT NOT NULL, title TEXT NOT NULL, "
+            "text TEXT NOT NULL, metadata TEXT NOT NULL, document_json TEXT NOT NULL, source_hash TEXT NOT NULL)"
         )
-        conn.execute("CREATE VIRTUAL TABLE documents_fts USING fts5(id, type, title, body, token_text)")
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(id, type, title, body, token_text)")
         conn.execute(
-            "CREATE TABLE vectors (id TEXT PRIMARY KEY, provider TEXT, model TEXT, dimensions INTEGER, source_hash TEXT, vector TEXT)"
+            "CREATE TABLE IF NOT EXISTS vectors ("
+            "id TEXT PRIMARY KEY, provider TEXT, model TEXT, dimensions INTEGER, source_hash TEXT, vector BLOB)"
         )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sources ("
+            "path TEXT PRIMARY KEY, source_sha256 TEXT NOT NULL, mtime REAL, size INTEGER NOT NULL)"
+        )
+        existing_hashes = {
+            str(row[0]): str(row[1]) for row in conn.execute("SELECT id, source_hash FROM documents")
+        }
+        current_ids = {document.id for document in documents}
+        deleted_ids = set(existing_hashes) - current_ids
+        for document_id in deleted_ids:
+            conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            conn.execute("DELETE FROM documents_fts WHERE id = ?", (document_id,))
+            conn.execute("DELETE FROM vectors WHERE id = ?", (document_id,))
         for document in documents:
-            conn.execute(
-                "INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    document.id,
-                    document.type,
-                    document.path,
-                    document.title,
-                    document.text,
-                    json.dumps(document.metadata, ensure_ascii=False, sort_keys=True),
-                ),
-            )
-            conn.execute(
-                "INSERT INTO documents_fts (id, type, title, body, token_text) VALUES (?, ?, ?, ?, ?)",
-                (document.id, document.type, document.title, document.text, _token_text(document)),
-            )
+            document_hash = _document_hash(document)
+            if existing_hashes.get(document.id) != document_hash:
+                conn.execute(
+                    "INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET type=excluded.type, path=excluded.path, "
+                    "title=excluded.title, text=excluded.text, metadata=excluded.metadata, "
+                    "document_json=excluded.document_json, source_hash=excluded.source_hash",
+                    (
+                        document.id,
+                        document.type,
+                        document.path,
+                        document.title,
+                        document.text,
+                        json.dumps(document.metadata, ensure_ascii=False, sort_keys=True),
+                        json.dumps(_document_to_dict(document), ensure_ascii=False, sort_keys=True),
+                        document_hash,
+                    ),
+                )
+                conn.execute("DELETE FROM documents_fts WHERE id = ?", (document.id,))
+                conn.execute(
+                    "INSERT INTO documents_fts (id, type, title, body, token_text) VALUES (?, ?, ?, ?, ?)",
+                    (document.id, document.type, document.title, document.text, _token_text(document)),
+                )
             vector_record = vectors.get(document.id)
             if vector_record:
                 conn.execute(
-                    "INSERT INTO vectors VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO vectors VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                    "provider=excluded.provider, model=excluded.model, dimensions=excluded.dimensions, "
+                    "source_hash=excluded.source_hash, vector=excluded.vector",
                     (
                         document.id,
                         vector_record.provider,
                         vector_record.model,
                         vector_record.dimensions,
                         vector_record.source_hash,
-                        json.dumps(vector_record.vector),
+                        _encode_vector(vector_record.vector),
                     ),
                 )
+            else:
+                conn.execute("DELETE FROM vectors WHERE id = ?", (document.id,))
+        source_records = _source_records(documents)
+        existing_sources = {
+            str(row[0]): str(row[1]) for row in conn.execute("SELECT path, source_sha256 FROM sources")
+        }
+        for source_path in set(existing_sources) - set(source_records):
+            conn.execute("DELETE FROM sources WHERE path = ?", (source_path,))
+        for source_path, source_hash in sorted(source_records.items()):
+            if existing_sources.get(source_path) == source_hash:
+                continue
+            source = path.parent.parent / source_path
+            try:
+                stat = source.stat()
+                mtime, size = stat.st_mtime, stat.st_size
+            except OSError:
+                mtime, size = None, 0
+            conn.execute(
+                "INSERT INTO sources (path, source_sha256, mtime, size) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(path) DO UPDATE SET source_sha256=excluded.source_sha256, "
+                "mtime=excluded.mtime, size=excluded.size",
+                (source_path, source_hash, mtime, size),
+            )
     return vectors
 
 
@@ -1966,6 +2102,38 @@ def _sqlite_candidate_ids(path: Path, terms: list[str]) -> set[str]:
     except sqlite3.Error:
         return set()
     return {str(row[0]) for row in rows}
+
+
+def _sqlite_fallback_candidate_ids(path: Path, *, limit: int) -> set[str]:
+    try:
+        with sqlite3.connect(path) as conn:
+            rows = conn.execute("SELECT id FROM documents ORDER BY id LIMIT ?", (limit,)).fetchall()
+    except sqlite3.Error:
+        return set()
+    return {str(row[0]) for row in rows}
+
+
+def _load_sqlite_documents(path: Path, *, candidate_ids: set[str]) -> list[SearchDocument]:
+    if not candidate_ids:
+        return []
+    placeholders = ",".join("?" for _ in candidate_ids)
+    try:
+        with sqlite3.connect(path) as conn:
+            rows = conn.execute(
+                f"SELECT document_json FROM documents WHERE id IN ({placeholders})",  # noqa: S608
+                tuple(sorted(candidate_ids)),
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise SearchError(f"SQLite search index is invalid: {exc}") from exc
+    documents: list[SearchDocument] = []
+    for (raw,) in rows:
+        try:
+            data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict):
+            documents.append(_document_from_dict(data))
+    return documents
 
 
 def _load_embedding_provider(
@@ -2043,12 +2211,18 @@ def _embed_documents(provider: EmbeddingProvider, documents: list[SearchDocument
             source_hash=_document_hash(document),
             vector=vector,
         )
-        for document, vector in zip(documents, response.vectors)
+        for document, vector in zip(documents, response.vectors, strict=False)
     }
 
 
-def _vector_scores(path: Path, query: str, provider: EmbeddingProvider) -> dict[str, float]:
-    if not path.exists():
+def _vector_scores(
+    path: Path,
+    query: str,
+    provider: EmbeddingProvider,
+    *,
+    candidate_ids: set[str],
+) -> dict[str, float]:
+    if not path.exists() or not candidate_ids:
         return {}
     try:
         query_response = provider.embed_texts([query])
@@ -2056,21 +2230,51 @@ def _vector_scores(path: Path, query: str, provider: EmbeddingProvider) -> dict[
     except (EmbeddingError, IndexError) as exc:
         raise SearchError(str(exc)) from exc
     scores: dict[str, float] = {}
+    placeholders = ",".join("?" for _ in candidate_ids)
     try:
         with sqlite3.connect(path) as conn:
-            rows = conn.execute("SELECT id, vector FROM vectors").fetchall()
+            rows = conn.execute(
+                f"SELECT id, vector FROM vectors WHERE id IN ({placeholders})",  # noqa: S608
+                tuple(sorted(candidate_ids)),
+            ).fetchall()
     except sqlite3.Error:
         return scores
     for document_id, raw_vector in rows:
         try:
-            vector = json.loads(raw_vector)
-        except json.JSONDecodeError:
+            vector = _decode_vector(raw_vector)
+        except (json.JSONDecodeError, ValueError, TypeError):
             continue
         if isinstance(vector, list):
             score = _cosine_similarity(query_vector, [float(value) for value in vector])
             if score > 0:
                 scores[str(document_id)] = score
     return scores
+
+
+def _encode_vector(vector: list[float]) -> bytes:
+    return array("f", vector).tobytes()
+
+
+def _decode_vector(raw: object) -> list[float]:
+    if isinstance(raw, bytes):
+        values = array("f")
+        values.frombytes(raw)
+        return [float(value) for value in values]
+    if isinstance(raw, str):
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [float(value) for value in parsed]
+    if isinstance(raw, list):
+        return [float(value) for value in raw]
+    raise ValueError("unsupported vector encoding")
+
+
+def _source_records(documents: list[SearchDocument]) -> dict[str, str]:
+    records: dict[str, str] = {}
+    for document in documents:
+        if document.source_sha256:
+            records[document.path] = document.source_sha256
+    return records
 
 
 def _result_with_vector_score(
@@ -2111,7 +2315,7 @@ def _result_with_vector_score(
 def _cosine_similarity(left: list[float], right: list[float]) -> float:
     if not left or not right or len(left) != len(right):
         return 0.0
-    dot = sum(a * b for a, b in zip(left, right))
+    dot = sum(a * b for a, b in zip(left, right, strict=False))
     left_norm = sum(a * a for a in left) ** 0.5
     right_norm = sum(b * b for b in right) ** 0.5
     if not left_norm or not right_norm:
@@ -2144,3 +2348,12 @@ def _rel(root: Path, path: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
+
+
+def _cached_sha256(path: Path, cache: dict[Path, str]) -> str:
+    resolved = path.resolve()
+    value = cache.get(resolved)
+    if value is None:
+        value = sha256_file(resolved)
+        cache[resolved] = value
+    return value

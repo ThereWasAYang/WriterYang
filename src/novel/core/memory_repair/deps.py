@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
-from typing import Iterable, Literal, Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -16,7 +17,14 @@ from novel.core.agent_output import (
 )
 from novel.core.app_logging import log_app_warning
 from novel.core.gender import canonical_gender, infer_gender_from_character_payload, strip_explicit_gender_tags
-from novel.core.io import atomic_write_json, atomic_write_model_json, atomic_write_text, backup_file, load_json, load_json_model
+from novel.core.io import (
+    atomic_write_json,
+    atomic_write_model_json,
+    atomic_write_text,
+    backup_file,
+    load_json,
+    load_json_model,
+)
 from novel.core.json_extract import JsonExtractionError, extract_json_object
 from novel.core.management import record_management_event
 from novel.core.memory_repair_mock import (
@@ -26,14 +34,19 @@ from novel.core.memory_repair_mock import (
 )
 from novel.core.memory_repair_ops import (
     apply_operations_to_data as _apply_operations_to_data,
+)
+from novel.core.memory_repair_ops import (
     escape_pointer as _escape_pointer,
+)
+from novel.core.memory_repair_ops import (
     pointer_parts as _pointer_parts,
+)
+from novel.core.memory_repair_ops import (
     restore_backups as _restore_backups,
+)
+from novel.core.memory_repair_ops import (
     unescape_pointer as _unescape_pointer,
 )
-from novel.core.prompts import load_prompt_template, prompt_template_version
-from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
-from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.memory_repair_rules import (
     ALLOWED_MEMORY_FILES,
     CHARACTER_ROLE_IDENTITY_PATTERNS,
@@ -50,22 +63,25 @@ from novel.core.memory_repair_rules import (
     STATE_COLLECTION_KEYS,
     UNIQUE_ID_COLLECTIONS,
 )
+from novel.core.prompts import load_prompt_template, prompt_template_version
+from novel.core.provider_config import ProviderOverrides, create_agent_provider, default_agent_config_path
+from novel.core.providers import ModelProvider, ModelRequest
 from novel.core.schemas import (
     MemoryChangeBatch,
     MemoryChangeBatchPlan,
-    MemoryChangeDomain,
     MemoryChangeClarificationDecision,
     MemoryChangeClarificationSession,
     MemoryChangeConversationTurn,
+    MemoryChangeDomain,
     MemoryChangeFollowupAction,
     MemoryChangeImpact,
     MemoryChangeKind,
     MemoryChangeStage,
-    MemoryRepairDecision,
-    MemoryRepairRiskLevel,
     MemoryRepairApplyLog,
+    MemoryRepairDecision,
     MemoryRepairOperation,
     MemoryRepairProposal,
+    MemoryRepairRiskLevel,
 )
 from novel.core.structured_generation import (
     REPAIR_ERROR_LIMIT,

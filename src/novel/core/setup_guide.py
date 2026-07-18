@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import os
 import socket
-from typing import Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
 
 from novel.core.agent_defaults import (
     DEFAULT_AGENT_MAX_CONTEXT_TOKENS,
@@ -24,8 +24,8 @@ from novel.core.env import load_project_env, write_project_env_values
 from novel.core.io import atomic_write_yaml, backup_if_exists, load_yaml
 from novel.core.providers import (
     LoggingModelProvider,
-    ModelRequest,
     MissingProviderEnvError,
+    ModelRequest,
     ProviderError,
     ProviderFactory,
 )
@@ -37,7 +37,6 @@ from novel.core.schemas import (
     ProjectConfig,
 )
 from novel.core.security import validate_secret_config_file
-
 
 DEFAULT_API_KEY_ENV = "WRITERYANG_DEFAULT_API_KEY"
 DEFAULT_BASE_URL_ENV = "WRITERYANG_DEFAULT_BASE_URL"

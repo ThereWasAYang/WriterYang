@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 from novel.core.io import load_json
 from novel.core.memory_repair_rules import ALLOWED_MEMORY_FILES, FILE_DOMAINS

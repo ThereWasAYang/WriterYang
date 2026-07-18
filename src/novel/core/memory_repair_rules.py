@@ -22,7 +22,6 @@ from novel.core.schemas import (
     WorldRule,
 )
 
-
 ALLOWED_MEMORY_FILES: dict[str, type[BaseModel]] = {
     "memory/state/timeline.json": TimelineFile,
     "memory/state/current_state.json": EntityState,

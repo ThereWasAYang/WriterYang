@@ -78,17 +78,16 @@
     let styleGuideDefaultTemplate = "";
     let styleGuideLoadedContent = "";
     let styleGuideLoaded = false;
+    let latestAllowedSessionCommands = ["session.start"];
+    let latestAllowedRevisionCommands = [];
 
     function syncWorkbenchStickyOffset() {
       const header = document.querySelector(".app-header");
       if (!header) return;
       const gap = 14;
       const headerOffset = Math.ceil(header.getBoundingClientRect().height + gap);
-      const commandBar = $("workbenchCommandBar");
-      const commandBarVisible = Boolean(commandBar && commandBar.offsetParent !== null);
-      const commandBarOffset = commandBarVisible ? Math.ceil(commandBar.getBoundingClientRect().height + gap) : 0;
       document.documentElement.style.setProperty("--app-header-sticky-offset", `${headerOffset}px`);
-      document.documentElement.style.setProperty("--workbench-secondary-sticky-offset", `${headerOffset + commandBarOffset}px`);
+      document.documentElement.style.setProperty("--workbench-secondary-sticky-offset", `${headerOffset}px`);
     }
 
     function syncProjectPrepDetails(data = {}) {
@@ -280,12 +279,16 @@
 
     function showMainPage(pageId) {
       document.querySelectorAll(".app-page").forEach((page) => page.classList.remove("active"));
-      document.querySelectorAll(".nav-button").forEach((button) => button.classList.remove("active"));
+      document.querySelectorAll(".nav-button").forEach((button) => {
+        button.classList.remove("active");
+        button.removeAttribute("aria-current");
+      });
       const page = $(pageId);
       const button = document.querySelector(`[data-page="${pageId}"]`);
       if (!page || !button) return;
       page.classList.add("active");
       button.classList.add("active");
+      button.setAttribute("aria-current", "page");
       syncWorkbenchStickyOffset();
       window.requestAnimationFrame(syncWorkbenchStickyOffset);
       if (pageId === "workbenchPage" && ["chapterCompare", "chapterEditor", "auditLocate"].every((id) => $(id).classList.contains("hidden"))) {

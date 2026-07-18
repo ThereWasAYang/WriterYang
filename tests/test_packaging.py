@@ -300,6 +300,7 @@ def test_canonical_docs_are_published_and_only_agent_memory_stays_local() -> Non
         check=False,
     )
     assert completed.returncode == 0
+    tracked_markdown = set(completed.stdout.splitlines())
     local_only_path = "AGENTS" + ".md"
     canonical_paths = (
         "docs/PRODUCT_SPEC.md",
@@ -322,6 +323,7 @@ def test_canonical_docs_are_published_and_only_agent_memory_stays_local() -> Non
         text = path.read_text(encoding="utf-8")
         assert local_only_path not in text, f"{rel_path} references local-only Agent memory"
     for canonical_path in canonical_paths:
+        assert canonical_path in tracked_markdown, f"{canonical_path} is not tracked by Git"
         assert Path(canonical_path).is_file()
         assert canonical_path in Path("MANIFEST.in").read_text(encoding="utf-8")
 

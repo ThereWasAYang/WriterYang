@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LOCAL_ONLY_DOC_PATHS = {"AGENTS.md"}
 
 
 def test_env_example_contains_only_variable_names_with_empty_values() -> None:
@@ -39,13 +40,6 @@ def test_repository_does_not_track_local_sensitive_or_build_files() -> None:
 def _is_local_sensitive_or_build_file(path: str) -> bool:
     parts = Path(path).parts
     filename = parts[-1]
-    local_doc_paths = {
-        "AGENTS.md",
-        "docs/PRODUCT_SPEC.md",
-        "docs/ARCHITECTURE.md",
-        "docs/WORKFLOW.md",
-        "docs/ROADMAP.md",
-    }
     local_dirs = {
         ".agents",
         ".codex",
@@ -63,7 +57,7 @@ def _is_local_sensitive_or_build_file(path: str) -> bool:
 
     if filename.startswith(".env") and filename != ".env.example":
         return True
-    if path in local_doc_paths:
+    if path in LOCAL_ONLY_DOC_PATHS:
         return True
     if any(part in local_dirs or part.endswith(".egg-info") for part in parts):
         return True
